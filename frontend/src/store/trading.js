@@ -192,6 +192,15 @@ const deepMerge = (target, source) => {
   return output;
 };
 
+export const resolveVariantConfig = (config, strategyLabel) => {
+  if (!config) return {};
+  if (!strategyLabel) return config;
+  const idx = config.strategy_variants?.findIndex(v => v.strategy_label === strategyLabel);
+  return (idx !== -1 && idx !== undefined)
+    ? { ...config, ...config.strategy_variants[idx] }
+    : config;
+};
+
 export const normalizeLog = (l = {}) => {
   if (!l || typeof l !== 'object') return null;
   const source = getObjectSource(l);
@@ -333,7 +342,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     set({ _focusTimer: setTimeout(() => {
       const subs = get()._subscriptions;
       const ws = get().ws;
-      if (ws?.readyState === WebSocket.OPEN) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
         if (subs.trades.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, tradeId: Array.from(subs.trades.keys())[0] }));
         else if (subs.strategies.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, strategyLabel: Array.from(subs.strategies.keys())[0] }));
         else if (subs.scannerSymbols.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false, scannerSymbol: Array.from(subs.scannerSymbols.keys())[0] }));
@@ -405,14 +414,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     });
 
     const ws = get().ws;
-    if (ws?.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'set_active', active: !t }));
     } else if (!t && get().sessionActive) {
       // If we are unthrottling (coming back) and WS is dead, reconnect immediately
       get().connectWS();
     }
   },
-  setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
+  setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
   setSessionActive: (a, id) => {
     const wasActive = get().sessionActive;
     set({ sessionActive: a, strategyId: id });
@@ -520,6 +529,28 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     } catch (e) {
       console.error('Failed to reset paper balance:', e);
       get().addAlert({ level: 'error', title: 'Reset Failed', message: 'Could not reset paper balance.' });
+    }
+  },
+
+  updateActiveTradeConfig: async (tradeId, payload) => {
+    try {
+      const res = await sessionAPI.updateTradeConfig(tradeId, payload);
+      if (res.data && res.data.trade) {
+        const updatedTrade = normalizeTrade(res.data.trade);
+        set(st => ({
+          activeTrades: (st.activeTrades || []).map(t =>
+            (t.id === updatedTrade.id || t.symbol === updatedTrade.symbol) ? { ...t, ...updatedTrade } : t
+          )
+        }));
+        get().addAlert({ level: 'success', title: 'Configuration Saved', message: `Successfully updated exit parameters for ${updatedTrade.symbol}.` });
+        return true;
+      }
+      return false;
+    } catch (e) {
+      console.error('Failed to update active trade config:', e);
+      const errMsg = e?.response?.data?.message || e.message || 'Could not save parameters.';
+      get().addAlert({ level: 'error', title: 'Save Failed', message: errMsg });
+      throw e;
     }
   },
 

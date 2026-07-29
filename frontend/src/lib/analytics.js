@@ -74,8 +74,30 @@ export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
     };
   }
 
-  // Numeric sort is significantly faster than Date object comparison
-  processed.sort((a, b) => a.exitTs - b.exitTs);
+  // BOLT OPTIMIZATION: Check if the array is already sorted chronologically to avoid O(N log N) sort.
+  // Since tradeHistory is typically sorted descending by exit_ts_ms, we can reverse it in O(N) instead of O(N log N) sorting.
+  let isSortedAsc = true;
+  let isSortedDesc = true;
+  for (let i = 1; i < count; i++) {
+    const current = processed[i].exitTs;
+    const prev = processed[i - 1].exitTs;
+    if (current < prev) {
+      isSortedAsc = false;
+    }
+    if (current > prev) {
+      isSortedDesc = false;
+    }
+  }
+
+  if (isSortedAsc) {
+    // Already sorted ascending, no action needed.
+  } else if (isSortedDesc) {
+    // Sorted descending, reverse in-place in O(N) with zero comparison/JS-to-native boundary overhead.
+    processed.reverse();
+  } else {
+    // Unsorted fallback
+    processed.sort((a, b) => a.exitTs - b.exitTs);
+  }
 
   // If sessionBalance is not provided, we estimate it backwards from total PnL
   // This matches the backend's effectiveStartingBalance logic.

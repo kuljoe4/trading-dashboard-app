@@ -68,7 +68,11 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
                   <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-black px-1.5 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase truncate max-w-[100px]">
                     {strategyLabel(trade)}
                   </a>
-                  {strategyLabel(trade) !== 'Momentum Strategy' && strategyLabel(trade) !== (session?.config?.strategy_label || 'Momentum Strategy') && (
+                  {(strategyLabel(trade) === 'Momentum Strategy' || strategyLabel(trade) === (session?.config?.strategy_label || 'Momentum Strategy')) ? (
+                    <span className="text-[7px] font-black px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/5 text-blue-400 uppercase shrink-0 scale-90 origin-left">
+                      Base
+                    </span>
+                  ) : (
                     <span className="text-[7px] font-black px-1.5 py-0.5 rounded border border-purple/20 bg-purple/5 text-purple uppercase shrink-0 scale-90 origin-left">
                       Variant
                     </span>
@@ -228,6 +232,11 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
 
+  const activeLabels = useMemo(() => {
+    const labels = new Set(trades.map(t => strategyLabel(t)));
+    return Array.from(labels);
+  }, [trades]);
+
   // Stacked win/loss distribution calculation
   const winCount = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades]);
   const lossCount = useMemo(() => trades.filter(t => safeNum(t.pnl) < 0).length, [trades]);
@@ -273,6 +282,21 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                 <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 scale-75" />
               </div>
               {session.paperMode && <PaperBadge />}
+
+              {/* Active strategy/variant pills */}
+              {activeLabels.map(l => {
+                const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
+                return (
+                  <span key={l} className={cn(
+                    "text-[8px] font-black px-2 py-0.5 rounded-full border uppercase shrink-0 scale-95",
+                    isBase
+                      ? "text-blue-400 border-blue-500/20 bg-blue-500/5"
+                      : "text-purple border-purple/20 bg-purple/5"
+                  )}>
+                    {isBase ? 'Base' : 'Variant'}: {l}
+                  </span>
+                );
+              })}
             </div>
             <div className="text-[10px] text-dim font-bold uppercase tracking-[0.08em] flex items-center gap-2.5 flex-wrap">
               <span className="flex items-center gap-1"><Clock size={11} className="text-accent shrink-0" /> {new Date(session.startTime).toLocaleDateString()}</span>
@@ -364,7 +388,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                   <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
                 ) : (
                   trades.map((trade) => (
-                    <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={false} />
+                    <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
                   ))
                 )}
               </div>
@@ -614,7 +638,7 @@ export const HistoryView = () => {
                  value={search}
                  onChange={(e) => setSearch(e.target.value)}
                  onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-                 className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all w-[180px] lg:w-[240px]"
+                 className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all w-[180px] lg:w-[240px]"
                />
                {search && (
                  <Tooltip content="Clear Search">
@@ -640,7 +664,7 @@ export const HistoryView = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-            className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent outline-none transition-all"
+            className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
           />
           {search && (
             <Tooltip content="Clear Search">

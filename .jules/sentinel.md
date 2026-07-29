@@ -1,3 +1,8 @@
+## 2026-07-28 - Whitelist Gating for Manual Configuration Validations
+**Vulnerability:** Manual invocation of class-validator's `validate()` on programmatically reconstructed or merged objects (such as partial updates inside `executeUpdateSession` or presets saving in `savePreset`) lacked strict whitelisting constraints. This allowed attackers to perform mass-assignment and over-posting attacks by injecting arbitrary non-decorated properties into persistent database storage models via generic/record types.
+**Learning:** NestJS global validation pipes do not recursively filter nested inputs if they are declared as generic types (e.g. `Record<string, any>`). To ensure complete data integrity, manual validation steps must explicitly enforce strict schema conformity.
+**Prevention:** Always pair `validate(configInstance)` with `{ whitelist: true, forbidNonWhitelisted: true }` when validating programmatically merged settings or configurations to reject any extraneous properties.
+
 ## 2026-07-27 - PauseSessionDto Strategy Label Input Gating and XSS Prevention Standard
 **Vulnerability:** The optional `strategyLabel` property inside `PauseSessionDto` lacked size and format validation, exposing the application to Reflected/Stored XSS via script payloads, log/header injection vectors, and potential Denial of Service (DoS) memory/storage exhaustion via excessively large payloads.
 **Learning:** Even simple state-transition parameters such as pause/resume labels must be strictly bound and validated against the same standards as configuration models if they can be logged, stored, or broadcast back to UI clients.

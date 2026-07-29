@@ -370,7 +370,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               setIsOpen(false);
             }
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
         />
         {value && (
           <Tooltip content="Clear Input">
@@ -433,7 +433,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
         placeholder="Preset name (e.g. Scalp High Vol)"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none"
+        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       />
       <Btn
         variant="primary"
@@ -507,7 +507,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             value={searchTerm}
             onFocus={() => setIsOpen(true)}
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors"
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm && (
             <Tooltip content="Clear Search">
@@ -642,7 +642,7 @@ const ListInput = React.memo(({ value, onChange, placeholder }) => {
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={handleBlur}
       onKeyDown={(e) => { if (e.key === 'Enter') handleBlur(); }}
-      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors"
+      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
     />
   );
 })
@@ -892,6 +892,88 @@ const flattenConfig = (config) => {
     };
   } catch (e) { return { ...config }; }
 };
+
+const coerceAndSanitizeConfig = (rawConfig) => {
+  if (!rawConfig) return {};
+  try {
+    const flat = flattenConfig(rawConfig);
+    const c = { ...flat, strategy_label: (flat.strategy_label || '').trim() };
+
+    // Explicitly sanitize inputs for security and data integrity
+    const sp = { ...(typeof flat.signal_params === 'string' ? JSON.parse(flat.signal_params || '{}') : flat.signal_params || {}) };
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
+      const val = flat[`signal_params_${k}`];
+      if (val !== undefined && val !== null) {
+        sp[k] = Number(val);
+      }
+    });
+    if (flat.signal_params_macd_strict_expansion !== undefined) {
+      sp.macd_strict_expansion = flat.signal_params_macd_strict_expansion === true || flat.signal_params_macd_strict_expansion === 'true';
+    }
+    if (flat.signal_params_supertrend_mode !== undefined) {
+      sp.supertrend_mode = flat.signal_params_supertrend_mode;
+    }
+    c.signal_params = sp;
+
+    // Ensure numeric values where expected
+    const numericFields = [
+      'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
+      'max_single_trade_risk_pct',
+      'smart_watchlist_sensitivity',
+      'trailing_stop_distance_pct',
+      'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
+      'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
+      'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
+      'scanner_signal_depth',
+      'engulfing_lookback', 'engulfing_streak',
+      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
+      'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
+      'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
+      'slippage_abort_threshold'
+    ];
+
+    numericFields.forEach(f => {
+      if (c[f] !== undefined && c[f] !== null) {
+        c[f] = Number(c[f]);
+      }
+    });
+
+    c.scanner_weights = {
+      momentum: Number(flat.scanner_weights_momentum || 0) / 100,
+      volatility: Number(flat.scanner_weights_volatility || 0) / 100,
+      trend: Number(flat.scanner_weights_trend || 0) / 100
+    };
+
+    // Remove flattened UI fields after bundling into scanner_weights object
+    delete c.scanner_weights_momentum;
+    delete c.scanner_weights_volatility;
+    delete c.scanner_weights_trend;
+
+    if (c.hibernation_grace_period_sec !== undefined) {
+      c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
+    }
+
+    // UI Conversion: UI percentage back to backend decimal
+    if (c.slippage_warning_threshold !== undefined) {
+      c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
+    }
+
+    // Zero out nested variants to prevent runaway nesting
+    c.strategy_variants = [];
+
+    // Clean up temporary UI fields
+    Object.keys(c).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        delete c[k];
+      }
+    });
+
+    return c;
+  } catch (e) {
+    return { ...rawConfig };
+  }
+};
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
     addAlert: state.addAlert,
@@ -932,7 +1014,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return !!savedDraft;
   });
 
-  const [section, setSection] = useState('scan')
+  const [section, setSection] = useState(isEdit ? 'presets' : 'scan')
+  const [presetLoaded, setPresetLoaded] = useState(false)
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
@@ -1329,7 +1412,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (c.slippage_warning_threshold !== undefined) {
       c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
     }
-    c.strategy_variants = (cfg.strategy_variants || []).map((v) => ({ ...v, strategy_label: v.strategy_label || 'Variant', strategy_variants: [] }));
+    c.strategy_variants = (cfg.strategy_variants || []).map((v) => {
+      return coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' });
+    });
 
     // Clean up temporary UI fields
     Object.keys(c).forEach(k => {
@@ -1342,7 +1427,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [cfg, presetName, generatedPresetName]);
 
   const savePreset = React.useCallback(async (explicitName) => {
-    const name = (explicitName || presetName || (explicitName === undefined ? loadedPresetName : '') || generatedPresetName || '').trim();
+    // SRE name-resolution helper: cleanly resolves the preset name with strict precedence.
+    // 1. explicitName: provided when user specifies a name in the Save dialog (e.g., Save As).
+    // 2. presetName: the state field from the preset input box.
+    // 3. loadedPresetName: the active preset if explicitName is not explicitly skipped (undefined).
+    // 4. generatedPresetName: fallback auto-generated label based on scan interval & risk distance.
+    const resolvePresetName = () => {
+      if (explicitName) return explicitName;
+      if (presetName) return presetName;
+      if (explicitName === undefined && loadedPresetName) return loadedPresetName;
+      return generatedPresetName || '';
+    };
+
+    const name = resolvePresetName().trim();
     console.log(`[ConfigModal] Attempting to save preset: "${name}"`);
 
     try {
@@ -1423,7 +1520,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setCfg(next);
     setLoadedPresetName(p.name);
     setPresetName(p.name);
-    setSection('scan');
+    setPresetLoaded(true);
     validate(next);
     setIsDirty(false);
     addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
@@ -1565,7 +1662,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     setField('strategy_variants', exists
       ? variants.filter((v) => v.strategy_label !== p.name)
-      : [...variants, { ...p.config, strategy_label: p.name }])
+      : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name })])
   }, [cfg.strategy_variants, setField]);
 
   const currentModeBalance = cfg.trading_mode === 'paper' ? (cfg.paper_starting_balance || 10000) : cfg.trading_mode === 'testnet' ? (cfg.testnet_starting_balance || 0) : (cfg.live_starting_balance || 0);
@@ -2765,17 +2862,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       placeholder="Search preset by name..."
                       value={presetSearch}
                       onChange={(e) => setPresetSearch(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent outline-none hover:border-border-hover transition-colors"
+                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
                     />
                     {presetSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setPresetSearch('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
-                        aria-label="Clear Preset Search"
-                      >
-                        <X size={12} />
-                      </button>
+                      <Tooltip content="Clear Preset Search">
+                        <button
+                          type="button"
+                          onClick={() => setPresetSearch('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                          aria-label="Clear Preset Search"
+                        >
+                          <X size={12} />
+                        </button>
+                      </Tooltip>
                     )}
                   </div>
                   <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border shrink-0">
@@ -2923,7 +3022,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         </div>
         <Btn variant="primary" loading={loading} onClick={() => {
           if (validate(cfg)) {
-             onSave(buildConfigToSave());
+             onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
              sessionStorage.removeItem('config_draft');
              setIsDirty(false);
           }
@@ -2976,8 +3075,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     onChange={(e) => handlePasteAreaChange(e.target.value)}
                     placeholder='{ "strategy_label": "Scalp Momentum", ... }'
                     className={cn(
-                      "w-full h-48 bg-background border rounded-xl p-3 text-xs font-mono focus:outline-none transition-all resize-none",
-                      pasteError ? "border-red/40 focus:border-red" : pasteValue.trim() ? "border-green/40 focus:border-green" : "border-border focus:border-accent"
+                      "w-full h-48 bg-background border rounded-xl p-3 text-xs font-mono focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all resize-none",
+                      pasteError ? "border-red/40 focus:border-red focus-visible:ring-red" : pasteValue.trim() ? "border-green/40 focus:border-green focus-visible:ring-green" : "border-border focus:border-accent focus-visible:ring-accent"
                     )}
                     autoFocus
                   />

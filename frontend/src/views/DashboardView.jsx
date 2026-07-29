@@ -275,6 +275,11 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                 </span>
               </Tooltip>
             )}
+            {s.activeTradeCount !== undefined && (
+              <span className="px-2.5 py-1 rounded-full bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[10px] font-bold tracking-wider scale-90 origin-left opacity-70">
+                {s.activeTradeCount} ACTIVE
+              </span>
+            )}
             {showResumingFeedback && (
               <span className="px-2.5 py-1 rounded-full border border-accent/20 bg-accent/10 text-[10px] text-accent font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
                 <RefreshCw size={10} className="animate-spin" />
@@ -332,7 +337,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             {fmtUSD(s.totalPnl)} <span className="text-[10px] md:text-xs tracking-tight" style={{ color: pnlColor(s.totalPnl) }}>({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)</span>
           </div>
           <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
-            {s.entryCount} ENT · {s.hitCount} HIT
+            {s.entryCount} ENT · {s.hitCount} HIT · {s.activeTradeCount || 0} ACT
           </span>
         </div>
 
@@ -378,7 +383,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                   style={{ width: `${slPct}%` }}
                 />
               </div>
-              <ScannerPreview scannerResults={scannerResults} config={config} onOpen={onOpenScanner} />
+              <ScannerPreview scannerResults={scannerResults} config={config} onOpen={() => onOpenScanner(s.strategy_label)} />
 
               <div className="mt-6 pt-6 border-t border-border/20">
                  <div className="flex items-center justify-between gap-4">
@@ -590,12 +595,12 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                     <div className="w-12 flex justify-end">
                       {passing ? (
                         opp.signalResult?.allFired ? (
-                          <b className="text-[10px] font-black text-green uppercase tracking-wider">PASS</b>
+                          <b className="text-[10px] font-black text-green uppercase tracking-wider">TRIGGERED</b>
                         ) : (
-                          <b className="text-[10px] font-black text-red-400 uppercase tracking-wider">REJECT</b>
+                          <b className="text-[10px] font-black text-amber uppercase tracking-wider">PENDING</b>
                         )
                       ) : (
-                        <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAIT</b>
+                        <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAITING</b>
                       )}
                     </div>
                   </motion.div>
@@ -747,6 +752,20 @@ export function DashboardView({ initialStrategy }) {
     return map;
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
+  const activeTradeCountsMap = useMemo(() => {
+    const map = { [currentStrategy.strategy_label]: 0 };
+    (config.strategy_variants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    (activeTrades || []).forEach(t => {
+      if (t && map[t.strategy_label] !== undefined) {
+        map[t.strategy_label]++;
+      }
+    });
+    return map;
+  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+
   const totalActivePnl = useMemo(() =>
     Object.values(activePnlMap || {}).reduce((acc, val) => acc + val, 0)
   , [activePnlMap]);
@@ -834,9 +853,17 @@ export function DashboardView({ initialStrategy }) {
     useTradingStore.setState({ configSyncing: true }); // Enable global sync protection
     try {
       let finalConfig = newConfig;
-      if (editingVariantIndex !== null) {
+      const wasPresetLoaded = newConfig._presetLoaded;
+      delete newConfig._presetLoaded;
+
+      let activeVariantIndex = editingVariantIndex;
+      if (wasPresetLoaded) {
+        activeVariantIndex = null;
+      }
+
+      if (activeVariantIndex !== null) {
         const variants = [...(config.strategy_variants || [])];
-        variants[editingVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
+        variants[activeVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
         finalConfig = { ...config, strategy_variants: variants };
       }
 
@@ -949,7 +976,11 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [sessionToDelete, addAlert, fetchSessions, setSyncing]);
 
-  const handleOpenScanner = React.useCallback(() => setShowScanner(true), []);
+  const [scannerFocusLabel, setScannerFocusLabel] = useState(null)
+  const handleOpenScanner = React.useCallback((label) => {
+    setScannerFocusLabel(typeof label === 'string' ? label : null);
+    setShowScanner(true);
+  }, []);
   const handleEditPrimary = React.useCallback(() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }, [config]);
   const handleSelectPrimary = React.useCallback(() => {
     window.location.hash = `#/strategy/${encodeURIComponent(currentStrategy.strategy_label)}`;
@@ -970,28 +1001,15 @@ export function DashboardView({ initialStrategy }) {
     window.location.hash = `#/strategy/${encodeURIComponent(label)}`;
   }, []);
 
-  if (selected) {
-    const strategyData = {
+  const strategyData = useMemo(() => {
+    if (!selected) return null;
+    return {
       ...currentStrategy,
       strategy_label: selected,
       ...safeVariantStats[selected],
       activePnl: activePnlMap[selected] || 0
     };
-
-    return (
-      <div className={cn(
-        "transition-all duration-300",
-        healthEnabled ? "pb-48 lg:pb-8" : "pb-32 lg:pb-8",
-        sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
-      )}>
-        <Sidebar selected={selected} />
-        <Suspense fallback={<LoadingFallback />}>
-          <StrategyDetailView s={strategyData} onBack={() => { window.location.hash = '#/'; }} />
-        </Suspense>
-        <BottomNav selected={selected} />
-      </div>
-    )
-  }
+  }, [selected, currentStrategy, safeVariantStats, activePnlMap]);
 
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -1011,10 +1029,22 @@ export function DashboardView({ initialStrategy }) {
         <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
       )}
       <Sidebar selected={selected} />
-      <div className={cn(
-        "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
-        healthEnabled ? "pb-48" : "pb-32"
-      )}>
+
+      {selected ? (
+        <Suspense fallback={<LoadingFallback />}>
+          <StrategyDetailView
+            s={strategyData}
+            onBack={() => { window.location.hash = '#/'; }}
+            onEdit={strategyData?.strategy_label === config.strategy_label ? handleEditPrimary : () => handleEditVariant(strategyData?.strategy_label)}
+            onPause={togglePause}
+            onOpenScanner={handleOpenScanner}
+          />
+        </Suspense>
+      ) : (
+        <div className={cn(
+          "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
+          healthEnabled ? "pb-48" : "pb-32"
+        )}>
 
         <ConfirmationModal
           isOpen={confirmStop}
@@ -1481,7 +1511,8 @@ export function DashboardView({ initialStrategy }) {
                             s={{
                               ...currentStrategy,
                               ...safeVariantStats[currentStrategy.strategy_label],
-                              activePnl: activePnlMap[currentStrategy.strategy_label] || 0
+                              activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
+                              activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0
                             }}
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
@@ -1506,7 +1537,8 @@ export function DashboardView({ initialStrategy }) {
                                   ...currentStrategy,
                                   strategy_label: label,
                                   ...safeVariantStats[label],
-                                  activePnl: activePnlMap[label] || 0
+                                  activePnl: activePnlMap[label] || 0,
+                                  activeTradeCount: activeTradeCountsMap[label] || 0
                                 }}
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}
@@ -1594,6 +1626,8 @@ export function DashboardView({ initialStrategy }) {
             </div>
           </motion.div>
         </div>
+      </div>
+      )}
 
       {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false}>
@@ -1638,7 +1672,7 @@ export function DashboardView({ initialStrategy }) {
               </div>
               <div className="flex-1 min-h-0">
                 <Suspense fallback={<LoadingFallback />}>
-                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
+                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} selectedStrategyLabel={scannerFocusLabel || selected} />}
                 </Suspense>
               </div>
             </Drawer.Content>
@@ -1659,7 +1693,6 @@ export function DashboardView({ initialStrategy }) {
         </div>
 
         <BottomNav selected={selected} />
-      </div>
     </div>
   )
 }

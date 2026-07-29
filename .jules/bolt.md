@@ -1,3 +1,11 @@
+## 2026-07-29 - [Benchmarking] Logging Overhead Masking Algorithm Speedups
+**Learning:** High-frequency logging (like verbose or debug logs) on cache misses creates a massive execution bottleneck inside testing environments like Jest due to `process.stdout` interception, string formatting, and buffer flushing. When benchmarking optimized JS algorithms, logging statements inside the hot path must be spied on or mocked to avoid logger latency completely drowning out the actual CPU speedups.
+**Action:** Always temporarily mock verbose and debug logger implementations in unit/integration performance benchmarks to obtain a clean, accurate, and noise-free measurement of CPU execution times.
+
+## 2026-07-28 - [Optimization] Sorted-State Chronological Reversal Optimization
+**Learning:** Forcing array sorting (`sort()`) on high-frequency paths (like tick updates or database fetches) introduces redundant $O(N \log N)$ complexity and heavy comparison function call overhead. Since trading collections are typically returned from databases or state stores already sorted (often reverse chronologically), detecting this sorted state via a linear $O(N)$ single-pass check allows using native, highly optimized $O(N)$ reversal (`reverse()`) or direct pass-through, avoiding comparisons entirely.
+**Action:** Always check if a collection is already sorted in $O(N)$ before applying standard sorting algorithms on high-frequency paths, and handle descending orders with $O(N)$ native reversals.
+
 ## 2026-07-25 - [Optimization] Schwartzian Transform for Ticker Change Percentages
 **Learning:** Sorting collections (like 300+ symbols) in a high-frequency ticker stream using complex mathematical comparisons (such as change percentage calculation) inside the `.sort()` comparator creates $O(N \log N)$ redundant divisions, math, and property lookups. Moving these calculations into a single linear $O(N)$ pass (Schwartzian Transform) and sorting the pre-calculated numbers yields a ~6.2x execution speedup.
 Also, when refactoring to loop fusion and eliminating fallback default checks, be extremely careful with optionally defined sets (e.g. `excludedSet`); using optional chaining (`!excludedSet?.has(...)`) is much safer and prevents runtime TypeErrors from unexpected optional parameters.

@@ -72,8 +72,31 @@ export class AnalyticsService {
       }
     }
 
-    // Sort is necessary for equity curve and drawdown metrics
-    const sortedTrades = filteredTrades.sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
+    // BOLT OPTIMIZATION: Check if the filteredTrades array is already sorted chronologically (ascending or descending)
+    // to avoid the O(N log N) sorting overhead. Since trades are typically queried from TypeORM ordered by
+    // exit_ts DESC, the array will be sorted descending. Reversing it in O(N) is much faster than sorting.
+    let isSortedAsc = true;
+    let isSortedDesc = true;
+    for (let i = 1; i < filteredTrades.length; i++) {
+      const current = filteredTrades[i].exit_ts!.getTime();
+      const prev = filteredTrades[i - 1].exit_ts!.getTime();
+      if (current < prev) {
+        isSortedAsc = false;
+      }
+      if (current > prev) {
+        isSortedDesc = false;
+      }
+    }
+
+    let sortedTrades: TradeEntity[];
+    if (isSortedAsc) {
+      sortedTrades = filteredTrades;
+    } else if (isSortedDesc) {
+      sortedTrades = filteredTrades.reverse();
+    } else {
+      sortedTrades = filteredTrades.sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
+    }
+
     const totalTrades = sortedTrades.length;
 
     let currentPnL = 0;

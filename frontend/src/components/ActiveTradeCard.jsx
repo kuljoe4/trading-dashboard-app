@@ -92,10 +92,23 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
-            {trade.strategy_label && config && trade.strategy_label !== (config.strategy_label || 'Momentum Strategy') && (
-              <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0">
-                Variant
-              </span>
+            <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono">
+              {trade.strategy_config?.scan_interval || trade.strategy_config?.interval || config?.scan_interval || '5m'}
+            </span>
+            {trade.strategy_label && config && (
+              trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
+                <Tooltip content={`Strategy: ${trade.strategy_label}`}>
+                  <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help">
+                    Base
+                  </span>
+                </Tooltip>
+              ) : (
+                <Tooltip content={`Strategy: ${trade.strategy_label}`}>
+                  <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse">
+                    Variant
+                  </span>
+                </Tooltip>
+              )
             )}
             {trade.is_reconciliation && (
               <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">

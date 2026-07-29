@@ -112,6 +112,10 @@ export class Trade {
 
   strategy_config?: Partial<import('./SessionConfig').SessionConfig>;
 
+  live_rr_sequence?: number[];
+
+  exit_rr_sequence?: number[];
+
   is_reconciliation?: boolean;
 
   illiquid_blocked?: boolean;

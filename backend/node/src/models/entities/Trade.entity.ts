@@ -148,6 +148,12 @@ export class TradeEntity {
   @Column('jsonb', { nullable: true })
   strategy_config: any | null;
 
+  @Column('jsonb', { nullable: true })
+  live_rr_sequence: number[] | null;
+
+  @Column('jsonb', { nullable: true })
+  exit_rr_sequence: number[] | null;
+
   @ManyToOne(() => Session)
   @JoinColumn({ name: 'sessionId' })
   session: Session;

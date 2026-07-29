@@ -162,7 +162,7 @@ export function SettingsView() {
                       type={showAdminKey ? "text" : "password"}
                       value={adminApiKey}
                       onChange={e => setAdminApiKeyValue(e.target.value)}
-                      className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
+                      className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
                       placeholder="••••••••••••••••"
                     />
                     <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
@@ -324,7 +324,7 @@ export function SettingsView() {
                         type="text"
                         value={apiKey}
                         onChange={e => setApiKey(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
                         placeholder="8080...2025"
                       />
                       {apiKey && (
@@ -351,7 +351,7 @@ export function SettingsView() {
                         type={showLiveSecret ? "text" : "password"}
                         value={apiSecret}
                         onChange={e => setApiSecret(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
                         placeholder="••••••••••••••••"
                       />
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">
@@ -410,7 +410,7 @@ export function SettingsView() {
                         type="text"
                         value={testnetApiKey}
                         onChange={e => setTestnetApiKey(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-purple focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-xl px-4 py-3 pr-12 text-sm font-mono text-text transition-all"
                         placeholder="abcd...1234"
                       />
                       {testnetApiKey && (
@@ -437,7 +437,7 @@ export function SettingsView() {
                         type={showTestnetSecret ? "text" : "password"}
                         value={testnetApiSecret}
                         onChange={e => setTestnetApiSecret(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-purple focus:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-purple focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-xl px-4 py-3 pr-20 text-sm font-mono text-text transition-all"
                         placeholder="••••••••••••••••"
                       />
                       <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 text-dim">

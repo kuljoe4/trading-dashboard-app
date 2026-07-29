@@ -133,7 +133,7 @@ export class EngineBroadcasterService {
           } else {
             signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
           }
-          const isDelayActive = sigStatus.fired && typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+          const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
           if (!isDelayActive && signalPnl <= pnl && signalPnl > maxEstPnlForTrade) {
             maxEstPnlForTrade = signalPnl;
           }
@@ -234,7 +234,7 @@ export class EngineBroadcasterService {
           } else {
             signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
           }
-          const isDelayActive = sigStatus.fired && typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+          const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
           if (!isDelayActive && signalPnl <= pnlValue && signalPnl > maxEstPnlForTrade) {
             maxEstPnlForTrade = signalPnl;
           }
@@ -418,7 +418,7 @@ export class EngineBroadcasterService {
             } else {
               signalPnl = (entry - sigStatus.threshold) * qty;
             }
-            const isDelayActive = sigStatus.fired && typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+            const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
             // Skip estimated values that are higher than the current active P&L (representing unearned future profit targets) or have unexhausted delay
             if (!isDelayActive && signalPnl <= pnlValue && signalPnl > maxEstPnlForTrade) {
               maxEstPnlForTrade = signalPnl;

@@ -116,16 +116,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                Variant
              </span>
            )}
-           {activeTradeCount > 0 ? (
-             <span className="px-2.5 py-1 rounded bg-green/10 text-green border border-green/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left animate-pulse flex items-center gap-1.5 shadow-[0_0_12px_rgba(34,197,94,0.15)]">
-               <span className="w-1.5 h-1.5 rounded-full bg-green" />
-               {activeTradeCount} Active {activeTradeCount === 1 ? 'Position' : 'Positions'}
-             </span>
-           ) : (
-             <span className="px-2.5 py-1 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left opacity-65">
-               Flat
-             </span>
-           )}
+           <span className="px-2.5 py-1 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left opacity-65">
+             {activeTradeCount} ACTIVE
+           </span>
 
            {/* Strategy Control Actions (Pause/Resume & Edit Configuration) */}
            {sessionActive && (

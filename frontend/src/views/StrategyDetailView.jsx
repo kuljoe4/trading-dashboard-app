@@ -108,8 +108,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         subTitle={`Loop Monitoring · ${s.strategyId?.substring(0, 8)}`}
         backAction={onBack}
       >
-         <div className="flex items-center gap-2">
-           <CopyButton value={s.strategyId} className="p-1" />
+         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+           <CopyButton value={s.strategyId} className="p-1 hidden sm:inline-flex" />
            <StatusBadge status={s.sessionActive} />
            {isVariant && (
              <span className="px-2.5 py-1 rounded bg-purple/10 text-purple border border-purple/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left">

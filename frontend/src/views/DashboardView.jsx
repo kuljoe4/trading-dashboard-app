@@ -243,6 +243,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         tradingMode === 'paper' ? "border-border/50 hover:border-amber/30 hover:shadow-amber/[0.02]" :
         tradingMode === 'testnet' ? "border-border/50 hover:border-purple/30 hover:shadow-purple/[0.02]" :
         "border-border/50 hover:border-green/30 hover:shadow-green/[0.02]",
+        s.activeTradeCount > 0 && "border-l-4 border-l-green pl-3 md:pl-5",
         className
       )}
     >
@@ -344,7 +345,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             {fmtUSD(s.totalPnl)} <span className="text-[10px] md:text-xs tracking-tight" style={{ color: pnlColor(s.totalPnl) }}>({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)</span>
           </div>
           <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
-            {s.entryCount} ENT · {s.hitCount} HIT · {s.activeTradeCount || 0} ACT
+            {s.entryCount} ENT · {s.hitCount} HIT · <span className={cn(s.activeTradeCount > 0 ? "text-green font-extrabold animate-pulse" : "text-dim/60")}>{s.activeTradeCount || 0} ACT</span>
           </span>
         </div>
 

@@ -278,7 +278,7 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                       <Clock size={8} /> 
                       {editingDelay === key ? (
                         <div className="flex items-center gap-1">
-                          <input type="number" className="w-10 bg-transparent text-amber font-mono outline-none" value={tempDelay} 
+                          <input type="number" className="w-10 bg-transparent text-amber font-mono outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1" value={tempDelay}
                                  onChange={(e) => setTempDelay(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)} autoFocus />
                           <button onClick={() => handleUpdateDelay(key, tempDelay)} className="text-green"><CheckCircle2 size={10} /></button>
                         </div>

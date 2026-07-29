@@ -2339,7 +2339,6 @@ export class SessionService implements OnModuleInit {
       activeWindows: engineStatus.activeWindows,
       gateState: engineStatus.gateState,
       scannerPaused: engineStatus.scannerPaused,
-      history: (await this.getHistory(session.id)).trades || [],
       totalRiskPct: session.paperMode
         ? engineStatus.balance_paper > 0
           ? (engineStatus.total_risk / engineStatus.balance_paper) * 100
@@ -2381,40 +2380,26 @@ export class SessionService implements OnModuleInit {
       return this.analyticsCache.data;
     }
 
-    // Performance Engineering: Fetch current session status first (contains both balance and history)
-    // This allows us to reuse memory and avoid separate DB hits for balance vs trades.
     const currentStatus = await this.getStatus();
 
-    let trades: any[];
-    let startingBalance: number | undefined;
-    let currentBalance: number | undefined;
+    const trades = await this.tradeRepository.find({
+      select: [
+        "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
+        "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty"
+      ],
+      where: {
+        status: In(TERMINAL_STATUSES as any),
+        ...(this.currentSessionId
+          ? { sessionId: this.currentSessionId }
+          : {}),
+      },
+    });
 
-    if (this.currentSessionId && currentStatus.running) {
-      // Reuse history already fetched in getStatus() to minimize DB load
-      trades = currentStatus.history || [];
-      startingBalance = currentStatus.config?.paper_mode
-        ? currentStatus.config?.paper_starting_balance
-        : currentStatus.config?.live_starting_balance;
-      currentBalance = currentStatus.balance;
-    } else {
-      // Fallback for global analytics or inactive sessions
-      trades = await this.tradeRepository.find({
-        select: [
-          "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
-          "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty"
-        ],
-        where: {
-          status: In(TERMINAL_STATUSES as any),
-          ...(this.currentSessionId
-            ? { sessionId: this.currentSessionId }
-            : {}),
-        },
-      });
-      startingBalance = this.currentSessionId
-        ? await this.getStartingBalanceForSession(this.currentSessionId)
-        : undefined;
-      currentBalance = currentStatus.balance;
-    }
+    const startingBalance = this.currentSessionId
+      ? (currentStatus.config?.paper_mode
+          ? currentStatus.config?.paper_starting_balance
+          : currentStatus.config?.live_starting_balance) || await this.getStartingBalanceForSession(this.currentSessionId)
+      : undefined;
 
     // SRE: Provide stable fallback startingBalance (10000) if undefined to prevent metrics/drawdowns from being distorted by deposits/withdrawals.
     const result = this.analyticsService.calculateAnalytics(

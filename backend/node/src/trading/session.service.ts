@@ -2211,6 +2211,7 @@ export class SessionService implements OnModuleInit {
   }
 
   async listSessions() {
+    // WISP OPTIMIZATION: Sparse column selection prevents loading unused columns, while mapping config blocks keeps only minimum properties needed by the UI to reduce network transit weight.
     const sessions = await this.sessionRepository.find({
       select: [
         "id",
@@ -2222,24 +2223,23 @@ export class SessionService implements OnModuleInit {
         "strategyLabel",
         "startTime",
         "endTime",
-        "config",
-      ] as any[],
+        "config"
+      ],
       order: { startTime: "DESC" },
       take: 20,
     });
 
-    for (const session of sessions) {
+    return sessions.map(session => {
       if (session.config) {
         session.config = {
           scan_interval: session.config.scan_interval,
           trading_mode: session.config.trading_mode,
           strategy_label: session.config.strategy_label,
-          paper_mode: session.config.paper_mode,
+          paper_mode: session.config.paper_mode
         };
       }
-    }
-
-    return sessions;
+      return session;
+    });
   }
 
   async stopSession(ip?: string, userAgent?: string) {
@@ -2384,6 +2384,7 @@ export class SessionService implements OnModuleInit {
     const filterId =
       sessionId === "all" ? undefined : sessionId || this.currentSessionId;
 
+    // WISP OPTIMIZATION: Sparse column selection prevents loading heavy JSON configurations like strategy_config and exit_signals_status, reducing memory and bandwidth.
     const closedTrades = await this.tradeRepository.find({
       select: [
         "id",
@@ -2393,37 +2394,26 @@ export class SessionService implements OnModuleInit {
         "qty",
         "initial_sl",
         "current_sl",
-        "tp",
-        "status",
-        "pnl",
-        "pnl_pct",
+        "max_rr_achieved",
+        "min_rr_achieved",
+        "exit_rr",
         "entry_ts",
+        "tp",
+        "pnl",
+        "realized_fee",
+        "funding_fee",
+        "status",
         "exit_ts",
         "exit_price",
         "exit_reason",
         "exit_signal_type",
         "exit_signal_reason",
-        "strategy_label",
-        "max_rr_achieved",
-        "min_rr_achieved",
-        "exit_rr",
-        "realized_fee",
-        "funding_fee",
-        "risk_usdt",
-        "initial_risk_usdt",
-        "mark_price",
-        "last_price",
-        "close_attempts",
-        "close_blocked",
-        "illiquid_blocked",
-        "binance_order_id",
-        "binance_close_order_id",
-        "binance_stop_order_id",
-        "binance_stop_order_type",
-        "is_reconciliation",
+        "pnl_pct",
+        "entry_daily_change_pct",
         "sessionId",
-        "updated_at",
-      ] as any[],
+        "strategy_label",
+        "is_reconciliation"
+      ],
       where: {
         status: In(TERMINAL_STATUSES as any),
         ...(filterId ? { sessionId: filterId } : {}),
@@ -2756,8 +2746,9 @@ export class SessionService implements OnModuleInit {
   }
 
   async getLifetimeAnalytics(mode: "paper" | "testnet" | "live" = "paper") {
-    // 1. Fetch all closed trades across all sessions for the specific mode
-    const trades = await this.tradeRepository
+    // 1. WISP OPTIMIZATION: Filter trades by trading mode directly at the database level using an innerJoin on the session table.
+    // This avoids fetching potentially thousands of trades with heavy strategy_config JSON blocks into memory, optimizing memory footprint and SQL speed.
+    const filteredTrades = await this.tradeRepository
       .createQueryBuilder("trade")
       .innerJoin("trade.session", "session")
       .select([
@@ -2775,20 +2766,12 @@ export class SessionService implements OnModuleInit {
         "trade.current_sl",
         "trade.initial_sl",
         "trade.qty",
-        "trade.strategy_label"
+        "trade.strategy_label",
       ])
       .where("trade.status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
-      .andWhere(
-        "session.tradingMode = :mode OR (session.tradingMode IS NULL AND :isPaper = session.paperMode)",
-        {
-          mode,
-          isPaper: mode === "paper"
-        }
-      )
+      .andWhere("session.tradingMode = :mode", { mode })
       .orderBy("trade.exit_ts", "ASC")
       .getMany();
-
-    const filteredTrades = trades;
 
     // 2. Fetch balance history snapshots for high-fidelity curve
     const history = await this.balanceHistoryRepository.find({

@@ -12,6 +12,22 @@ import { SignalGauge } from '../ui/SignalGauge'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ConfirmationModal } from '../ConfirmationModal'
 
+const FRIENDLY_SIGNAL_NAMES = {
+  ema_close: 'EMA Close',
+  ema_dual_close: 'EMA Dual Close',
+  macd_fade: 'MACD Fade',
+  macd_impulse: 'MACD Impulse',
+  macd_pbc: 'MACD PBC',
+  supertrend: 'Supertrend',
+  momentum_pct: 'Momentum %',
+  breakout_hl: 'Breakout High/Low',
+  engulfing: 'Engulfing Candle',
+  ma: 'Moving Average',
+  ema: 'Exponential MA',
+  ema_cross: 'EMA Cross',
+  ema_price_cross: 'EMA Price Cross',
+};
+
 const Metric = memo(({ label, value }) => (
   <div className="flex flex-col gap-1.5 group/metric">
     <div className="flex items-center gap-1">
@@ -403,7 +419,24 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     macd_signal: '',
   })
 
+  // Exit Signal Delays state
+  const [formDelays, setFormDelays] = useState({})
+
   const [savingConfig, setSavingConfig] = useState(false)
+
+  const activeSignalKeys = useMemo(() => {
+    const keys = new Set();
+    if (trade?.exit_signals_status) {
+      Object.keys(trade.exit_signals_status).forEach(k => keys.add(k));
+    }
+    if (trade?.strategy_config?.exit_signals) {
+      trade.strategy_config.exit_signals.forEach(k => keys.add(k));
+    }
+    if (activeSessionConfig?.exit_signals) {
+      activeSessionConfig.exit_signals.forEach(k => keys.add(k));
+    }
+    return Array.from(keys);
+  }, [trade, activeSessionConfig]);
 
   // Sync state with trade details whenever they refresh/mount
   useEffect(() => {
@@ -427,8 +460,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
         macd_slow: sc.macd_slow ?? '',
         macd_signal: sc.macd_signal ?? '',
       })
+
+      // Initialize delay values for each active signal
+      const localDelays = trade.strategy_config?.exit_signal_delays || {}
+      const globalDelays = activeSessionConfig?.exit_signal_delays || {}
+      const delaysObj = {}
+      activeSignalKeys.forEach(key => {
+        delaysObj[key] = localDelays[key] !== undefined ? localDelays[key] : (globalDelays[key] ?? 0);
+      })
+      setFormDelays(delaysObj)
     }
-  }, [trade])
+  }, [trade, activeSessionConfig, activeSignalKeys])
 
   const ladderValidationError = useMemo(() => {
     if (formLadder.length === 0) return null;
@@ -478,12 +520,23 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       if (formOverrides.macd_slow !== '') signal_params.macd_slow = Number(formOverrides.macd_slow);
       if (formOverrides.macd_signal !== '') signal_params.macd_signal = Number(formOverrides.macd_signal);
 
+      const exit_signal_delays = {}
+      Object.entries(formDelays).forEach(([k, v]) => {
+        if (v !== '' && v !== null && v !== undefined) {
+          const num = Number(v);
+          if (!isNaN(num) && num >= 0 && num <= 86400) {
+            exit_signal_delays[k] = num;
+          }
+        }
+      })
+
       const payload = {
         current_sl: Number(formSl),
         live_rr_sequence,
         exit_rr_sequence,
         strategy_config: {
-          signal_params
+          signal_params,
+          exit_signal_delays
         }
       }
 
@@ -994,6 +1047,50 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Part 4: Exit Signal Delay Overrides */}
+                  <div className="space-y-3 pt-3 border-t border-border/30">
+                    <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
+                      Exit Signal Delay Overrides
+                    </SectionLabel>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {activeSignalKeys.map((key) => {
+                        const val = formDelays[key] ?? 0;
+                        const label = FRIENDLY_SIGNAL_NAMES[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                        return (
+                          <div key={key} className="flex flex-col gap-1">
+                            <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
+                              {label} Delay
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="number"
+                                min="0"
+                                max="86400"
+                                placeholder="0"
+                                value={val === '' ? '' : val}
+                                onChange={(e) => {
+                                  const v = e.target.value === '' ? '' : Math.max(0, Math.min(86400, parseInt(e.target.value) || 0));
+                                  setFormDelays(prev => ({ ...prev, [key]: v }));
+                                }}
+                                className="px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                                aria-label={`Exit delay for ${label} in seconds`}
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
+                            </div>
+                            <span className="text-[8px] text-dim/70 font-mono mt-0.5">
+                              {val ? formatDuration(val * 1000) : 'Instant (no delay)'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {activeSignalKeys.length === 0 && (
+                        <div className="col-span-full text-center py-2 text-xs text-dim italic">
+                          No active exit signals configured for this trade.
+                        </div>
+                      )}
                     </div>
                   </div>
 

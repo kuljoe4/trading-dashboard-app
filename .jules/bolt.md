@@ -1,3 +1,7 @@
+## 2026-07-29 - [Benchmarking] Logging Overhead Masking Algorithm Speedups
+**Learning:** High-frequency logging (like verbose or debug logs) on cache misses creates a massive execution bottleneck inside testing environments like Jest due to `process.stdout` interception, string formatting, and buffer flushing. When benchmarking optimized JS algorithms, logging statements inside the hot path must be spied on or mocked to avoid logger latency completely drowning out the actual CPU speedups.
+**Action:** Always temporarily mock verbose and debug logger implementations in unit/integration performance benchmarks to obtain a clean, accurate, and noise-free measurement of CPU execution times.
+
 ## 2026-07-28 - [Optimization] Sorted-State Chronological Reversal Optimization
 **Learning:** Forcing array sorting (`sort()`) on high-frequency paths (like tick updates or database fetches) introduces redundant $O(N \log N)$ complexity and heavy comparison function call overhead. Since trading collections are typically returned from databases or state stores already sorted (often reverse chronologically), detecting this sorted state via a linear $O(N)$ single-pass check allows using native, highly optimized $O(N)$ reversal (`reverse()`) or direct pass-through, avoiding comparisons entirely.
 **Action:** Always check if a collection is already sorted in $O(N)$ before applying standard sorting algorithms on high-frequency paths, and handle descending orders with $O(N)$ native reversals.

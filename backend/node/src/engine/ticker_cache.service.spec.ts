@@ -132,6 +132,10 @@ describe('TickerCacheService', () => {
 
         const iterations = 2000;
 
+        // Mock verbose logging to avoid stdout formatting overhead during benchmark
+        const originalVerbose = (service as any).logger.verbose;
+        (service as any).logger.verbose = () => {};
+
         // Warm up
         for (let i = 0; i < 100; i++) {
           oldImplementation(10);
@@ -158,6 +162,9 @@ describe('TickerCacheService', () => {
         const endOpt = performance.now();
         const optTime = endOpt - startOpt;
 
+        // Restore original logger
+        (service as any).logger.verbose = originalVerbose;
+
         console.log(`[BENCHMARK] topByChangePct with 300 symbols over ${iterations} iterations:`);
         console.log(`  - Original implementation: ${oldTime.toFixed(2)}ms`);
         console.log(`  - Optimized implementation: ${optTime.toFixed(2)}ms`);
@@ -168,6 +175,115 @@ describe('TickerCacheService', () => {
         const resOld = oldImplementation(10);
         (service as any)._topByChangeCache = {};
         const resOpt = service.topByChangePct(10);
+
+        expect(resOpt.length).toBe(resOld.length);
+        for (let i = 0; i < resOpt.length; i++) {
+          expect(resOpt[i].symbol).toBe(resOld[i].symbol);
+        }
+      });
+    });
+  });
+
+  describe('topByVolume', () => {
+    it('should return tickers sorted by volume descending', () => {
+      service.updateTicker('BTCUSDT', 50000, 1000000);
+      service.updateTicker('ETHUSDT', 3000, 2000000);
+      service.updateTicker('SOLUSDT', 150, 500000);
+      service.updateTicker('ADAUSDT', 0.5, 100000);
+
+      const top = service.topByVolume(3);
+      expect(top.length).toBe(3);
+      expect(top[0].symbol).toBe('ETHUSDT'); // 2000000
+      expect(top[1].symbol).toBe('BTCUSDT'); // 1000000
+      expect(top[2].symbol).toBe('SOLUSDT'); // 500000
+    });
+
+    it('should respect exclusions', () => {
+      service.updateTicker('BTCUSDT', 50000, 1000000);
+      service.updateTicker('ETHUSDT', 3000, 2000000);
+      service.updateTicker('SOLUSDT', 150, 500000);
+
+      const top = service.topByVolume(2, ['ETHUSDT']);
+      expect(top.length).toBe(2);
+      expect(top[0].symbol).toBe('BTCUSDT');
+      expect(top[1].symbol).toBe('SOLUSDT');
+    });
+
+    it('should handle undefined or empty exclusions without throwing', () => {
+      service.updateTicker('BTCUSDT', 50000, 1000000);
+      service.updateTicker('ETHUSDT', 3000, 2000000);
+
+      const topDefault = service.topByVolume(2);
+      expect(topDefault.length).toBe(2);
+
+      const topUndefined = service.topByVolume(2, undefined);
+      expect(topUndefined.length).toBe(2);
+    });
+
+    describe('topByVolume performance benchmark', () => {
+      it('should run significantly faster than the old unoptimized implementation', () => {
+        // Setup 300 symbols to simulate a realistic production list
+        for (let i = 0; i < 300; i++) {
+          const symbol = `SYM_${i}USDT`;
+          const price = 100 + Math.random() * 50;
+          const volume = Math.random() * 10000000;
+          service.updateTicker(symbol, price, volume);
+        }
+
+        const all = service.getLatestTickers();
+
+        // Implement the old sorting logic directly in the test to compare
+        const oldImplementation = (n: number, excluded: string[] = []) => {
+          const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
+          return [...all]
+            .filter(t => !excludedSet?.has(t.symbol))
+            .sort((a, b) => b.volume_24h - a.volume_24h)
+            .slice(0, n);
+        };
+
+        const iterations = 2000;
+
+        // Mock verbose logging to avoid stdout formatting overhead during benchmark
+        const originalVerbose = (service as any).logger.verbose;
+        (service as any).logger.verbose = () => {};
+
+        // Warm up
+        for (let i = 0; i < 100; i++) {
+          oldImplementation(10);
+          (service as any)._topByVolumeCache = {};
+          service.topByVolume(10);
+        }
+
+        // Benchmark Old
+        const startOld = performance.now();
+        for (let i = 0; i < iterations; i++) {
+          oldImplementation(10);
+        }
+        const endOld = performance.now();
+        const oldTime = endOld - startOld;
+
+        // Benchmark Optimized
+        const startOpt = performance.now();
+        for (let i = 0; i < iterations; i++) {
+          (service as any)._topByVolumeCache = {};
+          service.topByVolume(10);
+        }
+        const endOpt = performance.now();
+        const optTime = endOpt - startOpt;
+
+        // Restore original logger
+        (service as any).logger.verbose = originalVerbose;
+
+        console.log(`[BENCHMARK] topByVolume with 300 symbols over ${iterations} iterations:`);
+        console.log(`  - Original implementation: ${oldTime.toFixed(2)}ms`);
+        console.log(`  - Optimized implementation: ${optTime.toFixed(2)}ms`);
+        const speedup = oldTime / optTime;
+        console.log(`  - Speedup: ${speedup.toFixed(2)}x faster`);
+
+        // Verify they produce identical sorted results
+        const resOld = oldImplementation(10);
+        (service as any)._topByVolumeCache = {};
+        const resOpt = service.topByVolume(10);
 
         expect(resOpt.length).toBe(resOld.length);
         for (let i = 0; i < resOpt.length; i++) {

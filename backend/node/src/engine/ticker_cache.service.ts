@@ -113,7 +113,8 @@ export class TickerCacheService {
 
   topByVolume(n: number, excluded: string[] = []): Ticker[] {
     // BOLT OPTIMIZATION: Avoid expensive sort/join for empty exclusion lists (common case)
-    const cacheKey = excluded.length === 0 ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
+    const hasExclusions = excluded && excluded.length > 0;
+    const cacheKey = !hasExclusions ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
     const cached = this._topByVolumeCache[cacheKey];
     const now = Date.now();
 
@@ -121,14 +122,29 @@ export class TickerCacheService {
       return cached.data;
     }
 
-    const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
+    const excludedSet = hasExclusions ? new Set(excluded) : null;
     const all = this.getLatestTickers();
     this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
-    const result = all
-      .filter(t => !excludedSet?.has(t.symbol))
-      .sort((a, b) => b.volume_24h - a.volume_24h)
-      .slice(0, n);
+    // BOLT OPTIMIZATION: Loop Fusion & Allocations Reduction.
+    // Instead of chaining filter, sort, and slice (which creates multiple intermediate arrays and processes elements redundantly),
+    // we filter out excluded symbols in a single linear pass and then perform the sort, pre-allocating the final result array.
+    const filtered: Ticker[] = [];
+    const len = all.length;
+    for (let i = 0; i < len; i++) {
+      const t = all[i];
+      if (!excludedSet?.has(t.symbol)) {
+        filtered.push(t);
+      }
+    }
+
+    filtered.sort((a, b) => b.volume_24h - a.volume_24h);
+
+    const resultLen = Math.min(n, filtered.length);
+    const result: Ticker[] = new Array(resultLen);
+    for (let i = 0; i < resultLen; i++) {
+      result[i] = filtered[i];
+    }
 
     const cacheKeys = Object.keys(this._topByVolumeCache);
     if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByVolumeCache[cacheKey]) {

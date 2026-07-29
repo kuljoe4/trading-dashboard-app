@@ -222,15 +222,59 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col">
-      {/* ... (rest of the component structure, using entries) ... */}
+      <div className="flex items-center justify-between mb-2 md:mb-5">
+        <div className="flex flex-col gap-0.5">
+          <SectionLabel className={cn("mb-0 flex items-center gap-1.5", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
+            {criteriaMet ? <Zap size={11} className="fill-red" /> : satisfiedCount > 0 ? <Activity size={11} /> : <ShieldCheck size={11} />}
+            <span className="md:inline hidden">{criteriaMet ? 'Ready to Exit' : satisfiedCount > 0 ? 'Risk Building' : 'Watching'}</span>
+            <span className="md:hidden inline">{criteriaMet ? 'EXIT' : satisfiedCount > 0 ? 'RISK' : 'WAIT'}</span>
+          </SectionLabel>
+          <div className="text-[7px] md:text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
+            {logic === 'all' ? 'Match All' : 'Match Any'}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 md:gap-3">
+           <div className="flex -space-x-1">
+              {entries.map(([key, s]) => (
+                 <div key={key} className={cn(
+                   "w-2 h-2 md:w-3 md:h-3 rounded-full border border-surface transition-all duration-500",
+                   s.fired && s.active ? "bg-green shadow-lg shadow-green/20" : "bg-dim/20"
+                 )} />
+              ))}
+           </div>
+           <span className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-tighter", satisfiedCount > 0 ? (allFired ? "text-red" : "text-amber") : "text-dim")}>
+              {satisfiedCount}/{totalCount}
+           </span>
+        </div>
+      </div>
+
       <div className="space-y-1.5 md:space-y-4 flex-1">
         {entries.map(([key, s]) => {
-          // ... (signal calculations) ...
+          const isFired = s.fired && s.active
+          const threshold = Number(s.threshold) || 0
+
+          // Estimated PnL at trigger
+          const estPnl = s.threshold_is_price
+            ? (threshold - entryPrice) * qty * (isLong ? 1 : -1)
+            : null;
+          const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null;
+
+          const { timeframe, params } = getSignalInfo(key, trade.strategy_config);
+
           return (
-            <div key={key} className="...">
-              {/* ... signal header ... */}
-                  {s.remaining_delay > 0 && !isFired && (
-                    <div className="flex items-center gap-1 bg-amber/10 text-amber px-1 rounded transition-colors">
+            <div key={key} className="space-y-1 md:space-y-3 p-2 bg-white/[0.01] border border-white/[0.02] rounded-xl hover:bg-white/[0.02] hover:border-white/[0.05] transition-all">
+              <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
+                <div className="flex items-center gap-1.5 md:gap-2">
+                  <span className={isFired ? "text-red" : s.fired ? "text-amber" : "text-dim"}>{s.label || key}</span>
+                  <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
+                    {timeframe}
+                  </span>
+                  {s.insufficientData ? (
+                    <span className="text-dim bg-background/50 border border-border/40 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
+                      Collecting
+                    </span>
+                  ) : s.remaining_delay > 0 && !isFired && (
+                    <div className="flex items-center gap-1 bg-amber/10 text-amber px-1 rounded cursor-pointer hover:bg-amber/20 transition-colors">
                       <Clock size={8} /> 
                       {editingDelay === key ? (
                         <div className="flex items-center gap-1">
@@ -246,15 +290,18 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                       {editingDelay !== key && <button onClick={() => handleUpdateDelay(key, 0)} className="text-[7px] bg-red/20 px-1 rounded">SKIP</button>}
                     </div>
                   )}
-              {/* ... rest of signal details ... */}
-            </div>
-          )
-        })}
-      </div>
-      {/* ... rest of component ... */}
-    </div>
-  )
-})
+                  <span className={cn(
+                    "md:hidden inline text-[8px] font-mono",
+                    isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
+                  )}>{s.insufficientData ? '---' : `${Number(s.progress || 0).toFixed(0)}%`}</span>
+                </div>
+                <div className="md:flex hidden items-center gap-2 font-mono">
+                  <span className="text-dim/60">Mark: {price(mark)}</span>
+                  <ArrowRight size={10} className="text-dim/40" />
+                  <span className={isFired ? "text-red" : "text-text"}>{price(threshold)}</span>
+                </div>
+              </div>
+
               {/* Enhanced Proximity Bar (SignalGauge Style) */}
               <div className="space-y-0.5 md:space-y-1.5">
                 <div className="h-1.5 md:h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">

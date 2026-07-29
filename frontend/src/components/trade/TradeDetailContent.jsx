@@ -636,12 +636,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
          <div className="lg:col-span-2 space-y-3 md:space-y-4">
             <RRLadder trade={trade} />
+         </div>
 
-      {/* Grid Layout for Secondary Sections on Desktop */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-         <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
-         
-         <div className="space-y-4">
+         {/* Grid Layout for Secondary Sections on Desktop */}
+         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4">
+            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
+
+            <div className="space-y-4">
              <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
                 <SectionLabel className="mb-3 md:mb-5">
                    <Info size={14} className="text-accent" /> Technical Meta
@@ -806,7 +807,6 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
          </div>
       </div>
           </div>
-       </div>
 
       {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}
       {trade.status === 'OPEN' && (

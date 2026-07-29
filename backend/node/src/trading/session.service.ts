@@ -2073,10 +2073,57 @@ export class SessionService implements OnModuleInit {
       }
     }
 
-    // 3. Merge Strategy Configuration overrides (MACD Fade, Supertrend, etc.)
+    // 3. Validate and Merge Strategy Configuration overrides (MACD Fade, Supertrend, delays, etc.)
+    if (dto.strategy_config?.exit_signal_delays) {
+      const delays = dto.strategy_config.exit_signal_delays;
+      if (typeof delays !== "object" || Array.isArray(delays)) {
+        throw new BadRequestException("exit_signal_delays must be an object");
+      }
+      for (const k of Object.keys(delays)) {
+        if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+          throw new BadRequestException(`Invalid key format in exit_signal_delays`);
+        }
+        const val = delays[k];
+        if (typeof val !== "number" || isNaN(val) || val < 0 || val > 86400) {
+          throw new BadRequestException(`exit_signal_delays values must be numbers between 0 and 86400`);
+        }
+      }
+    }
+
+    if (dto.strategy_config?.signal_params) {
+      const params = dto.strategy_config.signal_params;
+      if (typeof params !== "object" || Array.isArray(params)) {
+        throw new BadRequestException("signal_params must be an object");
+      }
+      for (const k of Object.keys(params)) {
+        if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+          throw new BadRequestException(`Invalid key format in signal_params`);
+        }
+        const val = params[k];
+        const isValidPrimitive =
+          (typeof val === "number" && !isNaN(val)) ||
+          (typeof val === "string" && val.length < 100) ||
+          typeof val === "boolean";
+        if (!isValidPrimitive) {
+          throw new BadRequestException(`signal_params values must be flat primitives under 100 characters`);
+        }
+      }
+    }
+
+    const currentConfig = trade.strategy_config || {};
+    const updatedConfig = dto.strategy_config || {};
+
     const strategyConfig = {
-      ...(trade.strategy_config || {}),
-      ...(dto.strategy_config || {}),
+      ...currentConfig,
+      ...updatedConfig,
+      signal_params: {
+        ...(currentConfig.signal_params || {}),
+        ...(updatedConfig.signal_params || {}),
+      },
+      exit_signal_delays: {
+        ...(currentConfig.exit_signal_delays || {}),
+        ...(updatedConfig.exit_signal_delays || {}),
+      }
     };
 
     // 4. Update dynamic variables

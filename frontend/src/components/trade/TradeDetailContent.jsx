@@ -403,7 +403,26 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     macd_signal: '',
   })
 
+  const [formDelays, setFormDelays] = useState({})
   const [savingConfig, setSavingConfig] = useState(false)
+
+  // Unique list of active exit signals to allow delay tuning
+  const uniqueExitSignals = useMemo(() => {
+    const set = new Set();
+    const globalExits = activeSessionConfig?.exit_signals || [];
+    const localExits = trade?.strategy_config?.exit_signals || [];
+    const statusExits = Object.keys(trade?.exit_signals_status || {});
+    const delayKeys = Object.keys(trade?.strategy_config?.exit_signal_delays || {});
+    const globalDelayKeys = Object.keys(activeSessionConfig?.exit_signal_delays || {});
+
+    globalExits.forEach(s => set.add(s));
+    localExits.forEach(s => set.add(s));
+    statusExits.forEach(s => set.add(s));
+    delayKeys.forEach(s => set.add(s));
+    globalDelayKeys.forEach(s => set.add(s));
+
+    return Array.from(set);
+  }, [trade, activeSessionConfig]);
 
   // Sync state with trade details whenever they refresh/mount
   useEffect(() => {
@@ -427,8 +446,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
         macd_slow: sc.macd_slow ?? '',
         macd_signal: sc.macd_signal ?? '',
       })
+
+      // Initialize delay values
+      const delays = {}
+      const globalDelays = activeSessionConfig?.exit_signal_delays || {}
+      const localDelays = trade.strategy_config?.exit_signal_delays || {}
+      uniqueExitSignals.forEach(sig => {
+        delays[sig] = localDelays[sig] !== undefined ? localDelays[sig] : (globalDelays[sig] ?? 0)
+      })
+      setFormDelays(delays)
     }
-  }, [trade])
+  }, [trade, activeSessionConfig, uniqueExitSignals])
 
   const ladderValidationError = useMemo(() => {
     if (formLadder.length === 0) return null;
@@ -478,12 +506,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       if (formOverrides.macd_slow !== '') signal_params.macd_slow = Number(formOverrides.macd_slow);
       if (formOverrides.macd_signal !== '') signal_params.macd_signal = Number(formOverrides.macd_signal);
 
+      const exit_signal_delays = {}
+      Object.entries(formDelays).forEach(([sig, val]) => {
+        if (val !== undefined && val !== '') {
+          exit_signal_delays[sig] = Number(val);
+        }
+      })
+
       const payload = {
         current_sl: Number(formSl),
         live_rr_sequence,
         exit_rr_sequence,
         strategy_config: {
-          signal_params
+          signal_params,
+          exit_signal_delays
         }
       }
 
@@ -996,6 +1032,41 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                       </div>
                     </div>
                   </div>
+
+                  {/* Part 4: Exit Signal Delays */}
+                  {uniqueExitSignals.length > 0 && (
+                    <div className="space-y-3 pt-3 border-t border-border/30">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
+                        Exit Signal Delays (Seconds)
+                      </SectionLabel>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {uniqueExitSignals.map(sig => {
+                          const displayName = sig
+                            .replace(/_/g, ' ')
+                            .replace(/\b\w/g, l => l.toUpperCase());
+                          return (
+                            <div key={sig}>
+                              <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
+                                {displayName} Delay
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="86400"
+                                  placeholder="0 (Instant)"
+                                  value={formDelays[sig] ?? ''}
+                                  onChange={(e) => setFormDelays({ ...formDelays, [sig]: e.target.value })}
+                                  className="px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">sec</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Saving Actions */}
                   <div className="flex justify-end gap-3 pt-3 border-t border-border/30">

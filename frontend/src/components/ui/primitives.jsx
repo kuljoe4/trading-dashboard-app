@@ -516,11 +516,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   return (
     <div className={cn(
       "z-40 transition-all duration-300 mb-4 lg:mb-6",
-      sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-1.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
+      sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-2.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
     )}>
-      <div className="flex flex-row items-center justify-between gap-3 relative">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative w-full">
         {/* Left Side: Title and Badges */}
-        <div className="flex items-center gap-2.5 min-w-0 flex-1 md:flex-initial">
+        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1 w-full">
           {backAction && (
             <button
               onClick={backAction}
@@ -537,9 +537,9 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
                 <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{showResumingFeedback ? 'Resuming...' : title}</h1>
-                <div className="hidden sm:flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
+                <div className="flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
@@ -547,11 +547,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                 </div>
               </div>
               {subTitle && (
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
                   <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
                     {subTitle}
                   </p>
-                  <div className="hidden lg:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
+                  <div className="flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
                     <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
                       {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
                     </span>
@@ -674,7 +674,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         )}
 
         {/* Right Side: Children Action Items */}
-        <div className="flex items-center gap-2 shrink-0 scale-90 origin-right">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:shrink-0 w-full sm:w-auto justify-start sm:justify-end scale-95 sm:scale-90 origin-left sm:origin-right mt-1.5 sm:mt-0">
           {children}
         </div>
       </div>

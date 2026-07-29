@@ -231,6 +231,7 @@ export const DecisionLog = React.memo(() => {
   const logFilters = useTradingStore(state => state.logFilters)
   const toggleLogFilter = useTradingStore(state => state.toggleLogFilter)
   const listRef = useRef(null)
+  const searchInputRef = useRef(null)
   const [isAtTop, setIsAtTop] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -278,6 +279,7 @@ export const DecisionLog = React.memo(() => {
         <div className="relative group p-1.5">
           <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
           <input
+            ref={searchInputRef}
             type="text"
             placeholder="Search activity logs... [/]"
             aria-label="Search activity logs"
@@ -289,7 +291,11 @@ export const DecisionLog = React.memo(() => {
           {search && (
               <Tooltip content="Clear Search">
                 <button
-                  onClick={() => setSearch('')}
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    searchInputRef.current?.focus();
+                  }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
                   aria-label="Clear Search"
                 >

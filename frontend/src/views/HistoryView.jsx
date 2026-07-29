@@ -442,13 +442,18 @@ export const HistoryView = () => {
   };
 
   const searchInputRef = React.useRef(null)
+  const mobileSearchInputRef = React.useRef(null)
 
   // Hotkey listener: '/' to focus search input
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault();
-        searchInputRef.current?.focus();
+        if (window.innerWidth < 640) {
+          mobileSearchInputRef.current?.focus();
+        } else {
+          searchInputRef.current?.focus();
+        }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -642,7 +647,15 @@ export const HistoryView = () => {
                />
                {search && (
                  <Tooltip content="Clear Search">
-                  <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5" aria-label="Clear Search">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      searchInputRef.current?.focus();
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
+                    aria-label="Clear Search"
+                  >
                     <XCircle size={14} />
                   </button>
                  </Tooltip>
@@ -658,6 +671,7 @@ export const HistoryView = () => {
         <div className="sm:hidden relative group mb-6">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
           <input
+            ref={mobileSearchInputRef}
             type="text"
             placeholder="Search history... [/]"
             aria-label="Search trade history"
@@ -668,7 +682,15 @@ export const HistoryView = () => {
           />
           {search && (
             <Tooltip content="Clear Search">
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5" aria-label="Clear Search">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  mobileSearchInputRef.current?.focus();
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
+                aria-label="Clear Search"
+              >
                 <XCircle size={16} />
               </button>
             </Tooltip>

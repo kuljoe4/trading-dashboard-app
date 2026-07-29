@@ -2073,11 +2073,31 @@ export class SessionService implements OnModuleInit {
       }
     }
 
-    // 3. Merge Strategy Configuration overrides (MACD Fade, Supertrend, etc.)
+    // 3. Validate Strategy Configuration overrides (if provided) to prevent parameter injection / Stored XSS
+    if (dto.strategy_config) {
+      const inputInstance = plainToInstance(SessionConfig, dto.strategy_config);
+      const errors = await validate(inputInstance, { whitelist: true, forbidNonWhitelisted: true });
+      if (errors.length > 0) {
+        const detailedErrors = formatValidationErrors(errors);
+        this.logger.warn(`Trade strategy_config input validation failed: ${JSON.stringify(detailedErrors)}`);
+        throw new BadRequestException({
+          message: "Invalid trade strategy configuration overrides",
+          detail: detailedErrors,
+        });
+      }
+    }
+
+    // Merge Strategy Configuration overrides (MACD Fade, Supertrend, etc.)
     const strategyConfig = {
       ...(trade.strategy_config || {}),
       ...(dto.strategy_config || {}),
     };
+
+    if (dto.strategy_config) {
+      // Re-validate structural dependencies and bounds constraints on the fully merged trade strategy configuration
+      const mergedInstance = plainToInstance(SessionConfig, strategyConfig);
+      this.validateConfig(mergedInstance);
+    }
 
     // 4. Update dynamic variables
     trade.current_sl = finalSl;

@@ -23,6 +23,7 @@ describe('SessionService Validation', () => {
     updateConfig: jest.fn(),
     setBinanceClient: jest.fn(),
     fetchPosition: jest.fn(),
+    getTrade: jest.fn(),
     getStatus: jest.fn().mockReturnValue({ running: false, activeTrades: [] }),
   } as any;
 
@@ -44,6 +45,7 @@ describe('SessionService Validation', () => {
 
   const mockTradeRepository = {
     find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
     update: jest.fn(),
@@ -629,6 +631,72 @@ describe('SessionService Validation', () => {
       } as any;
 
       await expect(service.updateSession(sessionId, partialConfig)).rejects.toThrow();
+    });
+  });
+
+  describe('updateTradeConfig Validation', () => {
+    const mockTrade = {
+      id: 'trade-id-123',
+      symbol: 'BTCUSDT',
+      status: 'OPEN',
+      current_sl: 50000,
+      sessionId: 'session-id-123',
+      strategy_config: {
+        strategy_label: 'Original Label',
+        max_trades_24h: 10,
+      },
+    } as any;
+
+    const mockSession = {
+      id: 'session-id-123',
+      tradingMode: 'paper',
+      paperMode: true,
+      config: {
+        strategy_label: 'Original Label',
+        max_trades_24h: 10,
+      },
+    };
+
+    beforeEach(() => {
+      mockTradeRepository.findOne.mockResolvedValue(mockTrade);
+      mockRepository.findOne.mockResolvedValue(mockSession);
+    });
+
+    it('should successfully update strategy_config with valid overrides', async () => {
+      const dto = {
+        strategy_config: {
+          strategy_label: 'New Valid Label',
+          max_trades_24h: 20,
+        },
+      };
+
+      const result = await service.updateTradeConfig('trade-id-123', dto);
+      expect(result.status).toBe('updated');
+      expect(result.trade.strategy_config).toEqual(expect.objectContaining({
+        strategy_label: 'New Valid Label',
+        max_trades_24h: 20,
+      }));
+    });
+
+    it('should reject updates if strategy_config contains extraneous/un-decorated keys', async () => {
+      const dto = {
+        strategy_config: {
+          strategy_label: 'New Label',
+          malicious_key: 'malicious_content',
+        },
+      };
+
+      await expect(service.updateTradeConfig('trade-id-123', dto as any)).rejects.toThrow();
+    });
+
+    it('should reject updates if strategy_config contains invalid parameter formats/constraints', async () => {
+      const dto = {
+        strategy_config: {
+          strategy_label: '<script>alert("xss")</script>', // XSS payload rejected by regex
+        },
+      };
+
+      await expect(service.updateTradeConfig('trade-id-123', dto as any)).rejects.toThrow();
     });
   });
 });

@@ -60,7 +60,10 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
               Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.
             </Dialog.Description>
           </VisuallyHidden>
-          <Dialog.Title id="modal-title" className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
+          <Dialog.Title asChild>
+            <VisuallyHidden>Trade Details for {trade.symbol}</VisuallyHidden>
+          </Dialog.Title>
+          <div className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
             <div className="flex items-center gap-2.5">
               <div className={cn(
                 "w-8 h-8 rounded-xl flex items-center justify-center shadow-md transition-transform duration-500 hover:scale-105",
@@ -111,7 +114,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                 </button>
               </Dialog.Close>
             </Tooltip>
-          </Dialog.Title>
+          </div>
           <ModalAlertTicker />
 
           <TradeDetailContent 

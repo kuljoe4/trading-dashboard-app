@@ -255,8 +255,6 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
     </div>
   )
 })
-              // ... rest of the component content ...
-
               {/* Enhanced Proximity Bar (SignalGauge Style) */}
               <div className="space-y-0.5 md:space-y-1.5">
                 <div className="h-1.5 md:h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">

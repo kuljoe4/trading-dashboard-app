@@ -320,28 +320,32 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       </div>
 
       {/* Card Body - Content Stats Grid */}
-      <div className="grid grid-cols-2 gap-4 py-1 flex-1">
-        <div className="flex flex-col gap-1">
-          <span className="text-[9px] text-dim font-black uppercase tracking-widest">Active P&L</span>
-          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.activePnl) }}>
-            {fmtUSD(s.activePnl)}
+      <div className="flex flex-col gap-4 py-2 flex-1">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-[9px] text-dim font-black uppercase tracking-widest">Active P&L</span>
+            <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.activePnl) }}>
+              {fmtUSD(s.activePnl)}
+            </div>
+            <div className="flex flex-col gap-0.5 mt-2">
+               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">Open: ({activePnlPct >= 0 ? '+' : ''}{activePnlPct.toFixed(2)}%)</span>
+               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">Realize Est: <span className="font-bold font-mono text-text/90">{fmtUSD(s.totalEstPnlToRealize)}</span></span>
+            </div>
           </div>
-          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
-            Open ({activePnlPct >= 0 ? '+' : ''}{activePnlPct.toFixed(2)}%) · Est. Realize: <span className="font-bold font-mono" style={{ color: pnlColor(s.totalEstPnlToRealize) }}>{fmtUSD(s.totalEstPnlToRealize)}</span>
-          </span>
+
+          <div className="flex flex-col gap-1 items-end text-right">
+            <span className="text-[9px] text-dim font-black uppercase tracking-widest">Session Return</span>
+            <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.totalPnl) }}>
+              {fmtUSD(s.totalPnl)} <span className="text-[10px] md:text-xs tracking-tight" style={{ color: pnlColor(s.totalPnl) }}>({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)</span>
+            </div>
+            <div className="flex flex-col gap-0.5 mt-2">
+               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">{s.entryCount} Entries · {s.hitCount} Hits</span>
+               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">{s.activeTradeCount || 0} Active Trades</span>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-1 items-end text-right">
-          <span className="text-[9px] text-dim font-black uppercase tracking-widest">Session Return</span>
-          <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.totalPnl) }}>
-            {fmtUSD(s.totalPnl)} <span className="text-[10px] md:text-xs tracking-tight" style={{ color: pnlColor(s.totalPnl) }}>({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)</span>
-          </div>
-          <span className="text-[9px] text-dim/60 font-semibold uppercase tracking-wider mt-1 block">
-            {s.entryCount} ENT · {s.hitCount} HIT · {s.activeTradeCount || 0} ACT
-          </span>
-        </div>
-
-        <div className="col-span-2 grid grid-cols-2 gap-3 pt-3 mt-1 border-t border-border/10">
+        <div className="flex items-center justify-between pt-3 mt-1 border-t border-border/10">
           <div className="flex items-center gap-2 min-w-0">
             <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
             <span className={cn("text-[10px] font-bold uppercase tracking-wider text-dim truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
@@ -1485,8 +1489,8 @@ export function DashboardView({ initialStrategy }) {
           </AnimatePresence>
         </motion.div>
 
-        {/* Main Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 items-start gap-6">
+        {/* Main Grid - Un-nested to full width */}
+        <div className="grid grid-cols-1 items-start gap-6">
 
           {/* Left Workspace */}
           <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar">
@@ -1615,7 +1619,7 @@ export function DashboardView({ initialStrategy }) {
               <SectionLabel className="mb-4">
                 <Activity size={14} className="text-accent" /> Session Logs
               </SectionLabel>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-y-auto">
                 <Suspense fallback={<LoadingFallback />}>
                   <DecisionLog />
                 </Suspense>

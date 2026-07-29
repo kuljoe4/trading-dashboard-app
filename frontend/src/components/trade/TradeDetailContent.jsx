@@ -600,7 +600,6 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                    <Info size={14} className="text-accent" /> Technical Meta
                 </SectionLabel>
                 {(() => {
-                    // ... (restored sessionReturnBlock logic) ...
                     const sessionReturnBlock = (() => {
                       if (trade.exit_ts || !sessionActive) return null;
                       const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');

@@ -2865,14 +2865,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
                     />
                     {presetSearch && (
-                      <button
-                        type="button"
-                        onClick={() => setPresetSearch('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
-                        aria-label="Clear Preset Search"
-                      >
-                        <X size={12} />
-                      </button>
+                      <Tooltip content="Clear Preset Search">
+                        <button
+                          type="button"
+                          onClick={() => setPresetSearch('')}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                          aria-label="Clear Preset Search"
+                        >
+                          <X size={12} />
+                        </button>
+                      </Tooltip>
                     )}
                   </div>
                   <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border shrink-0">

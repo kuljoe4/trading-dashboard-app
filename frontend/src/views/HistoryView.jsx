@@ -638,7 +638,7 @@ export const HistoryView = () => {
                  value={search}
                  onChange={(e) => setSearch(e.target.value)}
                  onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-                 className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent outline-none transition-all w-[180px] lg:w-[240px]"
+                 className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all w-[180px] lg:w-[240px]"
                />
                {search && (
                  <Tooltip content="Clear Search">
@@ -664,7 +664,7 @@ export const HistoryView = () => {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-            className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent outline-none transition-all"
+            className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
           />
           {search && (
             <Tooltip content="Clear Search">

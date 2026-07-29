@@ -21,3 +21,7 @@
 ## 2026-07-28 - Frontend Hash Routing E2E Test Warmup
 **Learning:** In single-page applications where view states are managed via custom hash routers, cold-starting directly into deeply nested routes (e.g. `#/settings`) during visual automated testing (like Playwright) often results in a blank view or redirection. This occurs because early hydration guards check if the store has hydrated before registering the global hashchange event listeners. First loading the default cockpit route (`#/`), waiting for hydration, and then performing hash transitions guarantees consistent view initialization.
 **Action:** Always warm-start E2E testing flows on the root route (`#/`), wait for store hydration, and then navigate to nested subviews.
+
+## 2026-07-29 - Search Inputs Keyboard Focus-Visible & Preset Clear Tooltip Cohesion
+**Learning:** Inline icon-only clear buttons (such as the preset search clear button inside the strategy configuration modal) can easily omit tooltips or aria-labels, making them confusing or invisible to keyboard and screen-reader users. Additionally, dense views like `HistoryView.jsx` can forget high-contrast keyboard-driven focus rings (`focus-visible:ring-2 focus-visible:ring-accent`), violating WCAG 2.1 AAA compliance and dark mode accessibility rules.
+**Action:** Ensure all accessory search inputs' clear buttons across modals are consistently wrapped with descriptive Radix tooltips and that every interactive text input/search bar possesses theme-aligned focus-visible rings.

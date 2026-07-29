@@ -138,18 +138,18 @@ const LogEntry = React.memo(({ log }) => {
 
   return (
     <>
-      <div className="flex items-center gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-4">
+      <div className="flex items-start gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-4 w-full">
         <div
           role="button"
           tabIndex={0}
           onClick={() => setIsOpen(true)}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
-          className="flex items-center gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm"
+          className="flex items-start gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm w-full text-left"
           aria-label="View log details"
         >
           <span className="text-dim/60 whitespace-nowrap shrink-0">[{logTimestamp}]</span>
           <span className={cn(
-            "transition-colors break-words",
+            "transition-colors break-words break-all min-w-0 flex-1",
             logLevel === 'warn' ? "text-amber font-black" :
             logLevel === 'error' ? "text-red font-black" :
             "text-text/90 font-medium"
@@ -159,7 +159,7 @@ const LogEntry = React.memo(({ log }) => {
         </div>
         <CopyButton
           value={logMessage}
-          className="opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1"
+          className="opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1 shrink-0"
           tooltip="Copy log message"
         />
       </div>
@@ -380,12 +380,12 @@ export const DecisionLog = React.memo(() => {
           <div
             ref={listRef}
             onScroll={handleScroll}
-            className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain"
+            className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain w-full"
           >
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5 w-full">
               {(visibleLogs || []).map((log) => (
                 /* BOLT: Use stable log.id as key to reduce reconciliation cost from O(N) to O(1) when prepending */
-                <div key={log.id} className="min-w-fit">
+                <div key={log.id} className="w-full">
                   <LogEntry log={log} />
                 </div>
               ))}

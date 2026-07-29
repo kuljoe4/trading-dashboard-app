@@ -65,20 +65,62 @@ const RRLadder = memo(({ trade }) => {
           </SectionLabel>
       </div>
 
-      <div className="grid grid-cols-5 gap-2 mb-4">
+      <div className="relative flex items-center justify-between gap-2 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-3 pt-2 w-full">
+        {/* Continuous background connector timeline */}
+        <div className="absolute left-[30px] right-[30px] top-[43px] h-1 bg-border/40 rounded-full z-0 pointer-events-none" />
+
+        {/* Dynamic colored progress fill based on activeIdx / triggers count */}
+        <div
+          className="absolute left-[30px] top-[43px] h-1 bg-gradient-to-r from-green to-accent rounded-full z-0 pointer-events-none transition-all duration-500"
+          style={{
+            width: triggers.length > 1
+              ? `calc(${(Math.max(0, activeIdx) / (triggers.length - 1)) * 100}% - ${(Math.max(0, activeIdx) / (triggers.length - 1)) * 12}px)`
+              : '0%'
+          }}
+        />
+
         {(triggers || []).map((trigger, i) => {
           const done = maxRR >= trigger
           const current = i === activeIdx
           return (
-            <div key={`${trigger}-${i}`} className="flex flex-col items-center">
+            <div key={`${trigger}-${i}`} className="flex flex-col items-center flex-1 min-w-[70px] z-10 relative">
+              {/* Trigger Name / RR target */}
               <div className={cn(
-                "text-[10px] font-bold mb-2",
-                current ? "text-accent" : done ? "text-green" : "text-dim"
-              )}>{trigger}R</div>
+                "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300",
+                current ? "text-accent scale-110" : done ? "text-green" : "text-dim"
+              )}>
+                {trigger}R
+              </div>
+
+              {/* Stepper Node Bubble */}
               <div className={cn(
-                "h-2 w-full rounded-full transition-all duration-500",
-                done ? (current ? "bg-accent shadow-[0_0_10px_rgba(91,111,255,0.4)]" : "bg-green") : "bg-border"
-              )} />
+                "w-5 h-5 rounded-full flex items-center justify-center border-2 transition-all duration-500 shadow-md",
+                current
+                  ? "bg-surface border-accent text-accent scale-125 ring-4 ring-accent/15"
+                  : done
+                  ? "bg-green border-green text-surface"
+                  : "bg-surface border-border text-dim/60"
+              )}>
+                {done && !current ? (
+                  <CheckCircle2 size={10} className="text-surface fill-current" />
+                ) : (
+                  <div className={cn(
+                    "w-1.5 h-1.5 rounded-full",
+                    current ? "bg-accent animate-ping" : "bg-current"
+                  )} />
+                )}
+              </div>
+
+              {/* secured stop representation */}
+              <div className={cn(
+                "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300",
+                done ? "text-text font-black" : "text-dim/60"
+              )}>
+                <span>SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}</span>
+                <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-30")}>
+                  {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
+                </span>
+              </div>
             </div>
           )
         })}
@@ -395,6 +437,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const activeSessionPnl = useTradingStore(state => state.totalPnl);
   const activeSessionConfig = useTradingStore(state => state.config);
   const sessionActive = useTradingStore(state => state.sessionActive);
+  const activeSessionBalance = useTradingStore(state => state.balance);
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
 
   // Active Trade Customization Form State
@@ -605,30 +648,43 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   if (!trade) return null
 
   return (
-    <div className="flex flex-col gap-3 md:gap-6">
+    <div className="flex flex-col gap-4 md:gap-6">
       {/* PnL Hero Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 md:gap-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 md:gap-6">
         <div className="relative group flex-1">
-          <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple/20 rounded-xl md:rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000" />
-            <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-xl md:rounded-2xl py-2 md:py-4 px-3 md:px-6 flex flex-col items-center text-center shadow-inner overflow-hidden">
-              <div className="absolute top-0 right-0 p-2 md:p-4 opacity-10">
-                <Activity size={24} className="md:w-12 md:h-12" />
+          <div className={cn(
+            "absolute -inset-1 rounded-xl md:rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000",
+            trade.pnl >= 0 ? "bg-gradient-to-r from-green/30 to-accent/30" : "bg-gradient-to-r from-red/30 to-purple/30"
+          )} />
+          <div className={cn(
+            "relative border rounded-2xl py-5 md:py-6 px-4 md:px-6 flex flex-col items-center text-center shadow-[0_4px_30px_rgba(0,0,0,0.1)] backdrop-blur-md overflow-hidden",
+            trade.pnl >= 0
+              ? "bg-green/5 border-green/20 shadow-[inset_0_0_24px_rgba(0,229,160,0.05)]"
+              : "bg-red/5 border-red/20 shadow-[inset_0_0_24px_rgba(255,68,102,0.05)]"
+          )}>
+            <div className="absolute top-0 right-0 p-3 opacity-5">
+              <Activity size={32} className="md:w-16 md:h-12" />
             </div>
-              <div className="flex items-center gap-2 mb-0.5 md:mb-1">
-                <span className="text-[7px] md:text-[9px] font-black text-dim uppercase tracking-[0.2em]">
+            <div className="flex flex-col items-center gap-1 mb-2">
+              <span className="text-[9px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">
                 {trade.exit_ts ? 'Realized P&L' : 'Live Return'}
               </span>
-                <div className={cn("text-base md:text-2xl lg:text-3xl font-black font-mono tracking-tighter", pnlClass(trade.pnl))}>
+              <div className={cn("text-3xl md:text-4xl lg:text-5xl font-black font-mono tracking-tighter filter drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]", pnlClass(trade.pnl))}>
                 {fmtUSD(trade.pnl)}
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
+              <div className={cn(
+                "px-3.5 py-1.5 rounded-full text-xs font-black font-mono shadow-md border",
+                trade.pnl >= 0
+                  ? "bg-green/10 border-green/20 text-green"
+                  : "bg-red/10 border-red/20 text-red"
+              )}>
                 ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
               {trade.is_reconciliation && (
-                <div className="bg-amber/10 text-amber border border-amber/20 px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black uppercase tracking-widest shadow-sm flex items-center gap-1.5">
-                  <Activity size={12} className="md:size-3" /> Reconciled
+                <div className="bg-amber/10 text-amber border border-amber/20 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5">
+                  <Activity size={12} /> Reconciled
                 </div>
               )}
             </div>
@@ -656,7 +712,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           </div>
         </div>
 
-        <div className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]">
+        <div
+          role="progressbar"
+          aria-valuenow={Math.round(progress)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuetext={`Active trade price runway at ${Math.round(progress)}% of exit targets`}
+          className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]"
+        >
           <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
           <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
           <div
@@ -667,6 +730,10 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             style={{ width: `${progress}%` }}
           >
              <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[move-stripe_1s_linear_infinite]" />
+             {/* Beautiful custom tick marker with pulse dot at current leading price edge */}
+             <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20">
+               <PulseDot color={trade.pnl >= 0 ? "bg-green" : "bg-red"} />
+             </div>
           </div>
         </div>
 
@@ -699,62 +766,68 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 <SectionLabel className="mb-3 md:mb-5">
                    <Info size={14} className="text-accent" /> Technical Meta
                 </SectionLabel>
-                {(() => {
-                    const sessionReturnBlock = (() => {
-                      if (trade.exit_ts || !sessionActive) return null;
-                      const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
-                      const startingBalance = tradingMode === 'paper'
-                        ? (activeSessionConfig.paper_starting_balance || 10000)
-                        : (tradingMode === 'testnet'
-                            ? (activeSessionConfig.testnet_starting_balance || 0)
-                            : (activeSessionConfig.live_starting_balance));
-                      
-                      if (!startingBalance || startingBalance <= 0) return null;
+                <div className="space-y-2">
+                  {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
+                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
+                          <span className="text-dim/30">→</span>
+                          <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                           <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
+                           {adj.adaptive && (
+                              <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
+                                 <Activity size={8} /> Adaptive
+                              </span>
+                           )}
+                        </div>
+                      </div>
+                      {i === 0 && (
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+         </div>
 
-                      const returnPct = (activeSessionPnl / startingBalance) * 100;
-                      const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
-                      return {
-                        label: `Session Return (${modeLabel})`,
-                        value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%)`,
-                        color: pnlClass(activeSessionPnl)
-                      };
-                    })();
+         <div className="space-y-3 md:space-y-4">
+            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
 
-                    return (
-                      <div className="space-y-1 md:space-y-3.5">
-                         {[
-                           sessionReturnBlock && {
-                             label: sessionReturnBlock.label,
-                             value: sessionReturnBlock.value,
-                             color: sessionReturnBlock.color,
-                             tooltip: 'P&L for the current active trading session.'
-                           },
-                           { 
-                             label: 'TP Mode', 
-                             value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio',
-                             tooltip: 'The strategy applied for managing Take Profit targets.'
-                           },
-                       {
-                         label: trade.exit_ts ? 'Exit RR' : 'Exit RR (Projected)',
-                         value: `${(() => {
-                           if (trade.exit_rr !== undefined && trade.exit_rr !== null && trade.exit_rr !== 0) {
-                             return trade.exit_rr >= 0 ? `+${Number(trade.exit_rr).toFixed(2)}` : Number(trade.exit_rr).toFixed(2);
-                           }
-                           const initRisk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price));
-                           const refPrice = trade.exit_price || mark;
-                           const v = (refPrice && trade.entry_price && initRisk > 0 ?
-                               (trade.direction === 'LONG' ? (refPrice - trade.entry_price) : (trade.entry_price - refPrice)) / initRisk : 0);
-                           return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
-                         })()} R`,
-                         color: (() => {
-                           const initRisk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price));
-                           const refPrice = trade.exit_price || mark;
-                           const v = trade.exit_rr !== undefined && trade.exit_rr !== null && trade.exit_rr !== 0 ? trade.exit_rr :
-                             (refPrice && trade.entry_price && initRisk > 0 ?
-                               (trade.direction === 'LONG' ? (refPrice - trade.entry_price) : (trade.entry_price - refPrice)) / initRisk : 0);
-                           return v >= 0 ? 'text-green' : 'text-red';
-                         })(),
-                         tooltip: 'The Reward-to-Risk ratio for the current trade.'
+            <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+              <SectionLabel className="mb-3 md:mb-5">
+                 <Info size={14} className="text-accent" /> Technical Meta
+              </SectionLabel>
+              {(() => {
+                const sessionReturnBlock = (() => {
+                  if (trade.exit_ts || !sessionActive) return null;
+                  const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
+                  const startingBalance = tradingMode === 'paper'
+                    ? (activeSessionConfig.paper_starting_balance || 10000)
+                    : (tradingMode === 'testnet'
+                        ? (activeSessionConfig.testnet_starting_balance || 10000)
+                        : (activeSessionConfig.live_starting_balance || activeSessionBalance || 10000));
+                  const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
+                  const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
+                  return {
+                    label: `Session Return (${modeLabel})`,
+                    value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%)`,
+                    color: pnlClass(activeSessionPnl)
+                  };
+                })();
+
+                return (
+                  <div className="space-y-1 md:space-y-3.5">
+                     {[
+                       sessionReturnBlock && {
+                         label: sessionReturnBlock.label,
+                         value: sessionReturnBlock.value,
+                         color: sessionReturnBlock.color
                        },
                        {
                          label: 'Min RR (Drawdown)',

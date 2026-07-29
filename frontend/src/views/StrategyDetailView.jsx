@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useState, Suspense } from 'react'
 import { pnlColor, pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
@@ -13,6 +13,11 @@ import {
 } from 'lucide-react'
 import { EquityCurve } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
+import { sessionAPI } from '../api/client'
+import { ActiveTradeCard } from '../components/ActiveTradeCard'
+import { lazyWithRetry } from '../lib/lazy'
+
+const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 const SIGNAL_LABELS = {
   momentum_pct: 'Momentum',
@@ -30,7 +35,8 @@ const SIGNAL_LABELS = {
 };
 
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
-  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused } = useTradingStore()
+  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades } = useTradingStore()
+  const [selectedTradeId, setSelectedTradeId] = useState(null)
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -70,6 +76,27 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   const isStrategyPaused = pausedStrategies?.includes(s.strategy_label) || sessionPaused;
 
+  const strategyActiveTrades = useMemo(() => {
+    if (!activeTrades || !s?.strategy_label) return []
+    return activeTrades.filter(t => t.strategy_label === s.strategy_label)
+  }, [activeTrades, s?.strategy_label])
+
+  const activeTradeCount = strategyActiveTrades.length
+
+  const selectedTrade = useMemo(() => {
+    return (strategyActiveTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
+  }, [strategyActiveTrades, selectedTradeId])
+
+  const handleCloseTrade = async (symbol) => {
+    try {
+      await sessionAPI.closeTrade(symbol)
+      setSelectedTradeId(null)
+      useTradingStore.getState().addAlert({ level: 'success', title: 'Liquidation Started', message: `Manual closure request for ${symbol} sent to exchange.` });
+    } catch (e) {
+      useTradingStore.getState().addAlert({ level: 'error', title: 'Closure Failed', message: e?.response?.data?.message || e.message || 'Could not close position.' });
+    }
+  }
+
   return (
     <motion.div
       layout
@@ -87,6 +114,16 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
            {isVariant && (
              <span className="px-2.5 py-1 rounded bg-purple/10 text-purple border border-purple/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left">
                Variant
+             </span>
+           )}
+           {activeTradeCount > 0 ? (
+             <span className="px-2.5 py-1 rounded bg-green/10 text-green border border-green/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left animate-pulse flex items-center gap-1.5 shadow-[0_0_12px_rgba(34,197,94,0.15)]">
+               <span className="w-1.5 h-1.5 rounded-full bg-green" />
+               {activeTradeCount} Active {activeTradeCount === 1 ? 'Position' : 'Positions'}
+             </span>
+           ) : (
+             <span className="px-2.5 py-1 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[10px] font-black uppercase tracking-widest scale-90 origin-left opacity-65">
+               Flat
              </span>
            )}
 
@@ -118,13 +155,20 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
          </div>
       </ViewHeader>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-10">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-10">
         <StatCard
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
           color={pnlClass(s.activePnl)}
           subValue={analytics === null ? "Syncing..." : `Total: ${fmtUSD(s.totalPnl)}`}
           syncing={showResumingFeedback || isSyncing || (analytics === null && s.activePnl === 0)}
+        />
+        <StatCard
+          label="Active Trades"
+          value={activeTradeCount.toString()}
+          color={activeTradeCount > 0 ? "text-green" : "text-dim"}
+          subValue={activeTradeCount > 0 ? "In Position" : "Flat"}
+          tooltipText="The number of open positions currently managed under this strategy."
         />
         <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
         <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)}`} subValue={`Limit $${strategyConfig.total_sl_guard_usdt}`} color={s.totalSlUsed > strategyConfig.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
@@ -218,12 +262,42 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           </div>
         )}
 
+        {/* Active Positions List for Strategy Details (Symbols) */}
+        {activeTradeCount > 0 && (
+          <div className="mb-10 animate-in fade-in duration-300 text-left">
+            <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {strategyActiveTrades.map(trade => (
+                <ActiveTradeCard
+                  key={trade.id || trade.symbol}
+                  trade={trade}
+                  config={strategyConfig}
+                  onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
+                  isResuming={isResuming}
+                  showResumingFeedback={showResumingFeedback}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         <ScannerPreview
           scannerResults={(strategyScannerResults || []).filter(Boolean)}
           config={strategyConfig}
           onOpen={() => onOpenScanner(s.strategy_label)}
         />
       </div>
+
+      <Suspense fallback={null}>
+        {selectedTrade && (
+          <TradeDetailModal
+            isOpen={!!selectedTrade}
+            onClose={() => setSelectedTradeId(null)}
+            trade={selectedTrade}
+            onTradeClose={handleCloseTrade}
+          />
+        )}
+      </Suspense>
 
     </motion.div>
   )

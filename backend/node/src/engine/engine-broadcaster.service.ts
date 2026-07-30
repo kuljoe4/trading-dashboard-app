@@ -484,7 +484,17 @@ export class EngineBroadcasterService {
     const balance = this.sessionState.getBalance(config?.paper_mode ?? true);
     const mode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
     const startingBalance = (mode === 'paper') ? config?.paper_starting_balance : config?.live_starting_balance;
-    const realizedPnl = roundEight(balance - (startingBalance ?? balance));
+
+    // Calculate realized PnL by summing closed trades to ensure accuracy even if live_starting_balance is unset
+    let realizedPnl = 0;
+    if (this.sessionState.closedTrades && this.sessionState.closedTrades.length > 0) {
+      for (const t of this.sessionState.closedTrades) {
+        realizedPnl += Number(t.pnl || 0);
+      }
+      realizedPnl = roundEight(realizedPnl);
+    } else {
+      realizedPnl = roundEight(balance - (startingBalance ?? balance));
+    }
     const totalPnl = roundEight(realizedPnl + activePnl);
 
     const analyticsCondition = !this.lastAnalyticsResult ||
@@ -517,7 +527,7 @@ export class EngineBroadcasterService {
             totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2),
             activeTradeCount: a.count,
             totalSlUsed: roundTo(a.risk, 2),
-            totalEstPnlToRealize: roundTo(a.estPnlToRealize || 0, 2)
+            totalEstPnlToRealize: roundTo(c.pnl + (a.estPnlToRealize || 0), 2)
         };
       }
     }
@@ -527,7 +537,7 @@ export class EngineBroadcasterService {
       total_pnl: roundTo(totalPnl, 2),
       total_risk_pct: roundTo(balance > 0 ? (totalRiskUsdt / balance) * 100 : 0, 2),
       total_sl_used: roundTo(totalRiskUsdt, 2),
-      total_est_pnl_to_realize: roundTo(totalEstPnlToRealize, 2),
+      total_est_pnl_to_realize: roundTo(realizedPnl + totalEstPnlToRealize, 2),
       trades,
       gateState: this.sessionState.gateState,
       gateReason: this.lastRiskResult?.reason || 'OK',

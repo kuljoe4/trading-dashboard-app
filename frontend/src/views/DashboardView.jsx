@@ -342,8 +342,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       </div>
 
       {/* Modern Metrics Row */}
-      <div className="grid grid-cols-3 gap-3 py-1 items-center border-t border-b border-border/10 py-3">
-        <div className="flex flex-col">
+      <div className="grid grid-cols-3 gap-3 py-1 items-start border-t border-b border-border/10 py-3">
+        <div className="flex flex-col justify-start">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&L</span>
           <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
@@ -353,7 +353,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </span>
         </div>
 
-        <div className="flex flex-col">
+        <div className="flex flex-col justify-start">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Session Return</span>
           <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.totalPnl) }}>
             {fmtUSD(s.totalPnl)}
@@ -363,7 +363,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </span>
         </div>
 
-        <div className="flex flex-col items-end text-right">
+        <div className="flex flex-col justify-start items-end text-right">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Positions</span>
           <span className="text-sm sm:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1.5">
             {activeCount} / {maxOpen}

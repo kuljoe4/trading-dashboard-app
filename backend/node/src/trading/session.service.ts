@@ -2275,7 +2275,7 @@ export class SessionService implements OnModuleInit {
     return { status: "stopped" };
   }
 
-  async getStatus(includeLogs: boolean = false) {
+  async getStatus(includeLogs = false) {
     if (!this.currentSessionId) {
       const activeSession = await this.sessionRepository.findOne({
         where: { running: true },

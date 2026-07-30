@@ -129,6 +129,10 @@ const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay'
 const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.EquityCurve })))
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
+const preloadStrategyDetailView = () => { import('./StrategyDetailView'); };
+const preloadConfigModal = () => { import('../components/ConfigModal'); };
+const preloadScannerOverlay = () => { import('../components/ScannerOverlay'); };
+
 const LoadingFallback = () => (
   <div className="flex items-center justify-center p-20">
     <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin" />
@@ -209,7 +213,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, className, isResuming, showResumingFeedback }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter }) => {
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -253,12 +257,15 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     <motion.div
       layout
       whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 500, damping: 30 }}
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}
+      onMouseEnter={onMouseEnter}
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group relative overflow-hidden",
+        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         className,
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
@@ -321,6 +328,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               <button
                 type="button"
                 onClick={handleEditClick}
+                onMouseEnter={onEditMouseEnter}
                 className="p-1.5 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
                 aria-label="Edit Strategy"
               >
@@ -354,7 +362,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             </span>
           </div>
           <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none mt-1 truncate">
-            Proj: ≈{fmtUSD(totalEstToRealize)}
+            Proj: <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
           </span>
         </div>
 
@@ -546,7 +554,14 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
           </SectionLabel>
           <span className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Opportunities</span>
         </div>
-        <button className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest" aria-label="View all scanner results" onClick={onOpen}>Open Full</button>
+        <button
+          className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+          aria-label="View all scanner results"
+          onClick={onOpen}
+          onMouseEnter={preloadScannerOverlay}
+        >
+          Open Full
+        </button>
       </div>
       <div className="flex-1">
         {top.length === 0 && placeholders.length === 5 ? (
@@ -1537,6 +1552,8 @@ export function DashboardView({ initialStrategy }) {
                             onOpenScanner={handleOpenScanner}
                             onEdit={handleEditPrimary}
                             onClick={handleSelectPrimary}
+                            onMouseEnter={preloadStrategyDetailView}
+                            onEditMouseEnter={preloadConfigModal}
                             isMonitored={monitoredSymbolsSet.has(currentStrategy.strategy_label)}
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
                             isResuming={isResuming}
@@ -1564,6 +1581,8 @@ export function DashboardView({ initialStrategy }) {
                                 onOpenScanner={handleOpenScanner}
                                 onEdit={handleEditVariant}
                                 onClick={handleSelectVariant}
+                                onMouseEnter={preloadStrategyDetailView}
+                                onEditMouseEnter={preloadConfigModal}
                                 isMonitored={monitoredSymbolsSet.has(label)}
                                 isResuming={isResuming}
                                 showResumingFeedback={showResumingFeedback}

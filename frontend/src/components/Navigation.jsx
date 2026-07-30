@@ -4,6 +4,13 @@ import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronL
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
 
+const preloadView = (path) => {
+  if (path === '/') import('../views/DashboardView');
+  else if (path === '/trades') import('../views/TradesView');
+  else if (path === '/history') import('../views/HistoryView');
+  else if (path === '/settings') import('../views/SettingsView');
+};
+
 const NAV_ITEMS = [
   { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
   { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },
@@ -53,6 +60,7 @@ export const Sidebar = ({ selected }) => {
           <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
             <button
               onClick={() => window.location.hash = `#${item.path}`}
+              onMouseEnter={() => preloadView(item.path)}
               aria-label={`${item.label}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
               aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
@@ -187,6 +195,7 @@ export const BottomNav = ({ selected }) => {
           <button
             key={item.path}
             onClick={() => window.location.hash = `#${item.path}`}
+            onMouseEnter={() => preloadView(item.path)}
             aria-current={isActive(item.path) ? 'page' : undefined}
             className={cn(
               "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",

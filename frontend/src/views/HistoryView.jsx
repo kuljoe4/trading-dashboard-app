@@ -367,6 +367,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
   const [targetRr, setTargetRr] = useState(2.0);
   const [projectedTrades, setProjectedTrades] = useState(50);
   const [startingBalance, setStartingBalance] = useState(initialStartingBalance);
+  const [usePctRisk, setUsePctRisk] = useState(true);
+  const [riskPct, setRiskPct] = useState(1.0);
 
   useEffect(() => {
     setStartingBalance(initialStartingBalance);
@@ -387,7 +389,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
       const isWin = maxRr >= targetRr;
 
-      const risk = Number(t.initial_risk_usdt || t.risk_usdt || 100);
+      const risk = usePctRisk ? (startingBalance * (riskPct / 100)) : Number(t.initial_risk_usdt || t.risk_usdt || 100);
       totalRisk += risk;
 
       if (isWin) {
@@ -413,7 +415,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
 
     // Fast O(1) Projection Modeling:
     // Future Net P&L = (WR * targetRr - (1 - WR)) * Projected Trades * Average Trade Risk
-    const avgRisk = count > 0 ? (totalRisk / count) : 100;
+    const avgRisk = usePctRisk ? (startingBalance * (riskPct / 100)) : (count > 0 ? (totalRisk / count) : 100);
     const projectedWins = Math.round(calculatedWinRate * projectedTrades);
     const projectedLosses = projectedTrades - projectedWins;
     const projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
@@ -437,7 +439,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       avgDurationMs,
       totalProjectedDurationMs
     };
-  }, [trades, targetRr, startingBalance, projectedTrades]);
+  }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct]);
 
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
@@ -449,7 +451,32 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         </div>
 
         {/* Dynamic starting balance input & Target badge container */}
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end shrink-0">
+        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap justify-between sm:justify-end shrink-0">
+          <div className="flex items-center gap-1.5 bg-background/30 px-2 py-1 rounded border border-border/30">
+            <input
+              type="checkbox"
+              id="usePctRisk"
+              checked={usePctRisk}
+              onChange={(e) => setUsePctRisk(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer"
+            />
+            <label htmlFor="usePctRisk" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none">
+              Risk % of Bal:
+            </label>
+            <input
+              type="number"
+              min="0.1"
+              max="100"
+              step="0.1"
+              disabled={!usePctRisk}
+              value={riskPct}
+              onChange={(e) => setRiskPct(Math.max(0.1, Math.min(100, parseFloat(e.target.value) || 1.0)))}
+              className="w-12 bg-background/50 border border-border/50 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold text-text disabled:opacity-40 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              aria-label="Risk percent of starting balance"
+            />
+            <span className="text-[10px] font-bold font-mono text-dim">%</span>
+          </div>
+
           <div className="flex items-center gap-1.5">
             <span className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap">Starting Bal:</span>
             <input
@@ -463,7 +490,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
             />
           </div>
 
-          <div className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[10px] text-accent font-black font-mono shrink-0">
+          <div className="bg-accent/10 border border-accent/20 px-2 py-1 rounded text-[10px] text-accent font-black font-mono shrink-0">
             {Number(targetRr).toFixed(1)}R Target
           </div>
         </div>

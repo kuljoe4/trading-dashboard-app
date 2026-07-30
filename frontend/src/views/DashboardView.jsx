@@ -763,8 +763,9 @@ export function DashboardView({ initialStrategy }) {
       map[label] = 0;
     });
     (activeTrades || []).forEach(t => {
-      if (t && map[t.strategy_label] !== undefined) {
-        map[t.strategy_label] += safeNum(t.pnl);
+      if (t) {
+        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategy.strategy_label;
+        map[label] += safeNum(t.pnl);
       }
     });
     return map;
@@ -777,8 +778,9 @@ export function DashboardView({ initialStrategy }) {
       map[label] = 0;
     });
     (activeTrades || []).forEach(t => {
-      if (t && map[t.strategy_label] !== undefined) {
-        map[t.strategy_label] += safeNum(t.est_pnl_to_realize);
+      if (t) {
+        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategy.strategy_label;
+        map[label] += safeNum(t.est_pnl_to_realize);
       }
     });
     return map;
@@ -791,8 +793,9 @@ export function DashboardView({ initialStrategy }) {
       map[label] = 0;
     });
     (activeTrades || []).forEach(t => {
-      if (t && map[t.strategy_label] !== undefined) {
-        map[t.strategy_label]++;
+      if (t) {
+        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategy.strategy_label;
+        map[label]++;
       }
     });
     return map;

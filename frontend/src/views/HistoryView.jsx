@@ -385,26 +385,12 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     let totalDurationMs = 0;
     let durationCount = 0;
 
-    let winMaeSum = 0;
-    let winMaeCount = 0;
-    let lossMaeSum = 0;
-    let lossMaeCount = 0;
-
     let currentBalance = startingBalance;
 
     for (let i = 0; i < count; i++) {
       const t = trades[i];
       const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
       const isWin = maxRr >= targetRr;
-      const mae = Number(t.min_rr_achieved ?? 0);
-
-      if (isWin) {
-        winMaeSum += mae;
-        winMaeCount++;
-      } else {
-        lossMaeSum += mae;
-        lossMaeCount++;
-      }
 
       const risk = usePctRisk
         ? (useCompounding ? (currentBalance * (riskPct / 100)) : (startingBalance * (riskPct / 100)))
@@ -434,9 +420,6 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
 
     const calculatedWinRate = count > 0 ? (winCount / count) : 0;
     const simulatedRoi = startingBalance > 0 ? (totalSimulatedPnl / startingBalance) * 100 : 0;
-
-    const avgWinMae = winMaeCount > 0 ? (winMaeSum / winMaeCount) : 0;
-    const avgLossMae = lossMaeCount > 0 ? (lossMaeSum / lossMaeCount) : 0;
 
     // Fast O(1) Projection Modeling with compounding support:
     const avgRisk = usePctRisk ? (startingBalance * (riskPct / 100)) : (count > 0 ? (totalRisk / count) : 100);
@@ -468,9 +451,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       projectedPnl,
       projectedRoi: projectedRoi.toFixed(2),
       avgDurationMs,
-      totalProjectedDurationMs,
-      avgWinMae,
-      avgLossMae
+      totalProjectedDurationMs
     };
   }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
 
@@ -569,7 +550,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2.5 border-t border-border/10">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2.5 border-t border-border/10">
         <div className="flex flex-col min-w-0">
           <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated WR</span>
           <span className="text-xs font-black font-mono tracking-tight text-text truncate">
@@ -582,22 +563,10 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
             {fmtUSD(stats.simulatedPnl)}
           </span>
         </div>
-        <div className="flex flex-col min-w-0">
+        <div className="flex flex-col col-span-2 sm:col-span-1 items-start sm:items-end text-left sm:text-right min-w-0">
           <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated ROI</span>
           <span className={cn("text-xs font-black font-mono tracking-tight truncate", pnlClass(stats.simulatedPnl))}>
             {stats.simulatedPnl >= 0 ? '+' : ''}{stats.simulatedRoi}%
-          </span>
-        </div>
-        <div className="flex flex-col min-w-0">
-          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Win MAE (Avg)</span>
-          <span className="text-xs font-black font-mono tracking-tight text-dim truncate">
-            {Number(stats.avgWinMae).toFixed(2)}R
-          </span>
-        </div>
-        <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0 col-span-2 sm:col-span-1">
-          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Loss MAE (Avg)</span>
-          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
-            {Number(stats.avgLossMae).toFixed(2)}R
           </span>
         </div>
       </div>

@@ -362,6 +362,180 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
 })
 TradeItem.displayName = 'TradeItem'
 
+// Interactive High-Performance RR Win Rate & Simulated P&L Calculator
+export const RrWinRateCalculator = React.memo(({ trades, startingBalance = 10000 }) => {
+  const [targetRr, setTargetRr] = useState(2.0);
+  const [projectedTrades, setProjectedTrades] = useState(50);
+
+  const stats = useMemo(() => {
+    let winCount = 0;
+    let totalSimulatedPnl = 0;
+    const count = trades.length;
+
+    // Use average risk of this session's trades for projections
+    let totalRisk = 0;
+    for (let i = 0; i < count; i++) {
+      const t = trades[i];
+      const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
+      const isWin = maxRr >= targetRr;
+
+      const risk = Number(t.initial_risk_usdt || t.risk_usdt || 100);
+      totalRisk += risk;
+
+      if (isWin) {
+        winCount++;
+        totalSimulatedPnl += targetRr * risk;
+      } else {
+        totalSimulatedPnl -= risk;
+      }
+    }
+
+    const calculatedWinRate = count > 0 ? (winCount / count) : 0;
+    const simulatedRoi = startingBalance > 0 ? (totalSimulatedPnl / startingBalance) * 100 : 0;
+
+    // Fast O(1) Projection Modeling:
+    // Future Net P&L = (WR * targetRr - (1 - WR)) * Projected Trades * Average Trade Risk
+    const avgRisk = count > 0 ? (totalRisk / count) : 100;
+    const projectedWins = Math.round(calculatedWinRate * projectedTrades);
+    const projectedLosses = projectedTrades - projectedWins;
+    const projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
+    const projectedRoi = startingBalance > 0 ? (projectedPnl / startingBalance) * 100 : 0;
+
+    return {
+      winRate: (calculatedWinRate * 100).toFixed(1),
+      wins: winCount,
+      losses: count - winCount,
+      simulatedPnl: totalSimulatedPnl,
+      simulatedRoi: simulatedRoi.toFixed(2),
+      avgRisk,
+      projectedWins,
+      projectedLosses,
+      projectedPnl,
+      projectedRoi: projectedRoi.toFixed(2)
+    };
+  }, [trades, targetRr, startingBalance, projectedTrades]);
+
+  return (
+    <div className="bg-background/40 border border-border/40 rounded-xl p-4 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+      <div className="flex justify-between items-center gap-2">
+        <div className="flex flex-col">
+          <span className="text-[10px] text-dim font-black uppercase tracking-widest">Predictive RR Target Calculator</span>
+          <span className="text-[8.5px] text-dim/60 font-medium mt-0.5">Simulate win rate and P&L at custom Reward-to-Risk ratios</span>
+        </div>
+        <div className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[10px] text-accent font-black font-mono">
+          {Number(targetRr).toFixed(1)}R Target
+        </div>
+      </div>
+
+      <div className="flex items-center gap-4">
+        <input
+          type="range"
+          min="0.5"
+          max="6.0"
+          step="0.1"
+          value={targetRr}
+          onChange={(e) => setTargetRr(Number(e.target.value))}
+          className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none"
+        />
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setTargetRr(prev => Math.max(0.5, Number((prev - 0.5).toFixed(1))))}
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+          >
+            -
+          </button>
+          <button
+            onClick={() => setTargetRr(prev => Math.min(6.0, Number((prev + 0.5).toFixed(1))))}
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+          >
+            +
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 pt-2.5 border-t border-border/10">
+        <div className="flex flex-col">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated WR</span>
+          <span className="text-xs font-black font-mono tracking-tight text-text">
+            {stats.winRate}% <span className="text-[9px] text-dim/60 font-bold">({stats.wins}/{trades.length})</span>
+          </span>
+        </div>
+        <div className="flex flex-col">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated P&L</span>
+          <span className={cn("text-xs font-black font-mono tracking-tight", pnlClass(stats.simulatedPnl))}>
+            {fmtUSD(stats.simulatedPnl)}
+          </span>
+        </div>
+        <div className="flex flex-col items-end text-right">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated ROI</span>
+          <span className={cn("text-xs font-black font-mono tracking-tight", pnlClass(stats.simulatedPnl))}>
+            {stats.simulatedPnl >= 0 ? '+' : ''}{stats.simulatedRoi}%
+          </span>
+        </div>
+      </div>
+
+      {/* Projection Modeling Sub-card */}
+      <div className="bg-surface/30 border border-border/30 rounded-xl p-3 mt-1 flex flex-col gap-3">
+        <div className="flex justify-between items-center gap-4">
+          <div className="flex flex-col">
+            <span className="text-[9px] text-dim font-black uppercase tracking-wider">Predictive Projection Modeling</span>
+            <span className="text-[8px] text-dim/50 font-semibold mt-0.5">Project future performance using session characteristics (Avg Risk: {fmtUSD(stats.avgRisk)})</span>
+          </div>
+
+          {/* Stepper Input with Keyboard Accessibility */}
+          <div className="flex items-center gap-1 bg-background/50 border border-border/50 rounded-lg p-0.5 select-none shrink-0">
+            <button
+              onClick={() => setProjectedTrades(prev => Math.max(5, prev - 5))}
+              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none"
+              aria-label="Decrease projected trades count"
+            >
+              -
+            </button>
+            <input
+              type="number"
+              min="5"
+              max="1000"
+              value={projectedTrades}
+              onChange={(e) => setProjectedTrades(Math.max(5, parseInt(e.target.value, 10) || 5))}
+              className="w-10 bg-transparent text-center font-mono text-[10px] font-bold text-text focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              aria-label="Projected future trades count"
+            />
+            <button
+              onClick={() => setProjectedTrades(prev => Math.min(1000, prev + 5))}
+              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none"
+              aria-label="Increase projected trades count"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2.5 pt-1.5">
+          <div className="flex flex-col">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Projected Trades</span>
+            <span className="text-[10px] font-black font-mono text-text/80 leading-none">
+              {projectedTrades} <span className="text-[8px] text-dim/60 font-bold">({stats.projectedWins}W - {stats.projectedLosses}L)</span>
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Projected Net P&L</span>
+            <span className={cn("text-[10px] font-black font-mono leading-none", pnlClass(stats.projectedPnl))}>
+              {fmtUSD(stats.projectedPnl)}
+            </span>
+          </div>
+          <div className="flex flex-col items-end text-right">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Projected ROI</span>
+            <span className={cn("text-[10px] font-black font-mono leading-none", pnlClass(stats.projectedPnl))}>
+              {stats.projectedPnl >= 0 ? '+' : ''}{stats.projectedRoi}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+RrWinRateCalculator.displayName = 'RrWinRateCalculator';
+
 // Premium Glassmorphic SessionGroup with Controlled Toggle, glows, and stacked win/loss distribution sparkline
 const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -576,7 +750,11 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-t border-border/10"
           >
-            <div className="p-4 space-y-3 bg-background/20">
+            <div className="p-4 space-y-4 bg-background/20">
+              {trades && trades.length > 0 && (
+                <RrWinRateCalculator trades={trades} startingBalance={session.balance || 10000} />
+              )}
+
               {curve.length >= 2 && (
                 <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
                   <React.Suspense fallback={<ChartSkeleton height={180} />}>

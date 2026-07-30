@@ -238,7 +238,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       className={cn(
         "bg-surface border rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
         paused && !isResuming ? "border-amber/30 bg-amber/[0.005]" :
-        isGated && !paused && !isResuming ? "border-red/30 bg-red/[0.005]" :
+        isGated && !paused && !isResuming ? "border-amber/30 bg-amber/[0.003]" :
         showResumingFeedback ? "border-accent/30 bg-accent/[0.005]" :
         tradingMode === 'paper' ? "border-border/50 hover:border-amber/30 hover:shadow-amber/[0.02]" :
         tradingMode === 'testnet' ? "border-border/50 hover:border-purple/30 hover:shadow-purple/[0.02]" :
@@ -269,8 +269,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             )}
             {isGated && !paused && !isResuming && (
               <Tooltip content={gateInfo.gateReason || 'Gated by Risk Rules'}>
-                <span className="px-2.5 py-1 rounded-full border border-red/20 bg-red/10 text-[10px] text-red font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left cursor-help">
-                  <XCircle size={10} fill="currentColor" className="text-red" />
+                <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left cursor-help">
+                  <PulseDot color="bg-amber" />
                   {gateInfo.gateState === 'sleeping' ? 'SLEEPING' : 'GATED'}
                 </span>
               </Tooltip>
@@ -433,7 +433,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   );
 })
 
-const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback }) => {
+const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, hibernating, hibernationMode, activeTradesCount = 0, showResumingFeedback, onManage }) => {
   // SRE/React: Hooks MUST be invoked unconditionally and in the same order on
   // every render. An early `return null` previously sat ABOVE these hooks, which
   // violates the Rules of Hooks and corrupts React's internal fiber (manifests as
@@ -450,6 +450,10 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
   if (!gateState && !scannerPaused && !showResumingFeedback) return null;
 
   const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
+
+  const waitTimeStr = nextSlotSec !== null
+    ? (nextSlotSec > 60 ? `${Math.ceil(nextSlotSec / 60)}m` : `${nextSlotSec}s`)
+    : '';
 
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
@@ -498,15 +502,20 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
           {showResumingFeedback ? 'Resuming Data Feed...' : hibernating ? (hibernationMode === 'light' ? 'Light Sleep Active' : 'Deep Sleep Active') : (messages[gateState] || 'Risk gate active.')}
         </span>
         {hibernating ? (
-          <div
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onManage) onManage();
+            }}
             className={cn(
-              "ml-auto px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border shrink-0",
-              hibernationMode === 'light' ? "bg-accent/10 border-accent/20 text-accent" : "bg-amber/20 border-amber/40 text-amber"
+              "ml-auto px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border shrink-0 flex items-center gap-1.5 cursor-pointer transition-all hover:scale-95 active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              hibernationMode === 'light' ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20" : "bg-amber/15 border-amber/35 text-amber hover:bg-amber/25"
             )}
-            title={hibernationMode === 'light' ? "Light Sleep Active: Market streams kept active for fast resumption." : "Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires."}
+            title="Configure Hibernation & Sleep parameters in Settings"
           >
-            <Zap size={10} fill="currentColor" className={hibernationMode === 'light' ? "text-accent" : "text-amber"} /> {hibernationMode === 'light' ? 'LIGHT SLEEP' : 'DEEP SLEEP'}
-          </div>
+            <SettingsIcon size={10} /> MANAGE
+          </button>
         ) : isGatedIdle && (
           <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
             <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20 shrink-0">
@@ -523,13 +532,18 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
       {/* Dynamic Micro-Progress Timeline Bar for Period Release Countdown */}
       {nextSlotSec !== null && nextSlotSec > 0 && (
-        <div className="w-full bg-border/20 h-1 rounded-full overflow-hidden mt-1 relative border border-white/5">
-          <motion.div
-            initial={{ width: '100%' }}
-            animate={{ width: `${progressPct}%` }}
-            transition={{ duration: 1, ease: 'linear' }}
-            className="h-full bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]"
-          />
+        <div className="flex items-center gap-3 mt-1.5">
+          <div className="flex-1 bg-border/20 h-1.5 rounded-full overflow-hidden relative border border-white/5">
+            <motion.div
+              initial={{ width: '100%' }}
+              animate={{ width: `${progressPct}%` }}
+              transition={{ duration: 1, ease: 'linear' }}
+              className="h-full bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]"
+            />
+          </div>
+          <span className="px-2 py-0.5 rounded bg-amber/20 border border-amber/35 text-[9px] font-black font-mono text-amber shrink-0 animate-pulse">
+            {waitTimeStr}
+          </span>
         </div>
       )}
     </motion.div>
@@ -1151,11 +1165,12 @@ export function DashboardView({ initialStrategy }) {
             hibernationMode={hibernationMode}
             activeTradesCount={activeTrades.length}
             showResumingFeedback={showResumingFeedback}
+            onManage={handleEditPrimary}
           />
         </div>
 
         {/* Global Metrics & Temporal Risk - Prioritized (UX-001) */}
-        <div className="flex flex-col gap-10 lg:gap-14 mb-8 lg:mb-10">
+        <div className="flex flex-col gap-5 lg:gap-6 mb-5 lg:mb-6">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1263,7 +1278,7 @@ export function DashboardView({ initialStrategy }) {
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4 }}
-          className="mb-8 lg:mb-12 flex flex-col"
+          className="mb-5 lg:mb-6 flex flex-col"
         >
           <div
             role="button"

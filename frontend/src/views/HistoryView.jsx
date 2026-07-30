@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import * as Dialog from '@radix-ui/react-dialog'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
@@ -7,7 +8,178 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X } from 'lucide-react'
+
+// Accessible Session Details Modal using Radix Dialog
+export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
+  const [copied, setCopied] = useState(false);
+
+  if (!session) return null;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(session.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const label = strategyLabel(session);
+  const duration = (() => {
+    if (!session.startTime) return '---';
+    const end = session.endTime ? new Date(session.endTime).getTime() : Date.now();
+    const start = new Date(session.startTime).getTime();
+    return formatDuration(end - start);
+  })();
+
+  const activeLabels = Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
+
+  return (
+    <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <AnimatePresence>
+        {isOpen && (
+          <Dialog.Portal forceMount>
+            <Dialog.Overlay asChild>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
+              />
+            </Dialog.Overlay>
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10110 outline-none w-[calc(100%-2rem)] max-w-lg">
+              <motion.div
+                role="dialog"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {/* Header */}
+                <div className="flex justify-between items-start mb-4 pb-3 border-b border-border/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                      <Info size={18} />
+                    </div>
+                    <div>
+                      <Dialog.Title className="text-sm font-black uppercase tracking-tight text-text">Session Details</Dialog.Title>
+                      <Dialog.Description className="text-[10px] text-dim font-bold uppercase tracking-widest mt-0.5">Technical lifecycle & metrics</Dialog.Description>
+                    </div>
+                  </div>
+                  <Tooltip content="Close">
+                    <Dialog.Close asChild>
+                      <button className="text-dim hover:text-text p-1.5 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close dialog">
+                        <X size={16} />
+                      </button>
+                    </Dialog.Close>
+                  </Tooltip>
+                </div>
+
+                {/* Body Content - Scrollable */}
+                <div className="flex-1 overflow-y-auto space-y-4 pr-1.5 no-scrollbar">
+                  {/* General Overview Card */}
+                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Strategy Label</span>
+                      <span className="text-xs font-black text-text uppercase">{label}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session UUID</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-mono font-bold text-text/80 bg-surface px-2 py-1 rounded border border-border/50 select-all">{session.id}</span>
+                        <button
+                          onClick={handleCopy}
+                          className="p-1 hover:bg-white/5 rounded text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer"
+                          aria-label="Copy session ID"
+                        >
+                          {copied ? <CheckCircle2 size={12} className="text-green" /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Environment</span>
+                      <span className={cn(
+                        "text-[9px] font-black px-2 py-0.5 rounded uppercase border",
+                        session.paperMode
+                          ? "text-amber border-amber/20 bg-amber/5"
+                          : (session.config?.trading_mode === 'testnet' ? "text-purple border-purple/20 bg-purple/5" : "text-green border-green/20 bg-green/5")
+                      )}>
+                        {session.paperMode ? 'PAPER' : (session.config?.trading_mode || 'LIVE').toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Timing details */}
+                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Started At</span>
+                      <span className="text-[10.5px] font-bold text-text">{new Date(session.startTime).toLocaleString()}</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Ended At</span>
+                      <span className="text-[10.5px] font-bold text-text">
+                        {session.endTime ? new Date(session.endTime).toLocaleString() : 'Active / Unfinished'}
+                      </span>
+                    </div>
+                    <div className="col-span-2 flex flex-col gap-1 pt-2 border-t border-border/5">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Total Active Duration</span>
+                      <span className="text-xs font-black text-accent flex items-center gap-1.5">
+                        <Clock size={12} /> {duration}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Active Variants details */}
+                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
+                    <div className="text-[9px] text-dim font-black uppercase tracking-widest">Active Variations ({activeLabels.length})</div>
+                    <div className="flex flex-col gap-2">
+                      {activeLabels.map(l => {
+                        const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
+                        return (
+                          <div key={l} className="flex items-center justify-between p-2 bg-surface/50 border border-border/20 rounded-lg">
+                            <span className="text-[10.5px] font-bold text-text uppercase">{l}</span>
+                            <span className={cn(
+                              "text-[8px] font-black px-1.5 py-0.5 rounded border uppercase",
+                              isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
+                            )}>
+                              {isBase ? 'Base' : 'Variant'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Raw Configuration block */}
+                  {session.config && (
+                    <div className="space-y-1.5">
+                      <span className="text-[9px] text-dim font-black uppercase tracking-widest">Technical Parameters JSON</span>
+                      <div className="bg-background/60 border border-border/40 rounded-xl p-3 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50">
+                        <pre className="text-[9.5px] font-mono text-text/80 leading-relaxed whitespace-pre-wrap select-all">
+                          {JSON.stringify(session.config, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="mt-5 pt-3 border-t border-border/10 flex justify-end">
+                  <Dialog.Close asChild>
+                    <button className="px-5 py-2 bg-accent/10 hover:bg-accent/15 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer h-9">
+                      Close Details
+                    </button>
+                  </Dialog.Close>
+                </div>
+              </motion.div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        )}
+      </AnimatePresence>
+    </Dialog.Root>
+  );
+};
 
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
@@ -50,11 +222,11 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
       : "bg-dim/30"
 
   return (
-    <div className="flex gap-4 p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/20 hover:bg-white/[0.01] hover:translate-x-1 transition-all group/trade shadow-sm relative overflow-hidden">
+    <div className="flex gap-3 sm:gap-4 p-3 sm:p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/20 hover:bg-white/[0.01] hover:translate-x-1 transition-all group/trade shadow-sm relative overflow-hidden">
       {/* Visual left outcome strip */}
       <div className={cn("w-1 self-stretch rounded-full shrink-0", outcomeClass)} />
 
-      <div className="flex-1 flex flex-col gap-3">
+      <div className="flex-1 flex flex-col gap-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1 min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -117,38 +289,38 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-6 gap-y-4 pt-3 border-t border-border/5">
-          <div className="flex flex-col items-start min-w-0">
+        <div className="grid grid-cols-3 sm:grid-cols-7 gap-y-2.5 gap-x-3.5 pt-2.5 border-t border-border/10">
+          <div className="flex flex-col items-start min-w-0 col-span-2 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Execution</span>
             <span className="text-[9px] font-black text-text/70 font-mono truncate w-full">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Quantity</span>
-            <span className="text-[9px] font-black text-text/70 font-mono">{Number(trade.qty || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="text-[9px] font-black text-text/70 font-mono truncate w-full">{Number(trade.qty || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Peak</span>
-            <span className="text-[9px] font-black text-accent font-mono">+{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
+            <span className="text-[9px] font-black text-accent font-mono truncate w-full">+{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit RR</span>
-            <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.exit_rr))}>
+            <span className={cn("text-[9px] font-black font-mono truncate w-full", pnlClass(trade.exit_rr))}>
               {trade.exit_rr !== undefined && trade.exit_rr !== null ? `${trade.exit_rr >= 0 ? '+' : ''}${Number(trade.exit_rr).toFixed(2)}R` : '0.00R'}
             </span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Min RR (MAE)</span>
-            <span className={cn("text-[9px] font-black font-mono", (trade.min_rr_achieved || 0) < 0 ? "text-red" : "text-dim")}>
+            <span className={cn("text-[9px] font-black font-mono truncate w-full", (trade.min_rr_achieved || 0) < 0 ? "text-red" : "text-dim")}>
               {trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? `${Number(trade.min_rr_achieved).toFixed(2)}R` : '0.00R'}
             </span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
-            <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
-            <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
+            <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Context</span>
+            <span className={cn("text-[9px] font-black font-mono truncate w-full", pnlClass(trade.entry_daily_change_pct))}>
               {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%
             </span>
           </div>
-          <div className="flex flex-col items-start min-w-0 sm:max-w-[120px] col-span-2 sm:col-span-1">
+          <div className="flex flex-col items-start min-w-0 col-span-2 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit Reason</span>
             <Tooltip content={trade.exit_signal_reason || 'No detailed reason provided'}>
               <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight cursor-help border-b border-dotted border-dim/20">
@@ -180,6 +352,8 @@ TradeItem.displayName = 'TradeItem'
 
 // Premium Glassmorphic SessionGroup with Controlled Toggle, glows, and stacked win/loss distribution sparkline
 const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -210,10 +384,10 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     }
     const m = calculatePerformanceMetrics(trades, session.balance);
     const losses = trades.length - m.wins;
-    const avgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
-    const avgLoss = losses > 0 ? m.grossLoss / losses : 0;
-    const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : (m.wins > 0 ? 100 : 0);
-    const winLossRatioStr = avgLoss > 0 ? Number(winLossRatio).toFixed(2) : (m.wins > 0 ? '∞' : '0.00');
+    const bgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
+    const bgLoss = losses > 0 ? m.grossLoss / losses : 0;
+    const winLossRatio = bgLoss > 0 ? (bgWin / bgLoss) : (m.wins > 0 ? 100 : 0);
+    const winLossRatioStr = bgLoss > 0 ? Number(winLossRatio).toFixed(2) : (m.wins > 0 ? '∞' : '0.00');
     const startingBalance = Number(session.balance) - Number(session.totalPnl);
     const pnlPct = startingBalance > 0 ? (m.totalPnl / startingBalance) * 100 : 0;
 
@@ -232,10 +406,11 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
 
-  const activeLabels = useMemo(() => {
+  const variantsCount = useMemo(() => {
     const labels = new Set(trades.map(t => strategyLabel(t)));
-    return Array.from(labels);
-  }, [trades]);
+    labels.delete(label); // remove baseline
+    return labels.size;
+  }, [trades, label]);
 
   // Stacked win/loss distribution calculation
   const winCount = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades]);
@@ -255,51 +430,56 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       : "border-l-[5px] border-l-dim/20"
 
   return (
-    <div id={`session-${session.id}`} className={cn("bg-surface border border-border rounded-2xl overflow-hidden mb-5 lg:mb-6 shadow-sm transition-all hover:border-accent/15 hover:shadow-md scroll-mt-8", borderLeftColor)}>
+    <div id={`session-${session.id}`} className={cn("bg-surface border border-border rounded-2xl overflow-hidden mb-3.5 lg:mb-4 shadow-sm transition-all hover:border-accent/15 hover:shadow-md scroll-mt-8", borderLeftColor)}>
       <div
         onClick={onToggle}
         onKeyDown={handleKeyDown}
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
-        className="p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-5 cursor-pointer select-none bg-surface/30 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none"
+        className="p-3.5 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4 cursor-pointer select-none bg-surface/30 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none"
       >
         {/* Left: Strategy Info */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className={cn(
-            "w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
+            "w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
             expanded ? "bg-accent/10 border-accent/20 scale-105" : "bg-surface border-border group-hover:border-accent/30"
           )}>
-            {expanded ? <ChevronUp size={20} className="text-accent" /> : <ChevronDown size={20} className="text-dim" />}
+            {expanded ? <ChevronUp size={18} className="text-accent" /> : <ChevronDown size={18} className="text-dim" />}
           </div>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-base font-black tracking-tight hover:text-accent transition-colors">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-sm sm:text-base font-black tracking-tight hover:text-accent transition-colors">
                 {label}
               </a>
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
-                <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 scale-75" />
-              </div>
+              <Tooltip content="View Session Technical Details">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetailsOpen(true);
+                  }}
+                  className="p-1 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                  aria-label="View technical details"
+                >
+                  <Info size={12.5} />
+                </button>
+              </Tooltip>
+
               {session.paperMode && <PaperBadge />}
 
-              {/* Active strategy/variant pills */}
-              {activeLabels.map(l => {
-                const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
-                return (
-                  <span key={l} className={cn(
-                    "text-[8px] font-black px-2 py-0.5 rounded-full border uppercase shrink-0 scale-95",
-                    isBase
-                      ? "text-blue-400 border-blue-500/20 bg-blue-500/5"
-                      : "text-purple border-purple/20 bg-purple/5"
-                  )}>
-                    {isBase ? 'Base' : 'Variant'}: {l}
-                  </span>
-                );
-              })}
+              {variantsCount > 0 ? (
+                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full border border-purple/20 bg-purple/5 text-purple uppercase shrink-0">
+                  +{variantsCount} Variants
+                </span>
+              ) : (
+                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full border border-blue-500/20 bg-blue-500/5 text-blue-400 uppercase shrink-0">
+                  Base Only
+                </span>
+              )}
             </div>
-            <div className="text-[10px] text-dim font-bold uppercase tracking-[0.08em] flex items-center gap-2.5 flex-wrap">
-              <span className="flex items-center gap-1"><Clock size={11} className="text-accent shrink-0" /> {new Date(session.startTime).toLocaleDateString()}</span>
+            <div className="text-[9px] sm:text-[10px] text-dim font-bold uppercase tracking-[0.08em] flex items-center gap-2 flex-wrap">
+              <span className="flex items-center gap-1"><Clock size={10} className="text-accent shrink-0" /> {new Date(session.startTime).toLocaleDateString()}</span>
               <span className="w-1 h-1 rounded-full bg-dim/30 shrink-0" />
               <span>{new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               <span className="w-1 h-1 rounded-full bg-dim/30 shrink-0" />
@@ -307,6 +487,13 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             </div>
           </div>
         </div>
+
+        <SessionDetailsModal
+          isOpen={detailsOpen}
+          onClose={() => setDetailsOpen(false)}
+          session={session}
+          trades={trades}
+        />
 
         {/* Center/Right: Metrics & Stacked Visual Distribution */}
         <div className="flex flex-col md:flex-row items-start md:items-center gap-5 xl:gap-8 xl:ml-auto">
@@ -632,73 +819,17 @@ export const HistoryView = () => {
           subTitle="Verified records of all closed positions"
           backAction={() => window.location.hash = '#/'}
         >
-          <div className="flex items-center gap-3 self-end sm:self-auto">
-             <div className="relative group hidden sm:block">
-               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
-               <input
-                 ref={searchInputRef}
-                 type="text"
-                 placeholder="Search history... [/]"
-                 aria-label="Search trade history"
-                 value={search}
-                 onChange={(e) => setSearch(e.target.value)}
-                 onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-                 className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all w-[180px] lg:w-[240px]"
-               />
-               {search && (
-                 <Tooltip content="Clear Search">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearch('');
-                      searchInputRef.current?.focus();
-                    }}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
-                    aria-label="Clear Search"
-                  >
-                    <XCircle size={14} />
-                  </button>
-                 </Tooltip>
-               )}
-             </div>
+          <div className="flex items-center gap-3">
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
                Latest 200 Trades
              </span>
           </div>
         </ViewHeader>
 
-        {/* Mobile Search */}
-        <div className="sm:hidden relative group mb-6">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
-          <input
-            ref={mobileSearchInputRef}
-            type="text"
-            placeholder="Search history... [/]"
-            aria-label="Search trade history"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-            className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-          />
-          {search && (
-            <Tooltip content="Clear Search">
-              <button
-                type="button"
-                onClick={() => {
-                  setSearch('');
-                  mobileSearchInputRef.current?.focus();
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
-                aria-label="Clear Search"
-              >
-                <XCircle size={16} />
-              </button>
-            </Tooltip>
-          )}
-        </div>
-
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
-          <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
+        {/* Unified Sticky Filter Toolbar */}
+        <div className="sticky top-[64px] z-40 bg-background/95 backdrop-blur-md border border-border/30 rounded-2xl p-2.5 mb-6 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full">
+          {/* Left: Environment Switcher */}
+          <div className="flex items-center gap-1 bg-surface border border-border/30 p-1 rounded-xl w-full sm:w-auto">
             {['paper', 'testnet', 'live'].map(m => (
               <button
                 key={m}
@@ -707,8 +838,8 @@ export const HistoryView = () => {
                   localStorage.setItem('history_trade_mode', m);
                 }}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                  lifetimeMode === m ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+                  "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                  lifetimeMode === m ? "bg-accent text-white shadow-md shadow-accent/20" : "text-dim hover:text-text"
                 )}
               >
                 {m}
@@ -716,9 +847,40 @@ export const HistoryView = () => {
             ))}
           </div>
 
-          <div className="flex items-center gap-4">
-             <span className="text-[10px] text-dim font-black uppercase tracking-widest">Sort Sessions</span>
-             <div className="flex items-center gap-1.5 p-1 bg-surface border border-border rounded-xl">
+          {/* Center: Search input */}
+          <div className="relative group w-full sm:max-w-[280px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search history... [/]"
+              aria-label="Search trade history"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
+              className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-8 py-2 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+            />
+            {search && (
+              <Tooltip content="Clear Search">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    searchInputRef.current?.focus();
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
+                  aria-label="Clear Search"
+                >
+                  <XCircle size={13} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+
+          {/* Right: Sort controls */}
+          <div className="flex items-center gap-2 justify-between sm:justify-end w-full sm:w-auto shrink-0">
+             <span className="text-[8.5px] text-dim font-black uppercase tracking-widest shrink-0">Sort Sessions</span>
+             <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
                 {[
                   { id: 'time', label: 'Recent' },
                   { id: 'pnl', label: 'Best PnL' },
@@ -728,7 +890,7 @@ export const HistoryView = () => {
                     key={opt.id}
                     onClick={() => setSortBy(opt.id)}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                      "px-2.5 py-1.5 rounded-lg text-[8.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                       sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"
                     )}
                   >

@@ -179,7 +179,7 @@ const LogEntry = React.memo(({ log }) => {
         </div>
         <CopyButton
           value={logMessage}
-          className="opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1 shrink-0"
+          className="hidden sm:inline-flex opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1 shrink-0"
           tooltip="Copy log message"
         />
       </div>

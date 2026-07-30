@@ -396,7 +396,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     let currentLossStreak = 0;
 
     const simReturns = [];
-    let currentBalance = startingBalance;
+    const startBalNum = Number(startingBalance || 10000);
+    let currentBalance = startBalNum;
 
     for (let i = 0; i < count; i++) {
       const t = trades[i];
@@ -419,7 +420,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       }
 
       const risk = usePctRisk
-        ? (useCompounding ? (currentBalance * (riskPct / 100)) : (startingBalance * (riskPct / 100)))
+        ? (useCompounding ? (currentBalance * (riskPct / 100)) : (startBalNum * (riskPct / 100)))
         : Number(t.initial_risk_usdt || t.risk_usdt || 100);
       totalRisk += risk;
 
@@ -435,7 +436,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         currentBalance += tradePnl;
       }
 
-      const pctReturn = startingBalance > 0 ? (tradePnl / startingBalance) * 100 : 0;
+      const pctReturn = startBalNum > 0 ? (tradePnl / startBalNum) * 100 : 0;
       simReturns.push(pctReturn);
 
       const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
@@ -450,7 +451,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     }
 
     const calculatedWinRate = count > 0 ? (winCount / count) : 0;
-    const simulatedRoi = startingBalance > 0 ? (totalSimulatedPnl / startingBalance) * 100 : 0;
+    const simulatedRoi = startBalNum > 0 ? (totalSimulatedPnl / startBalNum) * 100 : 0;
 
     const avgWinMae = winMaeCount > 0 ? (winMaeSum / winMaeCount) : 0;
     const avgLossMae = lossMaeCount > 0 ? (lossMaeSum / lossMaeCount) : 0;
@@ -482,18 +483,18 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       : 0;
 
     // Fast O(1) Projection Modeling with compounding support:
-    const avgRisk = usePctRisk ? (startingBalance * (riskPct / 100)) : (count > 0 ? (totalRisk / count) : 100);
+    const avgRisk = usePctRisk ? (startBalNum * (riskPct / 100)) : (count > 0 ? (totalRisk / count) : 100);
     const projectedWins = Math.round(calculatedWinRate * projectedTrades);
     const projectedLosses = projectedTrades - projectedWins;
 
     let projectedPnl = 0;
     if (usePctRisk && useCompounding) {
-      const projectedFinalBalance = startingBalance * Math.pow(1 + targetRr * (riskPct / 100), projectedWins) * Math.pow(1 - (riskPct / 100), projectedLosses);
-      projectedPnl = projectedFinalBalance - startingBalance;
+      const projectedFinalBalance = startBalNum * Math.pow(1 + targetRr * (riskPct / 100), projectedWins) * Math.pow(1 - (riskPct / 100), projectedLosses);
+      projectedPnl = projectedFinalBalance - startBalNum;
     } else {
       projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
     }
-    const projectedRoi = startingBalance > 0 ? (projectedPnl / startingBalance) * 100 : 0;
+    const projectedRoi = startBalNum > 0 ? (projectedPnl / startBalNum) * 100 : 0;
 
     // Average Duration calculations & total projected execution span
     const avgDurationMs = durationCount > 0 ? (totalDurationMs / durationCount) : 15 * 60000; // default 15m

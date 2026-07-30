@@ -385,27 +385,58 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     let totalDurationMs = 0;
     let durationCount = 0;
 
+    let winMaeSum = 0;
+    let winMaeCount = 0;
+    let lossMaeSum = 0;
+    let lossMaeCount = 0;
+
+    let maxWinStreak = 0;
+    let maxLossStreak = 0;
+    let currentWinStreak = 0;
+    let currentLossStreak = 0;
+
+    const simReturns = [];
     let currentBalance = startingBalance;
 
     for (let i = 0; i < count; i++) {
       const t = trades[i];
       const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
       const isWin = maxRr >= targetRr;
+      const mae = Number(t.min_rr_achieved ?? 0);
+
+      if (isWin) {
+        winMaeSum += mae;
+        winMaeCount++;
+        currentWinStreak++;
+        currentLossStreak = 0;
+        if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
+      } else {
+        lossMaeSum += mae;
+        lossMaeCount++;
+        currentLossStreak++;
+        currentWinStreak = 0;
+        if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
+      }
 
       const risk = usePctRisk
         ? (useCompounding ? (currentBalance * (riskPct / 100)) : (startingBalance * (riskPct / 100)))
         : Number(t.initial_risk_usdt || t.risk_usdt || 100);
       totalRisk += risk;
 
+      let tradePnl = 0;
       if (isWin) {
         winCount++;
-        const profit = targetRr * risk;
-        totalSimulatedPnl += profit;
-        currentBalance += profit;
+        tradePnl = targetRr * risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
       } else {
-        totalSimulatedPnl -= risk;
-        currentBalance -= risk;
+        tradePnl = -risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
       }
+
+      const pctReturn = startingBalance > 0 ? (tradePnl / startingBalance) * 100 : 0;
+      simReturns.push(pctReturn);
 
       const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
       const entryMs = t.entry_ts_ms !== undefined ? t.entry_ts_ms : (t.entry_ts ? new Date(t.entry_ts).getTime() : 0);
@@ -420,6 +451,35 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
 
     const calculatedWinRate = count > 0 ? (winCount / count) : 0;
     const simulatedRoi = startingBalance > 0 ? (totalSimulatedPnl / startingBalance) * 100 : 0;
+
+    const avgWinMae = winMaeCount > 0 ? (winMaeSum / winMaeCount) : 0;
+    const avgLossMae = lossMaeCount > 0 ? (lossMaeSum / lossMaeCount) : 0;
+
+    // Calculate Sharpe and Sortino Ratios of the Simulated Series
+    let meanReturn = 0;
+    let variance = 0;
+    let downsideVariance = 0;
+    let sharpeRatio = 0;
+    let sortinoRatio = 0;
+
+    if (count > 0) {
+      meanReturn = simReturns.reduce((sum, r) => sum + r, 0) / count;
+      variance = simReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / count;
+      downsideVariance = simReturns.reduce((sum, r) => sum + Math.pow(Math.min(0, r), 2), 0) / count;
+
+      const stdDev = Math.sqrt(variance);
+      const downsideStdDev = Math.sqrt(downsideVariance);
+
+      sharpeRatio = stdDev > 0 ? (meanReturn / stdDev) : 0;
+      sortinoRatio = downsideStdDev > 0 ? (meanReturn / downsideStdDev) : 0;
+    }
+
+    // Streak Drawdown computation:
+    const maxStreakDrawdownPct = usePctRisk
+      ? (useCompounding
+          ? (1 - Math.pow(1 - riskPct / 100, maxLossStreak)) * 100
+          : maxLossStreak * riskPct)
+      : 0;
 
     // Fast O(1) Projection Modeling with compounding support:
     const avgRisk = usePctRisk ? (startingBalance * (riskPct / 100)) : (count > 0 ? (totalRisk / count) : 100);
@@ -451,7 +511,14 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       projectedPnl,
       projectedRoi: projectedRoi.toFixed(2),
       avgDurationMs,
-      totalProjectedDurationMs
+      totalProjectedDurationMs,
+      avgWinMae,
+      avgLossMae,
+      maxWinStreak,
+      maxLossStreak,
+      maxStreakDrawdownPct: maxStreakDrawdownPct.toFixed(2),
+      sharpeRatio: sharpeRatio.toFixed(2),
+      sortinoRatio: sortinoRatio.toFixed(2)
     };
   }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
 
@@ -550,7 +617,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2.5 border-t border-border/10">
+      {/* Row 1: Core Performance Metrics */}
+      <div className="grid grid-cols-3 gap-3 pt-2.5 border-t border-border/10">
         <div className="flex flex-col min-w-0">
           <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated WR</span>
           <span className="text-xs font-black font-mono tracking-tight text-text truncate">
@@ -563,10 +631,74 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
             {fmtUSD(stats.simulatedPnl)}
           </span>
         </div>
-        <div className="flex flex-col col-span-2 sm:col-span-1 items-start sm:items-end text-left sm:text-right min-w-0">
+        <div className="flex flex-col items-end text-right min-w-0">
           <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated ROI</span>
           <span className={cn("text-xs font-black font-mono tracking-tight truncate", pnlClass(stats.simulatedPnl))}>
             {stats.simulatedPnl >= 0 ? '+' : ''}{stats.simulatedRoi}%
+          </span>
+        </div>
+      </div>
+
+      {/* Row 2: Analytical Ratios & MAE Drawdowns */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border/10">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Sharpe Ratio
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-accent truncate">
+            {stats.sharpeRatio}
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Sortino Ratio
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-accent truncate">
+            {stats.sortinoRatio}
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Win MAE (Avg)
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-dim truncate">
+            {Number(stats.avgWinMae).toFixed(2)}R
+          </span>
+        </div>
+        <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Loss MAE (Avg)
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
+            {Number(stats.avgLossMae).toFixed(2)}R
+          </span>
+        </div>
+      </div>
+
+      {/* Row 3: Streak Analytics */}
+      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-border/10">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Max Win Streak
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-green truncate">
+            {stats.maxWinStreak} wins
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Max Loss Streak
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
+            {stats.maxLossStreak} losses
+          </span>
+        </div>
+        <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Streak Drawdown
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
+            {usePctRisk ? `-${stats.maxStreakDrawdownPct}%` : '---'}
           </span>
         </div>
       </div>

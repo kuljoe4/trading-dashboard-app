@@ -362,12 +362,16 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               {fmtUSD(s.activePnl)}
             </span>
           </div>
-          <div className="flex flex-col mt-1 gap-0.5">
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none truncate">
-              Est. Target: <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>≈{fmtUSD(activeEstPnl)}</span>
+          <div className="flex flex-col mt-1 gap-0.5 leading-none">
+            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
+              <span className="hidden xs:inline">Est. Target: </span>
+              <span className="xs:hidden inline">Est: </span>
+              <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>≈{fmtUSD(activeEstPnl)}</span>
             </span>
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none truncate">
-              Proj: <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
+            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
+              <span className="hidden xs:inline">Projected: </span>
+              <span className="xs:hidden inline">Proj: </span>
+              <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
             </span>
           </div>
         </div>

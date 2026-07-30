@@ -363,17 +363,21 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
 TradeItem.displayName = 'TradeItem'
 
 // Interactive High-Performance RR Win Rate & Simulated P&L Calculator
-export const RrWinRateCalculator = React.memo(({ trades, startingBalance = 10000 }) => {
+export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initialStartingBalance = 10000 }) => {
   const [targetRr, setTargetRr] = useState(2.0);
   const [projectedTrades, setProjectedTrades] = useState(50);
+  const [startingBalance, setStartingBalance] = useState(initialStartingBalance);
 
   const stats = useMemo(() => {
     let winCount = 0;
     let totalSimulatedPnl = 0;
     const count = trades.length;
 
-    // Use average risk of this session's trades for projections
+    // Use average risk and average duration of this session's trades for projections
     let totalRisk = 0;
+    let totalDurationMs = 0;
+    let durationCount = 0;
+
     for (let i = 0; i < count; i++) {
       const t = trades[i];
       const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
@@ -388,6 +392,16 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance = 10000
       } else {
         totalSimulatedPnl -= risk;
       }
+
+      const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      const entryMs = t.entry_ts_ms !== undefined ? t.entry_ts_ms : (t.entry_ts ? new Date(t.entry_ts).getTime() : 0);
+      if (exitMs && entryMs) {
+        const dur = exitMs - entryMs;
+        if (dur > 0) {
+          totalDurationMs += dur;
+          durationCount++;
+        }
+      }
     }
 
     const calculatedWinRate = count > 0 ? (winCount / count) : 0;
@@ -401,6 +415,10 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance = 10000
     const projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
     const projectedRoi = startingBalance > 0 ? (projectedPnl / startingBalance) * 100 : 0;
 
+    // Average Duration calculations & total projected execution span
+    const avgDurationMs = durationCount > 0 ? (totalDurationMs / durationCount) : 15 * 60000; // default 15m
+    const totalProjectedDurationMs = avgDurationMs * projectedTrades;
+
     return {
       winRate: (calculatedWinRate * 100).toFixed(1),
       wins: winCount,
@@ -411,18 +429,35 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance = 10000
       projectedWins,
       projectedLosses,
       projectedPnl,
-      projectedRoi: projectedRoi.toFixed(2)
+      projectedRoi: projectedRoi.toFixed(2),
+      avgDurationMs,
+      totalProjectedDurationMs
     };
   }, [trades, targetRr, startingBalance, projectedTrades]);
 
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-4 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
-      <div className="flex justify-between items-center gap-2">
+      <div className="flex justify-between items-center gap-3">
         <div className="flex flex-col">
           <span className="text-[10px] text-dim font-black uppercase tracking-widest">Predictive RR Target Calculator</span>
           <span className="text-[8.5px] text-dim/60 font-medium mt-0.5">Simulate win rate and P&L at custom Reward-to-Risk ratios</span>
         </div>
-        <div className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[10px] text-accent font-black font-mono">
+
+        {/* Dynamic starting balance input */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[8px] text-dim font-black uppercase tracking-wider">Starting Bal:</span>
+          <input
+            type="number"
+            min="1"
+            max="10000000"
+            value={startingBalance}
+            onChange={(e) => setStartingBalance(Math.max(1, parseInt(e.target.value, 10) || 1))}
+            className="w-20 bg-background/50 border border-border/50 rounded px-2 py-1 text-center font-mono text-[10px] font-bold text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-accent"
+            aria-label="Starting balance input for simulation calculations"
+          />
+        </div>
+
+        <div className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[10px] text-accent font-black font-mono shrink-0">
           {Number(targetRr).toFixed(1)}R Target
         </div>
       </div>
@@ -510,11 +545,17 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance = 10000
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2.5 pt-1.5">
+        <div className="grid grid-cols-4 gap-2 pt-1.5">
           <div className="flex flex-col">
             <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Projected Trades</span>
             <span className="text-[10px] font-black font-mono text-text/80 leading-none">
-              {projectedTrades} <span className="text-[8px] text-dim/60 font-bold">({stats.projectedWins}W - {stats.projectedLosses}L)</span>
+              {projectedTrades} <span className="text-[8px] text-dim/60 font-bold">({stats.projectedWins}W-{stats.projectedLosses}L)</span>
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Est. Execution Span</span>
+            <span className="text-[10px] font-black font-mono text-text/80 leading-none">
+              {formatDuration(stats.totalProjectedDurationMs)}
             </span>
           </div>
           <div className="flex flex-col">

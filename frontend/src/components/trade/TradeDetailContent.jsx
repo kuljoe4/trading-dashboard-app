@@ -758,45 +758,6 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             <RRLadder trade={trade} />
          </div>
 
-         {/* Grid Layout for Secondary Sections on Desktop */}
-         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4">
-            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
-
-            <div className="space-y-4">
-             <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
-                <SectionLabel className="mb-3 md:mb-5">
-                   <Info size={14} className="text-accent" /> Technical Meta
-                </SectionLabel>
-                <div className="space-y-2">
-                  {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
-                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
-                          <span className="text-dim/30">→</span>
-                          <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
-                           {adj.adaptive && (
-                              <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
-                                 <Activity size={8} /> Adaptive
-                              </span>
-                           )}
-                        </div>
-                      </div>
-                      {i === 0 && (
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-         </div>
-
          <div className="space-y-3 md:space-y-4">
             <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
 
@@ -932,7 +893,6 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               )}
          </div>
       </div>
-          </div>
 
       {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}
       {trade.status === 'OPEN' && (

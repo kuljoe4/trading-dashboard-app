@@ -251,22 +251,20 @@ export const StatusBadge = ({ status }) => {
   
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold tracking-wider transition-all",
-      active
-        ? "text-green bg-green/10 border-green/20 shadow-[0_0_10px_rgba(0,229,160,0.05)]"
-        : "text-dim bg-surface border-border"
+      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-all",
+      active ? "text-green" : "text-dim"
     )}>
-      {active && <PulseDot color="bg-green" />}
-      {active ? "LIVE" : "STOPPED"}
+      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", active ? "bg-green animate-pulse" : "bg-dim/40")} />
+      {active ? "Active" : "Stopped"}
     </span>
   )
 }
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    PAPER
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-amber">
+    <span className="w-1.5 h-1.5 rounded-full bg-amber shrink-0" />
+    Paper
   </span>
 )
 
@@ -287,30 +285,26 @@ export const EcoBadge = () => {
 
   return (
     <span className={cn(
-      "px-2.5 py-1 rounded-full border text-[10px] font-bold tracking-wider flex items-center gap-1.5 transition-colors",
-      showResumingFeedback ? "border-accent/30 bg-accent/10 text-accent shadow-[0_0_15px_rgba(91,111,255,0.1)]" : "border-green/20 bg-green/10 text-green shadow-[0_0_10px_rgba(0,229,160,0.05)]"
+      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-colors",
+      showResumingFeedback ? "text-accent" : "text-green"
     )}>
-      {showResumingFeedback ? (
-        <RefreshCw size={10} className="animate-spin" />
-      ) : (
-        <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-      )}
-      {showResumingFeedback ? 'RESUMING' : 'ECO'}
+      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", showResumingFeedback ? "bg-accent animate-spin" : "bg-green animate-pulse")} />
+      {showResumingFeedback ? 'Resuming' : 'Eco'}
     </span>
   );
 }
 
 export const DemoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    DEMO
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-purple">
+    <span className="w-1.5 h-1.5 rounded-full bg-purple shrink-0" />
+    Demo
   </span>
 )
 
 export const LiveBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    LIVE
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-green">
+    <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0 animate-pulse" />
+    Live
   </span>
 )
 

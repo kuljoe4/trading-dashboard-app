@@ -8,7 +8,19 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X, Loader2 } from 'lucide-react'
+
+// Shimmer Skeleton Loader for individual charts to prevent layout shift and blank-out bubbling
+export const ChartSkeleton = ({ height = 180 }) => (
+  <div
+    style={{ height }}
+    className="w-full bg-surface/30 rounded-xl border border-border/10 flex flex-col items-center justify-center relative overflow-hidden shadow-inner"
+  >
+    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full animate-pulse-slow pointer-events-none" />
+    <Loader2 size={18} className="text-accent/50 animate-spin mb-2" />
+    <span className="text-[9px] text-dim/50 font-black uppercase tracking-widest animate-pulse">Loading Analytics Module...</span>
+  </div>
+);
 
 // Accessible Session Details Modal using Radix Dialog
 export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
@@ -567,7 +579,9 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             <div className="p-4 space-y-3 bg-background/20">
               {curve.length >= 2 && (
                 <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
-                  <EquityCurve data={curve} height={180} />
+                  <React.Suspense fallback={<ChartSkeleton height={180} />}>
+                    <EquityCurve data={curve} height={180} />
+                  </React.Suspense>
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1077,10 +1091,14 @@ export const HistoryView = () => {
                 {/* 3. Charts Area */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-5 md:p-8 shadow-sm overflow-hidden relative">
-                     <EquityCurve data={currentAnalytics?.cumulativePnL || []} />
+                    <React.Suspense fallback={<ChartSkeleton height={260} />}>
+                      <EquityCurve data={currentAnalytics?.cumulativePnL || []} />
+                    </React.Suspense>
                   </div>
                   <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-                     <TODPerformance data={currentAnalytics?.timeOfDay || []} />
+                    <React.Suspense fallback={<ChartSkeleton height={260} />}>
+                      <TODPerformance data={currentAnalytics?.timeOfDay || []} />
+                    </React.Suspense>
                   </div>
                 </div>
 
@@ -1090,10 +1108,12 @@ export const HistoryView = () => {
                     <div className="md:col-span-3 bg-surface border border-border rounded-3xl p-8 shadow-sm overflow-hidden relative">
                       <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
                         <div className="lg:col-span-3">
-                          <RrOptimizationChart
-                            data={currentAnalytics.rrOptimization.curve}
-                            recommendedRr={currentAnalytics.rrOptimization.recommendedRr}
-                          />
+                          <React.Suspense fallback={<ChartSkeleton height={220} />}>
+                            <RrOptimizationChart
+                              data={currentAnalytics.rrOptimization.curve}
+                              recommendedRr={currentAnalytics.rrOptimization.recommendedRr}
+                            />
+                          </React.Suspense>
                         </div>
                         <div className="lg:col-span-2 flex flex-col gap-6">
                           <div className="grid grid-cols-1 gap-3">

@@ -276,6 +276,21 @@ export const DecisionLog = React.memo(() => {
     [safeLogs, safeLogFilters, search]
   )
 
+  const lastReadLogId = useRef(null);
+
+  // Update last read log ID when we are at the top (fully caught up)
+  useEffect(() => {
+    if (isAtTop && visibleLogs.length > 0) {
+      lastReadLogId.current = visibleLogs[0]?.id || null;
+    }
+  }, [visibleLogs, isAtTop]);
+
+  const newLogsCount = useMemo(() => {
+    if (isAtTop || !lastReadLogId.current || visibleLogs.length === 0) return 0;
+    const index = visibleLogs.findIndex(log => log && log.id === lastReadLogId.current);
+    return index > 0 ? index : 0;
+  }, [visibleLogs, isAtTop]);
+
   // Audit Item 41: Scroll-lock pattern
   useEffect(() => {
     if (isAtTop && listRef.current) {
@@ -368,15 +383,15 @@ export const DecisionLog = React.memo(() => {
         className="flex-1 flex flex-col gap-1.5 min-h-0 relative"
       >
         {!isAtTop && (
-          <div className="absolute top-2 inset-x-0 z-20 flex justify-center pointer-events-none">
+          <div className="absolute top-3 inset-x-0 z-20 flex justify-center pointer-events-none">
             <button
               onClick={() => {
                 if (listRef.current) listRef.current.scrollTo({ top: 0 })
                 setIsAtTop(true)
               }}
-              className="pointer-events-auto bg-accent text-white px-4 py-1.5 rounded-full text-[10px] font-bold shadow-xl border border-white/10 animate-in fade-in zoom-in slide-in-from-top-2 duration-300 whitespace-nowrap"
+              className="pointer-events-auto bg-accent/95 backdrop-blur-sm text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-wider shadow-2xl shadow-black/80 border border-white/15 animate-in fade-in zoom-in slide-in-from-top-2 duration-300 whitespace-nowrap hover:scale-105 active:scale-95 transition-all cursor-pointer"
             >
-              New logs above ↑
+              {newLogsCount > 0 ? `${newLogsCount} new logs above ↑` : 'New logs above ↑'}
             </button>
           </div>
         )}

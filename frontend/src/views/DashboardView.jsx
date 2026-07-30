@@ -250,8 +250,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     }
   };
 
+  const activeEstPnl = safeNum(s.activeEstPnl);
   const closedPnl = safeNum(s.totalPnl) - safeNum(s.activePnl);
-  const totalEstToRealize = closedPnl + safeNum(s.totalEstPnlToRealize);
+  const totalEstToRealize = closedPnl + activeEstPnl;
 
   return (
     <motion.div
@@ -361,9 +362,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               {fmtUSD(s.activePnl)}
             </span>
           </div>
-          <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none mt-1 truncate">
-            Proj: <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
-          </span>
+          <div className="flex flex-col mt-1 gap-0.5">
+            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none truncate">
+              Est. Target: <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>≈{fmtUSD(activeEstPnl)}</span>
+            </span>
+            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none truncate">
+              Proj: <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
+            </span>
+          </div>
         </div>
 
         <div className="flex flex-col justify-between h-full min-h-[72px]">
@@ -1541,6 +1547,7 @@ export function DashboardView({ initialStrategy }) {
                               ...currentStrategy,
                               ...safeVariantStats[currentStrategy.strategy_label],
                               activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
+                              activeEstPnl: activeEstPnlToRealizeMap[currentStrategy.strategy_label] || 0,
                               activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0,
                               totalEstPnlToRealize: safeVariantStats[currentStrategy.strategy_label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[currentStrategy.strategy_label] ?? 0
                             }}
@@ -1570,6 +1577,7 @@ export function DashboardView({ initialStrategy }) {
                                   strategy_label: label,
                                   ...safeVariantStats[label],
                                   activePnl: activePnlMap[label] || 0,
+                                  activeEstPnl: activeEstPnlToRealizeMap[label] || 0,
                                   activeTradeCount: activeTradeCountsMap[label] || 0,
                                   totalEstPnlToRealize: safeVariantStats[label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[label] ?? 0
                                 }}

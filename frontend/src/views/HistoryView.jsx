@@ -369,6 +369,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
   const [startingBalance, setStartingBalance] = useState(initialStartingBalance);
   const [usePctRisk, setUsePctRisk] = useState(true);
   const [riskPct, setRiskPct] = useState(1.0);
+  const [useCompounding, setUseCompounding] = useState(true);
 
   useEffect(() => {
     setStartingBalance(initialStartingBalance);
@@ -384,19 +385,26 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     let totalDurationMs = 0;
     let durationCount = 0;
 
+    let currentBalance = startingBalance;
+
     for (let i = 0; i < count; i++) {
       const t = trades[i];
       const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
       const isWin = maxRr >= targetRr;
 
-      const risk = usePctRisk ? (startingBalance * (riskPct / 100)) : Number(t.initial_risk_usdt || t.risk_usdt || 100);
+      const risk = usePctRisk
+        ? (useCompounding ? (currentBalance * (riskPct / 100)) : (startingBalance * (riskPct / 100)))
+        : Number(t.initial_risk_usdt || t.risk_usdt || 100);
       totalRisk += risk;
 
       if (isWin) {
         winCount++;
-        totalSimulatedPnl += targetRr * risk;
+        const profit = targetRr * risk;
+        totalSimulatedPnl += profit;
+        currentBalance += profit;
       } else {
         totalSimulatedPnl -= risk;
+        currentBalance -= risk;
       }
 
       const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
@@ -413,12 +421,18 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     const calculatedWinRate = count > 0 ? (winCount / count) : 0;
     const simulatedRoi = startingBalance > 0 ? (totalSimulatedPnl / startingBalance) * 100 : 0;
 
-    // Fast O(1) Projection Modeling:
-    // Future Net P&L = (WR * targetRr - (1 - WR)) * Projected Trades * Average Trade Risk
+    // Fast O(1) Projection Modeling with compounding support:
     const avgRisk = usePctRisk ? (startingBalance * (riskPct / 100)) : (count > 0 ? (totalRisk / count) : 100);
     const projectedWins = Math.round(calculatedWinRate * projectedTrades);
     const projectedLosses = projectedTrades - projectedWins;
-    const projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
+
+    let projectedPnl = 0;
+    if (usePctRisk && useCompounding) {
+      const projectedFinalBalance = startingBalance * Math.pow(1 + targetRr * (riskPct / 100), projectedWins) * Math.pow(1 - (riskPct / 100), projectedLosses);
+      projectedPnl = projectedFinalBalance - startingBalance;
+    } else {
+      projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
+    }
     const projectedRoi = startingBalance > 0 ? (projectedPnl / startingBalance) * 100 : 0;
 
     // Average Duration calculations & total projected execution span
@@ -439,7 +453,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       avgDurationMs,
       totalProjectedDurationMs
     };
-  }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct]);
+  }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
 
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
@@ -475,6 +489,20 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               aria-label="Risk percent of starting balance"
             />
             <span className="text-[10px] font-bold font-mono text-dim">%</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-background/30 px-2 py-1 rounded border border-border/30">
+            <input
+              type="checkbox"
+              id="useCompounding"
+              checked={useCompounding}
+              disabled={!usePctRisk}
+              onChange={(e) => setUseCompounding(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer disabled:opacity-30"
+            />
+            <label htmlFor="useCompounding" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none disabled:opacity-30">
+              Compounding
+            </label>
           </div>
 
           <div className="flex items-center gap-1.5">

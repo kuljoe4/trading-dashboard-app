@@ -11,6 +11,9 @@ import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
+const preloadTradeDetailModal = () => {
+  import('../components/TradeDetailModal');
+};
 
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore()
@@ -57,17 +60,28 @@ const TradesView = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
         {(() => {
           const activePnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.pnl), 0);
+          const activeEstPnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.est_pnl_to_realize), 0);
+          const trueProjectedPnl = (totalPnl - activePnl) + activeEstPnl;
           return (
             <StatCard
               label="Active P&L"
               value={fmtUSD(activePnl)}
               color={pnlClass(activePnl)}
               subValue={
-                <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                  <span>Total: {fmtUSD(totalPnl)}</span>
-                  <span className="text-dim/30 hidden xs:inline">•</span>
-                  <span>Est. Realize: <span className="font-bold" style={{ color: pnlColor(totalEstPnlToRealize) }}>{fmtUSD(totalEstPnlToRealize)}</span></span>
-                </span>
+                <div className="flex flex-col gap-0.5 mt-1 min-w-[130px]">
+                  <div className="flex items-center justify-between text-[10px] text-dim/60">
+                    <span>Session Return:</span>
+                    <span className="font-bold font-mono" style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-dim/60">
+                    <span>Est. Target:</span>
+                    <span className="font-bold font-mono" style={{ color: pnlColor(activeEstPnl) }}>≈ {fmtUSD(activeEstPnl)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-dim/80 pt-0.5 border-t border-border/20">
+                    <span>Projected:</span>
+                    <span className="font-bold font-mono" style={{ color: pnlColor(trueProjectedPnl) }}>≈ {fmtUSD(trueProjectedPnl)}</span>
+                  </div>
+                </div>
               }
             />
           );
@@ -108,7 +122,7 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} isResuming={isResuming} showResumingFeedback={showResumingFeedback} />
+                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} onMouseEnter={preloadTradeDetailModal} isResuming={isResuming} showResumingFeedback={showResumingFeedback} />
               </motion.div>
             ))}
           </AnimatePresence>

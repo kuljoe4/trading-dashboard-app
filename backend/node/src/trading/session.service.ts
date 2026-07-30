@@ -2211,9 +2211,34 @@ export class SessionService implements OnModuleInit {
   }
 
   async listSessions() {
-    return this.sessionRepository.find({
+    // WISP OPTIMIZATION: Sparse column selection prevents loading unused columns, while mapping config blocks keeps only minimum properties needed by the UI to reduce network transit weight.
+    const sessions = await this.sessionRepository.find({
+      select: [
+        "id",
+        "running",
+        "paperMode",
+        "tradingMode",
+        "balance",
+        "totalPnl",
+        "strategyLabel",
+        "startTime",
+        "endTime",
+        "config"
+      ],
       order: { startTime: "DESC" },
       take: 20,
+    });
+
+    return sessions.map(session => {
+      if (session.config) {
+        session.config = {
+          scan_interval: session.config.scan_interval,
+          trading_mode: session.config.trading_mode,
+          strategy_label: session.config.strategy_label,
+          paper_mode: session.config.paper_mode
+        };
+      }
+      return session;
     });
   }
 
@@ -2339,7 +2364,6 @@ export class SessionService implements OnModuleInit {
       activeWindows: engineStatus.activeWindows,
       gateState: engineStatus.gateState,
       scannerPaused: engineStatus.scannerPaused,
-      history: (await this.getHistory(session.id)).trades || [],
       totalRiskPct: session.paperMode
         ? engineStatus.balance_paper > 0
           ? (engineStatus.total_risk / engineStatus.balance_paper) * 100
@@ -2360,7 +2384,36 @@ export class SessionService implements OnModuleInit {
     const filterId =
       sessionId === "all" ? undefined : sessionId || this.currentSessionId;
 
+    // WISP OPTIMIZATION: Sparse column selection prevents loading heavy JSON configurations like strategy_config and exit_signals_status, reducing memory and bandwidth.
     const closedTrades = await this.tradeRepository.find({
+      select: [
+        "id",
+        "symbol",
+        "direction",
+        "entry_price",
+        "qty",
+        "initial_sl",
+        "current_sl",
+        "max_rr_achieved",
+        "min_rr_achieved",
+        "exit_rr",
+        "entry_ts",
+        "tp",
+        "pnl",
+        "realized_fee",
+        "funding_fee",
+        "status",
+        "exit_ts",
+        "exit_price",
+        "exit_reason",
+        "exit_signal_type",
+        "exit_signal_reason",
+        "pnl_pct",
+        "entry_daily_change_pct",
+        "sessionId",
+        "strategy_label",
+        "is_reconciliation"
+      ],
       where: {
         status: In(TERMINAL_STATUSES as any),
         ...(filterId ? { sessionId: filterId } : {}),
@@ -2381,40 +2434,26 @@ export class SessionService implements OnModuleInit {
       return this.analyticsCache.data;
     }
 
-    // Performance Engineering: Fetch current session status first (contains both balance and history)
-    // This allows us to reuse memory and avoid separate DB hits for balance vs trades.
     const currentStatus = await this.getStatus();
 
-    let trades: any[];
-    let startingBalance: number | undefined;
-    let currentBalance: number | undefined;
+    const trades = await this.tradeRepository.find({
+      select: [
+        "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
+        "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty"
+      ],
+      where: {
+        status: In(TERMINAL_STATUSES as any),
+        ...(this.currentSessionId
+          ? { sessionId: this.currentSessionId }
+          : {}),
+      },
+    });
 
-    if (this.currentSessionId && currentStatus.running) {
-      // Reuse history already fetched in getStatus() to minimize DB load
-      trades = currentStatus.history || [];
-      startingBalance = currentStatus.config?.paper_mode
-        ? currentStatus.config?.paper_starting_balance
-        : currentStatus.config?.live_starting_balance;
-      currentBalance = currentStatus.balance;
-    } else {
-      // Fallback for global analytics or inactive sessions
-      trades = await this.tradeRepository.find({
-        select: [
-          "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
-          "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty"
-        ],
-        where: {
-          status: In(TERMINAL_STATUSES as any),
-          ...(this.currentSessionId
-            ? { sessionId: this.currentSessionId }
-            : {}),
-        },
-      });
-      startingBalance = this.currentSessionId
-        ? await this.getStartingBalanceForSession(this.currentSessionId)
-        : undefined;
-      currentBalance = currentStatus.balance;
-    }
+    const startingBalance = this.currentSessionId
+      ? (currentStatus.config?.paper_mode
+          ? currentStatus.config?.paper_starting_balance
+          : currentStatus.config?.live_starting_balance) || await this.getStartingBalanceForSession(this.currentSessionId)
+      : undefined;
 
     // SRE: Provide stable fallback startingBalance (10000) if undefined to prevent metrics/drawdowns from being distorted by deposits/withdrawals.
     const result = this.analyticsService.calculateAnalytics(
@@ -2707,27 +2746,32 @@ export class SessionService implements OnModuleInit {
   }
 
   async getLifetimeAnalytics(mode: "paper" | "testnet" | "live" = "paper") {
-    // 1. Fetch all closed trades across all sessions for the specific mode
-    const trades = await this.tradeRepository.find({
-      select: [
-        "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
-        "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty",
-        "strategy_config", "strategy_label"
-      ],
-      where: {
-        status: In(TERMINAL_STATUSES as any),
-      },
-      order: { exit_ts: "ASC" },
-    });
-
-    // Filter trades by mode
-    const filteredTrades = trades.filter((t) => {
-      const tConfig = t.strategy_config || {};
-      const tMode =
-        tConfig.trading_mode ||
-        (tConfig.paper_mode === false ? "live" : "paper");
-      return tMode === mode;
-    });
+    // 1. WISP OPTIMIZATION: Filter trades by trading mode directly at the database level using an innerJoin on the session table.
+    // This avoids fetching potentially thousands of trades with heavy strategy_config JSON blocks into memory, optimizing memory footprint and SQL speed.
+    const filteredTrades = await this.tradeRepository
+      .createQueryBuilder("trade")
+      .innerJoin("trade.session", "session")
+      .select([
+        "trade.id",
+        "trade.pnl",
+        "trade.exit_ts",
+        "trade.status",
+        "trade.max_rr_achieved",
+        "trade.min_rr_achieved",
+        "trade.exit_rr",
+        "trade.is_reconciliation",
+        "trade.initial_risk_usdt",
+        "trade.risk_usdt",
+        "trade.entry_price",
+        "trade.current_sl",
+        "trade.initial_sl",
+        "trade.qty",
+        "trade.strategy_label",
+      ])
+      .where("trade.status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
+      .andWhere("session.tradingMode = :mode", { mode })
+      .orderBy("trade.exit_ts", "ASC")
+      .getMany();
 
     // 2. Fetch balance history snapshots for high-fidelity curve
     const history = await this.balanceHistoryRepository.find({

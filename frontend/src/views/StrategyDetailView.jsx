@@ -18,6 +18,9 @@ import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { lazyWithRetry } from '../lib/lazy'
 
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
+const preloadTradeDetailModal = () => {
+  import('../components/TradeDetailModal');
+};
 
 const SIGNAL_LABELS = {
   momentum_pct: 'Momentum',
@@ -266,6 +269,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   trade={trade}
                   config={strategyConfig}
                   onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
+                  onMouseEnter={preloadTradeDetailModal}
                   isResuming={isResuming}
                   showResumingFeedback={showResumingFeedback}
                 />

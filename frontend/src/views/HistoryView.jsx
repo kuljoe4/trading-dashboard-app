@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import * as Dialog from '@radix-ui/react-dialog'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
 import { sessionAPI } from '../api/client'
@@ -7,7 +8,190 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X, Loader2 } from 'lucide-react'
+
+// Shimmer Skeleton Loader for individual charts to prevent layout shift and blank-out bubbling
+export const ChartSkeleton = ({ height = 180 }) => (
+  <div
+    style={{ height }}
+    className="w-full bg-surface/30 rounded-xl border border-border/10 flex flex-col items-center justify-center relative overflow-hidden shadow-inner"
+  >
+    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/[0.03] to-transparent -translate-x-full animate-pulse-slow pointer-events-none" />
+    <Loader2 size={18} className="text-accent/50 animate-spin mb-2" />
+    <span className="text-[9px] text-dim/50 font-black uppercase tracking-widest animate-pulse">Loading Analytics Module...</span>
+  </div>
+);
+
+// Accessible Session Details Modal using Radix Dialog
+export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
+  const [copied, setCopied] = useState(false);
+
+  if (!session) return null;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(session.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const label = strategyLabel(session);
+  const duration = (() => {
+    if (!session.startTime) return '---';
+    const end = session.endTime ? new Date(session.endTime).getTime() : Date.now();
+    const start = new Date(session.startTime).getTime();
+    return formatDuration(end - start);
+  })();
+
+  const activeLabels = Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
+
+  return (
+    <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <AnimatePresence>
+        {isOpen && (
+          <Dialog.Portal forceMount>
+            <Dialog.Overlay asChild>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
+              />
+            </Dialog.Overlay>
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10110 outline-none w-[calc(100%-2rem)] max-w-lg">
+              <motion.div
+                role="dialog"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 350 }}
+                className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                {/* Header */}
+                <div className="flex justify-between items-start mb-4 pb-3 border-b border-border/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                      <Info size={18} />
+                    </div>
+                    <div>
+                      <Dialog.Title className="text-sm font-black uppercase tracking-tight text-text">Session Details</Dialog.Title>
+                      <Dialog.Description className="text-[10px] text-dim font-bold uppercase tracking-widest mt-0.5">Technical lifecycle & metrics</Dialog.Description>
+                    </div>
+                  </div>
+                  <Tooltip content="Close">
+                    <Dialog.Close asChild>
+                      <button className="text-dim hover:text-text p-1.5 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close dialog">
+                        <X size={16} />
+                      </button>
+                    </Dialog.Close>
+                  </Tooltip>
+                </div>
+
+                {/* Body Content - Scrollable */}
+                <div className="flex-1 overflow-y-auto space-y-4 pr-1.5 no-scrollbar">
+                  {/* General Overview Card */}
+                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Strategy Label</span>
+                      <span className="text-xs font-black text-text uppercase">{label}</span>
+                    </div>
+
+                    <div className="flex justify-between items-center flex-wrap gap-2">
+                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session UUID</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] font-mono font-bold text-text/80 bg-surface px-2 py-1 rounded border border-border/50 select-all">{session.id}</span>
+                        <button
+                          onClick={handleCopy}
+                          className="p-1 hover:bg-white/5 rounded text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer"
+                          aria-label="Copy session ID"
+                        >
+                          {copied ? <CheckCircle2 size={12} className="text-green" /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Environment</span>
+                      <span className={cn(
+                        "text-[9px] font-black px-2 py-0.5 rounded uppercase border",
+                        session.paperMode
+                          ? "text-amber border-amber/20 bg-amber/5"
+                          : (session.config?.trading_mode === 'testnet' ? "text-purple border-purple/20 bg-purple/5" : "text-green border-green/20 bg-green/5")
+                      )}>
+                        {session.paperMode ? 'PAPER' : (session.config?.trading_mode || 'LIVE').toUpperCase()}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Timing details */}
+                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Started At</span>
+                      <span className="text-[10.5px] font-bold text-text">{new Date(session.startTime).toLocaleString()}</span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Ended At</span>
+                      <span className="text-[10.5px] font-bold text-text">
+                        {session.endTime ? new Date(session.endTime).toLocaleString() : 'Active / Unfinished'}
+                      </span>
+                    </div>
+                    <div className="col-span-2 flex flex-col gap-1 pt-2 border-t border-border/5">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Total Active Duration</span>
+                      <span className="text-xs font-black text-accent flex items-center gap-1.5">
+                        <Clock size={12} /> {duration}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Active Variants details */}
+                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
+                    <div className="text-[9px] text-dim font-black uppercase tracking-widest">Active Variations ({activeLabels.length})</div>
+                    <div className="flex flex-col gap-2">
+                      {activeLabels.map(l => {
+                        const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
+                        return (
+                          <div key={l} className="flex items-center justify-between p-2 bg-surface/50 border border-border/20 rounded-lg">
+                            <span className="text-[10.5px] font-bold text-text uppercase">{l}</span>
+                            <span className={cn(
+                              "text-[8px] font-black px-1.5 py-0.5 rounded border uppercase",
+                              isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
+                            )}>
+                              {isBase ? 'Base' : 'Variant'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Raw Configuration block */}
+                  {session.config && (
+                    <div className="space-y-1.5">
+                      <span className="text-[9px] text-dim font-black uppercase tracking-widest">Technical Parameters JSON</span>
+                      <div className="bg-background/60 border border-border/40 rounded-xl p-3 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50">
+                        <pre className="text-[9.5px] font-mono text-text/80 leading-relaxed whitespace-pre-wrap select-all">
+                          {JSON.stringify(session.config, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="mt-5 pt-3 border-t border-border/10 flex justify-end">
+                  <Dialog.Close asChild>
+                    <button className="px-5 py-2 bg-accent/10 hover:bg-accent/15 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer h-9">
+                      Close Details
+                    </button>
+                  </Dialog.Close>
+                </div>
+              </motion.div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        )}
+      </AnimatePresence>
+    </Dialog.Root>
+  );
+};
 
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
@@ -50,11 +234,11 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
       : "bg-dim/30"
 
   return (
-    <div className="flex gap-4 p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/20 hover:bg-white/[0.01] hover:translate-x-1 transition-all group/trade shadow-sm relative overflow-hidden">
+    <div className="flex gap-3 sm:gap-4 p-3 sm:p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/20 hover:bg-white/[0.01] hover:translate-x-1 transition-all group/trade shadow-sm relative overflow-hidden">
       {/* Visual left outcome strip */}
       <div className={cn("w-1 self-stretch rounded-full shrink-0", outcomeClass)} />
 
-      <div className="flex-1 flex flex-col gap-3">
+      <div className="flex-1 flex flex-col gap-2.5">
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1 min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
@@ -117,38 +301,38 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-x-6 gap-y-4 pt-3 border-t border-border/5">
-          <div className="flex flex-col items-start min-w-0">
+        <div className="grid grid-cols-3 sm:grid-cols-7 gap-y-2.5 gap-x-3.5 pt-2.5 border-t border-border/10">
+          <div className="flex flex-col items-start min-w-0 col-span-2 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Execution</span>
             <span className="text-[9px] font-black text-text/70 font-mono truncate w-full">{price(trade.entry_price)} → {price(trade.exit_price)}</span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Quantity</span>
-            <span className="text-[9px] font-black text-text/70 font-mono">{Number(trade.qty || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+            <span className="text-[9px] font-black text-text/70 font-mono truncate w-full">{Number(trade.qty || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Peak</span>
-            <span className="text-[9px] font-black text-accent font-mono">+{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
+            <span className="text-[9px] font-black text-accent font-mono truncate w-full">+{Number(trade.max_rr_achieved || 0).toFixed(2)}R</span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit RR</span>
-            <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.exit_rr))}>
+            <span className={cn("text-[9px] font-black font-mono truncate w-full", pnlClass(trade.exit_rr))}>
               {trade.exit_rr !== undefined && trade.exit_rr !== null ? `${trade.exit_rr >= 0 ? '+' : ''}${Number(trade.exit_rr).toFixed(2)}R` : '0.00R'}
             </span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Min RR (MAE)</span>
-            <span className={cn("text-[9px] font-black font-mono", (trade.min_rr_achieved || 0) < 0 ? "text-red" : "text-dim")}>
+            <span className={cn("text-[9px] font-black font-mono truncate w-full", (trade.min_rr_achieved || 0) < 0 ? "text-red" : "text-dim")}>
               {trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? `${Number(trade.min_rr_achieved).toFixed(2)}R` : '0.00R'}
             </span>
           </div>
-          <div className="flex flex-col items-start min-w-0">
-            <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Market Context</span>
-            <span className={cn("text-[9px] font-black font-mono", pnlClass(trade.entry_daily_change_pct))}>
+          <div className="flex flex-col items-start min-w-0 col-span-1 sm:col-span-1">
+            <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Context</span>
+            <span className={cn("text-[9px] font-black font-mono truncate w-full", pnlClass(trade.entry_daily_change_pct))}>
               {(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} {Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%
             </span>
           </div>
-          <div className="flex flex-col items-start min-w-0 sm:max-w-[120px] col-span-2 sm:col-span-1">
+          <div className="flex flex-col items-start min-w-0 col-span-2 sm:col-span-1">
             <span className="text-[7px] text-dim font-black uppercase tracking-widest mb-0.5">Exit Reason</span>
             <Tooltip content={trade.exit_signal_reason || 'No detailed reason provided'}>
               <span className="text-[8px] font-black text-text/60 uppercase truncate w-full leading-tight cursor-help border-b border-dotted border-dim/20">
@@ -178,8 +362,453 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
 })
 TradeItem.displayName = 'TradeItem'
 
+// Interactive High-Performance RR Win Rate & Simulated P&L Calculator
+export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initialStartingBalance = 10000 }) => {
+  const [targetRr, setTargetRr] = useState(2.0);
+  const [projectedTrades, setProjectedTrades] = useState(50);
+  const [startingBalance, setStartingBalance] = useState(initialStartingBalance);
+  const [usePctRisk, setUsePctRisk] = useState(true);
+  const [riskPct, setRiskPct] = useState(1.0);
+  const [useCompounding, setUseCompounding] = useState(true);
+
+  useEffect(() => {
+    setStartingBalance(initialStartingBalance);
+  }, [initialStartingBalance]);
+
+  const handleBalanceBlur = () => {
+    const num = parseInt(startingBalance, 10);
+    if (isNaN(num) || num < 1) {
+      setStartingBalance(Number(initialStartingBalance) || 10000);
+    } else {
+      setStartingBalance(Math.min(10000000, num));
+    }
+  };
+
+  const handleRiskBlur = () => {
+    const num = parseFloat(riskPct);
+    if (isNaN(num) || num < 0.1) {
+      setRiskPct(1.0);
+    } else {
+      setRiskPct(Math.min(100, num));
+    }
+  };
+
+  const handleProjectedBlur = () => {
+    const num = parseInt(projectedTrades, 10);
+    if (isNaN(num) || num < 5) {
+      setProjectedTrades(50);
+    } else {
+      setProjectedTrades(Math.min(1000, num));
+    }
+  };
+
+  const stats = useMemo(() => {
+    const startBalNum = Number(startingBalance) || initialStartingBalance || 10000;
+    const riskPctNum = Number(riskPct) || 1.0;
+    const projectedTradesNum = Number(projectedTrades) || 50;
+
+    let winCount = 0;
+    let totalSimulatedPnl = 0;
+    const count = trades.length;
+
+    // Use average risk and average duration of this session's trades for projections
+    let totalRisk = 0;
+    let totalDurationMs = 0;
+    let durationCount = 0;
+
+    let winMaeSum = 0;
+    let winMaeCount = 0;
+    let lossMaeSum = 0;
+    let lossMaeCount = 0;
+
+    let maxWinStreak = 0;
+    let maxLossStreak = 0;
+    let currentWinStreak = 0;
+    let currentLossStreak = 0;
+
+    const simReturns = [];
+    let currentBalance = startBalNum;
+
+    for (let i = 0; i < count; i++) {
+      const t = trades[i];
+      const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
+      const isWin = maxRr >= targetRr;
+      const mae = Number(t.min_rr_achieved ?? 0);
+
+      if (isWin) {
+        winMaeSum += mae;
+        winMaeCount++;
+        currentWinStreak++;
+        currentLossStreak = 0;
+        if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
+      } else {
+        lossMaeSum += mae;
+        lossMaeCount++;
+        currentLossStreak++;
+        currentWinStreak = 0;
+        if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
+      }
+
+      const risk = usePctRisk
+        ? (useCompounding ? (currentBalance * (riskPctNum / 100)) : (startBalNum * (riskPctNum / 100)))
+        : Number(t.initial_risk_usdt || t.risk_usdt || 100);
+      totalRisk += risk;
+
+      let tradePnl = 0;
+      if (isWin) {
+        winCount++;
+        tradePnl = targetRr * risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
+      } else {
+        tradePnl = -risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
+      }
+
+      const pctReturn = startBalNum > 0 ? (tradePnl / startBalNum) * 100 : 0;
+      simReturns.push(pctReturn);
+
+      const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      const entryMs = t.entry_ts_ms !== undefined ? t.entry_ts_ms : (t.entry_ts ? new Date(t.entry_ts).getTime() : 0);
+      if (exitMs && entryMs) {
+        const dur = exitMs - entryMs;
+        if (dur > 0) {
+          totalDurationMs += dur;
+          durationCount++;
+        }
+      }
+    }
+
+    const calculatedWinRate = count > 0 ? (winCount / count) : 0;
+    const simulatedRoi = startBalNum > 0 ? (totalSimulatedPnl / startBalNum) * 100 : 0;
+
+    const avgWinMae = winMaeCount > 0 ? (winMaeSum / winMaeCount) : 0;
+    const avgLossMae = lossMaeCount > 0 ? (lossMaeSum / lossMaeCount) : 0;
+
+    // Calculate Sharpe and Sortino Ratios of the Simulated Series
+    let meanReturn = 0;
+    let variance = 0;
+    let downsideVariance = 0;
+    let sharpeRatio = 0;
+    let sortinoRatio = 0;
+
+    if (count > 0) {
+      meanReturn = simReturns.reduce((sum, r) => sum + r, 0) / count;
+      variance = simReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / count;
+      downsideVariance = simReturns.reduce((sum, r) => sum + Math.pow(Math.min(0, r), 2), 0) / count;
+
+      const stdDev = Math.sqrt(variance);
+      const downsideStdDev = Math.sqrt(downsideVariance);
+
+      sharpeRatio = stdDev > 0 ? (meanReturn / stdDev) : 0;
+      sortinoRatio = downsideStdDev > 0 ? (meanReturn / downsideStdDev) : 0;
+    }
+
+    // Streak Drawdown computation:
+    const maxStreakDrawdownPct = usePctRisk
+      ? (useCompounding
+          ? (1 - Math.pow(1 - riskPctNum / 100, maxLossStreak)) * 100
+          : maxLossStreak * riskPctNum)
+      : 0;
+
+    // Fast O(1) Projection Modeling with compounding support:
+    const avgRisk = usePctRisk ? (startBalNum * (riskPctNum / 100)) : (count > 0 ? (totalRisk / count) : 100);
+    const projectedWins = Math.round(calculatedWinRate * projectedTradesNum);
+    const projectedLosses = projectedTradesNum - projectedWins;
+
+    let projectedPnl = 0;
+    if (usePctRisk && useCompounding) {
+      const projectedFinalBalance = startBalNum * Math.pow(1 + targetRr * (riskPctNum / 100), projectedWins) * Math.pow(1 - (riskPctNum / 100), projectedLosses);
+      projectedPnl = projectedFinalBalance - startBalNum;
+    } else {
+      projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
+    }
+    const projectedRoi = startBalNum > 0 ? (projectedPnl / startBalNum) * 100 : 0;
+
+    // Average Duration calculations & total projected execution span
+    const avgDurationMs = durationCount > 0 ? (totalDurationMs / durationCount) : 15 * 60000; // default 15m
+    const totalProjectedDurationMs = avgDurationMs * projectedTradesNum;
+
+    return {
+      winRate: (calculatedWinRate * 100).toFixed(1),
+      wins: winCount,
+      losses: count - winCount,
+      simulatedPnl: totalSimulatedPnl,
+      simulatedRoi: simulatedRoi.toFixed(2),
+      avgRisk,
+      projectedWins,
+      projectedLosses,
+      projectedPnl,
+      projectedRoi: projectedRoi.toFixed(2),
+      avgDurationMs,
+      totalProjectedDurationMs,
+      avgWinMae,
+      avgLossMae,
+      maxWinStreak,
+      maxLossStreak,
+      maxStreakDrawdownPct: maxStreakDrawdownPct.toFixed(2),
+      sharpeRatio: sharpeRatio.toFixed(2),
+      sortinoRatio: sortinoRatio.toFixed(2)
+    };
+  }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
+
+  return (
+    <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
+      {/* Responsive Header Row */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[10px] text-dim font-black uppercase tracking-widest truncate">Predictive RR Target Calculator</span>
+          <span className="text-[8.5px] text-dim/60 font-medium mt-0.5 leading-tight">Simulate win rate and P&L at custom Reward-to-Risk ratios</span>
+        </div>
+
+        {/* Dynamic starting balance input & Target badge container */}
+        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap justify-between sm:justify-end shrink-0">
+          <div className="flex items-center gap-1.5 bg-background/30 px-2 py-1 rounded border border-border/30">
+            <input
+              type="checkbox"
+              id="usePctRisk"
+              checked={usePctRisk}
+              onChange={(e) => setUsePctRisk(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer"
+            />
+            <label htmlFor="usePctRisk" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none">
+              Risk % of Bal:
+            </label>
+            <input
+              type="number"
+              min="0.1"
+              max="100"
+              step="0.1"
+              disabled={!usePctRisk}
+              value={riskPct}
+              onChange={(e) => setRiskPct(e.target.value)}
+              onBlur={handleRiskBlur}
+              className="w-12 bg-background/50 border border-border/50 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold text-text disabled:opacity-40 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              aria-label="Risk percent of starting balance"
+            />
+            <span className="text-[10px] font-bold font-mono text-dim">%</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-background/30 px-2 py-1 rounded border border-border/30">
+            <input
+              type="checkbox"
+              id="useCompounding"
+              checked={useCompounding}
+              disabled={!usePctRisk}
+              onChange={(e) => setUseCompounding(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer disabled:opacity-30"
+            />
+            <label htmlFor="useCompounding" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none disabled:opacity-30">
+              Compounding
+            </label>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap">Starting Bal:</span>
+            <input
+              type="number"
+              min="1"
+              max="10000000"
+              value={startingBalance}
+              onChange={(e) => setStartingBalance(e.target.value)}
+              onBlur={handleBalanceBlur}
+              className="w-20 bg-background/50 border border-border/50 rounded px-1.5 py-1 text-center font-mono text-[10px] font-bold text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-accent"
+              aria-label="Starting balance input for simulation calculations"
+            />
+          </div>
+
+          <div className="bg-accent/10 border border-accent/20 px-2 py-1 rounded text-[10px] text-accent font-black font-mono shrink-0">
+            {Number(targetRr).toFixed(1)}R Target
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 sm:gap-4 w-full">
+        <input
+          type="range"
+          min="0.5"
+          max="6.0"
+          step="0.1"
+          value={targetRr}
+          onChange={(e) => setTargetRr(Number(e.target.value))}
+          className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none"
+        />
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => setTargetRr(prev => Math.max(0.5, Number((prev - 0.5).toFixed(1))))}
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+          >
+            -
+          </button>
+          <button
+            onClick={() => setTargetRr(prev => Math.min(6.0, Number((prev + 0.5).toFixed(1))))}
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+          >
+            +
+          </button>
+        </div>
+      </div>
+
+      {/* Row 1: Core Performance Metrics */}
+      <div className="grid grid-cols-3 gap-3 pt-2.5 border-t border-border/10">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated WR</span>
+          <span className="text-xs font-black font-mono tracking-tight text-text truncate">
+            {stats.winRate}% <span className="text-[9px] text-dim/60 font-bold">({stats.wins}/{trades.length})</span>
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated P&L</span>
+          <span className={cn("text-xs font-black font-mono tracking-tight truncate", pnlClass(stats.simulatedPnl))}>
+            {fmtUSD(stats.simulatedPnl)}
+          </span>
+        </div>
+        <div className="flex flex-col items-end text-right min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1">Simulated ROI</span>
+          <span className={cn("text-xs font-black font-mono tracking-tight truncate", pnlClass(stats.simulatedPnl))}>
+            {stats.simulatedPnl >= 0 ? '+' : ''}{stats.simulatedRoi}%
+          </span>
+        </div>
+      </div>
+
+      {/* Row 2: Analytical Ratios & MAE Drawdowns */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border/10">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Sharpe Ratio
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-accent truncate">
+            {stats.sharpeRatio}
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Sortino Ratio
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-accent truncate">
+            {stats.sortinoRatio}
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Win MAE (Avg)
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-dim truncate">
+            {Number(stats.avgWinMae).toFixed(2)}R
+          </span>
+        </div>
+        <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Loss MAE (Avg)
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
+            {Number(stats.avgLossMae).toFixed(2)}R
+          </span>
+        </div>
+      </div>
+
+      {/* Row 3: Streak Analytics */}
+      <div className="grid grid-cols-3 gap-3 pt-2 border-t border-border/10">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Max Win Streak
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-green truncate">
+            {stats.maxWinStreak} wins
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Max Loss Streak
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
+            {stats.maxLossStreak} losses
+          </span>
+        </div>
+        <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Streak Drawdown
+          </span>
+          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
+            {usePctRisk ? `-${stats.maxStreakDrawdownPct}%` : '---'}
+          </span>
+        </div>
+      </div>
+
+      {/* Projection Modeling Sub-card */}
+      <div className="bg-surface/30 border border-border/30 rounded-xl p-3 mt-1 flex flex-col gap-3 w-full overflow-hidden">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 w-full">
+          <div className="flex flex-col min-w-0">
+            <span className="text-[9px] text-dim font-black uppercase tracking-wider truncate">Predictive Projection Modeling</span>
+            <span className="text-[8px] text-dim/50 font-semibold mt-0.5 leading-tight">Project future performance using session characteristics (Avg Risk: {fmtUSD(stats.avgRisk)})</span>
+          </div>
+
+          {/* Stepper Input with Keyboard Accessibility */}
+          <div className="flex items-center gap-1 bg-background/50 border border-border/50 rounded-lg p-0.5 select-none shrink-0 self-start sm:self-auto">
+            <button
+              onClick={() => setProjectedTrades(prev => Math.max(5, prev - 5))}
+              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none"
+              aria-label="Decrease projected trades count"
+            >
+              -
+            </button>
+            <input
+              type="number"
+              min="5"
+              max="1000"
+              value={projectedTrades}
+              onChange={(e) => setProjectedTrades(e.target.value)}
+              onBlur={handleProjectedBlur}
+              className="w-10 bg-transparent text-center font-mono text-[10px] font-bold text-text focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              aria-label="Projected future trades count"
+            />
+            <button
+              onClick={() => setProjectedTrades(prev => Math.min(1000, prev + 5))}
+              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none"
+              aria-label="Increase projected trades count"
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1.5">
+          <div className="flex flex-col min-w-0">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Projected Trades</span>
+            <span className="text-[10px] font-black font-mono text-text/80 leading-none truncate">
+              {projectedTrades} <span className="text-[8px] text-dim/60 font-bold">({stats.projectedWins}W-{stats.projectedLosses}L)</span>
+            </span>
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Est. Execution Span</span>
+            <span className="text-[10px] font-black font-mono text-text/80 leading-none truncate">
+              {formatDuration(stats.totalProjectedDurationMs)}
+            </span>
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Projected Net P&L</span>
+            <span className={cn("text-[10px] font-black font-mono leading-none truncate", pnlClass(stats.projectedPnl))}>
+              {fmtUSD(stats.projectedPnl)}
+            </span>
+          </div>
+          <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0 col-span-2 sm:col-span-1">
+            <span className="text-[7px] text-dim font-black uppercase tracking-wider mb-1 leading-none">Projected ROI</span>
+            <span className={cn("text-[10px] font-black font-mono leading-none truncate", pnlClass(stats.projectedPnl))}>
+              {stats.projectedPnl >= 0 ? '+' : ''}{stats.projectedRoi}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+RrWinRateCalculator.displayName = 'RrWinRateCalculator';
+
 // Premium Glassmorphic SessionGroup with Controlled Toggle, glows, and stacked win/loss distribution sparkline
 const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -210,10 +839,10 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     }
     const m = calculatePerformanceMetrics(trades, session.balance);
     const losses = trades.length - m.wins;
-    const avgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
-    const avgLoss = losses > 0 ? m.grossLoss / losses : 0;
-    const winLossRatio = avgLoss > 0 ? (avgWin / avgLoss) : (m.wins > 0 ? 100 : 0);
-    const winLossRatioStr = avgLoss > 0 ? Number(winLossRatio).toFixed(2) : (m.wins > 0 ? '∞' : '0.00');
+    const bgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
+    const bgLoss = losses > 0 ? m.grossLoss / losses : 0;
+    const winLossRatio = bgLoss > 0 ? (bgWin / bgLoss) : (m.wins > 0 ? 100 : 0);
+    const winLossRatioStr = bgLoss > 0 ? Number(winLossRatio).toFixed(2) : (m.wins > 0 ? '∞' : '0.00');
     const startingBalance = Number(session.balance) - Number(session.totalPnl);
     const pnlPct = startingBalance > 0 ? (m.totalPnl / startingBalance) * 100 : 0;
 
@@ -232,10 +861,11 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
 
-  const activeLabels = useMemo(() => {
+  const variantsCount = useMemo(() => {
     const labels = new Set(trades.map(t => strategyLabel(t)));
-    return Array.from(labels);
-  }, [trades]);
+    labels.delete(label); // remove baseline
+    return labels.size;
+  }, [trades, label]);
 
   // Stacked win/loss distribution calculation
   const winCount = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades]);
@@ -255,51 +885,56 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       : "border-l-[5px] border-l-dim/20"
 
   return (
-    <div id={`session-${session.id}`} className={cn("bg-surface border border-border rounded-2xl overflow-hidden mb-5 lg:mb-6 shadow-sm transition-all hover:border-accent/15 hover:shadow-md scroll-mt-8", borderLeftColor)}>
+    <div id={`session-${session.id}`} className={cn("bg-surface border border-border rounded-2xl overflow-hidden mb-3.5 lg:mb-4 shadow-sm transition-all hover:border-accent/15 hover:shadow-md scroll-mt-8", borderLeftColor)}>
       <div
         onClick={onToggle}
         onKeyDown={handleKeyDown}
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
-        className="p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-5 cursor-pointer select-none bg-surface/30 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none"
+        className="p-3.5 sm:p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4 cursor-pointer select-none bg-surface/30 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none"
       >
         {/* Left: Strategy Info */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <div className={cn(
-            "w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
+            "w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
             expanded ? "bg-accent/10 border-accent/20 scale-105" : "bg-surface border-border group-hover:border-accent/30"
           )}>
-            {expanded ? <ChevronUp size={20} className="text-accent" /> : <ChevronDown size={20} className="text-dim" />}
+            {expanded ? <ChevronUp size={18} className="text-accent" /> : <ChevronDown size={18} className="text-dim" />}
           </div>
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-base font-black tracking-tight hover:text-accent transition-colors">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <a href={`#/history?session=${session.id}`} onClick={(e) => e.stopPropagation()} className="text-sm sm:text-base font-black tracking-tight hover:text-accent transition-colors">
                 {label}
               </a>
-              <div className="flex items-center gap-1">
-                <span className="text-[9px] text-dim font-mono bg-background/50 px-2 py-0.5 rounded border border-border/50">#{session.id.substring(0, 8)}</span>
-                <CopyButton value={session.id} tooltip="Copy Session ID" className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 scale-75" />
-              </div>
+              <Tooltip content="View Session Technical Details">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetailsOpen(true);
+                  }}
+                  className="p-1 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                  aria-label="View technical details"
+                >
+                  <Info size={12.5} />
+                </button>
+              </Tooltip>
+
               {session.paperMode && <PaperBadge />}
 
-              {/* Active strategy/variant pills */}
-              {activeLabels.map(l => {
-                const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
-                return (
-                  <span key={l} className={cn(
-                    "text-[8px] font-black px-2 py-0.5 rounded-full border uppercase shrink-0 scale-95",
-                    isBase
-                      ? "text-blue-400 border-blue-500/20 bg-blue-500/5"
-                      : "text-purple border-purple/20 bg-purple/5"
-                  )}>
-                    {isBase ? 'Base' : 'Variant'}: {l}
-                  </span>
-                );
-              })}
+              {variantsCount > 0 ? (
+                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full border border-purple/20 bg-purple/5 text-purple uppercase shrink-0">
+                  +{variantsCount} Variants
+                </span>
+              ) : (
+                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full border border-blue-500/20 bg-blue-500/5 text-blue-400 uppercase shrink-0">
+                  Base Only
+                </span>
+              )}
             </div>
-            <div className="text-[10px] text-dim font-bold uppercase tracking-[0.08em] flex items-center gap-2.5 flex-wrap">
-              <span className="flex items-center gap-1"><Clock size={11} className="text-accent shrink-0" /> {new Date(session.startTime).toLocaleDateString()}</span>
+            <div className="text-[9px] sm:text-[10px] text-dim font-bold uppercase tracking-[0.08em] flex items-center gap-2 flex-wrap">
+              <span className="flex items-center gap-1"><Clock size={10} className="text-accent shrink-0" /> {new Date(session.startTime).toLocaleDateString()}</span>
               <span className="w-1 h-1 rounded-full bg-dim/30 shrink-0" />
               <span>{new Date(session.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
               <span className="w-1 h-1 rounded-full bg-dim/30 shrink-0" />
@@ -307,6 +942,13 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             </div>
           </div>
         </div>
+
+        <SessionDetailsModal
+          isOpen={detailsOpen}
+          onClose={() => setDetailsOpen(false)}
+          session={session}
+          trades={trades}
+        />
 
         {/* Center/Right: Metrics & Stacked Visual Distribution */}
         <div className="flex flex-col md:flex-row items-start md:items-center gap-5 xl:gap-8 xl:ml-auto">
@@ -377,10 +1019,16 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-t border-border/10"
           >
-            <div className="p-4 space-y-3 bg-background/20">
+            <div className="p-4 space-y-4 bg-background/20">
+              {trades && trades.length > 0 && (
+                <RrWinRateCalculator trades={trades} startingBalance={session.balance || 10000} />
+              )}
+
               {curve.length >= 2 && (
                 <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
-                  <EquityCurve data={curve} height={180} />
+                  <React.Suspense fallback={<ChartSkeleton height={180} />}>
+                    <EquityCurve data={curve} height={180} />
+                  </React.Suspense>
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -442,13 +1090,18 @@ export const HistoryView = () => {
   };
 
   const searchInputRef = React.useRef(null)
+  const mobileSearchInputRef = React.useRef(null)
 
   // Hotkey listener: '/' to focus search input
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault();
-        searchInputRef.current?.focus();
+        if (window.innerWidth < 640) {
+          mobileSearchInputRef.current?.focus();
+        } else {
+          searchInputRef.current?.focus();
+        }
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -627,56 +1280,17 @@ export const HistoryView = () => {
           subTitle="Verified records of all closed positions"
           backAction={() => window.location.hash = '#/'}
         >
-          <div className="flex items-center gap-3 self-end sm:self-auto">
-             <div className="relative group hidden sm:block">
-               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
-               <input
-                 ref={searchInputRef}
-                 type="text"
-                 placeholder="Search history... [/]"
-                 aria-label="Search trade history"
-                 value={search}
-                 onChange={(e) => setSearch(e.target.value)}
-                 onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-                 className="bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-[11px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all w-[180px] lg:w-[240px]"
-               />
-               {search && (
-                 <Tooltip content="Clear Search">
-                  <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5" aria-label="Clear Search">
-                    <XCircle size={14} />
-                  </button>
-                 </Tooltip>
-               )}
-             </div>
+          <div className="flex items-center gap-3">
              <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
                Latest 200 Trades
              </span>
           </div>
         </ViewHeader>
 
-        {/* Mobile Search */}
-        <div className="sm:hidden relative group mb-6">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
-          <input
-            type="text"
-            placeholder="Search history... [/]"
-            aria-label="Search trade history"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-            className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-3 text-xs font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-          />
-          {search && (
-            <Tooltip content="Clear Search">
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5" aria-label="Clear Search">
-                <XCircle size={16} />
-              </button>
-            </Tooltip>
-          )}
-        </div>
-
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-6">
-          <div className="flex items-center gap-2 p-1 bg-surface border border-border rounded-xl w-fit">
+        {/* Unified Sticky Filter Toolbar */}
+        <div className="sticky top-[64px] z-40 bg-background/95 backdrop-blur-md border border-border/30 rounded-2xl p-2.5 mb-6 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full">
+          {/* Left: Environment Switcher */}
+          <div className="flex items-center gap-1 bg-surface border border-border/30 p-1 rounded-xl w-full sm:w-auto">
             {['paper', 'testnet', 'live'].map(m => (
               <button
                 key={m}
@@ -685,8 +1299,8 @@ export const HistoryView = () => {
                   localStorage.setItem('history_trade_mode', m);
                 }}
                 className={cn(
-                  "px-4 py-2 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                  lifetimeMode === m ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:text-text"
+                  "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                  lifetimeMode === m ? "bg-accent text-white shadow-md shadow-accent/20" : "text-dim hover:text-text"
                 )}
               >
                 {m}
@@ -694,9 +1308,40 @@ export const HistoryView = () => {
             ))}
           </div>
 
-          <div className="flex items-center gap-4">
-             <span className="text-[10px] text-dim font-black uppercase tracking-widest">Sort Sessions</span>
-             <div className="flex items-center gap-1.5 p-1 bg-surface border border-border rounded-xl">
+          {/* Center: Search input */}
+          <div className="relative group w-full sm:max-w-[280px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search history... [/]"
+              aria-label="Search trade history"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
+              className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-8 py-2 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+            />
+            {search && (
+              <Tooltip content="Clear Search">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    searchInputRef.current?.focus();
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
+                  aria-label="Clear Search"
+                >
+                  <XCircle size={13} />
+                </button>
+              </Tooltip>
+            )}
+          </div>
+
+          {/* Right: Sort controls */}
+          <div className="flex items-center gap-2 justify-between sm:justify-end w-full sm:w-auto shrink-0">
+             <span className="text-[8.5px] text-dim font-black uppercase tracking-widest shrink-0">Sort Sessions</span>
+             <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
                 {[
                   { id: 'time', label: 'Recent' },
                   { id: 'pnl', label: 'Best PnL' },
@@ -706,7 +1351,7 @@ export const HistoryView = () => {
                     key={opt.id}
                     onClick={() => setSortBy(opt.id)}
                     className={cn(
-                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                      "px-2.5 py-1.5 rounded-lg text-[8.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                       sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"
                     )}
                   >
@@ -893,10 +1538,14 @@ export const HistoryView = () => {
                 {/* 3. Charts Area */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="lg:col-span-2 bg-surface border border-border rounded-2xl p-5 md:p-8 shadow-sm overflow-hidden relative">
-                     <EquityCurve data={currentAnalytics?.cumulativePnL || []} />
+                    <React.Suspense fallback={<ChartSkeleton height={260} />}>
+                      <EquityCurve data={currentAnalytics?.cumulativePnL || []} />
+                    </React.Suspense>
                   </div>
                   <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-                     <TODPerformance data={currentAnalytics?.timeOfDay || []} />
+                    <React.Suspense fallback={<ChartSkeleton height={260} />}>
+                      <TODPerformance data={currentAnalytics?.timeOfDay || []} />
+                    </React.Suspense>
                   </div>
                 </div>
 
@@ -906,10 +1555,12 @@ export const HistoryView = () => {
                     <div className="md:col-span-3 bg-surface border border-border rounded-3xl p-8 shadow-sm overflow-hidden relative">
                       <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
                         <div className="lg:col-span-3">
-                          <RrOptimizationChart
-                            data={currentAnalytics.rrOptimization.curve}
-                            recommendedRr={currentAnalytics.rrOptimization.recommendedRr}
-                          />
+                          <React.Suspense fallback={<ChartSkeleton height={220} />}>
+                            <RrOptimizationChart
+                              data={currentAnalytics.rrOptimization.curve}
+                              recommendedRr={currentAnalytics.rrOptimization.recommendedRr}
+                            />
+                          </React.Suspense>
                         </div>
                         <div className="lg:col-span-2 flex flex-col gap-6">
                           <div className="grid grid-cols-1 gap-3">

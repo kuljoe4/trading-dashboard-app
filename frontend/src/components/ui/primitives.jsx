@@ -251,22 +251,20 @@ export const StatusBadge = ({ status }) => {
   
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold tracking-wider transition-all",
-      active
-        ? "text-green bg-green/10 border-green/20 shadow-[0_0_10px_rgba(0,229,160,0.05)]"
-        : "text-dim bg-surface border-border"
+      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-all",
+      active ? "text-green" : "text-dim"
     )}>
-      {active && <PulseDot color="bg-green" />}
-      {active ? "LIVE" : "STOPPED"}
+      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", active ? "bg-green animate-pulse" : "bg-dim/40")} />
+      {active ? "Active" : "Stopped"}
     </span>
   )
 }
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    PAPER
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-amber">
+    <span className="w-1.5 h-1.5 rounded-full bg-amber shrink-0" />
+    Paper
   </span>
 )
 
@@ -287,30 +285,26 @@ export const EcoBadge = () => {
 
   return (
     <span className={cn(
-      "px-2.5 py-1 rounded-full border text-[10px] font-bold tracking-wider flex items-center gap-1.5 transition-colors",
-      showResumingFeedback ? "border-accent/30 bg-accent/10 text-accent shadow-[0_0_15px_rgba(91,111,255,0.1)]" : "border-green/20 bg-green/10 text-green shadow-[0_0_10px_rgba(0,229,160,0.05)]"
+      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-colors",
+      showResumingFeedback ? "text-accent" : "text-green"
     )}>
-      {showResumingFeedback ? (
-        <RefreshCw size={10} className="animate-spin" />
-      ) : (
-        <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-      )}
-      {showResumingFeedback ? 'RESUMING' : 'ECO'}
+      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", showResumingFeedback ? "bg-accent animate-spin" : "bg-green animate-pulse")} />
+      {showResumingFeedback ? 'Resuming' : 'Eco'}
     </span>
   );
 }
 
 export const DemoBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    DEMO
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-purple">
+    <span className="w-1.5 h-1.5 rounded-full bg-purple shrink-0" />
+    Demo
   </span>
 )
 
 export const LiveBadge = () => (
-  <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5">
-    <Zap size={10} fill="currentColor" />
-    LIVE
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-green">
+    <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0 animate-pulse" />
+    Live
   </span>
 )
 
@@ -515,10 +509,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
   return (
     <div className={cn(
-      "z-40 transition-all duration-300 mb-4 lg:mb-6",
-      sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-2.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
+      "z-40 transition-all duration-300 mb-2 lg:mb-3",
+      sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-1.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
     )}>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative w-full">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 relative w-full">
         {/* Left Side: Title and Badges */}
         <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1 w-full">
           {backAction && (
@@ -574,7 +568,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
         {/* Center: Integrated Non-Blocking Horizontal Ticker */}
         {activeAlert && (
-          <div className="hidden md:flex relative items-center justify-center min-w-0 flex-1 px-4 z-50">
+          <div className="flex relative items-center justify-center min-w-0 w-full sm:w-auto flex-1 px-2 sm:px-4 z-50">
             <div
               onClick={() => setShowDropdown(!showDropdown)}
               className="group pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text max-w-[360px] lg:max-w-[440px] w-full transition-all duration-300 select-none animate-in fade-in"
@@ -1009,21 +1003,6 @@ export const ToastItem = React.memo(React.forwardRef(({ alert, onDismiss }, ref)
 ToastItem.displayName = 'ToastItem'
 
 export const GlobalToaster = React.memo(() => {
-  const alerts = useTradingStore(state => state.alerts) || []
-  const removeAlert = useTradingStore(state => state.removeAlert)
-
-  return (
-    <div
-      className="fixed top-4 sm:top-6 right-4 sm:right-6 z-[99999] flex flex-col gap-2 w-full max-w-[380px] pointer-events-none px-4 sm:px-0"
-      role="region"
-      aria-label="Notifications"
-    >
-      <AnimatePresence mode="popLayout">
-        {alerts.map((alert) => (
-          <ToastItem key={alert.id} alert={alert} onDismiss={removeAlert} />
-        ))}
-      </AnimatePresence>
-    </div>
-  )
+  return null;
 })
 GlobalToaster.displayName = 'GlobalToaster'

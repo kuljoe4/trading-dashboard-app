@@ -41,6 +41,13 @@
     font-family: inherit;
   }
 
+  button {
+    @apply transition-all duration-150 ease-out;
+  }
+  button:not(:disabled):active {
+    @apply scale-[0.97];
+  }
+
   /* Global Standardized Scrollbars */
   * {
     scrollbar-width: thin;

@@ -131,35 +131,55 @@ VariantGatingSummary.displayName = 'VariantGatingSummary';
 
 const LogEntry = React.memo(({ log }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const safeLog = (log && typeof log === 'object') ? log : {};
   const logLevel = String(safeLog.level ?? 'info').toLowerCase();
   const logMessage = typeof safeLog.msg === 'string' ? safeLog.msg : String(safeLog.msg ?? '');
   const logTimestamp = String(safeLog.ts ?? '');
 
+  const isRoutine = useMemo(() => {
+    const lower = logMessage.toLowerCase();
+    return lower.includes('hibernat') || lower.includes('sleep') || lower.includes('cooldown') || lower.includes('gate') || lower.includes('monitoring') || lower.includes('warm-up');
+  }, [logMessage]);
+
+  const shouldTruncate = isRoutine && logMessage.length > 80;
+
   return (
     <>
-      <div className="flex items-center gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 min-w-fit hover:bg-white/[0.02] transition-colors group/entry pr-4">
+      <div className="flex items-start gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-4 w-full">
         <div
           role="button"
           tabIndex={0}
-          onClick={() => setIsOpen(true)}
-          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && setIsOpen(true)}
-          className="flex items-center gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm"
+          onClick={() => {
+            if (shouldTruncate) {
+              setIsExpanded(!isExpanded);
+            } else {
+              setIsOpen(true);
+            }
+          }}
+          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (shouldTruncate ? setIsExpanded(!isExpanded) : setIsOpen(true))}
+          className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm w-full text-left"
           aria-label="View log details"
         >
-          <span className="text-dim/60 whitespace-nowrap shrink-0">[{logTimestamp}]</span>
+          <span className="text-dim/60 whitespace-nowrap shrink-0 sm:mb-0 mb-0.5">[{logTimestamp}]</span>
           <span className={cn(
-            "transition-colors whitespace-nowrap min-w-fit",
+            "transition-colors break-words break-all min-w-0 flex-1",
+            shouldTruncate && !isExpanded && "line-clamp-2",
             logLevel === 'warn' ? "text-amber font-black" :
             logLevel === 'error' ? "text-red font-black" :
             "text-text/90 font-medium"
           )}>
             {formatMessage(logMessage)}
+            {shouldTruncate && (
+              <span className="text-accent hover:underline ml-1 cursor-pointer font-black text-[9px] uppercase tracking-wider whitespace-nowrap">
+                {isExpanded ? ' (show less)' : ' (show more)'}
+              </span>
+            )}
           </span>
         </div>
         <CopyButton
           value={logMessage}
-          className="opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1"
+          className="hidden sm:inline-flex opacity-0 group-hover/entry:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -my-1 shrink-0"
           tooltip="Copy log message"
         />
       </div>
@@ -231,6 +251,7 @@ export const DecisionLog = React.memo(() => {
   const logFilters = useTradingStore(state => state.logFilters)
   const toggleLogFilter = useTradingStore(state => state.toggleLogFilter)
   const listRef = useRef(null)
+  const searchInputRef = useRef(null)
   const [isAtTop, setIsAtTop] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -255,6 +276,21 @@ export const DecisionLog = React.memo(() => {
     [safeLogs, safeLogFilters, search]
   )
 
+  const lastReadLogId = useRef(null);
+
+  // Update last read log ID when we are at the top (fully caught up)
+  useEffect(() => {
+    if (isAtTop && visibleLogs.length > 0) {
+      lastReadLogId.current = visibleLogs[0]?.id || null;
+    }
+  }, [visibleLogs, isAtTop]);
+
+  const newLogsCount = useMemo(() => {
+    if (isAtTop || !lastReadLogId.current || visibleLogs.length === 0) return 0;
+    const index = visibleLogs.findIndex(log => log && log.id === lastReadLogId.current);
+    return index > 0 ? index : 0;
+  }, [visibleLogs, isAtTop]);
+
   // Audit Item 41: Scroll-lock pattern
   useEffect(() => {
     if (isAtTop && listRef.current) {
@@ -278,6 +314,7 @@ export const DecisionLog = React.memo(() => {
         <div className="relative group p-1.5">
           <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
           <input
+            ref={searchInputRef}
             type="text"
             placeholder="Search activity logs... [/]"
             aria-label="Search activity logs"
@@ -289,7 +326,11 @@ export const DecisionLog = React.memo(() => {
           {search && (
               <Tooltip content="Clear Search">
                 <button
-                  onClick={() => setSearch('')}
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    searchInputRef.current?.focus();
+                  }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
                   aria-label="Clear Search"
                 >
@@ -342,15 +383,15 @@ export const DecisionLog = React.memo(() => {
         className="flex-1 flex flex-col gap-1.5 min-h-0 relative"
       >
         {!isAtTop && (
-          <div className="absolute top-2 inset-x-0 z-20 flex justify-center pointer-events-none">
+          <div className="absolute top-3 inset-x-0 z-20 flex justify-center pointer-events-none">
             <button
               onClick={() => {
                 if (listRef.current) listRef.current.scrollTo({ top: 0 })
                 setIsAtTop(true)
               }}
-              className="pointer-events-auto bg-accent text-white px-4 py-1.5 rounded-full text-[10px] font-bold shadow-xl border border-white/10 animate-in fade-in zoom-in slide-in-from-top-2 duration-300"
+              className="pointer-events-auto bg-accent/95 backdrop-blur-sm text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-wider shadow-2xl shadow-black/80 border border-white/15 animate-in fade-in zoom-in slide-in-from-top-2 duration-300 whitespace-nowrap hover:scale-105 active:scale-95 transition-all cursor-pointer"
             >
-              New logs above ↑
+              {newLogsCount > 0 ? `${newLogsCount} new logs above ↑` : 'New logs above ↑'}
             </button>
           </div>
         )}
@@ -380,12 +421,12 @@ export const DecisionLog = React.memo(() => {
           <div
             ref={listRef}
             onScroll={handleScroll}
-            className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain"
+            className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50 overscroll-contain w-full"
           >
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5 w-full">
               {(visibleLogs || []).map((log) => (
                 /* BOLT: Use stable log.id as key to reduce reconciliation cost from O(N) to O(1) when prepending */
-                <div key={log.id} className="min-w-fit">
+                <div key={log.id} className="w-full">
                   <LogEntry log={log} />
                 </div>
               ))}

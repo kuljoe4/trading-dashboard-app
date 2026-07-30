@@ -1,3 +1,8 @@
+## 2026-07-29 - Client IP Anti-Spoofing and CDN-Proxy Resolution
+**Vulnerability:** Relying solely on the `X-Forwarded-For` header for client IP extraction in the security throttling and audit logging layer is highly prone to spoofing, as clients can easily append arbitrary, fake IPs to the leftmost parts of this header. This can bypass IP-based brute-force protections or corrupt forensic audit logs.
+**Learning:** For application deployments behind trusted CDNs or edge proxies (such as Cloudflare or customized Nginx setups), client IP detection must prioritize single-value edge-validated headers (such as `CF-Connecting-IP` or `X-Real-IP`). These headers are securely populated by the CDN/proxy and cannot be spoofed.
+**Prevention:** Prioritize extracting the IP address from `cf-connecting-ip` and `x-real-ip` headers, strictly verifying their format, length, and validity as a real IP address before falling back to `x-forwarded-for` parsing.
+
 ## 2026-07-28 - Whitelist Gating for Manual Configuration Validations
 **Vulnerability:** Manual invocation of class-validator's `validate()` on programmatically reconstructed or merged objects (such as partial updates inside `executeUpdateSession` or presets saving in `savePreset`) lacked strict whitelisting constraints. This allowed attackers to perform mass-assignment and over-posting attacks by injecting arbitrary non-decorated properties into persistent database storage models via generic/record types.
 **Learning:** NestJS global validation pipes do not recursively filter nested inputs if they are declared as generic types (e.g. `Record<string, any>`). To ensure complete data integrity, manual validation steps must explicitly enforce strict schema conformity.

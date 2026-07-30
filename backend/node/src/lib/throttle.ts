@@ -50,6 +50,24 @@ export function clearFailures(ip: string): void {
 }
 
 export function extractIp(headers: any, defaultIp: string): string {
+  // SENTINEL: Prioritize edge-validated single-IP headers set by CDNs or fronting reverse proxies.
+  // This provides defense-in-depth protection against X-Forwarded-For spoofing attacks.
+  const cfIp = headers?.["cf-connecting-ip"];
+  if (cfIp) {
+    const singleCfIp = Array.isArray(cfIp) ? cfIp[0] : cfIp;
+    if (typeof singleCfIp === "string" && singleCfIp.length <= 45 && net.isIP(singleCfIp)) {
+      return singleCfIp;
+    }
+  }
+
+  const realIp = headers?.["x-real-ip"];
+  if (realIp) {
+    const singleRealIp = Array.isArray(realIp) ? realIp[0] : realIp;
+    if (typeof singleRealIp === "string" && singleRealIp.length <= 45 && net.isIP(singleRealIp)) {
+      return singleRealIp;
+    }
+  }
+
   const forwarded = headers?.["x-forwarded-for"];
   if (forwarded) {
     // SENTINEL: Handle both string and array of strings for multiple X-Forwarded-For headers.

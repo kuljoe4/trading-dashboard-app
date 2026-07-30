@@ -304,13 +304,15 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
 
       {/* 3-Column Performance Metrics Row */}
       <div className="grid grid-cols-3 gap-3 py-1 items-center">
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&L</span>
-          <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1" style={{ color: pnlColor(s.activePnl) }}>
+          <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </span>
-          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-0.5">
-            Est: {fmtUSD(s.totalEstPnlToRealize)}
+          <div className="border-t border-border/10 my-1 w-16" />
+          <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">Projected P&L</span>
+          <span className="text-[10px] font-bold font-mono text-dim/85 mt-1 leading-none">
+            ≈ {fmtUSD(s.totalEstPnlToRealize)}
           </span>
         </div>
 

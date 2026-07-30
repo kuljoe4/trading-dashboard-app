@@ -66,7 +66,7 @@ const TradesView = () => {
                 <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
                   <span>Total: {fmtUSD(totalPnl)}</span>
                   <span className="text-dim/30 hidden xs:inline">•</span>
-                  <span>Est. Realize: <span className="font-bold" style={{ color: pnlColor(totalEstPnlToRealize) }}>{fmtUSD(totalEstPnlToRealize)}</span></span>
+                  <span>Projected P&L: <span className="font-bold" style={{ color: pnlColor(totalEstPnlToRealize) }}>≈ {fmtUSD(totalEstPnlToRealize)}</span></span>
                 </span>
               }
             />

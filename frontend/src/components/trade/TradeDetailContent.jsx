@@ -642,7 +642,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       return acc
     }, {})
 
-    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty: qtyVal, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals }
+    const estPnlToRealize = Number(trade.est_pnl_to_realize || 0)
+
+    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty: qtyVal, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals, estPnlToRealize }
   }, [trade])
 
   if (!trade) return null
@@ -790,6 +792,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                          label: sessionReturnBlock.label,
                          value: sessionReturnBlock.value,
                          color: sessionReturnBlock.color
+                       },
+                       {
+                         label: 'Est. P&L at Target',
+                         value: `${fmtUSD(estPnlToRealize)} (${fmt(trade.tp_ratio || 0, 2)}R)`,
+                         color: estPnlToRealize >= 0 ? 'text-green' : 'text-red',
+                         tooltip: 'Estimated Projected profit and loss if exited at target Reward-to-Risk ratio.'
                        },
                        {
                          label: 'Min RR (Drawdown)',

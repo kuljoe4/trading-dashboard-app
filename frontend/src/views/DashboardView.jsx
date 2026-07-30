@@ -246,6 +246,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     }
   };
 
+  const closedPnl = safeNum(s.totalPnl) - safeNum(s.activePnl);
+  const totalEstToRealize = closedPnl + safeNum(s.totalEstPnlToRealize);
+
   return (
     <motion.div
       layout
@@ -351,7 +354,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             </span>
           </div>
           <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none mt-1 truncate">
-            Proj: ≈{fmtUSD(s.totalEstPnlToRealize)}
+            Proj: ≈{fmtUSD(totalEstToRealize)}
           </span>
         </div>
 
@@ -741,6 +744,20 @@ export function DashboardView({ initialStrategy }) {
     (activeTrades || []).forEach(t => {
       if (t && map[t.strategy_label] !== undefined) {
         map[t.strategy_label] += safeNum(t.pnl);
+      }
+    });
+    return map;
+  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+
+  const activeEstPnlToRealizeMap = useMemo(() => {
+    const map = { [currentStrategy.strategy_label]: 0 };
+    (config.strategy_variants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    (activeTrades || []).forEach(t => {
+      if (t && map[t.strategy_label] !== undefined) {
+        map[t.strategy_label] += safeNum(t.est_pnl_to_realize);
       }
     });
     return map;
@@ -1509,7 +1526,8 @@ export function DashboardView({ initialStrategy }) {
                               ...currentStrategy,
                               ...safeVariantStats[currentStrategy.strategy_label],
                               activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
-                              activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0
+                              activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0,
+                              totalEstPnlToRealize: safeVariantStats[currentStrategy.strategy_label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[currentStrategy.strategy_label] ?? 0
                             }}
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
@@ -1535,7 +1553,8 @@ export function DashboardView({ initialStrategy }) {
                                   strategy_label: label,
                                   ...safeVariantStats[label],
                                   activePnl: activePnlMap[label] || 0,
-                                  activeTradeCount: activeTradeCountsMap[label] || 0
+                                  activeTradeCount: activeTradeCountsMap[label] || 0,
+                                  totalEstPnlToRealize: safeVariantStats[label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[label] ?? 0
                                 }}
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}

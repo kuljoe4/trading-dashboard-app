@@ -11,6 +11,9 @@ import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
+const preloadTradeDetailModal = () => {
+  import('../components/TradeDetailModal');
+};
 
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore()
@@ -108,7 +111,7 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} isResuming={isResuming} showResumingFeedback={showResumingFeedback} />
+                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} onMouseEnter={preloadTradeDetailModal} isResuming={isResuming} showResumingFeedback={showResumingFeedback} />
               </motion.div>
             ))}
           </AnimatePresence>

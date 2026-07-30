@@ -589,10 +589,10 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     }
   }
 
-  const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals } = useMemo(() => {
+  const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals, estPnlToRealize } = useMemo(() => {
     if (!trade) return {
       isLong: true, pnlPct: 0, progress: 50, entry: 0, mark: 0, sl: 0, initialSl: 0, tp: 0, qty: 0,
-      qtyFormatted: '0.0000', riskFormatted: '$0.00', slDistPct: 0, slInitialDistPct: 0, enhancedExitSignals: {}
+      qtyFormatted: '0.0000', riskFormatted: '$0.00', slDistPct: 0, slInitialDistPct: 0, enhancedExitSignals: {}, estPnlToRealize: 0
     }
     const isLong = trade.direction === 'LONG'
     const entry = Number(trade.entry_price || 0)

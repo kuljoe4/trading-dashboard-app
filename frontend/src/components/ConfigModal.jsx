@@ -754,9 +754,11 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95 }}
+      whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.99 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "flex items-center justify-between p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden",
+        "flex items-center justify-between p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer",
         isLoaded
           ? "border-accent/40 shadow-[0_0_12px_rgba(var(--accent-rgb),0.06)] bg-accent/[0.01]"
           : isVariant

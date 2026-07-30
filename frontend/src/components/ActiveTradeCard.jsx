@@ -6,7 +6,7 @@ import { ShieldCheck, RefreshCw, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { formatDuration } from '../lib/formatters'
 
-export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback }) => {
+export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter }) => {
   const [now, setNow] = useState(Date.now())
 
   useEffect(() => {
@@ -67,12 +67,15 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     <motion.div
       layout
       whileHover={{ scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 500, damping: 30 }}
       onClick={onClick}
       onKeyDown={handleKeyDown}
+      onMouseEnter={onMouseEnter}
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group relative overflow-hidden",
+        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}

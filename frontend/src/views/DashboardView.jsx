@@ -209,9 +209,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, scannerResults, onOpenScanner, isMonitored, className, isResuming, showResumingFeedback }) => {
-  const [isExpanded, setIsExpanded] = useState(false);
-  const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, className, isResuming, showResumingFeedback }) => {
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -221,213 +219,128 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         ? (config.testnet_starting_balance || 10000)
         : (config.live_starting_balance || 10000));
 
-  const activePnlPct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
   const sessionReturnPct = startingBalance > 0 ? (s.totalPnl / startingBalance) * 100 : 0;
 
-  const handleCardClick = React.useCallback(() => {
+  const handleCardClick = React.useCallback((e) => {
     onClick(s.strategy_label);
   }, [onClick, s.strategy_label]);
 
-  const handleEditClick = React.useCallback(() => {
+  const handleEditClick = React.useCallback((e) => {
+    e.stopPropagation();
     onEdit(s.strategy_label);
   }, [onEdit, s.strategy_label]);
+
+  const handlePauseClick = React.useCallback((e) => {
+    e.stopPropagation();
+    onPause(s.strategy_label);
+  }, [onPause, s.strategy_label]);
 
   return (
     <motion.div
       whileHover={{ scale: 1.005 }}
+      onClick={handleCardClick}
       className={cn(
-        "bg-surface border rounded-2xl p-4 md:p-6 transition-all relative flex flex-col justify-between shadow-sm h-full min-w-0 overflow-hidden",
-        paused && !isResuming ? "border-amber/30 bg-amber/[0.005]" :
-        isGated && !paused && !isResuming ? "border-amber/30 bg-amber/[0.003]" :
-        showResumingFeedback ? "border-accent/30 bg-accent/[0.005]" :
-        tradingMode === 'paper' ? "border-border/50 hover:border-amber/30 hover:shadow-amber/[0.02]" :
-        tradingMode === 'testnet' ? "border-border/50 hover:border-purple/30 hover:shadow-purple/[0.02]" :
-        "border-border/50 hover:border-green/30 hover:shadow-green/[0.02]",
+        "bg-[#161B26] p-4 rounded-2xl transition-all relative flex flex-col justify-between shadow-sm hover:shadow-md cursor-pointer group min-w-0 overflow-hidden",
         className
       )}
     >
       {/* Card Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 pb-4 border-b border-border/20 mb-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+      <div className="flex justify-between items-center gap-3 pb-3 border-b border-border/10 mb-3">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <h3 className="text-sm font-black tracking-tight uppercase truncate text-text group-hover:text-accent transition-colors leading-none">
+            {s.strategy_label}
+          </h3>
+
+          {/* Inline minimalist status dots */}
+          <div className="flex items-center gap-1.5 flex-wrap">
             <StatusBadge status={s.sessionActive} />
-            <div className="flex items-center gap-1 scale-90 origin-left">
-              {tradingMode === 'paper' && <PaperBadge />}
-              {tradingMode === 'testnet' && <DemoBadge />}
-              {tradingMode === 'live' && !s.sessionActive && <LiveBadge />}
-            </div>
-            {s.strategy_label !== config.strategy_label && (
-              <span className="px-2 py-0.5 rounded bg-purple/10 text-purple border border-purple/20 text-[9px] font-black uppercase tracking-wider scale-90 origin-left">
-                Variant
-              </span>
-            )}
+            {tradingMode === 'paper' && <PaperBadge />}
+            {tradingMode === 'testnet' && <DemoBadge />}
+            {tradingMode === 'live' && !s.sessionActive && <LiveBadge />}
+
             {paused && !isResuming && (
-              <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
-                <Pause size={10} fill="currentColor" />
-                PAUSED
+              <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1">
+                <span className="w-1 h-1 rounded-full bg-amber" /> Paused
               </span>
             )}
             {isGated && !paused && !isResuming && (
               <Tooltip content={gateInfo.gateReason || 'Gated by Risk Rules'}>
-                <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left cursor-help">
-                  <PulseDot color="bg-amber" />
+                <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1 cursor-help">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
                   {gateInfo.gateState === 'sleeping' ? 'SLEEPING' : 'GATED'}
                 </span>
               </Tooltip>
             )}
-            {s.activeTradeCount !== undefined && (
-              <span className="px-2.5 py-1 rounded-full bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[10px] font-bold tracking-wider scale-90 origin-left opacity-70">
-                {s.activeTradeCount} ACTIVE
-              </span>
-            )}
-            {showResumingFeedback && (
-              <span className="px-2.5 py-1 rounded-full border border-accent/20 bg-accent/10 text-[10px] text-accent font-bold tracking-wider flex items-center gap-1.5 scale-90 origin-left">
-                <RefreshCw size={10} className="animate-spin" />
-                RESUMING
-              </span>
-            )}
           </div>
-          <h3 className="text-base md:text-lg font-black tracking-tight truncate uppercase leading-tight text-text">
-            {s.strategy_label}
-          </h3>
         </div>
 
-        {/* Header Action Row */}
-        <div className="flex items-center gap-2 self-stretch md:self-auto justify-end relative z-20">
-          <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+        {/* Inline Action Buttons (Edit and Play/Pause) */}
+        <div className="flex items-center gap-1 shrink-0 relative z-20">
+          <Tooltip content="Edit Strategy Config">
             <button
-              onClick={() => setIsExpanded(!isExpanded)}
-              aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
-              aria-expanded={isExpanded}
-              className={cn(
-                "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
-              )}
-            >
-              <Activity size={14} />
-            </button>
-          </Tooltip>
-          <Tooltip content="Edit Strategy">
-            <button
+              type="button"
               onClick={handleEditClick}
-              className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent outline-none"
-              aria-label="Edit strategy configuration"
+              className="p-1.5 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
+              aria-label="Edit Strategy"
             >
-              <Edit3 size={14} />
+              <Edit3 size={12.5} />
+            </button>
+          </Tooltip>
+          <Tooltip content={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}>
+            <button
+              type="button"
+              onClick={handlePauseClick}
+              className={cn(
+                "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                paused ? "hover:bg-green/10 text-green" : "hover:bg-amber/10 text-amber"
+              )}
+              aria-label={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}
+            >
+              {paused ? <Play size={12.5} fill="currentColor" /> : <Pause size={12.5} fill="currentColor" />}
             </button>
           </Tooltip>
         </div>
       </div>
 
-      {/* Card Body - Content Stats Grid */}
-      <div className="flex flex-col gap-4 py-2 flex-1">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1">
-            <span className="text-[9px] text-dim font-black uppercase tracking-widest">Active P&L</span>
-            <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.activePnl) }}>
-              {fmtUSD(s.activePnl)}
-            </div>
-            <div className="flex flex-col gap-0.5 mt-2">
-               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">Open: ({activePnlPct >= 0 ? '+' : ''}{activePnlPct.toFixed(2)}%)</span>
-               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">Realize Est: <span className="font-bold font-mono text-text/90">{fmtUSD(s.totalEstPnlToRealize)}</span></span>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1 items-end text-right">
-            <span className="text-[9px] text-dim font-black uppercase tracking-widest">Session Return</span>
-            <div className="text-lg md:text-xl lg:text-2xl font-black font-mono tracking-tighter leading-none" style={{ color: pnlColor(s.totalPnl) }}>
-              {fmtUSD(s.totalPnl)} <span className="text-[10px] md:text-xs tracking-tight" style={{ color: pnlColor(s.totalPnl) }}>({sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%)</span>
-            </div>
-            <div className="flex flex-col gap-0.5 mt-2">
-               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">{s.entryCount} Entries · {s.hitCount} Hits</span>
-               <span className="text-[8px] text-dim/60 font-bold uppercase tracking-wider">{s.activeTradeCount || 0} Active Trades</span>
-            </div>
-          </div>
+      {/* 3-Column Performance Metrics Row */}
+      <div className="grid grid-cols-3 gap-3 py-1 items-center">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&L</span>
+          <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1" style={{ color: pnlColor(s.activePnl) }}>
+            {fmtUSD(s.activePnl)}
+          </span>
+          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-0.5">
+            Est: {fmtUSD(s.totalEstPnlToRealize)}
+          </span>
         </div>
 
-        <div className="flex items-center justify-between pt-3 mt-1 border-t border-border/10">
-          <div className="flex items-center gap-2 min-w-0">
-            <Zap size={10} className={cn("text-accent shrink-0", config.global_scanner_enabled === false && "text-dim")} />
-            <span className={cn("text-[10px] font-bold uppercase tracking-wider text-dim truncate", config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
-              {config.scan_interval} · {config.scan_pct_threshold}%
-            </span>
-          </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Session Return</span>
+          <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1" style={{ color: pnlColor(s.totalPnl) }}>
+            {fmtUSD(s.totalPnl)}
+          </span>
+          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-0.5" style={{ color: pnlColor(s.totalPnl) }}>
+            {sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%
+          </span>
+        </div>
 
-          <div className="flex items-center justify-end gap-1.5 min-w-0 text-right">
-            {isMonitored && (
-              <MonitoredBadge label="Symbol Monitor Active" className="scale-90 origin-right" />
-            )}
-          </div>
+        <div className="flex flex-col gap-0.5 items-end text-right">
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active / Hits</span>
+          <span className="text-sm sm:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1">
+            {s.activeTradeCount || 0} Positions
+          </span>
+          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-0.5">
+            {s.entryCount} Entries · {s.hitCount} Hits
+          </span>
         </div>
       </div>
 
-      {/* Collapsible Expanded Details */}
-      <AnimatePresence>
-        {isExpanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden w-full relative z-20"
-          >
-            <div className="mb-2 mt-4 pt-4 border-t border-border/20">
-              <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
-                <span className="flex items-center gap-1.5"><ShieldCheck size={12} /> SL GUARD</span>
-                <span className={slPct > 70 ? "text-red" : "text-dim"}>${Number(s.totalSlUsed || 0).toFixed(0)} / ${config.total_sl_guard_usdt}</span>
-              </div>
-              <div className="h-1.5 bg-border rounded-full overflow-hidden mb-4">
-                <div
-                  className={cn(
-                    "h-full transition-all duration-700",
-                    slPct > 70 ? "bg-red" :
-                    tradingMode === 'paper' ? "bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]" :
-                    tradingMode === 'testnet' ? "bg-purple shadow-[0_0_8px_rgba(168,85,247,0.4)]" :
-                    "bg-green shadow-[0_0_8px_rgba(34,197,94,0.4)]"
-                  )}
-                  style={{ width: `${slPct}%` }}
-                />
-              </div>
-              <ScannerPreview scannerResults={scannerResults} config={config} onOpen={() => onOpenScanner(s.strategy_label)} />
-
-              <div className="mt-6 pt-6 border-t border-border/20">
-                 <div className="flex items-center justify-between gap-4">
-                    <div className="flex flex-col gap-0.5">
-                       <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session Control</span>
-                       <p className="text-[9px] text-dim/60 font-medium uppercase">Toggle active scanning and entry logic</p>
-                    </div>
-                    <Btn
-                      variant="ghost"
-                      onClick={onPause}
-                      className={cn(
-                        "px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all",
-                        paused
-                          ? "bg-green/10 text-green border-green/20 hover:bg-green/20 shadow-lg shadow-green/10"
-                          : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20 shadow-lg shadow-amber/10"
-                      )}
-                    >
-                      {paused ? <><Play size={12} fill="currentColor" className="mr-1" /> Resume Engine</> : <><Pause size={12} fill="currentColor" className="mr-1" /> Pause Engine</>}
-                    </Btn>
-                 </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Card Action Footer Button */}
-      <div className="mt-5 pt-4 border-t border-border/20 flex flex-col">
-        <button
-          onClick={handleCardClick}
-          aria-label={`Open Strategy Cockpit for ${s.strategy_label}`}
-          className={cn(
-            "w-full py-3 rounded-xl font-black text-xs uppercase tracking-widest border transition-all active:scale-[0.98] focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center justify-center gap-2",
-            tradingMode === 'paper' ? "bg-amber/5 border-amber/20 text-amber hover:bg-amber/10" :
-            tradingMode === 'testnet' ? "bg-purple/5 border-purple/20 text-purple hover:bg-purple/10" :
-            "bg-green/5 border-green/20 text-green hover:bg-green/10"
-          )}
-        >
-          Open Strategy Cockpit <ArrowRight size={14} />
-        </button>
+      {/* Bottom Tag Row with details */}
+      <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-border/5 text-[9px] text-dim font-bold uppercase tracking-wider leading-none">
+        <span>{config.scan_interval} · {config.scan_pct_threshold}% Move Threshold</span>
+        <span className="text-[8px] bg-white/5 border border-white/5 px-1.5 py-0.5 rounded text-accent">
+          Open Cockpit
+        </span>
       </div>
     </motion.div>
   );
@@ -1117,15 +1030,17 @@ export function DashboardView({ initialStrategy }) {
             </Tooltip>
 
             {sessionActive && (
-              <Btn
-                variant="danger"
-                onClick={() => setConfirmStop(true)}
-                disabled={loading}
-                className="flex-1 sm:flex-none py-2 px-3 text-[11px] h-auto rounded-xl"
-                aria-label="Immediately stop all trading and close positions"
-              >
-                <XCircle size={14} /> <span className="text-[9px] font-bold uppercase tracking-widest">Terminate Session</span>
-              </Btn>
+              <Tooltip content="Terminate Session (Close All Positions)">
+                <button
+                  type="button"
+                  onClick={() => setConfirmStop(true)}
+                  disabled={loading}
+                  className="p-2.5 bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 hover:scale-95 active:scale-90 transition-all focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
+                  aria-label="Terminate Session"
+                >
+                  <XCircle size={14} />
+                </button>
+              </Tooltip>
             )}
           </div>
         </ViewHeader>

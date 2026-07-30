@@ -215,91 +215,6 @@ export function SettingsView() {
           )}
 
           <section>
-            <SectionLabel className="mb-4">Dashboard & Streaming</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-6">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
-                    <Activity size={20} className="text-accent" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold uppercase tracking-tight">System Health Bar</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Show CPU, Memory and event loop lag</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setHealthEnabled(!healthEnabled)}
-                  role="switch"
-                  aria-checked={healthEnabled}
-                  aria-label="Toggle System Health Bar"
-                  className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                    healthEnabled ? "bg-green" : "bg-border"
-                  )}
-                >
-                  <div className={cn(
-                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                    healthEnabled ? "translate-x-7" : "translate-x-1"
-                  )} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-green/10 flex items-center justify-center">
-                    <Zap size={20} className="text-green" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold uppercase tracking-tight">Real-time Streaming</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Enable/Disable all incoming WebSocket updates</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setStreamingEnabled(!streamingEnabled)}
-                  role="switch"
-                  aria-checked={streamingEnabled}
-                  aria-label="Toggle Real-time Streaming"
-                  className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                    streamingEnabled ? "bg-green" : "bg-border"
-                  )}
-                >
-                  <div className={cn(
-                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                    streamingEnabled ? "translate-x-7" : "translate-x-1"
-                  )} />
-                </button>
-              </div>
-
-              <div className="pt-8 border-t border-border/50">
-                <div className="mb-4">
-                  <h3 className="text-sm font-bold uppercase tracking-tight">Backend Log Feed</h3>
-                  <p className="text-[11px] text-dim font-medium uppercase mt-1">Select which backend log levels are sent to this dashboard.</p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  {['info', 'warn', 'error'].map((level) => {
-                    const enabled = logFilters[level]
-                    const label = level === 'info' ? 'Info' : level === 'warn' ? 'Warnings' : 'Errors'
-                    return (
-                      <button
-                        key={level}
-                        type="button"
-                        onClick={() => toggleLogFilter(level)}
-                        className={cn(
-                          "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                          enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
-                        )}
-                      >
-                        {label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section>
             <SectionLabel className="mb-4">Exchange Integration (Live)</SectionLabel>
             <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
               <div className="grid grid-cols-1 gap-8">
@@ -467,14 +382,21 @@ export function SettingsView() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </section>
 
+          <section>
+            <SectionLabel className="mb-4">Validate & Apply Credentials</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
+              <div className="grid grid-cols-1 gap-8">
                 {(apiKey || testnetApiKey) && (
-                  <div className="flex flex-col gap-4 pt-4 border-t border-border/50">
+                  <div className="flex flex-col gap-4">
                     <div className="flex items-center gap-2">
-                      <Bug size={16} className="text-purple" />
+                      <Bug size={16} className="text-accent" />
                       <h4 className="text-xs font-bold uppercase tracking-tight">Validate API Keys</h4>
                     </div>
-                    <p className="text-[10px] text-dim font-medium">Test your Binance API keys before saving. This will attempt to authenticate with Binance without modifying anything.</p>
+                    <p className="text-[10px] text-dim font-medium uppercase">Test your Binance API keys before saving. This will attempt to authenticate with Binance without modifying anything.</p>
                     <Btn
                       onClick={handleValidate}
                       disabled={validating || (!apiKey && !testnetApiKey)}
@@ -534,12 +456,97 @@ export function SettingsView() {
                   </div>
                   <Btn
                     onClick={handleSave}
-                    disabled={loading || (!apiKey && !apiSecret && !testnetApiKey && !testnetApiSecret)}
+                    disabled={loading || (!apiKey && !apiSecret && !testnetApiKey && !testnetApiSecret && !adminApiKey)}
                     loading={loading}
                     className="w-full md:w-auto min-w-[160px]"
                   >
                     Apply All Credentials
                   </Btn>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <SectionLabel className="mb-4">Dashboard & Streaming</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-6">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+                    <Activity size={20} className="text-accent" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold uppercase tracking-tight">System Health Bar</h3>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Show CPU, Memory and event loop lag</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setHealthEnabled(!healthEnabled)}
+                  role="switch"
+                  aria-checked={healthEnabled}
+                  aria-label="Toggle System Health Bar"
+                  className={cn(
+                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                    healthEnabled ? "bg-green" : "bg-border"
+                  )}
+                >
+                  <div className={cn(
+                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                    healthEnabled ? "translate-x-7" : "translate-x-1"
+                  )} />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-green/10 flex items-center justify-center">
+                    <Zap size={20} className="text-green" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold uppercase tracking-tight">Real-time Streaming</h3>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Enable/Disable all incoming WebSocket updates</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setStreamingEnabled(!streamingEnabled)}
+                  role="switch"
+                  aria-checked={streamingEnabled}
+                  aria-label="Toggle Real-time Streaming"
+                  className={cn(
+                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                    streamingEnabled ? "bg-green" : "bg-border"
+                  )}
+                >
+                  <div className={cn(
+                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                    streamingEnabled ? "translate-x-7" : "translate-x-1"
+                  )} />
+                </button>
+              </div>
+
+              <div className="pt-8 border-t border-border/50">
+                <div className="mb-4">
+                  <h3 className="text-sm font-bold uppercase tracking-tight">Backend Log Feed</h3>
+                  <p className="text-[11px] text-dim font-medium uppercase mt-1">Select which backend log levels are sent to this dashboard.</p>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  {['info', 'warn', 'error'].map((level) => {
+                    const enabled = logFilters[level]
+                    const label = level === 'info' ? 'Info' : level === 'warn' ? 'Warnings' : 'Errors'
+                    return (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => toggleLogFilter(level)}
+                        className={cn(
+                          "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                          enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             </div>

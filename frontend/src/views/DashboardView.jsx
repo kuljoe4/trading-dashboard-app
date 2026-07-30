@@ -343,9 +343,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
 
       {/* Modern Metrics Row */}
       <div className="grid grid-cols-3 gap-3 py-1 items-stretch border-t border-b border-border/10 py-3">
-        <div className="flex flex-col justify-between h-full min-h-[64px]">
+        <div className="flex flex-col justify-between h-full min-h-[72px]">
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&L</span>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Active P&L</span>
             <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
             </span>
@@ -355,9 +355,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </span>
         </div>
 
-        <div className="flex flex-col justify-between h-full min-h-[64px]">
+        <div className="flex flex-col justify-between h-full min-h-[72px]">
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Session Return</span>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Session Return</span>
             <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.totalPnl) }}>
               {fmtUSD(s.totalPnl)}
             </span>
@@ -367,9 +367,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </span>
         </div>
 
-        <div className="flex flex-col justify-between items-end text-right h-full min-h-[64px]">
+        <div className="flex flex-col justify-between items-end text-right h-full min-h-[72px]">
           <div className="flex flex-col items-end">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Positions</span>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start justify-end text-right w-full">Positions</span>
             <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1.5">
               {activeCount} / {maxOpen}
             </span>

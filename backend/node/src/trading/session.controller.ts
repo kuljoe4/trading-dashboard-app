@@ -113,8 +113,8 @@ export class SessionController {
   }
 
   @Get("status")
-  async getStatus() {
-    return this.sessionService.getStatus();
+  async getStatus(@Query("includeLogs") includeLogs?: string) {
+    return this.sessionService.getStatus(includeLogs === "true");
   }
 
   @Get("trade/:id")

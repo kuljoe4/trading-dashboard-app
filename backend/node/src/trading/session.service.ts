@@ -2275,7 +2275,7 @@ export class SessionService implements OnModuleInit {
     return { status: "stopped" };
   }
 
-  async getStatus() {
+  async getStatus(includeLogs: boolean = false) {
     if (!this.currentSessionId) {
       const activeSession = await this.sessionRepository.findOne({
         where: { running: true },
@@ -2334,11 +2334,13 @@ export class SessionService implements OnModuleInit {
         !isNaN(Number(trade.qty)),
     );
 
-    const logs = await this.logRepository.find({
-      where: { sessionId: session.id },
-      order: { ts: "DESC" },
-      take: 100,
-    });
+    const logs = includeLogs
+      ? await this.logRepository.find({
+          where: { sessionId: session.id },
+          order: { ts: "DESC" },
+          take: 100,
+        })
+      : [];
 
     return {
       running: session.running,

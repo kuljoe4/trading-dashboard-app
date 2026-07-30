@@ -1076,10 +1076,10 @@ export function DashboardView({ initialStrategy }) {
           subTitle="Real-time strategy management & market oversight"
           sticky={true}
         >
-          <div className="flex gap-3">
+          <div className="flex gap-1.5 sm:gap-2">
             {config.frequency_shaping_enabled && (
-              <div className="hidden xl:flex items-center gap-2 px-3 py-1.5 bg-accent/10 border border-accent/20 rounded-xl text-[10px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
-                <Activity size={12} />
+              <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-accent/10 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
+                <Activity size={10} />
                 Frequency Guard
               </div>
             )}
@@ -1089,14 +1089,14 @@ export function DashboardView({ initialStrategy }) {
                 onClick={() => setThrottled(!isThrottled)}
                 aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
                 className={cn(
-                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  "px-3 py-2 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none",
                   isThrottled
                     ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
                     : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
                 )}
               >
-                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
-                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+                <Leaf size={14} fill={isThrottled ? "currentColor" : "none"} />
+                <span className="hidden md:inline text-[9px] font-bold uppercase tracking-widest">
                   {isThrottled ? "Eco Active" : "Eco Mode"}
                 </span>
               </button>
@@ -1107,10 +1107,10 @@ export function DashboardView({ initialStrategy }) {
                 variant="danger"
                 onClick={() => setConfirmStop(true)}
                 disabled={loading}
-                className="flex-1 sm:flex-none"
+                className="flex-1 sm:flex-none py-2 px-3 text-[11px] h-auto rounded-xl"
                 aria-label="Immediately stop all trading and close positions"
               >
-                <XCircle size={16} className="mr-2" /> Terminate Session
+                <XCircle size={14} /> <span className="text-[9px] font-bold uppercase tracking-widest">Terminate Session</span>
               </Btn>
             )}
           </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useId } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle } from 'lucide-react'
-import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden } from './ui/primitives'
+import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
@@ -1722,6 +1722,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         </div>
         <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
       </div>
+      <ModalAlertTicker />
 
       <div className="flex-1 overflow-y-auto no-scrollbar p-3 md:p-4 pb-24 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (

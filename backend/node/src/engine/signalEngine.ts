@@ -42,6 +42,9 @@ export class SignalEngineService {
   // BOLT OPTIMIZATION: Stable cache for MACD calculations to bypass redundant passes on same dataset
   private readonly macdCache = new Map<string, { macdLine: number[]; signalLine: number[]; histogram: number[]; insufficientData: boolean }>();
 
+  // BOLT OPTIMIZATION: Stable cache for Supertrend calculations to bypass redundant passes on same dataset
+  private readonly supertrendCache = new Map<string, { supertrend: number[]; direction: ('up' | 'down')[]; insufficientData: boolean }>();
+
   private readonly signalHandlers: Record<
     string,
     (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[], minimal?: boolean) => boolean | SignalDetail
@@ -1694,11 +1697,14 @@ export class SignalEngineService {
    * BOLT OPTIMIZATION: Removed six redundant intermediate array allocations (tr, atr, basicUpper, basicLower, finalUpper, finalLower).
    * Calculates everything on-the-fly using scalar variables in a single-pass loop.
    * This achieves zero-allocation windowing for internal arrays, significantly reducing garbage collection pressure.
+   * BOLT OPTIMIZATION: Added O(1) stable caching on immutable completed candles to completely eliminate redundant runs on the hot path.
    */
   public calculateSupertrend(
     candles: Candle[],
     period: number,
     multiplier: number,
+    symbol?: string,
+    interval?: string,
   ): { supertrend: number[]; direction: ('up' | 'down')[]; insufficientData: boolean } {
     const len = candles.length;
     const insufficientData = len < period * 3;
@@ -1709,6 +1715,17 @@ export class SignalEngineService {
     if (len < period + 1) {
       return { supertrend, direction, insufficientData: true };
     }
+
+    // BOLT OPTIMIZATION: Check stable cache using robust compound key to avoid collision across assets, timeframes, and parameters
+    const firstCandle = candles[0];
+    const midCandle = candles[Math.floor(len / 2)];
+    const lastCandle = candles[len - 1];
+    const cacheKey = symbol && interval ?
+      `${symbol}:${interval}:${period}:${multiplier}:${len}:${firstCandle.time}:${midCandle.time}:${lastCandle.time}:${lastCandle.close}` :
+      `anon:${period}:${multiplier}:${len}:${firstCandle.time}:${midCandle.time}:${lastCandle.time}:${lastCandle.close}`;
+
+    const cached = this.supertrendCache.get(cacheKey);
+    if (cached) return cached;
 
     // 1. Calculate TR sum for the initial period to bootstrap ATR
     let trSum = candles[0].high - candles[0].low;
@@ -1788,7 +1805,20 @@ export class SignalEngineService {
       prevFinalLower = finalLower;
     }
 
-    return { supertrend, direction, insufficientData };
+    const result = { supertrend, direction, insufficientData };
+
+    // Bounded cache eviction (O(1) iterator eviction instead of O(N) Array.from)
+    if (this.supertrendCache.size >= 1000) {
+      const iter = this.supertrendCache.keys();
+      for (let i = 0; i < 100; i++) {
+        const next = iter.next();
+        if (next.done) break;
+        this.supertrendCache.delete(next.value);
+      }
+    }
+    this.supertrendCache.set(cacheKey, result);
+
+    return result;
   }
 
   /**
@@ -1836,6 +1866,8 @@ export class SignalEngineService {
         candles,
         period,
         multiplier,
+        symbol,
+        interval,
       );
 
       // Use the last COMPLETED candle (index len - 2) to prevent whipsaws from live candle fluctuations

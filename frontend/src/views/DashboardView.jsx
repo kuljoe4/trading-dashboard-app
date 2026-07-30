@@ -246,6 +246,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     }
   };
 
+  const closedPnl = safeNum(s.totalPnl) - safeNum(s.activePnl);
+  const totalEstToRealize = closedPnl + safeNum(s.totalEstPnlToRealize);
+
   return (
     <motion.div
       layout
@@ -343,39 +346,39 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
 
       {/* Modern Metrics Row */}
       <div className="grid grid-cols-3 gap-3 py-1 items-stretch border-t border-b border-border/10 py-3">
-        <div className="flex flex-col justify-between h-full min-h-[56px]">
+        <div className="flex flex-col justify-between h-full min-h-[72px]">
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&L</span>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Active P&L</span>
             <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
             </span>
           </div>
           <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none mt-1 truncate">
-            Proj: ≈{fmtUSD(s.totalEstPnlToRealize)}
+            Proj: ≈{fmtUSD(totalEstToRealize)}
           </span>
         </div>
 
-        <div className="flex flex-col justify-between h-full min-h-[56px]">
+        <div className="flex flex-col justify-between h-full min-h-[72px]">
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Session Return</span>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Session Return</span>
             <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.totalPnl) }}>
               {fmtUSD(s.totalPnl)}
             </span>
           </div>
-          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-1 truncate" style={{ color: pnlColor(s.totalPnl) }}>
+          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-1 truncate animate-pulse" style={{ color: pnlColor(s.totalPnl) }}>
             {sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%
           </span>
         </div>
 
-        <div className="flex flex-col justify-between items-end text-right h-full min-h-[56px]">
+        <div className="flex flex-col justify-between items-end text-right h-full min-h-[72px]">
           <div className="flex flex-col items-end">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Positions</span>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start justify-end text-right w-full">Positions</span>
             <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1.5">
               {activeCount} / {maxOpen}
             </span>
           </div>
           <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-1 truncate">
-            Allocation Slots
+            Alloc Slots
           </span>
         </div>
       </div>
@@ -741,6 +744,20 @@ export function DashboardView({ initialStrategy }) {
     (activeTrades || []).forEach(t => {
       if (t && map[t.strategy_label] !== undefined) {
         map[t.strategy_label] += safeNum(t.pnl);
+      }
+    });
+    return map;
+  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+
+  const activeEstPnlToRealizeMap = useMemo(() => {
+    const map = { [currentStrategy.strategy_label]: 0 };
+    (config.strategy_variants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    (activeTrades || []).forEach(t => {
+      if (t && map[t.strategy_label] !== undefined) {
+        map[t.strategy_label] += safeNum(t.est_pnl_to_realize);
       }
     });
     return map;
@@ -1509,7 +1526,8 @@ export function DashboardView({ initialStrategy }) {
                               ...currentStrategy,
                               ...safeVariantStats[currentStrategy.strategy_label],
                               activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
-                              activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0
+                              activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0,
+                              totalEstPnlToRealize: safeVariantStats[currentStrategy.strategy_label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[currentStrategy.strategy_label] ?? 0
                             }}
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
@@ -1535,7 +1553,8 @@ export function DashboardView({ initialStrategy }) {
                                   strategy_label: label,
                                   ...safeVariantStats[label],
                                   activePnl: activePnlMap[label] || 0,
-                                  activeTradeCount: activeTradeCountsMap[label] || 0
+                                  activeTradeCount: activeTradeCountsMap[label] || 0,
+                                  totalEstPnlToRealize: safeVariantStats[label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[label] ?? 0
                                 }}
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}

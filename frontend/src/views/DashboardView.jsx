@@ -235,114 +235,169 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     onPause(s.strategy_label);
   }, [onPause, s.strategy_label]);
 
+  const activeCount = s.activeTradeCount || 0;
+  const maxOpen = config.max_open_trades || 5;
+  const capacityPct = Math.max(0, Math.min(100, (activeCount / maxOpen) * 100));
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick(s.strategy_label);
+    }
+  };
+
   return (
     <motion.div
-      whileHover={{ scale: 1.005 }}
+      layout
+      whileHover={{ scale: 1.01 }}
       onClick={handleCardClick}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={0}
       className={cn(
-        "bg-[#161B26] p-4 rounded-2xl transition-all relative flex flex-col justify-between shadow-sm hover:shadow-md cursor-pointer group min-w-0 overflow-hidden",
-        className
+        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none active:scale-[0.98] group relative overflow-hidden",
+        className,
+        isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
+      aria-label={`View details for ${s.strategy_label} strategy, active positions P&L is ${fmtUSD(s.activePnl)}, total session return is ${fmtUSD(s.totalPnl)}`}
     >
+      {showResumingFeedback && (
+        <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">
+           <div className="bg-background/80 border border-accent/20 px-3 py-1 rounded-full text-[8px] font-black text-accent uppercase tracking-widest flex items-center gap-1.5 shadow-xl animate-in fade-in zoom-in duration-300">
+              <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
+           </div>
+        </div>
+      )}
+
       {/* Card Header */}
-      <div className="flex justify-between items-center gap-3 pb-3 border-b border-border/10 mb-3">
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <h3 className="text-sm font-black tracking-tight uppercase truncate text-text group-hover:text-accent transition-colors leading-none">
-            {s.strategy_label}
-          </h3>
+      <div className="flex justify-between items-start gap-3">
+        <div className="flex flex-col gap-1 min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm md:text-base font-black font-mono tracking-tight truncate uppercase leading-none text-text group-hover:text-accent transition-colors">
+              {s.strategy_label}
+            </h3>
 
-          {/* Inline minimalist status dots */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <StatusBadge status={s.sessionActive} />
-            {tradingMode === 'paper' && <PaperBadge />}
-            {tradingMode === 'testnet' && <DemoBadge />}
-            {tradingMode === 'live' && !s.sessionActive && <LiveBadge />}
+            {/* Status Badges */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <StatusBadge status={s.sessionActive} />
+              {tradingMode === 'paper' && <PaperBadge />}
+              {tradingMode === 'testnet' && <DemoBadge />}
+              {tradingMode === 'live' && !s.sessionActive && <LiveBadge />}
 
-            {paused && !isResuming && (
-              <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1">
-                <span className="w-1 h-1 rounded-full bg-amber" /> Paused
-              </span>
-            )}
-            {isGated && !paused && !isResuming && (
-              <Tooltip content={gateInfo.gateReason || 'Gated by Risk Rules'}>
-                <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1 cursor-help">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
-                  {gateInfo.gateState === 'sleeping' ? 'SLEEPING' : 'GATED'}
+              {paused && !isResuming && (
+                <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-amber" /> Paused
                 </span>
-              </Tooltip>
-            )}
+              )}
+              {isGated && !paused && !isResuming && (
+                <Tooltip content={gateInfo.gateReason || 'Gated by Risk Rules'}>
+                  <span className="text-[8.5px] font-black uppercase text-amber flex items-center gap-1 cursor-help">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
+                    {gateInfo.gateState === 'sleeping' ? 'SLEEPING' : 'GATED'}
+                  </span>
+                </Tooltip>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-2 items-center flex-wrap">
+            <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono">
+              {config.scan_interval} · {config.scan_pct_threshold}% Move
+            </span>
+            <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1">
+              {s.entryCount || 0} Entries · {s.hitCount || 0} Hits
+            </span>
           </div>
         </div>
 
-        {/* Inline Action Buttons (Edit and Play/Pause) */}
-        <div className="flex items-center gap-1 shrink-0 relative z-20">
-          <Tooltip content="Edit Strategy Config">
-            <button
-              type="button"
-              onClick={handleEditClick}
-              className="p-1.5 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
-              aria-label="Edit Strategy"
-            >
-              <Edit3 size={12.5} />
-            </button>
-          </Tooltip>
-          <Tooltip content={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}>
-            <button
-              type="button"
-              onClick={handlePauseClick}
-              className={cn(
-                "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
-                paused ? "hover:bg-green/10 text-green" : "hover:bg-amber/10 text-amber"
-              )}
-              aria-label={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}
-            >
-              {paused ? <Play size={12.5} fill="currentColor" /> : <Pause size={12.5} fill="currentColor" />}
-            </button>
-          </Tooltip>
+        {/* Action buttons and performance metrics aligned to the right */}
+        <div className="flex flex-col items-end shrink-0 min-w-[100px] gap-2">
+          {/* Inline Action Buttons */}
+          <div className="flex items-center gap-1 relative z-20">
+            <Tooltip content="Edit Strategy Config">
+              <button
+                type="button"
+                onClick={handleEditClick}
+                className="p-1.5 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
+                aria-label="Edit Strategy"
+              >
+                <Edit3 size={12.5} />
+              </button>
+            </Tooltip>
+            <Tooltip content={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}>
+              <button
+                type="button"
+                onClick={handlePauseClick}
+                className={cn(
+                  "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                  paused ? "hover:bg-green/10 text-green" : "hover:bg-amber/10 text-amber"
+                )}
+                aria-label={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}
+              >
+                {paused ? <Play size={12.5} fill="currentColor" /> : <Pause size={12.5} fill="currentColor" />}
+              </button>
+            </Tooltip>
+          </div>
         </div>
       </div>
 
-      {/* 3-Column Performance Metrics Row */}
-      <div className="grid grid-cols-3 gap-3 py-1 items-center">
+      {/* Modern Metrics Row */}
+      <div className="grid grid-cols-3 gap-3 py-1 items-center border-t border-b border-border/10 py-3">
         <div className="flex flex-col">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&L</span>
           <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.activePnl) }}>
             {fmtUSD(s.activePnl)}
           </span>
-          <div className="border-t border-border/10 my-1 w-16" />
-          <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">Projected P&L</span>
-          <span className="text-[10px] font-bold font-mono text-dim/85 mt-1 leading-none">
-            ≈ {fmtUSD(s.totalEstPnlToRealize)}
+          <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none mt-1">
+            Proj: ≈{fmtUSD(s.totalEstPnlToRealize)}
           </span>
         </div>
 
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Session Return</span>
-          <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1" style={{ color: pnlColor(s.totalPnl) }}>
+          <span className="text-sm sm:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.totalPnl) }}>
             {fmtUSD(s.totalPnl)}
           </span>
-          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-0.5" style={{ color: pnlColor(s.totalPnl) }}>
+          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-1" style={{ color: pnlColor(s.totalPnl) }}>
             {sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(2)}%
           </span>
         </div>
 
-        <div className="flex flex-col gap-0.5 items-end text-right">
-          <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active / Hits</span>
-          <span className="text-sm sm:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1">
-            {s.activeTradeCount || 0} Positions
+        <div className="flex flex-col items-end text-right">
+          <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Positions</span>
+          <span className="text-sm sm:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1.5">
+            {activeCount} / {maxOpen}
           </span>
-          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-0.5">
-            {s.entryCount} Entries · {s.hitCount} Hits
+          <span className="text-[8px] text-dim/50 font-bold uppercase tracking-wider mt-1">
+            Allocation Slots
           </span>
         </div>
       </div>
 
-      {/* Bottom Tag Row with details */}
-      <div className="flex items-center justify-between mt-2.5 pt-2 border-t border-border/5 text-[9px] text-dim font-bold uppercase tracking-wider leading-none">
-        <span>{config.scan_interval} · {config.scan_pct_threshold}% Move Threshold</span>
-        <span className="text-[8px] bg-white/5 border border-white/5 px-1.5 py-0.5 rounded text-accent">
-          Open Cockpit
-        </span>
+      {/* Position Slot Capacity Runway */}
+      <div className="flex flex-col gap-2">
+        <div
+          className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative"
+          role="progressbar"
+          aria-valuenow={Math.round(capacityPct)}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-label={`${s.strategy_label} slot allocation capacity is at ${activeCount} out of ${maxOpen} positions`}
+        >
+          <div
+            className={cn(
+              "h-full transition-all duration-500 shadow-[0_0_10px_rgba(0,0,0,0.2)]",
+              capacityPct >= 80 ? "bg-amber" : "bg-accent"
+            )}
+            style={{ width: `${capacityPct}%` }}
+          />
+        </div>
+        <div className="flex justify-between items-center text-[9px] font-bold text-dim uppercase tracking-wider leading-none">
+          <span>Capacity: {activeCount} Active</span>
+          <span className="text-[8px] bg-white/5 border border-white/5 px-1.5 py-0.5 rounded text-accent">
+            Open Cockpit
+          </span>
+        </div>
       </div>
     </motion.div>
   );

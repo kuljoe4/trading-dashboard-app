@@ -375,7 +375,38 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     setStartingBalance(initialStartingBalance);
   }, [initialStartingBalance]);
 
+  const handleBalanceBlur = () => {
+    const num = parseInt(startingBalance, 10);
+    if (isNaN(num) || num < 1) {
+      setStartingBalance(Number(initialStartingBalance) || 10000);
+    } else {
+      setStartingBalance(Math.min(10000000, num));
+    }
+  };
+
+  const handleRiskBlur = () => {
+    const num = parseFloat(riskPct);
+    if (isNaN(num) || num < 0.1) {
+      setRiskPct(1.0);
+    } else {
+      setRiskPct(Math.min(100, num));
+    }
+  };
+
+  const handleProjectedBlur = () => {
+    const num = parseInt(projectedTrades, 10);
+    if (isNaN(num) || num < 5) {
+      setProjectedTrades(50);
+    } else {
+      setProjectedTrades(Math.min(1000, num));
+    }
+  };
+
   const stats = useMemo(() => {
+    const startBalNum = Number(startingBalance) || initialStartingBalance || 10000;
+    const riskPctNum = Number(riskPct) || 1.0;
+    const projectedTradesNum = Number(projectedTrades) || 50;
+
     let winCount = 0;
     let totalSimulatedPnl = 0;
     const count = trades.length;
@@ -396,7 +427,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     let currentLossStreak = 0;
 
     const simReturns = [];
-    let currentBalance = startingBalance;
+    let currentBalance = startBalNum;
 
     for (let i = 0; i < count; i++) {
       const t = trades[i];
@@ -419,7 +450,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       }
 
       const risk = usePctRisk
-        ? (useCompounding ? (currentBalance * (riskPct / 100)) : (startingBalance * (riskPct / 100)))
+        ? (useCompounding ? (currentBalance * (riskPctNum / 100)) : (startBalNum * (riskPctNum / 100)))
         : Number(t.initial_risk_usdt || t.risk_usdt || 100);
       totalRisk += risk;
 
@@ -435,7 +466,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         currentBalance += tradePnl;
       }
 
-      const pctReturn = startingBalance > 0 ? (tradePnl / startingBalance) * 100 : 0;
+      const pctReturn = startBalNum > 0 ? (tradePnl / startBalNum) * 100 : 0;
       simReturns.push(pctReturn);
 
       const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
@@ -450,7 +481,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     }
 
     const calculatedWinRate = count > 0 ? (winCount / count) : 0;
-    const simulatedRoi = startingBalance > 0 ? (totalSimulatedPnl / startingBalance) * 100 : 0;
+    const simulatedRoi = startBalNum > 0 ? (totalSimulatedPnl / startBalNum) * 100 : 0;
 
     const avgWinMae = winMaeCount > 0 ? (winMaeSum / winMaeCount) : 0;
     const avgLossMae = lossMaeCount > 0 ? (lossMaeSum / lossMaeCount) : 0;
@@ -477,27 +508,27 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     // Streak Drawdown computation:
     const maxStreakDrawdownPct = usePctRisk
       ? (useCompounding
-          ? (1 - Math.pow(1 - riskPct / 100, maxLossStreak)) * 100
-          : maxLossStreak * riskPct)
+          ? (1 - Math.pow(1 - riskPctNum / 100, maxLossStreak)) * 100
+          : maxLossStreak * riskPctNum)
       : 0;
 
     // Fast O(1) Projection Modeling with compounding support:
-    const avgRisk = usePctRisk ? (startingBalance * (riskPct / 100)) : (count > 0 ? (totalRisk / count) : 100);
-    const projectedWins = Math.round(calculatedWinRate * projectedTrades);
-    const projectedLosses = projectedTrades - projectedWins;
+    const avgRisk = usePctRisk ? (startBalNum * (riskPctNum / 100)) : (count > 0 ? (totalRisk / count) : 100);
+    const projectedWins = Math.round(calculatedWinRate * projectedTradesNum);
+    const projectedLosses = projectedTradesNum - projectedWins;
 
     let projectedPnl = 0;
     if (usePctRisk && useCompounding) {
-      const projectedFinalBalance = startingBalance * Math.pow(1 + targetRr * (riskPct / 100), projectedWins) * Math.pow(1 - (riskPct / 100), projectedLosses);
-      projectedPnl = projectedFinalBalance - startingBalance;
+      const projectedFinalBalance = startBalNum * Math.pow(1 + targetRr * (riskPctNum / 100), projectedWins) * Math.pow(1 - (riskPctNum / 100), projectedLosses);
+      projectedPnl = projectedFinalBalance - startBalNum;
     } else {
       projectedPnl = (projectedWins * targetRr * avgRisk) - (projectedLosses * avgRisk);
     }
-    const projectedRoi = startingBalance > 0 ? (projectedPnl / startingBalance) * 100 : 0;
+    const projectedRoi = startBalNum > 0 ? (projectedPnl / startBalNum) * 100 : 0;
 
     // Average Duration calculations & total projected execution span
     const avgDurationMs = durationCount > 0 ? (totalDurationMs / durationCount) : 15 * 60000; // default 15m
-    const totalProjectedDurationMs = avgDurationMs * projectedTrades;
+    const totalProjectedDurationMs = avgDurationMs * projectedTradesNum;
 
     return {
       winRate: (calculatedWinRate * 100).toFixed(1),
@@ -551,7 +582,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               step="0.1"
               disabled={!usePctRisk}
               value={riskPct}
-              onChange={(e) => setRiskPct(Math.max(0.1, Math.min(100, parseFloat(e.target.value) || 1.0)))}
+              onChange={(e) => setRiskPct(e.target.value)}
+              onBlur={handleRiskBlur}
               className="w-12 bg-background/50 border border-border/50 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold text-text disabled:opacity-40 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
               aria-label="Risk percent of starting balance"
             />
@@ -579,7 +611,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               min="1"
               max="10000000"
               value={startingBalance}
-              onChange={(e) => setStartingBalance(Math.max(1, parseInt(e.target.value, 10) || 1))}
+              onChange={(e) => setStartingBalance(e.target.value)}
+              onBlur={handleBalanceBlur}
               className="w-20 bg-background/50 border border-border/50 rounded px-1.5 py-1 text-center font-mono text-[10px] font-bold text-text focus:outline-none focus:border-accent focus-visible:ring-1 focus-visible:ring-accent"
               aria-label="Starting balance input for simulation calculations"
             />
@@ -725,7 +758,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               min="5"
               max="1000"
               value={projectedTrades}
-              onChange={(e) => setProjectedTrades(Math.max(5, parseInt(e.target.value, 10) || 5))}
+              onChange={(e) => setProjectedTrades(e.target.value)}
+              onBlur={handleProjectedBlur}
               className="w-10 bg-transparent text-center font-mono text-[10px] font-bold text-text focus:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
               aria-label="Projected future trades count"
             />

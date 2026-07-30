@@ -1490,10 +1490,10 @@ export function DashboardView({ initialStrategy }) {
         </motion.div>
 
         {/* Main Grid - Un-nested to full width */}
-        <div className="grid grid-cols-1 items-start gap-6">
+        <div className="grid grid-cols-1 items-start gap-6 w-full">
 
           {/* Left Workspace */}
-          <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar">
+          <div className="flex flex-col gap-6 lg:gap-10 no-scrollbar w-full">
             <motion.div
               initial={{ x: -20, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -1613,9 +1613,9 @@ export function DashboardView({ initialStrategy }) {
             initial={{ x: 20, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             transition={{ delay: 0.5 }}
-            className="flex flex-col gap-6 lg:gap-10"
+            className="flex flex-col gap-6 lg:gap-10 w-full"
           >
-            <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col shadow-sm">
+            <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col shadow-sm w-full">
               <SectionLabel className="mb-4">
                 <Activity size={14} className="text-accent" /> Session Logs
               </SectionLabel>

@@ -254,7 +254,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <div className="flex items-center gap-1 scale-90 origin-left">
               {tradingMode === 'paper' && <PaperBadge />}
               {tradingMode === 'testnet' && <DemoBadge />}
-              {tradingMode === 'live' && <LiveBadge />}
+              {tradingMode === 'live' && !s.sessionActive && <LiveBadge />}
             </div>
             {s.strategy_label !== config.strategy_label && (
               <span className="px-2 py-0.5 rounded bg-purple/10 text-purple border border-purple/20 text-[9px] font-black uppercase tracking-wider scale-90 origin-left">

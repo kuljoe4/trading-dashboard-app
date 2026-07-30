@@ -85,75 +85,75 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         </div>
       )}
       <div className="flex items-start justify-between gap-3 min-w-0">
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0">{trade.symbol || '---'}</span>
-            <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
-            <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
+        <div className="flex flex-col gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap leading-none">
+            <span className="text-sm md:text-base font-black font-mono tracking-tight shrink-0 text-text leading-none">{trade.symbol || '---'}</span>
+            <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1.5" />
+            <span className={cn("text-[9px] md:text-xs font-black px-1.5 py-0.5 rounded border uppercase shrink-0 leading-none", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
               {isLong ? '▲' : '▼'} {trade.direction || '---'}
             </span>
-            <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono">
+            <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono leading-none">
               {trade.strategy_config?.scan_interval || trade.strategy_config?.interval || config?.scan_interval || '5m'}
             </span>
             {trade.strategy_label && config && (
               trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
                 <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                  <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help">
+                  <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none">
                     Base
                   </span>
                 </Tooltip>
               ) : (
                 <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                  <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse">
+                  <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none">
                     Variant
                   </span>
                 </Tooltip>
               )
             )}
             {trade.is_reconciliation && (
-              <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter">
+              <span className="bg-amber text-black border border-amber text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter leading-none">
                 Recon
               </span>
             )}
           </div>
-          <div className="flex gap-2 items-center flex-wrap">
+          <div className="flex gap-2 items-center flex-wrap leading-none">
             {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
               <MonitoredBadge className="opacity-80" />
             )}
             {trade.strategy_config?.trailing_stop_enabled && (
-              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-[0_0_8px_rgba(168,85,247,0.15)]">
+              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-[0_0_8px_rgba(168,85,247,0.15)] leading-none">
                 Trailing Active
               </span>
             )}
             {trade.entry_ts && (
-              <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1">
+              <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 leading-none">
                 <Clock size={10} className="text-accent" /> {duration}
               </span>
             )}
           </div>
         </div>
 
-        <div className="flex flex-col items-end shrink-0 min-w-[80px]">
+        <div className="flex flex-col items-end shrink-0 min-w-[100px]">
           <Tooltip content="Live P&L including commission and funding">
             <div className={cn(
-              "text-base md:text-lg lg:text-xl font-black font-mono tracking-tighter leading-none mb-1 cursor-help border-b border-dotted border-white/5",
+              "text-base md:text-lg lg:text-xl font-black font-mono tracking-tighter leading-none mb-1.5 cursor-help border-b border-dotted border-white/5",
               trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
             )}>
               {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
             </div>
           </Tooltip>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-col items-end gap-1 leading-none">
             <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}>
               <span
-                className="text-[10px] md:text-[11px] font-black font-mono text-dim uppercase tracking-widest cursor-help flex items-center gap-1"
+                className="text-[10px] md:text-[11px] font-black font-mono text-dim uppercase tracking-widest cursor-help flex items-center gap-1 leading-none"
                 aria-label={`Live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, Peak risk-to-reward is ${Number(trade.max_rr || trade.rr || 0).toFixed(2)}R`}
               >
-                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] text-accent/80 font-black tracking-normal" aria-hidden="true">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
+                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[9px] text-accent/80 font-black tracking-normal leading-none" aria-hidden="true">(Peak: {Number(trade.max_rr || trade.rr || 0).toFixed(2)}R)</span>
               </span>
             </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
               <Tooltip content={`Commission: -${fmtUSD(trade.realized_fee || 0)} | Funding: ${trade.funding_fee > 0 ? '-' : '+'}${fmtUSD(Math.abs(trade.funding_fee || 0))}`}>
-                <div className="text-[8px] md:text-[9px] font-black font-mono text-red/40 uppercase tracking-tighter cursor-help border-b border-dotted border-red/10">
+                <div className="text-[8px] md:text-[9px] font-black font-mono text-red/40 uppercase tracking-tighter cursor-help border-b border-dotted border-red/10 leading-none">
                   -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))}
                 </div>
               </Tooltip>

@@ -114,7 +114,7 @@ export class SessionController {
 
   @Get("status")
   async getStatus() {
-    return this.sessionService.getStatus();
+    return this.sessionService.getStatus(false);
   }
 
   @Get("trade/:id")

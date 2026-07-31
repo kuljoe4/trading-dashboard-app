@@ -2858,16 +2858,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
                 </div>
                 <div className="flex items-center gap-3">
-                  <div className="relative flex-1 sm:w-64">
+                  <div className="relative flex-1 sm:w-64 group">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50" />
                     <input
                       type="text"
                       placeholder="Search preset by name..."
                       value={presetSearch}
                       onChange={(e) => setPresetSearch(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-10 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
                     />
-                    {presetSearch && (
+                    {presetSearch ? (
                       <Tooltip content="Clear Preset Search">
                         <button
                           type="button"
@@ -2878,6 +2878,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           <X size={12} />
                         </button>
                       </Tooltip>
+                    ) : (
+                      <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+                        /
+                      </kbd>
                     )}
                   </div>
                   <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border shrink-0">

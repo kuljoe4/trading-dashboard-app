@@ -22,6 +22,60 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
   </span>
 ))
 
+// --- Alert Radar Ripple ---
+export const AlertRipple = React.memo(({ level = "info" }) => {
+  const colorMap = {
+    error: {
+      shadow: "shadow-[0_0_25px_rgba(255,68,102,0.6)]",
+      border: "border-red/40",
+      bg: "bg-red/5"
+    },
+    warn: {
+      shadow: "shadow-[0_0_25px_rgba(245,166,35,0.6)]",
+      border: "border-amber/40",
+      bg: "bg-amber/5"
+    },
+    warning: {
+      shadow: "shadow-[0_0_25px_rgba(245,166,35,0.6)]",
+      border: "border-amber/40",
+      bg: "bg-amber/5"
+    },
+    success: {
+      shadow: "shadow-[0_0_25px_rgba(0,229,160,0.6)]",
+      border: "border-green/40",
+      bg: "bg-green/5"
+    },
+    info: {
+      shadow: "shadow-[0_0_25px_rgba(91,111,255,0.6)]",
+      border: "border-accent/40",
+      bg: "bg-accent/5"
+    }
+  }
+
+  const activeColor = colorMap[level] || colorMap.info;
+
+  return (
+    <motion.div
+      initial={{ scale: 0.98, opacity: 0.8 }}
+      animate={{
+        scale: [0.98, 1.025, 1.05],
+        opacity: [0.8, 0.4, 0]
+      }}
+      transition={{
+        duration: 1.2,
+        ease: "easeOut"
+      }}
+      className={cn(
+        "absolute inset-0 rounded-full border pointer-events-none z-0",
+        activeColor.border,
+        activeColor.bg,
+        activeColor.shadow
+      )}
+    />
+  )
+})
+AlertRipple.displayName = 'AlertRipple'
+
 // --- Interactive Limit Card ---
 export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip, subValue, usagePct }) => {
   const [isLocked, setIsLocked] = React.useState(true);
@@ -472,6 +526,27 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const [showDropdown, setShowDropdown] = React.useState(false)
   const [hasActiveModal, setHasActiveModal] = React.useState(false)
 
+  const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
+  const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null)
+  const [triggerRippleKey, setTriggerRippleKey] = React.useState(0)
+
+  // Programmatically auto-focus the newest alert and trigger visual ripple cues
+  React.useEffect(() => {
+    if (!newestAlert) {
+      setLastProcessedAlert(null)
+      return
+    }
+    const isNewId = !lastProcessedAlert || lastProcessedAlert.id !== newestAlert.id
+    const isNewCount = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && (newestAlert.count || 1) > (lastProcessedAlert.count || 1)
+    const isNewTs = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && newestAlert.ts !== lastProcessedAlert.ts
+
+    if (isNewId || isNewCount || isNewTs) {
+      setLastProcessedAlert({ id: newestAlert.id, count: newestAlert.count || 1, ts: newestAlert.ts, level: newestAlert.level })
+      setAlertIndex(0)
+      setTriggerRippleKey(prev => prev + 1)
+    }
+  }, [newestAlert, lastProcessedAlert])
+
   // SRE-PERF: Highly optimized MutationObserver to detect active overlay modals/dialogs.
   // When a modal is open, we suppress the global ticker to prevent background visual noise,
   // screen-reader clutter, and accidental background keyboard tab indexing.
@@ -571,32 +646,47 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
           <div className="flex relative items-center justify-center min-w-0 w-full sm:w-auto flex-1 px-2 sm:px-4 z-50">
             <div
               onClick={() => setShowDropdown(!showDropdown)}
-              className="group pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text max-w-[360px] lg:max-w-[440px] w-full transition-all duration-300 select-none animate-in fade-in"
+              className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text max-w-[360px] lg:max-w-[440px] w-full transition-all duration-300 select-none animate-in fade-in"
               title="Click to view all recent alerts"
             >
-              <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                <span className={cn(
-                  "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
-                  activeAlert.level === 'error' ? "bg-red" :
-                  activeAlert.level === 'warn' ? "bg-amber" :
-                  activeAlert.level === 'success' ? "bg-green" :
-                  "bg-accent"
-                )} />
-                <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
-                  {activeAlert.title || 'Alert'}
-                </span>
-                <span className="opacity-30 shrink-0 font-black">|</span>
-                <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
-                  {activeAlert.message}
-                </span>
-                {activeAlert.count > 1 && (
-                  <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
-                )}
-                {alerts.length > 1 && (
-                  <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
-                    +{alerts.length - 1} more
-                  </span>
-                )}
+              {triggerRippleKey > 0 && (
+                <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
+              )}
+
+              <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeAlert.id + '-' + activeAlert.count}
+                    initial={{ y: 15, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -15, opacity: 0 }}
+                    transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                    className="flex items-center gap-1.5 min-w-0 w-full h-full"
+                  >
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+                      activeAlert.level === 'error' ? "bg-red" :
+                      activeAlert.level === 'warn' ? "bg-amber" :
+                      activeAlert.level === 'success' ? "bg-green" :
+                      "bg-accent"
+                    )} />
+                    <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+                      {activeAlert.title || 'Alert'}
+                    </span>
+                    <span className="opacity-30 shrink-0 font-black">|</span>
+                    <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+                      {activeAlert.message}
+                    </span>
+                    {activeAlert.count > 1 && (
+                      <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+                    )}
+                    {alerts.length > 1 && (
+                      <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                        +{alerts.length - 1} more
+                      </span>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
               </div>
               <button
                 type="button"
@@ -606,7 +696,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   updateStats({ alerts: nextAlerts })
                   if (nextAlerts.length === 0) setShowDropdown(false)
                 }}
-                className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+                className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10"
                 aria-label="Dismiss this alert"
               >
                 <X size={10} />
@@ -682,6 +772,27 @@ export const ModalAlertTicker = React.memo(() => {
   const [alertIndex, setAlertIndex] = React.useState(0)
   const [showDropdown, setShowDropdown] = React.useState(false)
 
+  const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
+  const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null)
+  const [triggerRippleKey, setTriggerRippleKey] = React.useState(0)
+
+  // Programmatically auto-focus the newest alert and trigger visual ripple cues
+  React.useEffect(() => {
+    if (!newestAlert) {
+      setLastProcessedAlert(null)
+      return
+    }
+    const isNewId = !lastProcessedAlert || lastProcessedAlert.id !== newestAlert.id
+    const isNewCount = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && (newestAlert.count || 1) > (lastProcessedAlert.count || 1)
+    const isNewTs = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && newestAlert.ts !== lastProcessedAlert.ts
+
+    if (isNewId || isNewCount || isNewTs) {
+      setLastProcessedAlert({ id: newestAlert.id, count: newestAlert.count || 1, ts: newestAlert.ts, level: newestAlert.level })
+      setAlertIndex(0)
+      setTriggerRippleKey(prev => prev + 1)
+    }
+  }, [newestAlert, lastProcessedAlert])
+
   React.useEffect(() => {
     if (!alerts || alerts.length <= 1) {
       setAlertIndex(0)
@@ -702,32 +813,47 @@ export const ModalAlertTicker = React.memo(() => {
       <div className="relative w-full max-w-[540px]">
         <div
           onClick={() => setShowDropdown(!showDropdown)}
-          className="group pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1.5 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text w-full transition-all duration-300 select-none"
+          className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1.5 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text w-full transition-all duration-300 select-none animate-in fade-in"
           title="Click to view all recent alerts"
         >
-          <div className="flex items-center gap-1.5 min-w-0 flex-1">
-            <span className={cn(
-              "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
-              activeAlert.level === 'error' ? "bg-red" :
-              activeAlert.level === 'warn' ? "bg-amber" :
-              activeAlert.level === 'success' ? "bg-green" :
-              "bg-accent"
-            )} />
-            <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
-              {activeAlert.title || 'Alert'}
-            </span>
-            <span className="opacity-30 shrink-0 font-black">|</span>
-            <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
-              {activeAlert.message}
-            </span>
-            {activeAlert.count > 1 && (
-              <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
-            )}
-            {alerts.length > 1 && (
-              <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
-                +{alerts.length - 1} more
-              </span>
-            )}
+          {triggerRippleKey > 0 && (
+            <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
+          )}
+
+          <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeAlert.id + '-' + activeAlert.count}
+                initial={{ y: 15, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -15, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                className="flex items-center gap-1.5 min-w-0 w-full h-full"
+              >
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+                  activeAlert.level === 'error' ? "bg-red" :
+                  activeAlert.level === 'warn' ? "bg-amber" :
+                  activeAlert.level === 'success' ? "bg-green" :
+                  "bg-accent"
+                )} />
+                <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+                  {activeAlert.title || 'Alert'}
+                </span>
+                <span className="opacity-30 shrink-0 font-black">|</span>
+                <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+                  {activeAlert.message}
+                </span>
+                {activeAlert.count > 1 && (
+                  <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+                )}
+                {alerts.length > 1 && (
+                  <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                    +{alerts.length - 1} more
+                  </span>
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
           <button
             type="button"
@@ -737,7 +863,7 @@ export const ModalAlertTicker = React.memo(() => {
               updateStats({ alerts: nextAlerts })
               if (nextAlerts.length === 0) setShowDropdown(false)
             }}
-            className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+            className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10"
             aria-label="Dismiss this alert"
           >
             <X size={10} />

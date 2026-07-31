@@ -21,6 +21,9 @@ export class KlineStoreService {
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) lookbacks
   private readonly hlStableCache = new Map<string, { time: number; minLow: number; maxHigh: number; count: number }>();
 
+  // BOLT OPTIMIZATION: Cache pre-parsed milliseconds values for interval strings
+  private readonly intervalMsCache = new Map<string, number>();
+
   constructor(
     @InjectRepository(KlineEntity)
     private readonly klineRepository: Repository<KlineEntity>,
@@ -141,19 +144,25 @@ export class KlineStoreService {
     if (typeof interval !== 'string' || !interval) {
       return 60 * 1000; // default to 1m
     }
+
+    // BOLT OPTIMIZATION: Return cached parsed ms value if present to skip string slicing/parsing
+    const cached = this.intervalMsCache.get(interval);
+    if (cached !== undefined) return cached;
+
     const unit = interval.slice(-1);
     const value = parseInt(interval.slice(0, -1), 10);
-    if (isNaN(value) || value <= 0) {
-      return 60 * 1000; // default to 1m on NaN or invalid values
+    let ms = 60 * 1000; // default to 1m
+    if (!isNaN(value) && value > 0) {
+      switch (unit) {
+        case 'm': ms = value * 60 * 1000; break;
+        case 'h': ms = value * 60 * 60 * 1000; break;
+        case 'd': ms = value * 24 * 60 * 60 * 1000; break;
+        case 'w': ms = value * 7 * 24 * 60 * 60 * 1000; break;
+        case 'M': ms = value * 30 * 24 * 60 * 60 * 1000; break;
+      }
     }
-    switch (unit) {
-      case 'm': return value * 60 * 1000;
-      case 'h': return value * 60 * 60 * 1000;
-      case 'd': return value * 24 * 60 * 60 * 1000;
-      case 'w': return value * 7 * 24 * 60 * 60 * 1000;
-      case 'M': return value * 30 * 24 * 60 * 60 * 1000;
-      default: return 60 * 1000;
-    }
+    this.intervalMsCache.set(interval, ms);
+    return ms;
   }
 
   /**

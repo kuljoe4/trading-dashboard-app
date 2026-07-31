@@ -316,14 +316,14 @@ export const DecisionLog = React.memo(() => {
           <input
             ref={searchInputRef}
             type="text"
-            placeholder="Search activity logs... [/]"
+            placeholder="Search activity logs..."
             aria-label="Search activity logs"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-4 py-2 text-[11px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-2 text-[11px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
           />
-          {search && (
+          {search ? (
               <Tooltip content="Clear Search">
                 <button
                   type="button"
@@ -337,6 +337,10 @@ export const DecisionLog = React.memo(() => {
                   <XCircle size={16} />
                 </button>
               </Tooltip>
+          ) : (
+            <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+              /
+            </kbd>
           )}
         </div>
 

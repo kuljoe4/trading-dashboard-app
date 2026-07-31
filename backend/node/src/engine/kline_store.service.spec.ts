@@ -145,5 +145,22 @@ describe('KlineStoreService', () => {
       expect((service as any).parseIntervalToMs('1h')).toBe(3600000);
       expect((service as any).parseIntervalToMs('1d')).toBe(86400000);
     });
+
+    it('should use intervalMsCache for O(1) interval milliseconds retrieval', () => {
+      // Check initial state of the cache
+      const cacheMap = (service as any).intervalMsCache;
+      expect(cacheMap.size).toBe(0);
+
+      // Call parseIntervalToMs
+      const ms1 = (service as any).parseIntervalToMs('5m');
+      expect(ms1).toBe(300000);
+      expect(cacheMap.size).toBe(1);
+      expect(cacheMap.get('5m')).toBe(300000);
+
+      // Manually mutate the cache value to verify it bypasses parsing
+      cacheMap.set('5m', 999999);
+      const ms2 = (service as any).parseIntervalToMs('5m');
+      expect(ms2).toBe(999999); // Returned the cached value!
+    });
   });
 });

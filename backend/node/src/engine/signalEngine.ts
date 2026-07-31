@@ -45,6 +45,9 @@ export class SignalEngineService {
   // BOLT OPTIMIZATION: Stable cache for Supertrend calculations to bypass redundant passes on same dataset
   private readonly supertrendCache = new Map<string, { supertrend: number[]; direction: ('up' | 'down')[]; insufficientData: boolean }>();
 
+  // BOLT OPTIMIZATION: Cache resolved base signal types and handlers to eliminate redundant string manipulation
+  private readonly handlerResolutionCache = new Map<string, { baseType: string; handler: Function | null }>();
+
   private readonly signalHandlers: Record<
     string,
     (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[], minimal?: boolean) => boolean | SignalDetail
@@ -186,20 +189,28 @@ export class SignalEngineService {
     const details: Record<string, SignalDetail> = minimal ? {} : {};
 
     for (const signalType of activeSignals) {
-      // DYNAMIC SUFFIX ROUTING: Resolve base signal type for suffixed keys (e.g. ema_close_fast -> ema_close)
-      let baseSignalType = signalType;
-      let handler = this.signalHandlers[signalType];
+      // BOLT OPTIMIZATION: Check for cached resolved handler first
+      let resolved = this.handlerResolutionCache.get(signalType);
+      if (!resolved) {
+        // DYNAMIC SUFFIX ROUTING: Resolve base signal type for suffixed keys (e.g. ema_close_fast -> ema_close)
+        let baseSignalType = signalType;
+        let handler = this.signalHandlers[signalType];
 
-      if (!handler) {
-        const lastUnderscore = signalType.lastIndexOf('_');
-        if (lastUnderscore > 0) {
-          const potentialBase = signalType.substring(0, lastUnderscore);
-          if (this.signalHandlers[potentialBase]) {
-            baseSignalType = potentialBase;
-            handler = this.signalHandlers[potentialBase];
+        if (!handler) {
+          const lastUnderscore = signalType.lastIndexOf('_');
+          if (lastUnderscore > 0) {
+            const potentialBase = signalType.substring(0, lastUnderscore);
+            if (this.signalHandlers[potentialBase]) {
+              baseSignalType = potentialBase;
+              handler = this.signalHandlers[potentialBase];
+            }
           }
         }
+        resolved = { baseType: baseSignalType, handler: handler || null };
+        this.handlerResolutionCache.set(signalType, resolved);
       }
+
+      const { baseType: baseSignalType, handler } = resolved;
 
       if (!handler) {
         if (minimal) {

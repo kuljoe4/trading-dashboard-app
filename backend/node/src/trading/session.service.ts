@@ -2099,6 +2099,28 @@ export class SessionService implements OnModuleInit {
       this.validateConfig(mergedInstance);
     }
 
+    // SENTINEL: Validate profit-locking sequences to prevent CPU Denial of Service (DoS) and data integrity issues
+    const finalLiveSeq = dto.live_rr_sequence !== undefined ? dto.live_rr_sequence : (trade.live_rr_sequence || session.config?.live_rr_sequence || []);
+    const finalExitSeq = dto.exit_rr_sequence !== undefined ? dto.exit_rr_sequence : (trade.exit_rr_sequence || session.config?.exit_rr_sequence || []);
+
+    if (finalLiveSeq.length > 10 || finalExitSeq.length > 10) {
+      throw new BadRequestException("Risk-to-Reward sequences cannot exceed 10 elements");
+    }
+
+    const tpMode = strategyConfig.tp_mode || session.config?.tp_mode || "fixed";
+    if (tpMode === "exp_rr_seq") {
+      if (finalLiveSeq.length === 0) {
+        throw new BadRequestException("Live RR sequence is required for Exponential RR mode");
+      }
+      if (finalLiveSeq.length !== finalExitSeq.length) {
+        throw new BadRequestException("Exit RR sequence must match Live RR sequence length");
+      }
+    } else {
+      if (finalLiveSeq.length !== finalExitSeq.length) {
+        throw new BadRequestException("Exit RR sequence must match Live RR sequence length");
+      }
+    }
+
     // 4. Update dynamic variables
     trade.current_sl = finalSl;
     if (dto.live_rr_sequence) {
@@ -2275,7 +2297,7 @@ export class SessionService implements OnModuleInit {
     return { status: "stopped" };
   }
 
-  async getStatus() {
+  async getStatus(includeLogs = false) {
     if (!this.currentSessionId) {
       const activeSession = await this.sessionRepository.findOne({
         where: { running: true },
@@ -2334,11 +2356,13 @@ export class SessionService implements OnModuleInit {
         !isNaN(Number(trade.qty)),
     );
 
-    const logs = await this.logRepository.find({
-      where: { sessionId: session.id },
-      order: { ts: "DESC" },
-      take: 100,
-    });
+    const logs = includeLogs
+      ? await this.logRepository.find({
+          where: { sessionId: session.id },
+          order: { ts: "DESC" },
+          take: 100,
+        })
+      : [];
 
     return {
       running: session.running,

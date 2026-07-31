@@ -1,3 +1,8 @@
+## 2026-07-31 - Unbounded Arrays in Hot-Path Active Trade Config Updates
+**Vulnerability:** The active trade configuration endpoint `/session/trade/:id/config` accepted optional arrays `live_rr_sequence` and `exit_rr_sequence` without any size constraints or length compatibility checks. An attacker or corrupted config could submit massive numeric arrays to these fields, causing severe CPU performance degradation and event-loop blocks (Denial of Service) because these sequences are iterated over on every single price ticker tick.
+**Learning:** In high-frequency event loops or hot paths, any user-supplied arrays or objects that are iterated over dynamically on every tick must have strict, early size limits and structural integrity checks at both the DTO and service layer.
+**Prevention:** Apply strict `@ArrayMaxSize` validation decorators in NestJS DTOs and defensively merge/validate final arrays at the service layer before saving or hot-reloading configurations in the engine.
+
 ## 2026-07-29 - Client IP Anti-Spoofing and CDN-Proxy Resolution
 **Vulnerability:** Relying solely on the `X-Forwarded-For` header for client IP extraction in the security throttling and audit logging layer is highly prone to spoofing, as clients can easily append arbitrary, fake IPs to the leftmost parts of this header. This can bypass IP-based brute-force protections or corrupt forensic audit logs.
 **Learning:** For application deployments behind trusted CDNs or edge proxies (such as Cloudflare or customized Nginx setups), client IP detection must prioritize single-value edge-validated headers (such as `CF-Connecting-IP` or `X-Real-IP`). These headers are securely populated by the CDN/proxy and cannot be spoofed.

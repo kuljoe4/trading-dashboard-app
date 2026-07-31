@@ -698,5 +698,20 @@ describe('SessionService Validation', () => {
 
       await expect(service.updateTradeConfig('trade-id-123', dto as any)).rejects.toThrow();
     });
+
+    it('should reject updates if sequences exceed 10 elements', async () => {
+      const dto = {
+        live_rr_sequence: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      };
+      await expect(service.updateTradeConfig('trade-id-123', dto)).rejects.toThrow();
+    });
+
+    it('should reject updates if sequences have mismatching lengths', async () => {
+      const dto = {
+        live_rr_sequence: [1, 2],
+        exit_rr_sequence: [1],
+      };
+      await expect(service.updateTradeConfig('trade-id-123', dto)).rejects.toThrow();
+    });
   });
 });

@@ -457,7 +457,7 @@ async function bootstrap() {
           // to prevent UI "data gaps" during transition.
           if (!wasFocused && socket.focusMode) {
             const sessionService = app.get(SessionService);
-            const status = await sessionService.getStatus();
+            const status = await sessionService.getStatus(false);
             socket.send(JSON.stringify({
               type: "status",
               ...status,
@@ -477,7 +477,7 @@ async function bootstrap() {
             socket.send(
               JSON.stringify({
                 type: "status",
-                ...(await sessionService.getStatus()),
+                ...(await sessionService.getStatus(false)),
               }),
             );
           }
@@ -501,7 +501,7 @@ async function bootstrap() {
     });
 
     socket.send(
-      JSON.stringify({ type: "status", ...(await sessionService.getStatus()) }),
+      JSON.stringify({ type: "status", ...(await sessionService.getStatus(true)) }),
     );
   });
 

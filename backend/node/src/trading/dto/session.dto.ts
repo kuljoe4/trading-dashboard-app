@@ -1,5 +1,5 @@
 
-import { IsOptional, IsBoolean, IsString, ValidateNested, IsUUID, IsNotEmpty, IsObject, IsArray, IsNumber } from 'class-validator';
+import { IsOptional, IsBoolean, IsString, ValidateNested, IsUUID, IsNotEmpty, IsObject, IsArray, IsNumber, ArrayMaxSize } from 'class-validator';
 import { Type } from 'class-transformer';
 import { SessionConfig } from '../../models/SessionConfig';
 
@@ -41,11 +41,13 @@ export class UpdateTradeConfigDto {
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
+  @ArrayMaxSize(10, { message: 'live_rr_sequence cannot exceed 10 elements' })
   live_rr_sequence?: number[];
 
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
+  @ArrayMaxSize(10, { message: 'exit_rr_sequence cannot exceed 10 elements' })
   exit_rr_sequence?: number[];
 
   @IsOptional()

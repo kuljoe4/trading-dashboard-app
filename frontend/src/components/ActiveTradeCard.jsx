@@ -46,6 +46,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     }
   }
 
+  const isSignalWinning = trade.est_pnl_source && trade.est_pnl_source.startsWith('signal:');
+
   // Check if any otherwise-qualifying signal (its threshold sits at/below mark for LONG, or at/above mark for SHORT) is currently delay-gated
   let hasDelayedSignal = false;
   if (trade.exit_signals_status) {
@@ -255,13 +257,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <span className="text-dim/50">Exit Guard:</span>
             <span className={cn(
               "px-1.5 py-0.5 rounded text-[8px] font-mono font-black uppercase tracking-tighter shrink-0",
-              trade.tp_mode === 'exp_rr_seq'
-                ? "bg-purple/10 text-purple border border-purple/20 animate-pulse"
-                : trade.tp_mode === 'fixed'
-                  ? "bg-blue-500/10 text-blue-400 border border-blue-500/20"
-                  : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+              isSignalWinning
+                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                : trade.tp_mode === 'exp_rr_seq'
+                  ? "bg-purple/10 text-purple border border-purple/20 animate-pulse"
+                  : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
             )}>
-              {trade.tp_mode === 'exp_rr_seq' ? 'Milestone' : trade.tp_mode === 'fixed' ? 'Fixed TP' : 'Exit Signal'}
+              {isSignalWinning ? 'Exit Signal' : trade.tp_mode === 'exp_rr_seq' ? 'Milestone' : 'Fixed TP'}
             </span>
           </div>
         </div>

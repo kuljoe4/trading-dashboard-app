@@ -1052,7 +1052,11 @@ SessionGroup.displayName = 'SessionGroup'
 const PAGE_SIZE = 10
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
+  // WISP OPTIMIZATION: Removed unused `fullAnalytics` state and redundant `sessionAPI.analytics()` call
+  // from the mount useEffect. HistoryView relies on `lifetimeAnalytics` (via `fetchLifetimeAnalytics`)
+  // for all its lifetime stats and analytical calculations, while active/session-level analytics
+  // are already handled by other components or the global store, making the local fetch redundant.
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
@@ -1238,7 +1242,7 @@ export const HistoryView = () => {
       fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
     ]).then(() => {
-      // Completed loading initial history dataset
+      // WISP OPTIMIZATION: Bypassed redundant active-session analytics state setting as it's unused in HistoryView.
     }).finally(() => {
       setLoading(false)
     })

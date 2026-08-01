@@ -165,40 +165,83 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         </div>
       </div>
 
-      {/* Mini Price Runway */}
-      <div className="flex flex-col gap-2">
-        <div
-          className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative"
-          role="progressbar"
-          aria-valuenow={Math.round(progress)}
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-valuetext={ariaText}
-        >
-          {/* Entry Point Marker */}
-          <div
-            className="absolute top-0 bottom-0 w-px bg-white/40 z-20"
-            style={{ left: `${entryMarkPos}%` }}
-            aria-hidden="true"
-          />
-          {/* Progress Bar */}
-          <div
-            className={cn(
-              "h-full transition-all duration-500 shadow-[0_0_10px_rgba(0,0,0,0.2)]",
-              trade.pnl >= 0 ? "bg-green" : "bg-red"
-            )}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
-          <div className="flex flex-col items-start">
-            <span className="text-red/60">SL</span>
-            <span className="text-[8px] opacity-40">{entry ? Number((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
+      {/* Mini Price Runway & Live Target Gauges */}
+      <div className="flex flex-col gap-2.5">
+        <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-dim leading-none">
+          <div className="flex items-center gap-1 min-w-0">
+            <span className="text-dim/60">Live Mark:</span>
+            <span className="font-mono text-text/90 font-bold">{fmtUSD(mark)}</span>
           </div>
-          <span className="text-text/20">Entry</span>
-          <div className="flex flex-col items-end">
+          {trade.est_pnl_to_realize !== undefined && trade.est_pnl_to_realize !== 0 && (
+            <div className="flex items-center gap-1">
+              <span className="text-dim/50">Est. Target:</span>
+              <span className="font-mono text-green font-black">+{fmtUSD(trade.est_pnl_to_realize)}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-dim/50">Exit Guard:</span>
+            <span className={cn(
+              "px-1.5 py-0.5 rounded text-[8px] font-mono font-black uppercase tracking-tighter shrink-0",
+              trade.tp_mode === 'exp_rr_seq'
+                ? "bg-purple/10 text-purple border border-purple/20 animate-pulse"
+                : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+            )}>
+              {trade.tp_mode === 'exp_rr_seq' ? 'Milestone' : 'Exit Signal'}
+            </span>
+          </div>
+        </div>
+
+        <div className="relative pt-1 pb-1">
+          {/* Progress Bar Container */}
+          <div
+            className="h-2 w-full bg-border/40 rounded-full relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
+            role="progressbar"
+            aria-valuenow={Math.round(progress)}
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuetext={ariaText}
+          >
+            {/* Entry Point Marker */}
+            <div
+              className="absolute top-0 bottom-0 w-px bg-white/50 z-20"
+              style={{ left: `${entryMarkPos}%` }}
+              aria-hidden="true"
+            />
+
+            {/* Progress Bar Fill */}
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(0,0,0,0.2)]",
+                trade.pnl >= 0 ? "bg-green" : "bg-red"
+              )}
+              style={{ width: `${progress}%` }}
+            />
+
+            {/* Glowing Price Handle/Thumb showing current Mark location */}
+            <div
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-3 rounded-full border-2 bg-surface shadow-md z-30 transition-all duration-500",
+                trade.pnl >= 0 ? "border-green" : "border-red"
+              )}
+              style={{ left: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
+          <div className="flex flex-col items-start leading-tight">
+            <span className="text-red/60">SL</span>
+            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(sl)}</span>
+            <span className="text-[8px] opacity-40">-{entry ? Number((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
+          </div>
+          <div className="flex flex-col items-center text-center leading-tight">
+            <span className="text-text/30">Entry</span>
+            <span className="font-bold text-text/60 font-mono mt-0.5">{fmtUSD(entry)}</span>
+          </div>
+          <div className="flex flex-col items-end leading-tight text-right">
             <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
-            <span className="text-[8px] opacity-40">{tp && entry ? Number((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '---'}</span>
+            <span className="font-bold text-text/80 font-mono mt-0.5">{tp ? fmtUSD(tp) : fmtUSD(isLong ? entry + Math.abs(entry - sl) * 3 : entry - Math.abs(entry - sl) * 3)}</span>
+            <span className="text-[8px] opacity-40">+{tp && entry ? Number((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '3.0R'}</span>
           </div>
         </div>
       </div>

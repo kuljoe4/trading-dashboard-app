@@ -476,14 +476,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     return Array.from(keys);
   }, [trade, activeSessionConfig]);
 
-  // Sync state with trade details whenever they refresh/mount
+  // Reset editing mode when switching active trades
   useEffect(() => {
-    if (trade) {
+    setIsEditing(false);
+  }, [trade?.id]);
+
+  // Sync state with trade details whenever they refresh/mount (skip when actively editing)
+  useEffect(() => {
+    if (trade && !isEditing) {
       setFormSl(trade.sl_price || trade.current_sl || 0)
 
       const triggers = trade.live_rr_sequence || []
       const exits = trade.exit_rr_sequence || []
       const ladderPairs = triggers.map((trigger, idx) => ({
+        id: `ladder-${trigger}-${idx}-${Math.random()}`,
         trigger,
         exit: exits[idx] !== undefined ? exits[idx] : 0,
       }))
@@ -508,7 +514,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       })
       setFormDelays(delaysObj)
     }
-  }, [trade, activeSessionConfig, activeSignalKeys])
+  }, [trade, activeSessionConfig, activeSignalKeys, isEditing])
 
   const ladderValidationError = useMemo(() => {
     if (formLadder.length === 0) return null;
@@ -530,7 +536,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const lastRow = formLadder[formLadder.length - 1]
     const nextTrigger = lastRow ? Number(lastRow.trigger) + 1.0 : 1.0
     const nextExit = lastRow ? Number(lastRow.exit) + 0.5 : 0.5
-    setFormLadder([...formLadder, { trigger: nextTrigger, exit: nextExit }])
+    setFormLadder([...formLadder, { id: `ladder-add-${Date.now()}-${Math.random()}`, trigger: nextTrigger, exit: nextExit }])
   }
 
   const handleRemoveLadderRow = (idx) => {
@@ -903,273 +909,335 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}
-      {trade.status === 'OPEN' && (
-        <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
-          <div className="flex justify-between items-center mb-3">
-            <SectionLabel className="mb-0 flex items-center gap-1.5">
-              <Sliders size={14} className="text-accent" /> Active Exit Guard Configuration
-            </SectionLabel>
-            <Btn
-              variant={isEditing ? "ghost" : "primary"}
-              onClick={() => setIsEditing(!isEditing)}
-              className="px-3.5 py-1.5 h-8 text-[10px] uppercase tracking-wider font-black rounded-lg"
-            >
-              {isEditing ? "Collapse" : "Edit Config"}
-            </Btn>
-          </div>
+      {trade.status === 'OPEN' && (() => {
+        const isTestnet = (activeSessionConfig?.trading_mode === 'testnet');
+        const ringColorClass = isTestnet
+          ? "focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none"
+          : "focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none";
 
-          <AnimatePresence initial={false}>
-            {isEditing && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 100, damping: 20 }}
-                className="overflow-hidden"
+        return (
+          <div className="mt-4 md:mt-6 pt-5 border-t border-border/40">
+            <div className="flex justify-between items-center mb-4">
+              <SectionLabel className="mb-0 flex items-center gap-1.5">
+                <Sliders size={14} className="text-accent" /> Active Exit Guard Configuration
+              </SectionLabel>
+              <Btn
+                variant={isEditing ? "ghost" : "primary"}
+                onClick={() => setIsEditing(!isEditing)}
+                className={cn(
+                  "px-3.5 py-1.5 h-8 text-[10px] uppercase tracking-wider font-black rounded-lg transition-all duration-300",
+                  isEditing
+                    ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 hover:text-accent shadow-[0_0_15px_rgba(91,111,255,0.15)]"
+                    : "bg-surface hover:bg-accent hover:text-white text-text border border-border/60 hover:border-accent hover:shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+                )}
               >
-                <div className="bg-surface/50 border border-border/40 rounded-2xl p-4 md:p-6 shadow-md backdrop-blur-md space-y-4 md:space-y-6">
+                {isEditing ? (
+                  <>
+                    <Sliders size={11} className="animate-pulse" />
+                    <span>Collapse Editor</span>
+                  </>
+                ) : (
+                  <>
+                    <Sliders size={11} />
+                    <span>Edit Config</span>
+                  </>
+                )}
+              </Btn>
+            </div>
 
-                  {/* Part 1: Stop-Loss Override */}
-                  <div className="space-y-2">
-                    <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
-                      Stop-Loss Override
-                    </SectionLabel>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-center">
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
-                        <input
-                          type="number"
-                          step="any"
-                          value={formSl}
-                          onChange={(e) => setFormSl(e.target.value)}
-                          className="pl-7 pr-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                          aria-label="Edit stop loss price"
-                        />
-                      </div>
-                      <div className="text-[10px] md:text-xs font-mono text-dim/80 space-y-0.5">
-                        <div className="flex justify-between">
-                          <span>Risk Distance:</span>
-                          <span className="font-bold text-red">
-                            {Number(entry) > 0 ? `${Number(Math.abs(entry - Number(formSl)) / entry * 100).toFixed(2)}%` : '0.00%'}
-                          </span>
+            <AnimatePresence initial={false}>
+              {isEditing && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                  className="overflow-hidden"
+                >
+                  <div className="bg-surface/60 border border-border/50 rounded-2xl p-4 md:p-6 shadow-lg backdrop-blur-md space-y-5 md:space-y-7 mt-3">
+
+                    {/* Part 1: Stop-Loss Override */}
+                    <div className="space-y-2">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
+                        Stop-Loss Override
+                      </SectionLabel>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                          <input
+                            type="number"
+                            step="any"
+                            value={formSl}
+                            onChange={(e) => setFormSl(e.target.value)}
+                            className={cn(
+                              "pl-7 pr-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                            aria-label="Edit stop loss price"
+                          />
                         </div>
-                        <div className="flex justify-between">
-                          <span>Projected Risk:</span>
-                          <span className="font-bold text-red">
-                            {fmtUSD(Math.abs(entry - Number(formSl)) * Number(qty))}
-                          </span>
+                        <div className="text-[10px] md:text-xs font-mono text-dim/80 space-y-0.5">
+                          <div className="flex justify-between">
+                            <span>Risk Distance:</span>
+                            <span className="font-bold text-red">
+                              {Number(entry) > 0 ? `${Number(Math.abs(entry - Number(formSl)) / entry * 100).toFixed(2)}%` : '0.00%'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Projected Risk:</span>
+                            <span className="font-bold text-red">
+                              {fmtUSD(Math.abs(entry - Number(formSl)) * Number(qty))}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Part 2: Exponential RR Guard Ladder */}
-                  <div className="space-y-3 pt-3 border-t border-border/30">
-                    <div className="flex justify-between items-center">
-                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0">
-                        Profit-Locking Guard Ladder Milestones
+                    {/* Part 2: Exponential RR Guard Ladder */}
+                    <div className="space-y-3 pt-4 border-t border-border/10">
+                      <div className="flex justify-between items-center">
+                        <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0">
+                          Profit-Locking Guard Ladder Milestones
+                        </SectionLabel>
+                        <Btn
+                          variant="ghost"
+                          onClick={handleAddLadderRow}
+                          className="px-2.5 py-1 h-7 text-[9px] uppercase tracking-wider font-black rounded-lg border border-border/40 hover:border-accent/40 text-accent/80 hover:text-accent hover:bg-accent/5 transition-all duration-300 active:scale-95"
+                          icon={Plus}
+                        >
+                          Add Milestone
+                        </Btn>
+                      </div>
+
+                      {ladderValidationError && (
+                        <div className="bg-red/10 border border-red/20 rounded-xl p-3 text-[10px] text-red uppercase tracking-wider font-black animate-pulse">
+                          ⚠ {ladderValidationError}
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5 max-h-[240px] overflow-y-auto no-scrollbar pr-1">
+                        <AnimatePresence initial={false} mode="popLayout">
+                          {formLadder.map((row, idx) => (
+                            <motion.div
+                              key={row.id || `row-${idx}`}
+                              initial={{ opacity: 0, y: -10, height: 0 }}
+                              animate={{ opacity: 1, y: 0, height: "auto" }}
+                              exit={{ opacity: 0, y: 10, height: 0 }}
+                              transition={{ type: "spring", stiffness: 350, damping: 26 }}
+                              className="grid grid-cols-[1fr_1fr_40px] gap-2 items-center overflow-hidden py-0.5"
+                            >
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={row.trigger}
+                                  onChange={(e) => handleUpdateLadderRow(idx, "trigger", e.target.value)}
+                                  placeholder="Trigger RR"
+                                  className={cn(
+                                    "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    ringColorClass
+                                  )}
+                                  aria-label={`Milestone trigger ${idx + 1}`}
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Trigger R</span>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={row.exit}
+                                  onChange={(e) => handleUpdateLadderRow(idx, "exit", e.target.value)}
+                                  placeholder="Exit SL RR"
+                                  className={cn(
+                                    "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    ringColorClass
+                                  )}
+                                  aria-label={`Milestone exit stop loss ${idx + 1}`}
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Lock R</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLadderRow(idx)}
+                                className="p-2 h-9 w-10 flex items-center justify-center rounded-lg hover:bg-red/10 text-dim/60 hover:text-red border border-border/40 hover:border-red/20 shrink-0 transition-all duration-200 active:scale-90"
+                                aria-label={`Delete milestone row ${idx + 1}`}
+                              >
+                                <Trash size={13} />
+                              </button>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+
+                        {formLadder.length === 0 && (
+                          <div className="text-center py-4 text-xs text-dim italic">
+                            No guard ladder milestones configured. Add a milestone to enable live ratcheting.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Part 3: Exit Monitors indicator parameter overrides */}
+                    <div className="space-y-3 pt-4 border-t border-border/10">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
+                        Technical Indicator Overrides
                       </SectionLabel>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Exit EMA Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 12"
+                            value={formOverrides.exit_ema_period}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, exit_ema_period: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 10"
+                            value={formOverrides.supertrend_period}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_period: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Multiplier</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 3"
+                            value={formOverrides.supertrend_multiplier}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_multiplier: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Fast Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 12"
+                            value={formOverrides.macd_fast}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_fast: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Slow Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 26"
+                            value={formOverrides.macd_slow}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_slow: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Signal Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 9"
+                            value={formOverrides.macd_signal}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_signal: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Part 4: Exit Signal Delay Overrides */}
+                    <div className="space-y-3 pt-4 border-t border-border/10">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
+                        Exit Signal Delay Overrides
+                      </SectionLabel>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {activeSignalKeys.map((key) => {
+                          const val = formDelays[key] ?? 0;
+                          const label = FRIENDLY_SIGNAL_NAMES[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          return (
+                            <div key={key} className="flex flex-col gap-1">
+                              <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
+                                {label} Delay
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="86400"
+                                  placeholder="0"
+                                  value={val === '' ? '' : val}
+                                  onChange={(e) => {
+                                    const v = e.target.value === '' ? '' : Math.max(0, Math.min(86400, parseInt(e.target.value) || 0));
+                                    setFormDelays(prev => ({ ...prev, [key]: v }));
+                                  }}
+                                  className={cn(
+                                    "px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    ringColorClass
+                                  )}
+                                  aria-label={`Exit delay for ${label} in seconds`}
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
+                              </div>
+                              <span className="text-[8px] text-dim/70 font-mono mt-0.5">
+                                {val ? formatDuration(val * 1000) : 'Instant (no delay)'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {activeSignalKeys.length === 0 && (
+                          <div className="col-span-full text-center py-2 text-xs text-dim italic">
+                            No active exit signals configured for this trade.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Saving Actions */}
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border/10">
                       <Btn
                         variant="ghost"
-                        onClick={handleAddLadderRow}
-                        className="px-2 py-1 h-7 text-[9px] uppercase tracking-wider font-black rounded-md"
-                        icon={Plus}
+                        onClick={() => setIsEditing(false)}
+                        disabled={savingConfig}
+                        className="px-4 py-1.5 h-9 text-[10px] uppercase tracking-wider font-black rounded-lg hover:bg-white/5 hover:text-text hover:border-border transition-all"
                       >
-                        Add Row
+                        Cancel
+                      </Btn>
+                      <Btn
+                        variant="primary"
+                        onClick={handleSaveTradeConfig}
+                        disabled={savingConfig || !!ladderValidationError}
+                        loading={savingConfig}
+                        className="px-5 py-1.5 h-9 text-[10px] uppercase tracking-wider font-black rounded-lg bg-gradient-to-r from-accent to-indigo-600 hover:from-accent/95 hover:to-indigo-500 shadow-md shadow-accent/20 hover:shadow-lg hover:shadow-accent/30 transition-all duration-300"
+                      >
+                        Apply Changes
                       </Btn>
                     </div>
 
-                    {ladderValidationError && (
-                      <div className="bg-red/10 border border-red/20 rounded-xl p-3 text-[10px] text-red uppercase tracking-wider font-black">
-                        ⚠ {ladderValidationError}
-                      </div>
-                    )}
-
-                    <div className="space-y-1.5 max-h-[220px] overflow-y-auto no-scrollbar pr-1">
-                      {formLadder.map((row, idx) => (
-                        <div key={idx} className="grid grid-cols-[1fr_1fr_40px] gap-2 items-center">
-                          <div className="relative">
-                            <input
-                              type="number"
-                              step="any"
-                              value={row.trigger}
-                              onChange={(e) => handleUpdateLadderRow(idx, "trigger", e.target.value)}
-                              placeholder="Trigger RR"
-                              className="px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                              aria-label={`Milestone trigger ${idx + 1}`}
-                            />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Trigger R</span>
-                          </div>
-                          <div className="relative">
-                            <input
-                              type="number"
-                              step="any"
-                              value={row.exit}
-                              onChange={(e) => handleUpdateLadderRow(idx, "exit", e.target.value)}
-                              placeholder="Exit SL RR"
-                              className="px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                              aria-label={`Milestone exit stop loss ${idx + 1}`}
-                            />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Lock R</span>
-                          </div>
-                          <Btn
-                            variant="ghost"
-                            onClick={() => handleRemoveLadderRow(idx)}
-                            className="p-2 h-9 w-10 flex items-center justify-center rounded-lg hover:bg-red/10 hover:text-red hover:border-red/20 shrink-0 border border-border/40 text-dim"
-                            icon={Trash}
-                            aria-label={`Delete milestone row ${idx + 1}`}
-                          />
-                        </div>
-                      ))}
-
-                      {formLadder.length === 0 && (
-                        <div className="text-center py-4 text-xs text-dim italic">
-                          No guard ladder milestones configured. Add a row to enable live ratcheting.
-                        </div>
-                      )}
-                    </div>
                   </div>
-
-                  {/* Part 3: Exit Monitors indicator parameter overrides */}
-                  <div className="space-y-3 pt-3 border-t border-border/30">
-                    <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
-                      Technical Indicator Overrides
-                    </SectionLabel>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Exit EMA Period</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 12"
-                          value={formOverrides.exit_ema_period}
-                          onChange={(e) => setFormOverrides({ ...formOverrides, exit_ema_period: e.target.value })}
-                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Period</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 10"
-                          value={formOverrides.supertrend_period}
-                          onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_period: e.target.value })}
-                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Multiplier</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 3"
-                          value={formOverrides.supertrend_multiplier}
-                          onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_multiplier: e.target.value })}
-                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Fast Period</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 12"
-                          value={formOverrides.macd_fast}
-                          onChange={(e) => setFormOverrides({ ...formOverrides, macd_fast: e.target.value })}
-                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Slow Period</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 26"
-                          value={formOverrides.macd_slow}
-                          onChange={(e) => setFormOverrides({ ...formOverrides, macd_slow: e.target.value })}
-                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Signal Period</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 9"
-                          value={formOverrides.macd_signal}
-                          onChange={(e) => setFormOverrides({ ...formOverrides, macd_signal: e.target.value })}
-                          className="px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Part 4: Exit Signal Delay Overrides */}
-                  <div className="space-y-3 pt-3 border-t border-border/30">
-                    <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
-                      Exit Signal Delay Overrides
-                    </SectionLabel>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                      {activeSignalKeys.map((key) => {
-                        const val = formDelays[key] ?? 0;
-                        const label = FRIENDLY_SIGNAL_NAMES[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                        return (
-                          <div key={key} className="flex flex-col gap-1">
-                            <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
-                              {label} Delay
-                            </label>
-                            <div className="relative">
-                              <input
-                                type="number"
-                                min="0"
-                                max="86400"
-                                placeholder="0"
-                                value={val === '' ? '' : val}
-                                onChange={(e) => {
-                                  const v = e.target.value === '' ? '' : Math.max(0, Math.min(86400, parseInt(e.target.value) || 0));
-                                  setFormDelays(prev => ({ ...prev, [key]: v }));
-                                }}
-                                className="px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                                aria-label={`Exit delay for ${label} in seconds`}
-                              />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
-                            </div>
-                            <span className="text-[8px] text-dim/70 font-mono mt-0.5">
-                              {val ? formatDuration(val * 1000) : 'Instant (no delay)'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {activeSignalKeys.length === 0 && (
-                        <div className="col-span-full text-center py-2 text-xs text-dim italic">
-                          No active exit signals configured for this trade.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Saving Actions */}
-                  <div className="flex justify-end gap-3 pt-3 border-t border-border/30">
-                    <Btn
-                      variant="ghost"
-                      onClick={() => setIsEditing(false)}
-                      disabled={savingConfig}
-                      className="px-4 py-1.5 h-9 text-[11px] uppercase tracking-wider font-black rounded-lg"
-                    >
-                      Cancel
-                    </Btn>
-                    <Btn
-                      variant="primary"
-                      onClick={handleSaveTradeConfig}
-                      disabled={savingConfig || !!ladderValidationError}
-                      loading={savingConfig}
-                      className="px-5 py-1.5 h-9 text-[11px] uppercase tracking-wider font-black rounded-lg"
-                    >
-                      Save Parameters
-                    </Btn>
-                  </div>
-
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })()}
 
       <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
         <SectionLabel className="mb-2.5 text-red">Danger Zone</SectionLabel>

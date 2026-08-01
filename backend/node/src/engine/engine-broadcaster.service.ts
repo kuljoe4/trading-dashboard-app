@@ -123,6 +123,7 @@ export class EngineBroadcasterService {
     }
 
     let maxEstPnlForTrade = ratchetPnl;
+    let estPnlSource = 'sl';
     if (trade.exit_signals_status) {
       for (const [key, status] of Object.entries(trade.exit_signals_status)) {
         const sigStatus = status as any;
@@ -136,6 +137,7 @@ export class EngineBroadcasterService {
           const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
           if (!isDelayActive && signalPnl <= pnl && signalPnl > maxEstPnlForTrade) {
             maxEstPnlForTrade = signalPnl;
+            estPnlSource = `signal:${key}`;
           }
         }
       }
@@ -165,6 +167,7 @@ export class EngineBroadcasterService {
         initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
         risk_usdt: trade.risk_usdt ?? 0,
         est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+        est_pnl_source: estPnlSource,
         exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
         min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
         close_attempts: trade.close_attempts,
@@ -193,6 +196,7 @@ export class EngineBroadcasterService {
       trading_mode: config?.trading_mode || (config?.paper_mode ? 'paper' : 'live'),
       max_rr: roundTo(trade.max_rr_achieved ?? 0, 4),
       est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+      est_pnl_source: estPnlSource,
       exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
       min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
@@ -224,6 +228,7 @@ export class EngineBroadcasterService {
     }
 
     let maxEstPnlForTrade = ratchetPnl;
+    let estPnlSource = 'sl';
     if (trade.exit_signals_status) {
       for (const [key, status] of Object.entries(trade.exit_signals_status)) {
         const sigStatus = status as any;
@@ -237,6 +242,7 @@ export class EngineBroadcasterService {
           const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
           if (!isDelayActive && signalPnl <= pnlValue && signalPnl > maxEstPnlForTrade) {
             maxEstPnlForTrade = signalPnl;
+            estPnlSource = `signal:${key}`;
           }
         }
       }
@@ -265,6 +271,7 @@ export class EngineBroadcasterService {
       initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
       risk_usdt: trade.risk_usdt ?? 0,
       est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+      est_pnl_source: estPnlSource,
       exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
       min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       _thin: true,

@@ -1052,8 +1052,7 @@ SessionGroup.displayName = 'SessionGroup'
 const PAGE_SIZE = 10
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
-  const [fullAnalytics, setFullAnalytics] = useState(null)
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
@@ -1236,11 +1235,10 @@ export const HistoryView = () => {
     setLoading(true)
     Promise.all([
       fetchTradeHistory(),
-      sessionAPI.analytics(),
       fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
-    ]).then(([_, analyticsRes]) => {
-      setFullAnalytics(analyticsRes.data)
+    ]).then(() => {
+      // Completed loading initial history dataset
     }).finally(() => {
       setLoading(false)
     })

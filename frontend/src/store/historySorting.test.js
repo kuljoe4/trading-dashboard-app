@@ -142,3 +142,69 @@ test('calculatePerformanceMetrics benchmark performance test', () => {
   console.log(`  - Optimized O(1) timestamp-based Metrics: ${preCalculatedDuration.toFixed(4)} ms`);
   console.log(`  - Execution Speedup:                    ${(rawDuration / Math.max(0.0001, preCalculatedDuration)).toFixed(1)}x faster`);
 });
+
+test('Stacked win/loss distribution calculation loop-fusion correctness and performance benchmark', () => {
+  // Helper functions representing the two implementations
+  const originalImpl = (trades) => {
+    const winCount = trades.filter(t => Number(t.pnl || 0) > 0).length;
+    const lossCount = trades.filter(t => Number(t.pnl || 0) < 0).length;
+    const scratchCount = trades.filter(t => Number(t.pnl || 0) === 0).length;
+    return { winCount, lossCount, scratchCount };
+  };
+
+  const optimizedImpl = (trades) => {
+    let w = 0;
+    let l = 0;
+    let s = 0;
+    const len = trades.length;
+    for (let i = 0; i < len; i++) {
+      const pnlVal = Number(trades[i].pnl || 0);
+      if (pnlVal > 0) w++;
+      else if (pnlVal < 0) l++;
+      else s++;
+    }
+    return { winCount: w, lossCount: l, scratchCount: s };
+  };
+
+  // Create mock trades list
+  const mockTrades = Array.from({ length: 500 }, () => ({
+    pnl: (Math.random() - 0.45) * 100 // some positive, some negative, some zero (if we round)
+  }));
+  // Add some exact zeros
+  for (let i = 0; i < 50; i++) {
+    mockTrades[Math.floor(Math.random() * mockTrades.length)].pnl = 0;
+  }
+
+  // 1. Correctness Verification
+  const resOriginal = originalImpl(mockTrades);
+  const resOptimized = optimizedImpl(mockTrades);
+  assert.deepStrictEqual(resOptimized, resOriginal, 'Optimized results must match original results exactly.');
+
+  // 2. Performance Benchmark
+  const iterations = 5000;
+
+  // Warmup
+  originalImpl(mockTrades);
+  optimizedImpl(mockTrades);
+
+  // Original
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalImpl(mockTrades);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  // Optimized
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedImpl(mockTrades);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (Stacked Win/Loss distribution, List size: ${mockTrades.length} trades, ${iterations} iterations):`);
+  console.log(`  - Original 3x filter()-based: ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Loop-fused (no allocations): ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                    ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});

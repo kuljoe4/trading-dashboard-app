@@ -867,10 +867,20 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     return labels.size;
   }, [trades, label]);
 
-  // Stacked win/loss distribution calculation
-  const winCount = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades]);
-  const lossCount = useMemo(() => trades.filter(t => safeNum(t.pnl) < 0).length, [trades]);
-  const scratchCount = useMemo(() => trades.filter(t => safeNum(t.pnl) === 0).length, [trades]);
+  // Stacked win/loss distribution calculation - BOLT OPTIMIZATION: Loop-fused single-pass traversal (no array allocations)
+  const { winCount, lossCount, scratchCount } = useMemo(() => {
+    let w = 0;
+    let l = 0;
+    let s = 0;
+    const len = trades.length;
+    for (let i = 0; i < len; i++) {
+      const pnlVal = safeNum(trades[i].pnl);
+      if (pnlVal > 0) w++;
+      else if (pnlVal < 0) l++;
+      else s++;
+    }
+    return { winCount: w, lossCount: l, scratchCount: s };
+  }, [trades]);
   const totalTradesCount = trades.length;
 
   const winPct = totalTradesCount > 0 ? (winCount / totalTradesCount) * 100 : 0;

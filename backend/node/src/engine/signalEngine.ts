@@ -1533,12 +1533,27 @@ export class SignalEngineService {
       }
       slPrice = extremeVal;
 
+      let hadPullback = false;
+      const startScan = hLen - 2;
+      const endScan = Math.max(1, hLen - 1 - lookbackWindow);
+      for (let i = startScan; i >= endScan; i--) {
+        const histPrev = histogram[i];
+        const histPrevPrev = histogram[i - 1];
+        if (side === 'LONG') {
+          if (histPrev < histPrevPrev) {
+            hadPullback = true;
+            break;
+          }
+        } else {
+          if (histPrev > histPrevPrev) {
+            hadPullback = true;
+            break;
+          }
+        }
+      }
+
       if (side === 'LONG') {
-        // Long entry criteria:
-        // - We had a pullback (at least one previous histogram bar is less than or equal to a prior one, or histogram went below 0)
-        // - Currently, histogram is positive AND expanding (current > previous)
-        const hadPullback = (prevHist < prevPrevHist) || prevHist <= 0 || prevPrevHist <= 0;
-        const isExpandingPositive = currHist > 0 && currHist > prevHist;
+        const isExpandingPositive = currHist > prevHist;
 
         if (isExpandingPositive && hadPullback) {
           fired = true;
@@ -1546,14 +1561,10 @@ export class SignalEngineService {
         } else if (!isExpandingPositive) {
           description = `Histogram is not expanding positive: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
         } else {
-          description = `No pullback detected in prior 2 bars: ${roundTo(prevPrevHist, 8)} -> ${roundTo(prevHist, 8)}`;
+          description = `No pullback detected in prior ${lookbackWindow} bars`;
         }
       } else if (side === 'SHORT') {
-        // Short entry criteria:
-        // - We had a pullback (at least one previous histogram bar is greater than or equal to a prior one, or histogram went above 0)
-        // - Currently, histogram is negative AND expanding downwards (current < previous)
-        const hadPullback = (prevHist > prevPrevHist) || prevHist >= 0 || prevPrevHist >= 0;
-        const isExpandingNegative = currHist < 0 && currHist < prevHist;
+        const isExpandingNegative = currHist < prevHist;
 
         if (isExpandingNegative && hadPullback) {
           fired = true;
@@ -1561,7 +1572,7 @@ export class SignalEngineService {
         } else if (!isExpandingNegative) {
           description = `Histogram is not expanding negative: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
         } else {
-          description = `No pullback detected in prior 2 bars: ${roundTo(prevPrevHist, 8)} -> ${roundTo(prevHist, 8)}`;
+          description = `No pullback detected in prior ${lookbackWindow} bars`;
         }
       }
 

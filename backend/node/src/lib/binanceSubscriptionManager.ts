@@ -104,18 +104,28 @@ export class BinanceSubscriptionManager {
       });
 
       ws.on('error', (err: any) => {
+        // Guard against race conditions: ignore errors from old / superseded sockets
+        if (this.ws !== ws && this.isConnecting && this.ws === null) {
+          // This allows early connection failure rejection for the socket currently in the middle of a handshake
+        } else if (this.ws !== ws && !this.isConnecting) {
+          return;
+        }
+
         const msg = err.message || '';
-        this.logger.error(`[SubscriptionManager] WebSocket error: ${msg}`);
+        const urlSnippet = this.wsUrl.includes('?streams=')
+          ? this.wsUrl.substring(0, this.wsUrl.indexOf('?streams=')) + '?streams=...'
+          : this.wsUrl;
+        this.logger.error(`[SubscriptionManager] WebSocket error. URL: ${urlSnippet} | Msg: ${msg}`);
 
         if (msg.includes('429') || msg.includes('418')) {
           this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}).`);
           this.options.onBan?.(msg);
         }
 
-        if (this.isConnecting) {
+        if (this.isConnecting && this.ws === null) {
           this.isConnecting = false;
           reject(err);
-        } else if (!this.isStopped) {
+        } else if (!this.isStopped && this.ws === ws) {
           // If a 'close' event does not follow, proactively schedule a reconnect.
           if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
           this.reconnectTimeout = setTimeout(() => {
@@ -128,17 +138,36 @@ export class BinanceSubscriptionManager {
         }
       });
 
-      ws.on('close', () => {
-        this.logger.warn('[SubscriptionManager] WebSocket closed.');
-        this.ws = null;
-        this.isConnecting = false;
-        this.stopQueueProcessor();
-        this.stopPingInterval();
-        this.cleanupPendingRequests('WebSocket closed');
+      ws.on('close', (code: number, reason: any) => {
+        const reasonStr = (reason instanceof Buffer)
+          ? reason.toString()
+          : (typeof reason === 'string' ? reason : String(reason || ''));
+        const urlSnippet = this.wsUrl.includes('?streams=')
+          ? this.wsUrl.substring(0, this.wsUrl.indexOf('?streams=')) + '?streams=...'
+          : this.wsUrl;
 
-        // Auto-reconnect with capped exponential backoff (SRE: avoid reconnect storms / IP-ban patterns)
-        if (!this.isStopped && this.isConnecting === false) {
-            this.scheduleReconnect();
+        // Is this close intentional? It's intentional if isStopped is true,
+        // or if the close event is from an older socket that was superseded or closed manually.
+        const isIntentional = this.isStopped || (this.ws !== ws);
+
+        if (isIntentional) {
+          this.logger.log(`[SubscriptionManager] WebSocket closed intentionally. URL: ${urlSnippet} | Code: ${code || 'unknown'} | Reason: ${reasonStr || 'none'}`);
+        } else {
+          this.logger.warn(`[SubscriptionManager] WebSocket closed unexpectedly. URL: ${urlSnippet} | Code: ${code || 'unknown'} | Reason: ${reasonStr || 'none'}`);
+        }
+
+        // Only modify active manager state if the closing socket is the current active one!
+        if (this.ws === ws) {
+          this.ws = null;
+          this.isConnecting = false;
+          this.stopQueueProcessor();
+          this.stopPingInterval();
+          this.cleanupPendingRequests(`WebSocket closed with code ${code || 'unknown'}: ${reasonStr || 'none'}`);
+
+          // Auto-reconnect with capped exponential backoff (SRE: avoid reconnect storms / IP-ban patterns)
+          if (!this.isStopped && this.isConnecting === false) {
+              this.scheduleReconnect();
+          }
         }
       });
 

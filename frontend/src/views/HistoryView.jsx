@@ -867,10 +867,20 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     return labels.size;
   }, [trades, label]);
 
-  // Stacked win/loss distribution calculation
-  const winCount = useMemo(() => trades.filter(t => safeNum(t.pnl) > 0).length, [trades]);
-  const lossCount = useMemo(() => trades.filter(t => safeNum(t.pnl) < 0).length, [trades]);
-  const scratchCount = useMemo(() => trades.filter(t => safeNum(t.pnl) === 0).length, [trades]);
+  // Stacked win/loss distribution calculation - BOLT OPTIMIZATION: Loop-fused single-pass traversal (no array allocations)
+  const { winCount, lossCount, scratchCount } = useMemo(() => {
+    let w = 0;
+    let l = 0;
+    let s = 0;
+    const len = trades.length;
+    for (let i = 0; i < len; i++) {
+      const pnlVal = safeNum(trades[i].pnl);
+      if (pnlVal > 0) w++;
+      else if (pnlVal < 0) l++;
+      else s++;
+    }
+    return { winCount: w, lossCount: l, scratchCount: s };
+  }, [trades]);
   const totalTradesCount = trades.length;
 
   const winPct = totalTradesCount > 0 ? (winCount / totalTradesCount) * 100 : 0;
@@ -1053,7 +1063,10 @@ const PAGE_SIZE = 10
 
 export const HistoryView = () => {
   const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
-  const [fullAnalytics, setFullAnalytics] = useState(null)
+  // WISP OPTIMIZATION: Removed unused `fullAnalytics` state and redundant `sessionAPI.analytics()` call
+  // from the mount useEffect. HistoryView relies on `lifetimeAnalytics` (via `fetchLifetimeAnalytics`)
+  // for all its lifetime stats and analytical calculations, while active/session-level analytics
+  // are already handled by other components or the global store, making the local fetch redundant.
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
@@ -1236,11 +1249,10 @@ export const HistoryView = () => {
     setLoading(true)
     Promise.all([
       fetchTradeHistory(),
-      sessionAPI.analytics(),
       fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
-    ]).then(([_, analyticsRes]) => {
-      setFullAnalytics(analyticsRes.data)
+    ]).then(() => {
+      // WISP OPTIMIZATION: Bypassed redundant active-session analytics state setting as it's unused in HistoryView.
     }).finally(() => {
       setLoading(false)
     })

@@ -60,6 +60,39 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
       expect(result.pnl_pct).toBe(2); // ((51000-50000)/50000) * 100
       expect(result._sig_json).toBe('{"s1":true}');
       expect(result._thin).toBe(true);
+      expect(result.est_pnl_source).toBe('sl');
+    });
+
+    it('should identify a signal as the est_pnl_source if it has a higher qualifying P&L', () => {
+      const trade = new Trade();
+      trade.id = 't1';
+      trade.symbol = 'BTCUSDT';
+      trade.entry_price = 50000;
+      trade.qty = 0.1;
+      trade.direction = 'LONG';
+      trade.current_sl = 49000; // P&L at SL: -100
+      trade.exit_signals_status = {
+        ema_close: {
+          fired: true,
+          active: true,
+          label: 'EMA Close',
+          value: 50500,
+          unit: 'USD',
+          threshold_is_price: true,
+          threshold: 50500, // P&L at threshold: +50
+          remaining_delay: 0,
+        }
+      };
+
+      const config = { strategy_label: 'Test' } as SessionConfig;
+      const current = 51000;
+      const pnl = 100; // current P&L is +100
+      const rr = 1.0;
+
+      const result = service.serializeTickTrade(trade, config, current, pnl, rr);
+
+      expect(result.est_pnl_to_realize).toBe(50);
+      expect(result.est_pnl_source).toBe('signal:ema_close');
     });
   });
 

@@ -196,7 +196,7 @@ const ExitSignalCard = React.memo(({
         <Switch.Root
           checked={active}
           onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-red/50", active ? "bg-red" : "bg-border")}
+          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
           aria-label={`Toggle ${label} exit signal`}
         >
           <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
@@ -300,10 +300,10 @@ const ExitSignalCard = React.memo(({
                       value={actionValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
                       className={cn(
-                        "border rounded-lg px-1.5 py-1 text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-7 text-center focus-visible:ring-2 focus-visible:outline-none",
+                        "border rounded-lg px-1.5 py-1 text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-7 text-center focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         actionValue === 'lock_sl'
-                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple focus-visible:ring-purple"
-                          : "bg-red/10 border-red/30 text-red focus:border-red focus-visible:ring-red"
+                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple"
+                          : "bg-red/10 border-red/30 text-red focus:border-red"
                       )}
                     >
                       <option value="close">🛑 Close</option>
@@ -2026,14 +2026,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
                 </div>
 
-                {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.enabled_signals || []).includes('macd_pbc') || (cfg.exit_signals || []).includes('macd_fade')) && (
+                {(
+                  (cfg.enabled_signals || []).includes('macd_impulse') ||
+                  (cfg.enabled_signals || []).includes('macd_pbc') ||
+                  (cfg.enabled_signals || []).includes('macd_fade') ||
+                  (cfg.exit_signals || []).includes('macd_impulse') ||
+                  (cfg.exit_signals || []).includes('macd_pbc') ||
+                  (cfg.exit_signals || []).includes('macd_fade')
+                ) && (
                   <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
                     <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">MACD Momentum Parameters</div>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                       {renderField('MACD Fast', 'signal_params_macd_fast', 'number', null, { min: 1 })}
                       {renderField('MACD Slow', 'signal_params_macd_slow', 'number', null, { min: 1 })}
                       {renderField('MACD Signal', 'signal_params_macd_signal', 'number', null, { min: 1 })}
-                      {((cfg.enabled_signals || []).includes('macd_impulse')) && (
+                      {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.exit_signals || []).includes('macd_impulse')) && (
                         <div className="flex flex-col gap-1.5 justify-center">
                           <div className="flex justify-between items-center">
                             <label className="text-[10px] text-dim font-black tracking-widest uppercase">Strict Expanding</label>
@@ -2041,7 +2048,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           </div>
                         </div>
                       )}
-                      {((cfg.enabled_signals || []).includes('macd_pbc')) && (
+                      {((cfg.enabled_signals || []).includes('macd_pbc') || (cfg.exit_signals || []).includes('macd_pbc')) && (
                         <>
                           {renderField('PBC Trend EMA', 'signal_params_macd_pbc_trend_ema', 'number', null, { min: 1 })}
                           {renderField('PBC Lookback', 'signal_params_macd_pbc_lookback', 'number', null, { min: 1 })}

@@ -125,4 +125,31 @@ describe('BinanceSubscriptionManager', () => {
     expect(onBanMock).toHaveBeenCalledWith('Unexpected server response: 418');
     await errorManager.stop();
   });
+
+  it('should safely ignore close and error events from old, superseded connections', async () => {
+    // Connect first socket
+    const connectPromise = manager.connect();
+    const firstWs = mockWs;
+    const openHandler = firstWs.on.mock.calls.find((call: any) => call[0] === 'open')[1];
+    openHandler();
+    await connectPromise;
+
+    expect(manager.getStatus().connected).toBe(true);
+
+    // Mock close on firstWs, but manager.ws has been manually updated or superseded
+    // Let's call close on firstWs when manager has firstWs. But we'll test both cases:
+    const closeHandler = firstWs.on.mock.calls.find((call: any) => call[0] === 'close')[1];
+    const errorHandler = firstWs.on.mock.calls.find((call: any) => call[0] === 'error')[1];
+
+    // Simulating a superseded socket where manager's current active socket is a new one (or null)
+    (manager as any).ws = { readyState: 1, terminate: jest.fn() }; // simulate a new active socket
+
+    // Close event from the old socket should not clear manager's state
+    closeHandler(1000, Buffer.from('intentional close of old'));
+    expect(manager.getStatus().connected).toBe(true);
+
+    // Error event from the old socket should be ignored as well
+    errorHandler(new Error('old socket error'));
+    expect(manager.getStatus().connected).toBe(true);
+  });
 });

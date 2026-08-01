@@ -27,6 +27,16 @@ export class SingleSymbolConfig {
   custom_config?: Partial<SessionConfig>;
 }
 
+export class TradingWindow {
+  @IsString()
+  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, { message: 'Start time must be in HH:MM format (24-hour)' })
+  start: string = "";
+
+  @IsString()
+  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, { message: 'End time must be in HH:MM format (24-hour)' })
+  end: string = "";
+}
+
 export class SessionConfig {
   @IsString()
   @IsOptional()
@@ -395,8 +405,9 @@ export class SessionConfig {
   @IsArray()
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_TRADING_WINDOWS)
-  @IsObject({ each: true })
-  trading_windows?: { start: string; end: string }[] = [];
+  @ValidateNested({ each: true })
+  @Type(() => TradingWindow)
+  trading_windows?: TradingWindow[] = [];
 
   @IsBoolean()
   @IsOptional()

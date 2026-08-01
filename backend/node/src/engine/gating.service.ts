@@ -44,10 +44,12 @@ export class GatingService {
     // BOLT OPTIMIZATION: Check for cached parsed windows first
     let parsedWindows = this.tradingWindowCache.get(config);
     if (!parsedWindows) {
-      parsedWindows = config.trading_windows.map(window => ({
-        start: parseInt(window.start.replace(':', ''), 10),
-        end: parseInt(window.end.replace(':', ''), 10)
-      }));
+      parsedWindows = config.trading_windows
+        .filter(window => window && typeof window.start === 'string' && typeof window.end === 'string')
+        .map(window => ({
+          start: parseInt(window.start.replace(':', ''), 10),
+          end: parseInt(window.end.replace(':', ''), 10)
+        }));
       this.tradingWindowCache.set(config, parsedWindows);
     }
 

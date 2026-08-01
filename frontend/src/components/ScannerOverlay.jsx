@@ -595,6 +595,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) => {
+  const searchInputRef = useRef(null);
   const { scannerResults, variantScannerResults, config, scannerPaused, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     variantScannerResults: state.variantScannerResults || {},
@@ -795,25 +796,33 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
           <div className="relative group flex-1">
             <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
             <input
+              ref={searchInputRef}
               type="text"
-              placeholder="Search... [/]"
+              placeholder="Search..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onFocus={handleInputFocus}
               onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-background border border-border rounded-lg pl-8 pr-7 py-1 text-[10px] font-bold focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none transition-all"
+              className="w-full bg-background border border-border rounded-lg pl-8 pr-10 py-1 text-[10px] font-bold focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none transition-all"
               aria-label="Filter scanner symbols"
             />
-            {search && (
+            {search ? (
               <Tooltip content="Clear Filter">
                 <button
-                  onClick={() => setSearch('')}
+                  onClick={() => {
+                    setSearch('');
+                    searchInputRef.current?.focus();
+                  }}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
                   aria-label="Clear Filter"
                 >
                   <XCircle size={14} />
                 </button>
               </Tooltip>
+            ) : (
+              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+                /
+              </kbd>
             )}
           </div>
           <Tooltip content="Close Scanner">

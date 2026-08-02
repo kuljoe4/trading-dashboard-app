@@ -43,19 +43,24 @@ export class RiskEngineService {
     const strategyLabel = config.strategy_label || 'Momentum Strategy';
     const isBaseStrategy = strategyLabel === 'Momentum Strategy';
 
-    const activeTradesForStrategy = activeTrades.filter(t => {
-      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
-      if (isBaseStrategy) return isTradeBase;
-      return t.strategy_label === strategyLabel;
-    });
+    // BOLT OPTIMIZATION: Fused loop to compute strategy trade metrics without intermediate .filter() arrays
+    let activeTradesCountForStrategy = 0;
+    let symbolTradeCount = 0;
+    let totalSlUsedForStrategy = 0;
 
-    const closedTradesForStrategy = closedTrades.filter(t => {
+    for (let i = 0; i < activeTrades.length; i++) {
+      const t = activeTrades[i];
       const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
-      if (isBaseStrategy) return isTradeBase;
-      return t.strategy_label === strategyLabel;
-    });
+      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
 
-    const totalSlUsedForStrategy = activeTradesForStrategy.reduce((sum, t) => sum + (t.risk_usdt || 0), 0);
+      if (matchesStrategy) {
+        activeTradesCountForStrategy++;
+        totalSlUsedForStrategy += t.risk_usdt || 0;
+        if (t.symbol === symbol) {
+          symbolTradeCount++;
+        }
+      }
+    }
 
     // 1. Static Configuration Checks
     const maxOpenTrades = config.max_open_trades ?? 5;
@@ -70,12 +75,11 @@ export class RiskEngineService {
     }
 
     // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)
-    if (activeTradesForStrategy.length + enteringCount >= maxOpenTrades) {
+    if (activeTradesCountForStrategy + enteringCount >= maxOpenTrades) {
       const maxOpenMsg = isBaseStrategy ? `Global max open trades (${maxOpenTrades}) reached` : `Strategy max open trades (${maxOpenTrades}) reached`;
       return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
     }
 
-    const symbolTradeCount = activeTradesForStrategy.filter(t => t.symbol === symbol).length;
     if (symbolTradeCount >= maxOpenTradesPerSymbol) {
       return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
     }
@@ -98,12 +102,14 @@ export class RiskEngineService {
     }
 
     // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS - strategy-scoped)
-    return this.checkFrequencyAndPerformanceLimits(activeTradesForStrategy, closedTradesForStrategy, config, now, enteringCount, symbol, marketScore);
+    // BOLT OPTIMIZATION: Pass the raw, unfiltered arrays directly to avoid intermediate array allocations
+    return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount, symbol, marketScore);
   }
 
   /**
    * BOLT OPTIMIZATION: Consolidates Period, 24h, Spacing, and TOD Performance checks into a single O(N) pass.
    * Avoids spread operators and array allocations to prevent stack overflow on large trade histories.
+   * Performs strategy-level filtering on-the-fly inside loops to operate with zero garbage-collection memory allocations.
    */
   private checkFrequencyAndPerformanceLimits(
     activeTrades: Trade[],
@@ -128,6 +134,9 @@ export class RiskEngineService {
     effectivePeriodMs?: number;
     jitterFactor?: number;
   } {
+    const strategyLabel = config.strategy_label || 'Momentum Strategy';
+    const isBaseStrategy = strategyLabel === 'Momentum Strategy';
+
     const maxTradesPeriod = config.max_trades_per_period || 0;
     const periodMinBase = config.trades_period_min || 60;
     const maxTrades24h = config.max_trades_24h || 0;
@@ -143,6 +152,11 @@ export class RiskEngineService {
     let mostRecentTradeTs = enteringCount > 0 ? now : 0;
     for (let i = 0; i < activeTrades.length; i++) {
       const t = activeTrades[i];
+      // BOLT OPTIMIZATION: On-the-fly strategy check to bypass array allocations
+      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
+      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+      if (!matchesStrategy) continue;
+
       // Include all trades with a valid entry_ts in spacing calculation
       const entryRaw = t.entry_ts;
       if (entryRaw) {
@@ -151,17 +165,24 @@ export class RiskEngineService {
       }
     }
 
-    // Find absolute most recent organic trade across ALL closed trades.
+    // Find absolute most recent organic trade across ALL closed trades matching strategy.
     // We scan the top slice of closed trades to ensure we don't miss a recent one
     // if the list isn't perfectly sorted by entry time.
-    for (let i = 0; i < Math.min(closedTrades.length, 20); i++) {
+    let foundCount = 0;
+    for (let i = 0; i < closedTrades.length; i++) {
       const t = closedTrades[i];
+      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
+      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+      if (!matchesStrategy) continue;
+
       // Include all trades with a valid entry_ts in spacing calculation
       const entryRaw = t.entry_ts;
       if (entryRaw) {
         const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
         if (ts > mostRecentTradeTs) mostRecentTradeTs = ts;
       }
+      foundCount++;
+      if (foundCount >= 20) break;
     }
 
     // BOLT: Stability Guard for Jitter. If mostRecentTradeTs is 0 (first trade),
@@ -222,6 +243,11 @@ export class RiskEngineService {
       // BOLT: Optimization - Early exit if trade is older than 24h and we are in the closedTrades list.
       if (isClosed && entryTs < dayAgo) return false;
 
+      // BOLT OPTIMIZATION: On-the-fly strategy check
+      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
+      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+      if (!matchesStrategy) return true;
+
       // Track rolling 24h limit
       if (entryTs >= dayAgo) {
         tradesIn24h++;
@@ -253,7 +279,6 @@ export class RiskEngineService {
     // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window.
     // SRE: Use 5s bucketing for the timestamps in the cache key to stabilize hits during high frequency loops.
     // Include strategy_label to prevent cache collision across different strategy variants.
-    const strategyLabel = config.strategy_label || 'Momentum Strategy';
     const cacheKey = `${strategyLabel}_${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 5000)}_${Math.floor(periodStartMs / 5000)}`;
 
     if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
@@ -283,6 +308,11 @@ export class RiskEngineService {
         const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
         if (entryTs === 0) return true;
         if (entryTs < dayAgo) return false;
+
+        // BOLT OPTIMIZATION: On-the-fly strategy check
+        const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
+        const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+        if (!matchesStrategy) return true;
 
         if (entryTs >= dayAgo) {
           closedBase.tradesIn24h++;

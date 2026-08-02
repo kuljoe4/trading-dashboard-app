@@ -465,8 +465,25 @@ export class SessionService implements OnModuleInit {
     await this.saveTradeAtomic(trade, status.balance);
   }
 
-  private validateConfig(config: SessionConfig) {
+  private validateConfig(config: Partial<SessionConfig>) {
     if (!config) throw new BadRequestException("Configuration is required");
+
+    // SENTINEL: Recursively validate nested strategy variants and custom symbol configs
+    if (config.strategy_variants && Array.isArray(config.strategy_variants)) {
+      for (const variant of config.strategy_variants) {
+        if (variant) {
+          this.validateConfig(variant);
+        }
+      }
+    }
+
+    if (config.single_symbol_configs && Array.isArray(config.single_symbol_configs)) {
+      for (const ssc of config.single_symbol_configs) {
+        if (ssc && ssc.use_custom_config && ssc.custom_config) {
+          this.validateConfig(ssc.custom_config);
+        }
+      }
+    }
 
     // 1. Scan Mode Dependencies
     if (config.scan_mode === "active_window") {

@@ -2428,6 +2428,34 @@ export class OrderManagerService {
                         reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                       }
                    }
+
+                   if (reason === EXIT_REASONS.EXCHANGE_SL_OR_MANUAL || !reason) {
+                      const currentSl = Number(trade.current_sl);
+                      const initialSl = Number(trade.initial_sl);
+                      const threshold = 0.005; // 0.5% tolerance for slippage
+
+                      if (currentSl > 0 && Math.abs(fillPrice - currentSl) / currentSl <= threshold) {
+                         const isInitial = Math.abs(currentSl - initialSl) < initialSl * 0.0001;
+                         const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+
+                         if (!isInitial && slType.includes('milestone')) {
+                            reason = EXIT_REASONS.TRAILING_STOP;
+                         } else {
+                            reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                         }
+                         this.logger.log(`[Sync] Price proximity recovery: resolved ${symbol} exit as Stop Loss (${reason}) based on price ${fillPrice} close to SL ${currentSl}`);
+                      } else if (initialSl > 0 && Math.abs(fillPrice - initialSl) / initialSl <= threshold) {
+                         reason = `${EXIT_REASONS.SL_HIT}_INITIAL_SL`;
+                         this.logger.log(`[Sync] Price proximity recovery: resolved ${symbol} exit as Initial Stop Loss based on price ${fillPrice} close to Initial SL ${initialSl}`);
+                      } else {
+                         const tpPrice = Number((trade as any).tp_price || (trade as any).current_tp || 0);
+                         if (tpPrice > 0 && Math.abs(fillPrice - tpPrice) / tpPrice <= threshold) {
+                            reason = EXIT_REASONS.TP_HIT;
+                            this.logger.log(`[Sync] Price proximity recovery: resolved ${symbol} exit as Take Profit based on price ${fillPrice} close to TP ${tpPrice}`);
+                         }
+                      }
+                   }
+
                    this.logger.log(`[Sync] Successfully recovered exit reason for ${symbol}: ${reason} (Order Type: ${type})`);
 
                    if (fillPrice > 0) {

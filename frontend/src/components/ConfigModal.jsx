@@ -683,7 +683,6 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     { id: 'strategy', label: 'Strategy', icon: Zap },
     { id: 'risk', label: 'Risk', icon: ShieldCheck },
     { id: 'env', label: 'Env', icon: Briefcase },
-    { id: 'system', label: 'System', icon: Settings2 },
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
@@ -1051,7 +1050,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       strategy: 'strategy_entry',
       risk: 'risk_guards',
       env: 'adv_env',
-      system: 'adv_perf',
     };
     if (defaults[section]) {
       setOpenSectionId(defaults[section]);
@@ -2749,94 +2747,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
         )}
 
-        {section === 'system' && (
-          <div
-            id="config-panel-system"
-            role="tabpanel"
-            aria-labelledby="config-tab-system"
-            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
-          >
-            <CollapsibleSection
-              id="adv_perf"
-              icon={Activity}
-              title="Engine Performance"
-              subtitle="Hot and main loop cadences"
-              isOpen={openSectionId === 'adv_perf'}
-              onToggle={() => setOpenSectionId(openSectionId === 'adv_perf' ? null : 'adv_perf')}
-            >
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                {renderField('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
-                {renderField('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
-                {renderField('Slippage Limit (%)', 'slippage_warning_threshold', 'number', null, { min: 0, step: 0.1 })}
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
-                  <div><div className="text-sm font-bold">Track Rate Limits</div><div className="text-[10px] text-dim font-medium uppercase tracking-tight">Monitor Binance API weights</div></div>
-                  <Toggle value={cfg.track_binance_rate_limits !== false} onChange={(v) => setField('track_binance_rate_limits', v)} />
-                </div>
-                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-amber/30 transition-colors">
-                  <div><div className="text-sm font-bold">Debug Mode</div><div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose server-side logs</div></div>
-                  <Toggle value={cfg.debug_mode === true} onChange={(v) => setField('debug_mode', v)} color="bg-amber" />
-                </div>
-              </div>
-            </CollapsibleSection>
-
-            <CollapsibleSection
-              id="adv_hibernation"
-              icon={Clock}
-              title="Hibernation Management"
-              subtitle="Gated idle resource strategy"
-              isOpen={openSectionId === 'adv_hibernation'}
-              onToggle={() => setOpenSectionId(openSectionId === 'adv_hibernation' ? null : 'adv_hibernation')}
-            >
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
-                {[
-                  { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
-                  { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
-                  { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
-                ].map(mode => (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    onClick={() => setField('hibernation_mode', mode.id)}
-                    className={cn(
-                      "p-4 rounded-xl border-2 text-left transition-all relative group",
-                      cfg.hibernation_mode === mode.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
-                    )}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={cn("text-[10px] font-black uppercase tracking-tighter", cfg.hibernation_mode === mode.id ? "text-accent" : "text-text")}>{mode.label}</span>
-                      {cfg.hibernation_mode === mode.id && <CheckCircle2 size={14} className="text-accent" />}
-                    </div>
-                    <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
-                  </button>
-                ))}
-              </div>
-
-              {cfg.hibernation_mode === 'adaptive' && (
-                <div className="mb-6 animate-in fade-in slide-in-from-top-2 duration-300">
-                  {renderField('Adaptive Grace Period (s)', 'hibernation_grace_period_sec', 'number', null, { min: 5, max: 3600 })}
-                  <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
-                </div>
-              )}
-
-              <div className="p-4 bg-background/40 border border-border/40 rounded-xl space-y-2">
-                 <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
-                    <ShieldCheck size={12} /> Resource vs. Latency Trade-off
-                 </div>
-                 <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
-                    {cfg.hibernation_mode === 'light' ?
-                      "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
-                      cfg.hibernation_mode === 'deep' ?
-                      "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
-                      "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
-                    }
-                 </p>
-              </div>
-            </CollapsibleSection>
-          </div>
-        )}
 
         {section === 'presets' && (
           <div

@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { settingsAPI, setAdminApiKey } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { CONFIG_LIMITS } from '../constants/configLimits'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS } = useTradingStore()
+  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS, config, patchConfig, configSyncing } = useTradingStore()
+  const cfg = config || {}
   const [adminApiKey, setAdminApiKeyValue] = useState(localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || '')
   const [showAdminKey, setShowAdminKey] = useState(false)
   const [apiKey, setApiKey] = useState('')
@@ -462,6 +464,172 @@ export function SettingsView() {
                   >
                     Apply All Credentials
                   </Btn>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section>
+            <SectionLabel className="mb-4">Engine Performance & Resources</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <label htmlFor="hot_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Hot Loop (ms)</label>
+                    <Tooltip content="Frequency of the pricing loop execution for real-time tracking (minimum 500ms)">
+                      <AlertCircle size={12} className="text-dim cursor-help" />
+                    </Tooltip>
+                  </div>
+                  <input
+                    id="hot_loop_interval_ms"
+                    type="number"
+                    min={CONFIG_LIMITS.HOT_LOOP_MIN}
+                    value={cfg.hot_loop_interval_ms || 5000}
+                    onChange={(e) => patchConfig({ hot_loop_interval_ms: Number(e.target.value) })}
+                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <label htmlFor="main_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Main Loop (ms)</label>
+                    <Tooltip content="Frequency of the main technical analysis loop execution (minimum 1000ms)">
+                      <AlertCircle size={12} className="text-dim cursor-help" />
+                    </Tooltip>
+                  </div>
+                  <input
+                    id="main_loop_interval_ms"
+                    type="number"
+                    min={CONFIG_LIMITS.MAIN_LOOP_MIN}
+                    value={cfg.main_loop_interval_ms || 15000}
+                    onChange={(e) => patchConfig({ main_loop_interval_ms: Number(e.target.value) })}
+                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <label htmlFor="slippage_warning_threshold" className="text-[10px] text-dim font-bold tracking-widest uppercase">Slippage Limit (%)</label>
+                    <Tooltip content="Maximum acceptable execution slippage before emitting system warnings">
+                      <AlertCircle size={12} className="text-dim cursor-help" />
+                    </Tooltip>
+                  </div>
+                  <input
+                    id="slippage_warning_threshold"
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={cfg.slippage_warning_threshold !== undefined ? (cfg.slippage_warning_threshold * 100).toFixed(1) : '0.1'}
+                    onChange={(e) => patchConfig({ slippage_warning_threshold: Number(e.target.value) / 100 })}
+                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border/50">
+                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold">Track Rate Limits</div>
+                    <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Monitor Binance API weights</div>
+                  </div>
+                  <button
+                    onClick={() => patchConfig({ track_binance_rate_limits: cfg.track_binance_rate_limits === false ? true : false })}
+                    role="switch"
+                    aria-checked={cfg.track_binance_rate_limits !== false}
+                    aria-label="Toggle Track Rate Limits"
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      (cfg.track_binance_rate_limits !== false) ? "bg-green" : "bg-border"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                      (cfg.track_binance_rate_limits !== false) ? "translate-x-7" : "translate-x-1"
+                    )} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-amber/30 transition-colors">
+                  <div>
+                    <div className="text-sm font-bold">Debug Mode</div>
+                    <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose server-side logs</div>
+                  </div>
+                  <button
+                    onClick={() => patchConfig({ debug_mode: !cfg.debug_mode })}
+                    role="switch"
+                    aria-checked={cfg.debug_mode === true}
+                    aria-label="Toggle Debug Mode"
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      (cfg.debug_mode === true) ? "bg-amber" : "bg-border"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                      (cfg.debug_mode === true) ? "translate-x-7" : "translate-x-1"
+                    )} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-border/50 space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold uppercase tracking-tight">Hibernation Management</h3>
+                  <p className="text-[11px] text-dim font-medium uppercase mt-1">Gated idle resource strategy</p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {[
+                    { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
+                    { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
+                    { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
+                  ].map(mode => (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      onClick={() => patchConfig({ hibernation_mode: mode.id })}
+                      className={cn(
+                        "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        (cfg.hibernation_mode || 'adaptive') === mode.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
+                      )}
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={cn("text-[10px] font-black uppercase tracking-tighter", (cfg.hibernation_mode || 'adaptive') === mode.id ? "text-accent" : "text-text")}>{mode.label}</span>
+                        {(cfg.hibernation_mode || 'adaptive') === mode.id && <CheckCircle2 size={14} className="text-accent" />}
+                      </div>
+                      <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
+                    </button>
+                  ))}
+                </div>
+
+                {(cfg.hibernation_mode || 'adaptive') === 'adaptive' && (
+                  <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="flex flex-col gap-2">
+                      <label htmlFor="hibernation_grace_period_sec" className="text-[10px] text-dim font-bold tracking-widest uppercase">Adaptive Grace Period (s)</label>
+                      <input
+                        id="hibernation_grace_period_sec"
+                        type="number"
+                        min="5"
+                        max="3600"
+                        value={cfg.hibernation_grace_period_sec || 30}
+                        onChange={(e) => patchConfig({ hibernation_grace_period_sec: Number(e.target.value) })}
+                        className="w-full max-w-[200px] bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
+                  </div>
+                )}
+
+                <div className="p-4 bg-background/40 border border-border/40 rounded-xl space-y-2">
+                   <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
+                      <ShieldCheck size={12} /> Resource vs. Latency Trade-off
+                   </div>
+                   <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
+                      {(cfg.hibernation_mode || 'adaptive') === 'light' ?
+                        "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
+                        (cfg.hibernation_mode || 'adaptive') === 'deep' ?
+                        "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
+                        "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
+                      }
+                   </p>
                 </div>
               </div>
             </div>

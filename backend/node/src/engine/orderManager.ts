@@ -41,6 +41,55 @@ import { ExecutionResult, ExecutionStatus } from '../models/ExecutionResult';
 export class OrderManagerService {
   private readonly logger = new Logger(OrderManagerService.name);
 
+  private shouldUpgradeExitReason(currentReason: string, newReason: string): boolean {
+    if (!newReason) return false;
+    if (!currentReason) return true;
+
+    // Generic reasons that are candidates for upgrade
+    const genericReasons = [
+      EXIT_REASONS.EXCHANGE_SYNC,
+      EXIT_REASONS.EXCHANGE_SYNC_RECOVERY,
+      EXIT_REASONS.EXCHANGE_SL_OR_MANUAL
+    ];
+
+    const isCurrentGeneric = genericReasons.includes(currentReason);
+    const isNewGeneric = genericReasons.includes(newReason);
+
+    // 1. Never overwrite a specific reason with a generic reason
+    if (isNewGeneric && !isCurrentGeneric) {
+      return false;
+    }
+
+    // 2. Always upgrade a generic reason to a specific reason
+    if (isCurrentGeneric && !isNewGeneric) {
+      return true;
+    }
+
+    // 3. If both are specific, check if we are downgrading a precise milestone SL (e.g., SL_HIT_M1) to a less precise one (e.g. SL_HIT_ADJUSTED_SL)
+    if (currentReason.startsWith(EXIT_REASONS.SL_HIT) && newReason.startsWith(EXIT_REASONS.SL_HIT)) {
+      const getSpecificityScore = (reason: string) => {
+        const upper = reason.toUpperCase();
+        if (upper.includes('_M1') || upper.includes('_M2') || upper.includes('_BREAKEVEN')) return 3;
+        if (upper.includes('_ADJUSTED_SL') || upper.includes('_INITIAL_SL')) return 2;
+        return 1;
+      };
+
+      if (getSpecificityScore(currentReason) > getSpecificityScore(newReason)) {
+        return false;
+      }
+    }
+
+    // 4. If current reason is a specific signal indicator (starts with SIGNAL_ and is longer than SIGNAL),
+    // and new reason is just generic SIGNAL or starts with another specific signal, keep the current one.
+    if (currentReason.startsWith(EXIT_REASONS.SIGNAL) && currentReason.length > EXIT_REASONS.SIGNAL.length) {
+      if (newReason === EXIT_REASONS.SIGNAL || !newReason.startsWith(EXIT_REASONS.SIGNAL)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   private binanceClient: DerivativesTradingUsdsFutures | null = null;
   private paperMode = true;
   private takerFeeRate = 0.0004; // Default taker fee (0.04%)
@@ -2348,7 +2397,27 @@ export class OrderManagerService {
                    } else if (clientOrderId && clientOrderId.startsWith('tp-')) {
                       reason = EXIT_REASONS.TP_HIT;
                    } else if (clientOrderId && clientOrderId.startsWith('sig-')) {
-                      reason = EXIT_REASONS.SIGNAL;
+                      // Dynamically resolve exact exit signal indicator and params
+                      let foundSignal = '';
+                      if (trade && trade.exit_signals_status) {
+                         const firedEntry = Object.entries(trade.exit_signals_status).find(
+                            ([_, status]: [string, any]) => status && status.fired === true
+                         );
+                         if (firedEntry) {
+                            foundSignal = firedEntry[0];
+                         }
+                      }
+
+                      if (foundSignal) {
+                         reason = `${EXIT_REASONS.SIGNAL}_${foundSignal.toUpperCase()}`;
+                         this.logger.log(`[Sync] Recovered specific exit signal from status map: ${reason}`);
+                      } else if (trade && trade.exit_reason && trade.exit_reason.startsWith(EXIT_REASONS.SIGNAL)) {
+                         reason = trade.exit_reason;
+                         this.logger.log(`[Sync] Retained specific exit signal from trade.exit_reason: ${reason}`);
+                      } else {
+                         reason = EXIT_REASONS.SIGNAL;
+                         this.logger.log(`[Sync] Fallback to generic SIGNAL exit reason.`);
+                      }
                    } else {
                       // BOLT: Distinguish TRAILING_STOP from initial SL hits
                       const currentExchangeSl = parseFloat(orderData.stopPrice || orderData.triggerPrice || '0');
@@ -2644,7 +2713,7 @@ export class OrderManagerService {
            }
         }
 
-        if (context.reason && context.reason !== exitReason) {
+        if (context.reason && context.reason !== exitReason && this.shouldUpgradeExitReason(exitReason, context.reason)) {
           this.logger.log(`[${symbol}] [Sync] Upgrading exit reason: ${exitReason} -> ${context.reason}`);
           exitReason = context.reason;
           trade.exit_reason = exitReason; // Ensure entity also gets the specific reason
@@ -2975,9 +3044,9 @@ export class OrderManagerService {
                   const context = await this.recoverClosingContext(symbol, trade, exitPrice, stopOrderId);
                   exitPrice = context.price;
 
-                  if (context.reason) {
+                  if (context.reason && this.shouldUpgradeExitReason(exitReason, context.reason)) {
                     exitReason = context.reason;
-                  } else {
+                  } else if (!context.reason) {
                     exitReason = trade.exit_reason === EXIT_REASONS.EXCHANGE_SYNC ? EXIT_REASONS.EXCHANGE_SYNC_RECOVERY : EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                   }
 

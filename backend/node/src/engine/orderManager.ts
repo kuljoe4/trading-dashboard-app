@@ -415,11 +415,35 @@ export class OrderManagerService {
 
              // Distinguish between app-initiated manual close and external exchange events
              const isAppManualClose = clientOrderId && clientOrderId.startsWith('cls-');
+             const isAppSignalClose = clientOrderId && clientOrderId.startsWith('sig-');
              let reason = EXIT_REASONS.EXCHANGE_FILL;
 
              if (isAppManualClose) {
                reason = EXIT_REASONS.MANUAL_CLOSE;
                trade.exit_signal_reason = `Manual close confirmed by exchange at ${exitPrice}`;
+             } else if (isAppSignalClose) {
+               // Find exact signal indicator and params
+               let foundSignal = '';
+               if (trade.exit_signals_status) {
+                  const firedEntry = Object.entries(trade.exit_signals_status).find(
+                     ([_, status]: [string, any]) => status && status.fired === true
+                  );
+                  if (firedEntry) {
+                     foundSignal = firedEntry[0];
+                  }
+               }
+
+               if (foundSignal) {
+                  reason = `${EXIT_REASONS.SIGNAL}_${foundSignal.toUpperCase()}`;
+                  const status = trade.exit_signals_status?.[foundSignal];
+                  trade.exit_signal_reason = status?.description || `Signal ${foundSignal} fired at ${exitPrice}`;
+               } else if (trade.exit_reason && trade.exit_reason.startsWith(EXIT_REASONS.SIGNAL)) {
+                  reason = trade.exit_reason;
+                  trade.exit_signal_reason = trade.exit_signal_reason || `Signal close confirmed by exchange at ${exitPrice}`;
+               } else {
+                  reason = EXIT_REASONS.SIGNAL;
+                  trade.exit_signal_reason = `Signal close confirmed by exchange at ${exitPrice}`;
+               }
              } else {
                // External event (Manual close on Binance, or external TP/SL)
                if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
@@ -2728,6 +2752,8 @@ export class OrderManagerService {
         if (context.price > 0 && Math.abs(context.price - exitPrice) > 0.00000001) {
            this.logger.debug(`[${symbol}] [Sync] Updated exit price from exchange context: ${exitPrice} -> ${context.price}`);
            exitPrice = context.price;
+           options.alreadyRealized = false;
+           options.feesAlreadyAccounted = false;
 
            // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
            // Handles multiple patterns: "reached SL X", "at X", "confirmed by exchange at X"

@@ -265,6 +265,7 @@ const App = () => {
       const fullHash = window.location.hash.replace('#/', '') || 'cockpit';
       const [path, query] = fullHash.split('?');
       setView(path === 'dashboard' ? 'cockpit' : path);
+      setShowShortcuts(false);
     };
     window.addEventListener('hashchange', handleHashChange);
     handleHashChange();

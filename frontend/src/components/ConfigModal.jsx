@@ -454,6 +454,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [rangeFilter, setRangeFilter] = useState('all'); // 'all' | 'pos' | 'neg' | 'high_mover' | 'extreme'
   const scannerResults = useTradingStore(state => state.scannerResults || []);
+  const watchlistSearchInputRef = useRef(null);
 
   const filteredOptions = useMemo(() => {
     const safeResults = Array.isArray(scannerResults) ? scannerResults : [];
@@ -502,6 +503,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40" />
           <input
+            ref={watchlistSearchInputRef}
             type="text"
             placeholder="Search symbol to add... (e.g. BTCUSDT)"
             value={searchTerm}
@@ -513,7 +515,10 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             <Tooltip content="Clear Search">
               <button
                 type="button"
-                onClick={() => setSearchTerm('')}
+                onClick={() => {
+                  setSearchTerm('');
+                  watchlistSearchInputRef.current?.focus();
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
                 aria-label="Clear Search symbol"
               >
@@ -986,6 +991,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     lifetimeAnalytics: state.lifetimeAnalytics,
     fetchLifetimeAnalytics: state.fetchLifetimeAnalytics
   }));
+
+  const presetSearchInputRef = useRef(null);
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
   const showResumingFeedback = sessionActive && isResuming;
@@ -2868,6 +2875,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="relative flex-1 sm:w-64 group">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50" />
                     <input
+                      ref={presetSearchInputRef}
                       type="text"
                       placeholder="Search preset by name..."
                       value={presetSearch}
@@ -2878,7 +2886,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       <Tooltip content="Clear Preset Search">
                         <button
                           type="button"
-                          onClick={() => setPresetSearch('')}
+                          onClick={() => {
+                            setPresetSearch('');
+                            presetSearchInputRef.current?.focus();
+                          }}
                           className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
                           aria-label="Clear Preset Search"
                         >

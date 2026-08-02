@@ -2797,8 +2797,8 @@ export class SessionService implements OnModuleInit {
       .orderBy("trade.exit_ts", "ASC")
       .getMany();
 
-    // 2. Fetch balance history snapshots for high-fidelity curve
-    const history = await this.balanceHistoryRepository.find({
+    // 2. Fetch the oldest balance history snapshot to establish startingBalance
+    const firstHistory = await this.balanceHistoryRepository.findOne({
       where: { tradingMode: mode as any },
       order: { timestamp: "ASC" },
     });
@@ -2808,8 +2808,8 @@ export class SessionService implements OnModuleInit {
     const startingBalance =
       mode === "paper"
         ? 10000
-        : history.length > 0
-          ? Number(history[0].balance) - Number(history[0].pnl)
+        : firstHistory
+          ? Number(firstHistory.balance) - Number(firstHistory.pnl)
           : 10000;
     const analytics = this.analyticsService.calculateAnalytics(
       filteredTrades as any,

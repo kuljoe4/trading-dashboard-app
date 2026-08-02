@@ -68,9 +68,19 @@ export class AuditLogService {
         };
 
         if (isDriverError) {
-          const fallbackDir = path.join(process.cwd(), 'logs');
-          const fallbackFile = path.join(fallbackDir, 'audit-fallback.log');
-          await fs.mkdir(fallbackDir, { recursive: true });
+          let fallbackDir = path.join(process.cwd(), 'logs');
+          let fallbackFile = path.join(fallbackDir, 'audit-fallback.log');
+          try {
+            await fs.mkdir(fallbackDir, { recursive: true });
+          } catch (mkdirErr: any) {
+            if (mkdirErr.code === 'EACCES') {
+              fallbackDir = path.join('/tmp', 'logs');
+              fallbackFile = path.join(fallbackDir, 'audit-fallback.log');
+              await fs.mkdir(fallbackDir, { recursive: true });
+            } else {
+              throw mkdirErr;
+            }
+          }
           const line = `${new Date().toISOString()} ${JSON.stringify(fallbackData)}\n`;
           await fs.appendFile(fallbackFile, line, { encoding: 'utf8' });
           this.logger.warn(`Audit log written to fallback file: ${fallbackFile}`);

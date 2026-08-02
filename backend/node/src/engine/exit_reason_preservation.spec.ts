@@ -211,6 +211,91 @@ describe('Exit Reason Preservation and Dynamic Signal Resolution', () => {
     });
   });
 
+  describe('recoverClosingContext with price proximity', () => {
+    it('should recover specific milestone Stop Loss based on price proximity when order type is MARKET/generic', async () => {
+      const trade: Trade = {
+        id: 'trade-uuid-prox-1',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 1,
+        entry_price: 50000,
+        initial_sl: 49000,
+        current_sl: 49500, // Adjusted to BREAKEVEN/milestone
+        status: 'OPEN',
+        sl_adjustments: [
+          { price: 49500, reason: 'BREAKEVEN', timestamp: Date.now() }
+        ]
+      } as any;
+
+      mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+        data: () => Promise.resolve({
+          orderId: '77777777',
+          status: 'FILLED',
+          avgPrice: '49501', // Extremely close to 49500 (within 0.5% threshold)
+          type: 'MARKET', // Generic type
+        }),
+      });
+
+      const recovery = await orderManager.recoverClosingContext('BTCUSDT', trade, 49501, '77777777');
+
+      expect(recovery.reason).toBe('SL_HIT_BREAKEVEN');
+    });
+
+    it('should recover initial Stop Loss based on price proximity when order type is MARKET/generic', async () => {
+      const trade: Trade = {
+        id: 'trade-uuid-prox-2',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 1,
+        entry_price: 50000,
+        initial_sl: 49000,
+        current_sl: 49000,
+        status: 'OPEN',
+        sl_adjustments: []
+      } as any;
+
+      mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+        data: () => Promise.resolve({
+          orderId: '77777778',
+          status: 'FILLED',
+          avgPrice: '48995', // Close to 49000
+          type: 'MARKET',
+        }),
+      });
+
+      const recovery = await orderManager.recoverClosingContext('BTCUSDT', trade, 48995, '77777778');
+
+      expect(recovery.reason).toBe('SL_HIT_INITIAL_SL');
+    });
+
+    it('should recover Take Profit based on price proximity when order type is MARKET/generic', async () => {
+      const trade: Trade = {
+        id: 'trade-uuid-prox-3',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        qty: 1,
+        entry_price: 50000,
+        initial_sl: 49000,
+        current_sl: 49000,
+        status: 'OPEN',
+        tp_price: 52000,
+      } as any;
+
+      mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+        data: () => Promise.resolve({
+          orderId: '77777779',
+          status: 'FILLED',
+          avgPrice: '51999', // Close to 52000
+          type: 'MARKET',
+        }),
+      });
+
+      const recovery = await orderManager.recoverClosingContext('BTCUSDT', trade, 51999, '77777779');
+
+      expect(recovery.reason).toBe(EXIT_REASONS.TP_HIT);
+    });
+  });
+
   describe('closeTrade integration', () => {
     it('should preserve SL_HIT_M1 reason and CLOSED_SL status instead of downgrading to EXCHANGE_SL_OR_MANUAL', async () => {
       const trade: Trade = {

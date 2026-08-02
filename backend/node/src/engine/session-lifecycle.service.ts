@@ -634,7 +634,10 @@ export class SessionLifecycleService {
 
         // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
         // it means it was closed on exchange (SL, TP, or manual).
-        if (amount === 0 && (!prevPos || prevPos.amount !== 0)) {
+        const hasActiveTrade = this.sessionState.activeTrades?.some(
+          (t) => t.symbol === symbol,
+        );
+        if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade)) {
           let tEntity = this.sessionState.activeTrades?.find(
             (t) => t.symbol === symbol,
           );
@@ -868,6 +871,15 @@ export class SessionLifecycleService {
             data = data.data;
           }
 
+          // NORMALIZE TRADE_LITE and ALGO_UPDATE to ORDER_TRADE_UPDATE
+          if (data && data.e === "TRADE_LITE") {
+            this.logger.log(`[UDS] Normalizing TRADE_LITE event to ORDER_TRADE_UPDATE for ${data.s}`);
+            data = this.normalizeTradeLite(data);
+          } else if (data && data.e === "ALGO_UPDATE") {
+            this.logger.log(`[UDS] Normalizing ALGO_UPDATE event to ORDER_TRADE_UPDATE for ${data.o?.s}`);
+            data = this.normalizeAlgoUpdate(data);
+          }
+
           if (data.e === "ACCOUNT_UPDATE" && data.a) {
             this.logger.log(`[UDS] Successfully received and processing ACCOUNT_UPDATE event (Reason: ${data.a.m}).`);
             if (this.isBuffering) {
@@ -1064,5 +1076,78 @@ export class SessionLifecycleService {
     } finally {
       this.isUdsStarting = false;
     }
+  }
+
+  private normalizeTradeLite(data: any): any {
+    if (!data) return data;
+    return {
+      e: "ORDER_TRADE_UPDATE",
+      E: data.E || Date.now(),
+      T: data.T || Date.now(),
+      o: {
+        s: data.s,
+        c: data.c,
+        S: data.S,
+        o: "MARKET",
+        f: "GTC",
+        q: data.q || "0",
+        p: data.p || "0",
+        ap: data.L || "0",
+        sp: "0",
+        x: "TRADE",
+        X: "FILLED",
+        i: Number(data.i || 0),
+        l: data.l || "0",
+        z: data.l || "0",
+        L: data.L || "0",
+        N: "USDT",
+        n: "0",
+        t: Number(data.t || 0),
+        m: !!data.m,
+        R: true,
+        wt: "MARK_PRICE",
+        ot: "MARKET",
+        ps: "BOTH",
+        cp: false,
+        rp: "0"
+      }
+    };
+  }
+
+  private normalizeAlgoUpdate(data: any): any {
+    if (!data || !data.o) return data;
+    const o = data.o;
+    return {
+      e: "ORDER_TRADE_UPDATE",
+      E: data.E || Date.now(),
+      T: data.T || Date.now(),
+      o: {
+        s: o.s,
+        c: o.caid || o.clientAlgoId || "",
+        S: o.S,
+        o: o.o || "STOP_MARKET",
+        f: o.f || "GTC",
+        q: o.q || "0",
+        p: "0",
+        ap: "0",
+        sp: o.sp || o.stopPrice || "0",
+        x: o.X || "NEW",
+        X: o.X || "NEW",
+        i: Number(o.aid || o.algoId || 0),
+        l: "0",
+        z: "0",
+        L: "0",
+        N: "USDT",
+        n: "0",
+        t: 0,
+        m: false,
+        R: true,
+        wt: "MARK_PRICE",
+        ot: o.o || "STOP_MARKET",
+        ps: o.ps || "BOTH",
+        cp: false,
+        rp: "0"
+      }
+    };
   }
 }

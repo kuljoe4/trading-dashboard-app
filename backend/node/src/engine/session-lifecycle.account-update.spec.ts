@@ -27,6 +27,7 @@ describe('SessionLifecycleService - batched ACCOUNT_UPDATE (continue, not return
       balancePaper: 0,
       lastExchangeBalance: 0,
       lastUdsBalanceUpdate: 0,
+      udsConfirmedClosedTrades: new Set(),
     };
     // BTCUSDT is mid-transition -> must trigger the `continue` guard.
     orderManager = {
@@ -84,5 +85,101 @@ describe('SessionLifecycleService - batched ACCOUNT_UPDATE (continue, not return
     });
     expect(sessionState.realTimePositions.get('BTCUSDT')).toEqual({ amount: 0, entryPrice: 0 });
     expect(sessionState.realTimePositions.get('ETHUSDT')).toEqual({ amount: 1.5, entryPrice: 2100 });
+  });
+
+  it('reconciles zero position even if prevPos.amount is already 0 when hasActiveTrade is true', () => {
+    jest.useFakeTimers();
+    (service as any).running = true;
+
+    const ethTrade = {
+      id: 'eth-trade',
+      symbol: 'ETHUSDT',
+      qty: 1.0,
+      entry_price: 2000,
+    } as any;
+    sessionState.activeTrades = [ethTrade];
+
+    // Seed prevPos as 0
+    sessionState.realTimePositions.set('ETHUSDT', { amount: 0, entryPrice: 2000 });
+
+    const emitSpy = jest.spyOn(eventEmitter, 'emit');
+
+    service.handleAccountUpdate({
+      e: 'ACCOUNT_UPDATE',
+      a: {
+        m: 'ORDER',
+        P: [
+          { s: 'ETHUSDT', pa: '0', ep: '2000' },
+        ],
+      },
+    } as any);
+
+    // Should schedule reconciliation because ETHUSDT is still in activeTrades
+    jest.advanceTimersByTime(300);
+
+    expect(emitSpy).toHaveBeenCalledWith(ENGINE_EVENTS.EXCHANGE_CLOSE, expect.objectContaining({
+      symbol: 'ETHUSDT',
+      exitPrice: 0,
+      isReconciliation: true,
+    }));
+
+    jest.useRealTimers();
+  });
+
+  it('correctly normalizes TRADE_LITE and ALGO_UPDATE events to ORDER_TRADE_UPDATE', () => {
+    const tradeLiteEvent = {
+      e: 'TRADE_LITE',
+      E: 1785677885069,
+      T: 1785677885069,
+      s: 'UAIUSDT',
+      q: '15',
+      p: '0.0000000',
+      m: false,
+      c: 'sl-735fc0af',
+      S: 'SELL',
+      L: '0.5292000',
+      l: '15',
+      t: 121593162,
+      i: 710560780
+    };
+
+    const normalizedTradeLite = (service as any).normalizeTradeLite(tradeLiteEvent);
+    expect(normalizedTradeLite.e).toBe('ORDER_TRADE_UPDATE');
+    expect(normalizedTradeLite.o.s).toBe('UAIUSDT');
+    expect(normalizedTradeLite.o.c).toBe('sl-735fc0af');
+    expect(normalizedTradeLite.o.S).toBe('SELL');
+    expect(normalizedTradeLite.o.q).toBe('15');
+    expect(normalizedTradeLite.o.L).toBe('0.5292000');
+    expect(normalizedTradeLite.o.ap).toBe('0.5292000');
+    expect(normalizedTradeLite.o.i).toBe(710560780);
+    expect(normalizedTradeLite.o.t).toBe(121593162);
+    expect(normalizedTradeLite.o.X).toBe('FILLED');
+
+    const algoUpdateEvent = {
+      e: 'ALGO_UPDATE',
+      T: 1785677885069,
+      E: 1785677885069,
+      o: {
+        caid: 'sl-735fc0af',
+        aid: 3000002115486814,
+        at: 'CONDITIONAL',
+        o: 'STOP_MARKET',
+        s: 'UAIUSDT',
+        S: 'SELL',
+        ps: 'BOTH',
+        f: 'GTC',
+        q: '15',
+        X: 'NEW'
+      }
+    };
+
+    const normalizedAlgoUpdate = (service as any).normalizeAlgoUpdate(algoUpdateEvent);
+    expect(normalizedAlgoUpdate.e).toBe('ORDER_TRADE_UPDATE');
+    expect(normalizedAlgoUpdate.o.s).toBe('UAIUSDT');
+    expect(normalizedAlgoUpdate.o.c).toBe('sl-735fc0af');
+    expect(normalizedAlgoUpdate.o.S).toBe('SELL');
+    expect(normalizedAlgoUpdate.o.q).toBe('15');
+    expect(normalizedAlgoUpdate.o.X).toBe('NEW');
+    expect(normalizedAlgoUpdate.o.i).toBe(3000002115486814);
   });
 });

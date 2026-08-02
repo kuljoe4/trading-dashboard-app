@@ -465,8 +465,25 @@ export class SessionService implements OnModuleInit {
     await this.saveTradeAtomic(trade, status.balance);
   }
 
-  private validateConfig(config: SessionConfig) {
+  private validateConfig(config: Partial<SessionConfig>) {
     if (!config) throw new BadRequestException("Configuration is required");
+
+    // SENTINEL: Recursively validate nested strategy variants and custom symbol configs
+    if (config.strategy_variants && Array.isArray(config.strategy_variants)) {
+      for (const variant of config.strategy_variants) {
+        if (variant) {
+          this.validateConfig(variant);
+        }
+      }
+    }
+
+    if (config.single_symbol_configs && Array.isArray(config.single_symbol_configs)) {
+      for (const ssc of config.single_symbol_configs) {
+        if (ssc && ssc.use_custom_config && ssc.custom_config) {
+          this.validateConfig(ssc.custom_config);
+        }
+      }
+    }
 
     // 1. Scan Mode Dependencies
     if (config.scan_mode === "active_window") {
@@ -2458,7 +2475,59 @@ export class SessionService implements OnModuleInit {
       return this.analyticsCache.data;
     }
 
-    const currentStatus = await this.getStatus();
+    // WISP OPTIMIZATION: Bypassed the heavy this.getStatus() method inside getAnalytics() to retrieve only the lightweight session and settings metadata directly.
+    // This eliminates a redundant database query (OPEN trades) and avoids compiling and serializing complex, high-frequency engine status structures
+    // (such as activeTrades and scannerResults) that are immediately discarded, reducing memory footprint and CPU overhead safely.
+    let sessionId = this.currentSessionId;
+    if (!sessionId) {
+      const activeSession = await this.sessionRepository.findOne({
+        where: { running: true },
+        order: { startTime: "DESC" },
+        select: ["id"],
+      });
+      if (activeSession) {
+        sessionId = activeSession.id;
+        this.currentSessionId = sessionId;
+        this.sessionRunning = true;
+      }
+    }
+
+    let config = null;
+    let balance = 10000;
+
+    if (sessionId) {
+      const session = await this.sessionRepository.findOne({
+        where: { id: sessionId },
+        select: ["id", "balance", "config", "tradingMode", "paperMode"],
+      });
+      if (session) {
+        config = session.config;
+        const engineStatus = this.tradingSessionService.getStatus();
+        balance = engineStatus.running
+          ? session.paperMode
+            ? engineStatus.balance_paper
+            : engineStatus.balance_live
+          : session.balance;
+      }
+    } else {
+      const lastSession = await this.sessionRepository.findOne({
+        where: {},
+        order: { startTime: "DESC" },
+        select: ["id", "config", "tradingMode", "paperMode"],
+      });
+      const settings = await this.settingsRepository.findOne({
+        where: { id: "default" },
+        select: ["id", "paper_balance", "testnet_balance", "live_balance"],
+      });
+
+      const mode = lastSession?.tradingMode || (lastSession?.paperMode === false ? "live" : "paper");
+      if (settings) {
+        if (mode === "paper") balance = Number(settings.paper_balance);
+        else if (mode === "testnet") balance = Number(settings.testnet_balance);
+        else if (mode === "live") balance = Number(settings.live_balance);
+      }
+      config = lastSession?.config || null;
+    }
 
     const trades = await this.tradeRepository.find({
       select: [
@@ -2467,23 +2536,21 @@ export class SessionService implements OnModuleInit {
       ],
       where: {
         status: In(TERMINAL_STATUSES as any),
-        ...(this.currentSessionId
-          ? { sessionId: this.currentSessionId }
-          : {}),
+        ...(sessionId ? { sessionId } : {}),
       },
     });
 
-    const startingBalance = this.currentSessionId
-      ? (currentStatus.config?.paper_mode
-          ? currentStatus.config?.paper_starting_balance
-          : currentStatus.config?.live_starting_balance) || await this.getStartingBalanceForSession(this.currentSessionId)
+    const startingBalance = sessionId
+      ? (config?.paper_mode
+          ? config?.paper_starting_balance
+          : config?.live_starting_balance) || await this.getStartingBalanceForSession(sessionId)
       : undefined;
 
     // SRE: Provide stable fallback startingBalance (10000) if undefined to prevent metrics/drawdowns from being distorted by deposits/withdrawals.
     const result = this.analyticsService.calculateAnalytics(
       trades as any,
       startingBalance || 10000,
-      currentStatus.balance,
+      balance,
     );
 
     // BOLT: Add RR optimization data to analytics response
@@ -2797,8 +2864,8 @@ export class SessionService implements OnModuleInit {
       .orderBy("trade.exit_ts", "ASC")
       .getMany();
 
-    // 2. Fetch balance history snapshots for high-fidelity curve
-    const history = await this.balanceHistoryRepository.find({
+    // 2. Fetch the oldest balance history snapshot to establish startingBalance
+    const firstHistory = await this.balanceHistoryRepository.findOne({
       where: { tradingMode: mode as any },
       order: { timestamp: "ASC" },
     });
@@ -2808,8 +2875,8 @@ export class SessionService implements OnModuleInit {
     const startingBalance =
       mode === "paper"
         ? 10000
-        : history.length > 0
-          ? Number(history[0].balance) - Number(history[0].pnl)
+        : firstHistory
+          ? Number(firstHistory.balance) - Number(firstHistory.pnl)
           : 10000;
     const analytics = this.analyticsService.calculateAnalytics(
       filteredTrades as any,

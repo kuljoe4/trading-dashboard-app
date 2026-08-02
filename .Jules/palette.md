@@ -32,4 +32,8 @@
 
 ## 2026-07-31 - Search Input Keyboard Shortcut Inline Badge Standard
 **Learning:** Text-based placeholder keyboard hints (like `... [/]`) look cluttered, reduce visual polish, and are completely invisible on secondary search forms that omit them. Replacing them with a styled, absolute-positioned `/` keyboard shortcut badge (`<kbd>`) that fades out seamlessly on focus (`group-focus-within:opacity-0`) and unmounts to make room for clear buttons when a query is entered dramatically elevates SPA look-and-feel and accessibility.
-**Action:** Always wrap search input elements inside a relative `group` parent, update right padding to standard spacing (e.g. `pr-10`), and conditionally render a styled `/` `<kbd>` badge when empty that fades out on group-focus-within.
+**Action:** Always wrap search input elements inside a relative `group` parent, update right padding to standard spacing (e.g. pr-10), and conditionally render a styled `/` `<kbd>` badge when empty that fades out on group-focus-within.
+
+## 2026-08-01 - Global Search Input Focus Recovery and Modal Viewport Management
+**Learning:** In highly interactive, single-page application dashboards, display and transition states should never disrupt user flow. Specifically, (1) clearing a text-based search input must programmatically recover focus to the input element via refs to prevent keyboard focus loss or accidental page traps, and (2) global helpers like cheatsheets (e.g. keyboard shortcuts) must automatically close on hash routing changes to prevent overlay blocking when using hotkeys.
+**Action:** Establish strict ref-based focus recovery on all accessory clear triggers and sync modal toggles to hash changes to prevent persistent layout blocking.

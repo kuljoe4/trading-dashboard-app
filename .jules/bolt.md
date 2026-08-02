@@ -1,3 +1,7 @@
+## 2026-08-02 - [Optimization] Risk Engine Loop-Fusion and Allocation Reduction
+**Learning:** Performing redundant `.filter()` and `.reduce()` operations to group and summarize active and closed trades prior to frequency/performance checking creates substantial Garbage Collection (GC) overhead and CPU churn. Even on a cache hit, these allocations occur on every single tick. Consolidating active trade metrics into a single allocation-free `for` loop and performing strategy-level filtering on-the-fly inside the performance checking loops completely eliminates transient heap allocations, ensuring an $O(1)$ hot path on cache hits.
+**Action:** Avoid pre-filtering collections prior to caching or frequency loops; instead, pass raw arrays directly and apply filtering logic lazily/on-the-fly within single-pass traversal loops.
+
 ## 2026-08-01 - [Optimization] Loop-Fused Session Group Win/Loss Distribution Calculation
 **Learning:** Performing multiple independent `.filter` passes on lists inside repeated child components (like `SessionGroup` in `HistoryView.jsx`) creates severe GC pressure and redundant iterations ($3N$) on React rendering and state transitions. Combining them into a single-pass `for` loop inside a single `useMemo` reduces computational complexity to $O(N)$ and achieves zero array heap allocations. In our benchmarks, this loop-fused approach is 13.1x faster.
 **Action:** Always fuse multiple filter/map operations into a single-pass loop when calculating multiple derived counts or metrics from a shared dataset inside React components.

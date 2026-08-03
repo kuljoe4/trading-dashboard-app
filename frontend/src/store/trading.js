@@ -850,8 +850,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
     lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
-    scannerResults: state.scannerResults,
-    variantScannerResults: state.variantScannerResults,
     analytics: state.analytics
   }),
   version: 1,
@@ -867,6 +865,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       // Force collections to arrays to avoid TypeError: B is undefined
       state.activeTrades = Array.isArray(state.activeTrades) ? state.activeTrades : [];
       state.scannerResults = Array.isArray(state.scannerResults) ? state.scannerResults : [];
+      state.variantScannerResults = state.variantScannerResults && typeof state.variantScannerResults === 'object' ? state.variantScannerResults : {};
       state.tradeHistory = Array.isArray(state.tradeHistory) ? state.tradeHistory : [];
       state.logs = Array.isArray(state.logs) ? state.logs : [];
       state.alerts = Array.isArray(state.alerts) ? state.alerts : [];

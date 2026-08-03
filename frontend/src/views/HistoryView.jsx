@@ -553,6 +553,38 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     };
   }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
 
+  const exitRrDistribution = useMemo(() => {
+    let rangeMinusToZero = 0;
+    let rangeZeroToOne = 0;
+    let rangeOneToTwo = 0;
+    let rangeTwoToThree = 0;
+    let rangeThreePlus = 0;
+
+    trades.forEach(t => {
+      const err = Number(t.exit_rr ?? 0);
+      if (err <= 0) {
+        rangeMinusToZero++;
+      } else if (err > 0 && err <= 1.0) {
+        rangeZeroToOne++;
+      } else if (err > 1.0 && err <= 2.0) {
+        rangeOneToTwo++;
+      } else if (err > 2.0 && err <= 3.0) {
+        rangeTwoToThree++;
+      } else {
+        rangeThreePlus++;
+      }
+    });
+
+    const total = trades.length || 1;
+    return [
+      { label: '≤ 0 R', count: rangeMinusToZero, pct: ((rangeMinusToZero / total) * 100).toFixed(1), color: 'text-red bg-red/10 border-red/20' },
+      { label: '0 to 1 R', count: rangeZeroToOne, pct: ((rangeZeroToOne / total) * 100).toFixed(1), color: 'text-dim bg-background/20 border-border/20' },
+      { label: '1 to 2 R', count: rangeOneToTwo, pct: ((rangeOneToTwo / total) * 100).toFixed(1), color: 'text-accent bg-accent/10 border-accent/20' },
+      { label: '2 to 3 R', count: rangeTwoToThree, pct: ((rangeTwoToThree / total) * 100).toFixed(1), color: 'text-green bg-green/10 border-green/20' },
+      { label: '3R +', count: rangeThreePlus, pct: ((rangeThreePlus / total) * 100).toFixed(1), color: 'text-purple bg-purple/10 border-purple/20' },
+    ];
+  }, [trades]);
+
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
       {/* Responsive Header Row */}
@@ -741,6 +773,24 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           <span className="text-xs font-black font-mono tracking-tight text-red truncate">
             {usePctRisk ? `-${stats.maxStreakDrawdownPct}%` : '---'}
           </span>
+        </div>
+      </div>
+
+      {/* Exit RR Frequency Distribution */}
+      <div className="pt-2.5 border-t border-border/10 flex flex-col gap-1.5">
+        <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none">Exit RR Distribution Frequency</span>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1">
+          {exitRrDistribution.map((dist, idx) => (
+            <div key={idx} className={cn("p-1.5 rounded-lg border flex flex-col justify-between gap-1", dist.color.split(' ')[1], dist.color.split(' ')[2])}>
+              <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-wider">
+                <span className="text-dim/80">{dist.label}</span>
+                <span className={cn("font-mono font-black", dist.color.split(' ')[0])}>{dist.count} ({dist.pct}%)</span>
+              </div>
+              <div className="w-full bg-background/30 rounded-full h-1 overflow-hidden mt-0.5">
+                <div className={cn("h-full rounded-full", dist.color.split(' ')[0].replace('text-', 'bg-'))} style={{ width: `${dist.pct}%` }} />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, memo } from 'react'
+import React, { useState, useEffect, useMemo, memo, useRef } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight,
@@ -440,9 +440,15 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const activeSessionBalance = useTradingStore(state => state.balance);
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
 
+  // Ref to track if we just completed a successful configuration save to prevent stale overwrites
+  const justSavedConfig = useRef(false)
+
   // Active Trade Customization Form State
   const [isEditing, setIsEditing] = useState(false)
   const [formSl, setFormSl] = useState(trade?.sl_price || trade?.current_sl || 0)
+
+  // Force Risk Release State
+  const [formForceRiskRelease, setFormForceRiskRelease] = useState(false)
 
   // Guard Ladder state representation
   const [formLadder, setFormLadder] = useState([])
@@ -484,7 +490,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   // Sync state with trade details whenever they refresh/mount (skip when actively editing)
   useEffect(() => {
     if (trade && !isEditing) {
+      if (justSavedConfig.current) {
+        // Skip overwriting local state because we just saved these exact values!
+        justSavedConfig.current = false;
+        return;
+      }
       setFormSl(trade.sl_price || trade.current_sl || 0)
+      setFormForceRiskRelease(trade.strategy_config?.force_risk_release === true)
 
       const triggers = trade.live_rr_sequence || []
       const exits = trade.exit_rr_sequence || []
@@ -532,11 +544,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     return null;
   }, [formLadder])
 
+  const handleSortLadder = () => {
+    setFormLadder((prev) => {
+      return [...prev].sort((a, b) => Number(a.trigger || 0) - Number(b.trigger || 0));
+    });
+  }
+
   const handleAddLadderRow = () => {
     const lastRow = formLadder[formLadder.length - 1]
     const nextTrigger = lastRow ? Number(lastRow.trigger) + 1.0 : 1.0
     const nextExit = lastRow ? Number(lastRow.exit) + 0.5 : 0.5
-    setFormLadder([...formLadder, { id: `ladder-add-${Date.now()}-${Math.random()}`, trigger: nextTrigger, exit: nextExit }])
+    const newRow = { id: `ladder-add-${Date.now()}-${Math.random()}`, trigger: nextTrigger, exit: nextExit }
+    setFormLadder([...formLadder, newRow].sort((a, b) => Number(a.trigger || 0) - Number(b.trigger || 0)))
   }
 
   const handleRemoveLadderRow = (idx) => {
@@ -553,8 +572,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     if (ladderValidationError) return;
     setSavingConfig(true)
     try {
-      const live_rr_sequence = formLadder.map(r => Number(r.trigger))
-      const exit_rr_sequence = formLadder.map(r => Number(r.exit))
+      const sortedLadder = [...formLadder].sort((a, b) => Number(a.trigger || 0) - Number(b.trigger || 0))
+      const live_rr_sequence = sortedLadder.map(r => Number(r.trigger))
+      const exit_rr_sequence = sortedLadder.map(r => Number(r.exit))
 
       const signal_params = {}
       if (formOverrides.exit_ema_period !== '') signal_params.exit_ema_period = Number(formOverrides.exit_ema_period);
@@ -580,12 +600,14 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
         exit_rr_sequence,
         strategy_config: {
           signal_params,
-          exit_signal_delays
+          exit_signal_delays,
+          force_risk_release: formForceRiskRelease
         }
       }
 
       const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload)
       if (success) {
+        justSavedConfig.current = true
         setIsEditing(false)
       }
     } catch (e) {
@@ -993,6 +1015,35 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                       </div>
                     </div>
 
+                    {/* Part 1.5: Force Risk Release Toggle */}
+                    <div className="flex items-center justify-between p-3.5 bg-background/30 border border-border/40 rounded-xl">
+                      <div className="flex flex-col gap-0.5 min-w-0 pr-4">
+                        <span className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
+                          Force Risk Release
+                        </span>
+                        <span className="text-[9px] text-dim/60 leading-tight">
+                          Locks trade risk value to $0.00. Use this if the trade has reached a safe breakeven state or you want to free up active risk allocation.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFormForceRiskRelease(prev => !prev)}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                          formForceRiskRelease ? "bg-accent" : "bg-surface-light border border-border/40"
+                        )}
+                        aria-pressed={formForceRiskRelease}
+                        aria-label="Toggle Force Risk Release"
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                            formForceRiskRelease ? "translate-x-4" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                    </div>
+
                     {/* Part 2: Exponential RR Guard Ladder */}
                     <div className="space-y-3 pt-4 border-t border-border/10">
                       <div className="flex justify-between items-center">
@@ -1032,6 +1083,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                   step="any"
                                   value={row.trigger}
                                   onChange={(e) => handleUpdateLadderRow(idx, "trigger", e.target.value)}
+                                  onBlur={handleSortLadder}
                                   placeholder="Trigger RR"
                                   className={cn(
                                     "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
@@ -1047,6 +1099,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                   step="any"
                                   value={row.exit}
                                   onChange={(e) => handleUpdateLadderRow(idx, "exit", e.target.value)}
+                                  onBlur={handleSortLadder}
                                   placeholder="Exit SL RR"
                                   className={cn(
                                     "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",

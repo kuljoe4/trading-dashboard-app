@@ -650,7 +650,9 @@ export class PositionTrackerService {
       ? trade.current_sl >= trade.entry_price - tolerance
       : trade.current_sl <= trade.entry_price + tolerance;
 
-    if (isBreakevenOrBetter) {
+    const isForcedRelease = trade.strategy_config?.force_risk_release === true;
+
+    if (isBreakevenOrBetter || isForcedRelease) {
       trade.risk_usdt = 0;
     } else {
       const slDistance = Math.abs(trade.entry_price - trade.initial_sl);

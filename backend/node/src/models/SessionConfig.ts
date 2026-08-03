@@ -475,6 +475,10 @@ export class SessionConfig {
   @Max(10.0)
   trailing_stop_distance_pct?: number = 1.0;
 
+  @IsBoolean()
+  @IsOptional()
+  force_risk_release?: boolean = false;
+
   @IsObject()
   @IsOptional()
   scanner_weights?: {

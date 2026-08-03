@@ -850,8 +850,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
     lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
-    scannerResults: state.scannerResults,
-    variantScannerResults: state.variantScannerResults,
+    // WISP OPTIMIZATION: Excluded scannerResults and variantScannerResults from local storage persistence.
+    // Real-time market scanner results change at extremely high frequency, so continuously writing
+    // kilobytes of JSON data synchronously to localStorage on every ticker/websocket tick is extremely
+    // CPU/disk heavy and blocks the UI thread. On reload, the latest scanner results are instantly
+    // re-fetched anyway via WebSocket and REST status sync, making persistence completely redundant and safe to skip.
     analytics: state.analytics
   }),
   version: 1,

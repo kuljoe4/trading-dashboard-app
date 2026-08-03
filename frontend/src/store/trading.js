@@ -850,11 +850,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
     lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
-    // WISP OPTIMIZATION: Excluded scannerResults and variantScannerResults from local storage persistence.
-    // Real-time market scanner results change at extremely high frequency, so continuously writing
-    // kilobytes of JSON data synchronously to localStorage on every ticker/websocket tick is extremely
-    // CPU/disk heavy and blocks the UI thread. On reload, the latest scanner results are instantly
-    // re-fetched anyway via WebSocket and REST status sync, making persistence completely redundant and safe to skip.
     analytics: state.analytics
   }),
   version: 1,
@@ -870,6 +865,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       // Force collections to arrays to avoid TypeError: B is undefined
       state.activeTrades = Array.isArray(state.activeTrades) ? state.activeTrades : [];
       state.scannerResults = Array.isArray(state.scannerResults) ? state.scannerResults : [];
+      state.variantScannerResults = state.variantScannerResults && typeof state.variantScannerResults === 'object' ? state.variantScannerResults : {};
       state.tradeHistory = Array.isArray(state.tradeHistory) ? state.tradeHistory : [];
       state.logs = Array.isArray(state.logs) ? state.logs : [];
       state.alerts = Array.isArray(state.alerts) ? state.alerts : [];

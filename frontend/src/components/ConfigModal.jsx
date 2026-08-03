@@ -1680,6 +1680,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return l.map((t, i) => [t, ex[i] ?? 0]);
   }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
+  const handleSortMilestones = React.useCallback(() => {
+    const l = Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [];
+    const ex = Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [];
+
+    // Pair them up, sort by trigger ascending, then unpack
+    const pairs = l.map((trigger, idx) => ({
+      trigger: Number(trigger || 0),
+      exit: Number(ex[idx] || 0)
+    }));
+
+    pairs.sort((a, b) => a.trigger - b.trigger);
+
+    const sortedLive = pairs.map(p => p.trigger);
+    const sortedExit = pairs.map(p => p.exit);
+
+    setCfg(prev => ({
+      ...prev,
+      live_rr_sequence: sortedLive,
+      exit_rr_sequence: sortedExit
+    }));
+  }, [cfg.live_rr_sequence, cfg.exit_rr_sequence, setCfg]);
+
   const renderField = React.useCallback((label, key, type = 'number', opts = null, attrs = {}) => (
     <ConfigField
       label={label}
@@ -2453,7 +2475,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
                           next[i] = Number(e.target.value);
                           setField('live_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                       </div>
                       <ArrowRight size={14} className="text-dim/20 shrink-0" />
@@ -2462,7 +2484,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
                           next[i] = Number(e.target.value);
                           setField('exit_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                       </div>
                       <Tooltip content="Remove Milestone">
@@ -2479,7 +2501,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <button type="button" onClick={() => {
                     const nextL = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0]), 5.0];
                     const nextE = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0]), 3.0];
-                    setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
+                    const pairs = nextL.map((trigger, idx) => ({
+                      trigger: Number(trigger || 0),
+                      exit: Number(nextE[idx] || 0)
+                    }));
+                    pairs.sort((a, b) => a.trigger - b.trigger);
+                    setCfg(prev => ({
+                      ...prev,
+                      live_rr_sequence: pairs.map(p => p.trigger),
+                      exit_rr_sequence: pairs.map(p => p.exit)
+                    }));
                   }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
                 </div>
               )}

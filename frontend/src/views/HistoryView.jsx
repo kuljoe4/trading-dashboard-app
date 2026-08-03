@@ -570,7 +570,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               id="usePctRisk"
               checked={usePctRisk}
               onChange={(e) => setUsePctRisk(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer"
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              aria-label="Toggle percentage risk calculation"
             />
             <label htmlFor="usePctRisk" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none">
               Risk % of Bal:
@@ -584,7 +585,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               value={riskPct}
               onChange={(e) => setRiskPct(e.target.value)}
               onBlur={handleRiskBlur}
-              className="w-12 bg-background/50 border border-border/50 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold text-text disabled:opacity-40 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="w-12 bg-background/50 border border-border/50 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold text-text disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label="Risk percent of starting balance"
             />
             <span className="text-[10px] font-bold font-mono text-dim">%</span>
@@ -597,7 +598,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               checked={useCompounding}
               disabled={!usePctRisk}
               onChange={(e) => setUseCompounding(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer disabled:opacity-30"
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              aria-label="Toggle compounding returns calculation"
             />
             <label htmlFor="useCompounding" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none disabled:opacity-30">
               Compounding
@@ -632,18 +634,24 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           step="0.1"
           value={targetRr}
           onChange={(e) => setTargetRr(Number(e.target.value))}
-          className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none"
+          aria-label="Target Risk-to-Reward Ratio"
+          aria-valuemin="0.5"
+          aria-valuemax="6.0"
+          aria-valuenow={targetRr}
+          className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setTargetRr(prev => Math.max(0.5, Number((prev - 0.5).toFixed(1))))}
-            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+            aria-label="Decrease target Risk-to-Reward ratio by 0.5"
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             -
           </button>
           <button
             onClick={() => setTargetRr(prev => Math.min(6.0, Number((prev + 0.5).toFixed(1))))}
-            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+            aria-label="Increase target Risk-to-Reward ratio by 0.5"
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             +
           </button>
@@ -1310,6 +1318,8 @@ export const HistoryView = () => {
                   setLifetimeMode(m);
                   localStorage.setItem('history_trade_mode', m);
                 }}
+                aria-pressed={lifetimeMode === m}
+                aria-label={`Switch history to ${m} mode`}
                 className={cn(
                   "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                   lifetimeMode === m ? "bg-accent text-white shadow-md shadow-accent/20" : "text-dim hover:text-text"
@@ -1366,6 +1376,8 @@ export const HistoryView = () => {
                   <button
                     key={opt.id}
                     onClick={() => setSortBy(opt.id)}
+                    aria-pressed={sortBy === opt.id}
+                    aria-label={`Sort sessions by ${opt.label}`}
                     className={cn(
                       "px-2.5 py-1.5 rounded-lg text-[8.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                       sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"

@@ -673,7 +673,7 @@ export function DashboardView({ initialStrategy }) {
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
-    nextSlotTs, fetchTradeHistory, fetchLifetimeAnalytics, fetchAnalytics, tradeHistory
+    nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -720,7 +720,6 @@ export function DashboardView({ initialStrategy }) {
     isSyncingOnResume: state.isSyncingOnResume,
     nextSlotTs: state.nextSlotTs,
     fetchTradeHistory: state.fetchTradeHistory,
-    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
     fetchAnalytics: state.fetchAnalytics,
     tradeHistory: state.tradeHistory
   }), shallow)
@@ -875,14 +874,13 @@ export function DashboardView({ initialStrategy }) {
   }, [showScanner]);
   useEffect(() => {
     fetchSessions();
-    fetchTradeHistory();
+    fetchTradeHistory(strategyId || 'all');
     fetchAnalytics();
-    fetchLifetimeAnalytics(config?.paper_mode ? 'paper' : 'live');
 
     const toggleScanner = () => setShowScanner(prev => !prev);
     window.addEventListener('toggle-scanner', toggleScanner);
     return () => window.removeEventListener('toggle-scanner', toggleScanner);
-  }, [fetchSessions, fetchTradeHistory, fetchAnalytics, fetchLifetimeAnalytics, config?.paper_mode]);
+  }, [fetchSessions, fetchTradeHistory, fetchAnalytics, config?.paper_mode, strategyId]);
 
   const addAlert = useTradingStore(state => state.addAlert);
 

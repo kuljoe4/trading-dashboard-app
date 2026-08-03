@@ -329,13 +329,15 @@ export class OrderManagerService {
               level: 'info'
             });
 
+            const isInitial = slType === 'INITIAL_SL';
+
             this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol,
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
               orderId, // DATA-ACCURACY: Pass orderId for authoritative recovery
-              feesAlreadyAccounted: true, // CHRONOS: Signal that commissions were already handled via UDS 'n' events
-              alreadyRealized: true // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
+              feesAlreadyAccounted: !isInitial, // CHRONOS: Signal that commissions were already handled via UDS 'n' events unless initial
+              alreadyRealized: !isInitial // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events unless initial
             });
           }
         }
@@ -3216,7 +3218,11 @@ export class OrderManagerService {
          const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
          const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
 
-         if (options.alreadyRealized || options.feesAlreadyAccounted) {
+         const isInitialSl = exitReason === `${EXIT_REASONS.SL_HIT}_INITIAL_SL` ||
+                             exitReason === 'SL_HIT_INITIAL_SL' ||
+                             (exitReason && exitReason.startsWith(EXIT_REASONS.SL_HIT) && trade.current_sl === trade.initial_sl);
+
+         if ((options.alreadyRealized || options.feesAlreadyAccounted) && !isInitialSl) {
             this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
          } else {
             // CHRONOS: Absolute PnL Calculation for Live mode.

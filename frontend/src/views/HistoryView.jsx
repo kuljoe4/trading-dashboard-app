@@ -26,6 +26,24 @@ export const ChartSkeleton = ({ height = 180 }) => (
 export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
   const [copied, setCopied] = useState(false);
 
+  // PERFORMANCE: Use loop-fused single-pass useMemo to calculate base/variant PnLs in O(N) time with zero array allocations
+  const variantPnls = useMemo(() => {
+    const map = new Map();
+    if (!trades) return map;
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      const label = strategyLabel(t);
+      const pnl = safeNum(t.pnl);
+      map.set(label, (map.get(label) || 0) + pnl);
+    }
+    return map;
+  }, [trades]);
+
+  const activeLabels = useMemo(() => {
+    return Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
+  }, [trades]);
+
+  // SEC: Rules of Hooks require all useX hooks to be declared above any early return statement
   if (!session) return null;
 
   const handleCopy = () => {
@@ -41,8 +59,6 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
     const start = new Date(session.startTime).getTime();
     return formatDuration(end - start);
   })();
-
-  const activeLabels = Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
 
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -148,14 +164,22 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                     <div className="flex flex-col gap-2">
                       {activeLabels.map(l => {
                         const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
+                        const pnlVal = variantPnls.get(l) || 0;
                         return (
-                          <div key={l} className="flex items-center justify-between p-2 bg-surface/50 border border-border/20 rounded-lg">
-                            <span className="text-[10.5px] font-bold text-text uppercase">{l}</span>
-                            <span className={cn(
-                              "text-[8px] font-black px-1.5 py-0.5 rounded border uppercase",
-                              isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
-                            )}>
-                              {isBase ? 'Base' : 'Variant'}
+                          <div key={l} className="flex items-center justify-between p-2.5 bg-surface/50 border border-border/20 rounded-lg hover:border-accent/15 transition-all">
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="text-[10.5px] font-black text-text uppercase truncate max-w-[200px] sm:max-w-xs">{l}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  "text-[7.5px] font-black px-1.5 py-0.5 rounded border uppercase leading-none tracking-wider",
+                                  isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
+                                )}>
+                                  {isBase ? 'Base' : 'Variant'}
+                                </span>
+                              </div>
+                            </div>
+                            <span className={cn("text-xs font-black font-mono tracking-tight shrink-0", pnlClass(pnlVal))}>
+                              {fmtUSD(pnlVal)}
                             </span>
                           </div>
                         );

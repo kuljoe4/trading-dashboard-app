@@ -333,6 +333,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
   const [value, setValue] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const scannerResults = useTradingStore(state => state.scannerResults || []);
+  const inputRef = useRef(null);
 
   const options = useMemo(() => {
     const safeResults = Array.isArray(scannerResults) ? scannerResults : [];
@@ -355,6 +356,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
     <div className="flex gap-2 relative">
       <div className="relative flex-1">
         <input
+          ref={inputRef}
           type="text"
           placeholder="BTCUSDT"
           value={value}
@@ -376,7 +378,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
           <Tooltip content="Clear Input">
             <button
               type="button"
-              onClick={() => { setValue(''); setIsOpen(false); }}
+              onClick={() => { setValue(''); setIsOpen(false); inputRef.current?.focus(); }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
               aria-label="Clear Input"
             >

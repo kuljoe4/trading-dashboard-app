@@ -152,7 +152,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     private readonly executionService: ExecutionService,
     private readonly sessionLifecycle: SessionLifecycleService,
     private readonly broadcastService: BroadcastService,
-    private readonly sessionState: SessionStateService,
+    public readonly sessionState: SessionStateService,
     private readonly variantAnalytics: VariantAnalyticsService,
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly gatingService: GatingService,

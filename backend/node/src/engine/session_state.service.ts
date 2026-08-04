@@ -106,12 +106,12 @@ export class SessionStateService {
     this.activeTrades = initialOpen;
     this.gateState = null;
     this.gateReason = null;
-    this.pausedStrategies.clear();
+    this.pausedStrategies = new Set(config?.paused_strategies || []);
     this.strategyGateStates.clear();
     this.hibernating = false;
     this.agreementRequired = false;
     this.isAdaptiveTightened = false;
-    this.paused = false;
+    this.paused = !!config?.paused;
     // SRE: Preserve the existing weight limit during reset to ensure persistent dynamic limits (Issue 5)
     const currentLimit = this.binanceRateLimit.limit || 2400;
     this.binanceRateLimit = { used_1m: 0, limit: currentLimit };

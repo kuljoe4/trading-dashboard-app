@@ -158,6 +158,8 @@ const sessionConfigAllowedKeys = [
   'trailing_stop_enabled',
   'trailing_stop_distance_pct',
   'signal_timeframes',
+  'paused',
+  'paused_strategies',
 ]
 
 const sanitizeSessionConfig = (config) => {

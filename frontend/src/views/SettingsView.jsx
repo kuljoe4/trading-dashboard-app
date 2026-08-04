@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { settingsAPI, setAdminApiKey } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
 import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck } from 'lucide-react'
@@ -18,6 +18,12 @@ export function SettingsView() {
   const [showLiveSecret, setShowLiveSecret] = useState(false)
   const [testnetApiKey, setTestnetApiKey] = useState('')
   const [testnetApiSecret, setTestnetApiSecret] = useState('')
+
+  const adminApiKeyRef = useRef(null)
+  const apiKeyRef = useRef(null)
+  const apiSecretRef = useRef(null)
+  const testnetApiKeyRef = useRef(null)
+  const testnetApiSecretRef = useRef(null)
   const [showTestnetSecret, setShowTestnetSecret] = useState(false)
   const [maskedKey, setMaskedKey] = useState('')
   const [maskedTestnetKey, setMaskedTestnetKey] = useState('')
@@ -160,6 +166,7 @@ export function SettingsView() {
                   <p className="text-[11px] text-dim font-medium uppercase mb-2">Required for dashboard authentication in production</p>
                   <div className="relative">
                     <input
+                      ref={adminApiKeyRef}
                       id="adminApiKey"
                       type={showAdminKey ? "text" : "password"}
                       value={adminApiKey}
@@ -172,7 +179,7 @@ export function SettingsView() {
                         <Tooltip content="Clear Key">
                           <button
                             type="button"
-                            onClick={() => setAdminApiKeyValue('')}
+                            onClick={() => { setAdminApiKeyValue(''); adminApiKeyRef.current?.focus(); }}
                             aria-label="Clear Admin API Key"
                             className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                           >
@@ -237,6 +244,7 @@ export function SettingsView() {
                     <label htmlFor="apiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Live API Key</label>
                     <div className="relative">
                       <input
+                        ref={apiKeyRef}
                         id="apiKey"
                         type="text"
                         value={apiKey}
@@ -249,7 +257,7 @@ export function SettingsView() {
                           <Tooltip content="Clear Key">
                             <button
                               type="button"
-                              onClick={() => setApiKey('')}
+                              onClick={() => { setApiKey(''); apiKeyRef.current?.focus(); }}
                               aria-label="Clear API Key"
                               className="text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                             >
@@ -264,6 +272,7 @@ export function SettingsView() {
                     <label htmlFor="apiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Live API Secret</label>
                     <div className="relative">
                       <input
+                        ref={apiSecretRef}
                         id="apiSecret"
                         type={showLiveSecret ? "text" : "password"}
                         value={apiSecret}
@@ -276,7 +285,7 @@ export function SettingsView() {
                           <Tooltip content="Clear Secret">
                             <button
                               type="button"
-                              onClick={() => setApiSecret('')}
+                              onClick={() => { setApiSecret(''); apiSecretRef.current?.focus(); }}
                               aria-label="Clear API Secret"
                               className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                             >
@@ -323,6 +332,7 @@ export function SettingsView() {
                     <label htmlFor="testnetApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Testnet API Key</label>
                     <div className="relative">
                       <input
+                        ref={testnetApiKeyRef}
                         id="testnetApiKey"
                         type="text"
                         value={testnetApiKey}
@@ -335,7 +345,7 @@ export function SettingsView() {
                           <Tooltip content="Clear Key">
                             <button
                               type="button"
-                              onClick={() => setTestnetApiKey('')}
+                              onClick={() => { setTestnetApiKey(''); testnetApiKeyRef.current?.focus(); }}
                               aria-label="Clear Testnet API Key"
                               className="text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                             >
@@ -350,6 +360,7 @@ export function SettingsView() {
                     <label htmlFor="testnetApiSecret" className="text-[10px] text-dim font-bold tracking-widest uppercase">Update Testnet API Secret</label>
                     <div className="relative">
                       <input
+                        ref={testnetApiSecretRef}
                         id="testnetApiSecret"
                         type={showTestnetSecret ? "text" : "password"}
                         value={testnetApiSecret}
@@ -362,7 +373,7 @@ export function SettingsView() {
                           <Tooltip content="Clear Secret">
                             <button
                               type="button"
-                              onClick={() => setTestnetApiSecret('')}
+                              onClick={() => { setTestnetApiSecret(''); testnetApiSecretRef.current?.focus(); }}
                               aria-label="Clear Testnet API Secret"
                               className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                             >

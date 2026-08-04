@@ -335,6 +335,30 @@ describe('SessionService Validation', () => {
       const startCall = mockTradingSessionService.start.mock.calls[mockTradingSessionService.start.mock.calls.length - 1];
       expect(startCall[0].paper_starting_balance).toBe(10000);
     });
+
+    it('retains the paused and paused_strategies config settings on resume', async () => {
+      const config = new SessionConfig();
+      config.paused = true;
+      config.paused_strategies = ['Base Strategy', 'Variant Strategy'];
+
+      const existingSession = {
+        id: 'test-resume-pause',
+        balance: 10000,
+        totalPnl: 0,
+        paperMode: true,
+        config,
+        running: false
+      };
+      mockRepository.findOne.mockResolvedValue(existingSession);
+      mockRepository.save.mockResolvedValue({ ...existingSession, running: true });
+
+      await service.startSession(config, true, 'test-resume-pause');
+
+      const restartCall = mockTradingSessionService.start.mock.calls[mockTradingSessionService.start.mock.calls.length - 1];
+      expect(restartCall[0].paused).toBe(true);
+      expect(restartCall[0].paused_strategies).toContain('Base Strategy');
+      expect(restartCall[0].paused_strategies).toContain('Variant Strategy');
+    });
   });
 
   describe('saveTradeAtomic', () => {

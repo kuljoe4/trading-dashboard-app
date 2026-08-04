@@ -38,6 +38,15 @@ export class TradingWindow {
 }
 
 export class SessionConfig {
+  @IsBoolean()
+  @IsOptional()
+  paused?: boolean;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  paused_strategies?: string[];
+
   @IsString()
   @IsOptional()
   @MaxLength(100)

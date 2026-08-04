@@ -193,33 +193,50 @@ export class SettingsController {
 
       // Security: Only update if explicitly provided to prevent accidental deletion
       // Also trim whitespace to prevent common copy-paste issues
+      // SENTINEL: Ignore any updates containing the masked representation "..." to prevent credential corruption
       if (body.api_key !== undefined) {
         const trimmedKey = body.api_key.trim();
         if (trimmedKey) {
-          settings.binance_api_key = encrypt(trimmedKey);
-          updatedFields.push('binance_api_key');
+          if (trimmedKey.includes('...')) {
+            this.logger.warn(`Skipped updating live API key as it contains masked characters (...)`);
+          } else {
+            settings.binance_api_key = encrypt(trimmedKey);
+            updatedFields.push('binance_api_key');
+          }
         }
       }
       if (body.api_secret !== undefined) {
         const trimmedSecret = body.api_secret.trim();
         if (trimmedSecret) {
-          settings.binance_api_secret = encrypt(trimmedSecret);
-          updatedFields.push('binance_api_secret');
+          if (trimmedSecret.includes('...')) {
+            this.logger.warn(`Skipped updating live API secret as it contains masked characters (...)`);
+          } else {
+            settings.binance_api_secret = encrypt(trimmedSecret);
+            updatedFields.push('binance_api_secret');
+          }
         }
       }
 
       if (body.testnet_api_key !== undefined) {
         const trimmedKey = body.testnet_api_key.trim();
         if (trimmedKey) {
-          settings.binance_testnet_api_key = encrypt(trimmedKey);
-          updatedFields.push('binance_testnet_api_key');
+          if (trimmedKey.includes('...')) {
+            this.logger.warn(`Skipped updating testnet API key as it contains masked characters (...)`);
+          } else {
+            settings.binance_testnet_api_key = encrypt(trimmedKey);
+            updatedFields.push('binance_testnet_api_key');
+          }
         }
       }
       if (body.testnet_api_secret !== undefined) {
         const trimmedSecret = body.testnet_api_secret.trim();
         if (trimmedSecret) {
-          settings.binance_testnet_api_secret = encrypt(trimmedSecret);
-          updatedFields.push('binance_testnet_api_secret');
+          if (trimmedSecret.includes('...')) {
+            this.logger.warn(`Skipped updating testnet API secret as it contains masked characters (...)`);
+          } else {
+            settings.binance_testnet_api_secret = encrypt(trimmedSecret);
+            updatedFields.push('binance_testnet_api_secret');
+          }
         }
       }
 

@@ -1170,11 +1170,16 @@ export class SignalEngineService {
     const minNeeded = Math.max(fastPeriod, slowPeriod) + signalPeriod;
     const insufficientData = len < minNeeded * 2;
 
-    const macdLine = new Array<number>(len).fill(0);
-    const signalLine = new Array<number>(len).fill(0);
-    const histogram = new Array<number>(len).fill(0);
+    // BOLT OPTIMIZATION: Avoid pre-filling arrays with .fill(0) since every single index is overwritten
+    const macdLine = new Array<number>(len);
+    const signalLine = new Array<number>(len);
+    const histogram = new Array<number>(len);
 
     if (len < minNeeded) {
+      // For short lengths, fill with 0 to prevent returning uninitialized array values
+      macdLine.fill(0);
+      signalLine.fill(0);
+      histogram.fill(0);
       return { macdLine, signalLine, histogram, insufficientData: true };
     }
 
@@ -1205,20 +1210,55 @@ export class SignalEngineService {
     for (let i = 0; i < slowPeriod; i++) slowSum += candles[i].close;
     slowEma = slowSum / slowPeriod;
 
-    for (let i = 0; i < len; i++) {
-      if (i >= fastPeriod) {
+    // BOLT OPTIMIZATION: Loop splitting to completely avoid branching instructions inside the hot loop.
+    if (slowPeriod >= fastPeriod) {
+      // 1. i = 0 to fastPeriod - 2
+      const limit1 = fastPeriod - 1;
+      for (let i = 0; i < limit1; i++) {
+        macdLine[i] = 0;
+      }
+
+      // 2. i = fastPeriod - 1
+      fastEma = fastSum / fastPeriod;
+      macdLine[limit1] = fastEma;
+
+      // 3. i = fastPeriod to slowPeriod - 2
+      const limit2 = slowPeriod - 1;
+      for (let i = fastPeriod; i < limit2; i++) {
         fastEma += fastMult * (candles[i].close - fastEma);
-      } else if (i === fastPeriod - 1) {
-        fastEma = fastSum / fastPeriod;
+        macdLine[i] = fastEma;
       }
 
-      if (i >= slowPeriod) {
+      // 4. i = slowPeriod - 1
+      if (limit2 >= fastPeriod) {
+        fastEma += fastMult * (candles[limit2].close - fastEma);
+      }
+      slowEma = slowSum / slowPeriod;
+      macdLine[limit2] = fastEma - slowEma;
+
+      // 5. i = slowPeriod to len - 1
+      for (let i = slowPeriod; i < len; i++) {
+        fastEma += fastMult * (candles[i].close - fastEma);
         slowEma += slowMult * (candles[i].close - slowEma);
-      } else if (i === slowPeriod - 1) {
-        slowEma = slowSum / slowPeriod;
+        macdLine[i] = fastEma - slowEma;
       }
+    } else {
+      // Fallback path in case parameters are inverted/invalid (slowPeriod < fastPeriod)
+      for (let i = 0; i < len; i++) {
+        if (i >= fastPeriod) {
+          fastEma += fastMult * (candles[i].close - fastEma);
+        } else if (i === fastPeriod - 1) {
+          fastEma = fastSum / fastPeriod;
+        }
 
-      macdLine[i] = fastEma - slowEma;
+        if (i >= slowPeriod) {
+          slowEma += slowMult * (candles[i].close - slowEma);
+        } else if (i === slowPeriod - 1) {
+          slowEma = slowSum / slowPeriod;
+        }
+
+        macdLine[i] = fastEma - slowEma;
+      }
     }
 
     // Now, calculate Signal EMA of MACD Line.
@@ -1230,18 +1270,24 @@ export class SignalEngineService {
     }
     let signalEma = signalSum / signalPeriod;
 
-    for (let i = 0; i < len; i++) {
-      if (i < startIdx + signalPeriod - 1) {
-        signalLine[i] = 0;
-        histogram[i] = 0;
-      } else if (i === startIdx + signalPeriod - 1) {
-        signalLine[i] = signalEma;
-        histogram[i] = macdLine[i] - signalEma;
-      } else {
-        signalEma += signalMult * (macdLine[i] - signalEma);
-        signalLine[i] = signalEma;
-        histogram[i] = macdLine[i] - signalEma;
-      }
+    // BOLT OPTIMIZATION: Loop splitting for the second loop as well to eliminate branching checks.
+    const limit = startIdx + signalPeriod - 1;
+
+    // 1. i = 0 to limit - 1
+    for (let i = 0; i < limit; i++) {
+      signalLine[i] = 0;
+      histogram[i] = 0;
+    }
+
+    // 2. i = limit
+    signalLine[limit] = signalEma;
+    histogram[limit] = macdLine[limit] - signalEma;
+
+    // 3. i = limit + 1 to len - 1
+    for (let i = limit + 1; i < len; i++) {
+      signalEma += signalMult * (macdLine[i] - signalEma);
+      signalLine[i] = signalEma;
+      histogram[i] = macdLine[i] - signalEma;
     }
 
     const result = { macdLine, signalLine, histogram, insufficientData };

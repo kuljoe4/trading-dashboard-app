@@ -15,3 +15,9 @@ Excluded `scannerResults` and `variantScannerResults` from the `persist` middlew
 Multiple high-frequency frontend components (such as `ActiveTradeCard`, `DashboardView`, and `TradeDetailView`) were maintaining independent local `setInterval` loops and local `now` state variables. This created up to 8+ concurrent timers ticking every second, competing for the browser's main thread, causing CPU thrashing and asynchronous rendering jitter. Consolidating to a unified `useNow` callback registration eliminates redundant interval overhead and batches rendering cycles synchronously.
 **Action:**
 Replaced all component-level independent timers with the centralized, high-performance `useNow` unified timer hook in `ActiveTradeCard.jsx`, `TradeDetailView.jsx`, and `DashboardView.jsx`.
+
+## 2026-08-05 - Robust NaN/Infinity Guards on Real-Time Estimated P&L calculations
+**Learning:**
+In `engine-broadcaster.service.ts`, real-time estimated P&L (`total_est_pnl_to_realize` and `variantStats` fields) was vulnerable to `NaN` and `isFinite` propagation if any raw trade parameter (such as `qty`, `entry_price`, `current_sl`, or exit threshold prices) from live WebSocket feeds was undefined, null, or corrupted. Since `NaN` propagates transitively across arithmetic operators, any single bad trade could corrupt session-level or variant-level metrics to `NaN`, breaking the UI.
+**Action:**
+Harnessed `Number` coercion, `isNaN`, and `isFinite` checks with defensive fallbacks and logger warnings to isolate and protect active and estimated P&L calculations from anomalies.

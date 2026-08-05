@@ -58,7 +58,7 @@ describe('Chronos: Fee Integrity and Double-Counting Prevention', () => {
       direction: 'LONG',
       entry_price: 50000,
       qty: 1.0,
-      initial_sl: 49000,
+      initial_sl: 49500,
       current_sl: 49000,
       status: 'OPEN',
       realized_fee: 20, // entry fee (0.04% of 50000)

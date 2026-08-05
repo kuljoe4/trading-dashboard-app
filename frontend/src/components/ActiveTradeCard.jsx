@@ -1,19 +1,14 @@
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck, RefreshCw, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { formatDuration } from '../lib/formatters'
+import { useNow } from '../hooks/useNow'
 
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter }) => {
-  const [now, setNow] = useState(Date.now())
-
-  useEffect(() => {
-    if (!trade.entry_ts) return
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [trade.entry_ts])
+  const now = useNow()
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {

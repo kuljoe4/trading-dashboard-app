@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { useNow } from '../hooks/useNow'
 
 const TemporalRiskGrid = React.memo(() => {
   const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs, nextSlotTs } = useTradingStore(state => ({
@@ -36,12 +37,7 @@ const TemporalRiskGrid = React.memo(() => {
     nextSlotTs: state.nextSlotTs
   }), shallow);
 
-  const [now, setNow] = React.useState(Date.now());
-  React.useEffect(() => {
-    if (!nextSlotTs) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [nextSlotTs]);
+  const now = useNow();
 
   const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
   const waitTime = nextSlotSec !== null
@@ -437,12 +433,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
   // the cryptic "Expected static flag was missing" crash on GateBanner mount).
   // The visibility guard is moved below the hooks.
   const config = useTradingStore(state => state.config);
-  const [now, setNow] = React.useState(Date.now());
-  React.useEffect(() => {
-    if (gateState !== 'max_trades_period' || !nextSlotTs) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [gateState, nextSlotTs]);
+  const now = useNow();
 
   if (!gateState && !scannerPaused && !showResumingFeedback) return null;
 

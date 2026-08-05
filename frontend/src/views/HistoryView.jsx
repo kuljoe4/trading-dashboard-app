@@ -1151,6 +1151,7 @@ export const HistoryView = () => {
   // are already handled by other components or the global store, making the local fetch redundant.
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
+  const isFirstRender = React.useRef(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [search, setSearch] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -1327,18 +1328,27 @@ export const HistoryView = () => {
   const sharpeStatus = useMemo(() => getSharpeStatus(currentAnalytics?.sharpeRatio), [currentAnalytics?.sharpeRatio]);
   const sortinoStatus = useMemo(() => getSortinoStatus(currentAnalytics?.sortinoRatio), [currentAnalytics?.sortinoRatio]);
 
+  // Parallel fetch on initial mount for lists (independent of mode) and mode-specific initial analytics
   useEffect(() => {
     setLoading(true)
     Promise.all([
       fetchTradeHistory(),
       fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
-    ]).then(() => {
-      // WISP OPTIMIZATION: Bypassed redundant active-session analytics state setting as it's unused in HistoryView.
-    }).finally(() => {
+    ]).finally(() => {
+      setLoading(false)
+      isFirstRender.current = false
+    })
+  }, [fetchTradeHistory, fetchSessions, fetchLifetimeAnalytics])
+
+  // Fetch only lightweight analytics on subsequent mode toggles
+  useEffect(() => {
+    if (isFirstRender.current) return
+    setLoading(true)
+    fetchLifetimeAnalytics(lifetimeMode).finally(() => {
       setLoading(false)
     })
-  }, [updateStats, fetchSessions, fetchLifetimeAnalytics, lifetimeMode, fetchTradeHistory])
+  }, [fetchLifetimeAnalytics, lifetimeMode])
 
   // Handle URL hash query param auto-expansion
   useEffect(() => {

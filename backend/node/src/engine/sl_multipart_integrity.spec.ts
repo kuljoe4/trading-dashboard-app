@@ -69,7 +69,7 @@ describe('OrderManagerService - Multi-part SL Integrity', () => {
       direction: 'LONG',
       qty: 0.1,
       entry_price: 50000,
-      initial_sl: 49000,
+      initial_sl: 49500,
       current_sl: 49000,
       realized_fee: 2.0, // Entry fee
       binance_stop_order_id: 'sl-123',

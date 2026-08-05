@@ -9,3 +9,9 @@ Removed `history` fetching and return field from `getStatus()`. Updated `getAnal
 Real-time scanner data (up to 25 symbols + nested details/ohlc history/signals per variant) was being persisted in `localStorage` under `momentum_trading_store`. Because `localStorage` is synchronous, writing this transient, high-frequency data to disk on every single scanner broadcast was causing severe CPU/disk thrashing and blocking the UI rendering thread. Since fresh scanner data is instantly re-fetched/streamed on initial page load, persistence of this real-time data is completely redundant.
 **Action:**
 Excluded `scannerResults` and `variantScannerResults` from the `persist` middleware's `partialize` whitelist in `frontend/src/store/trading.js`.
+
+## 2026-08-05 - Centralized UI Clock/Intervals Optimization
+**Learning:**
+Multiple high-frequency frontend components (such as `ActiveTradeCard`, `DashboardView`, and `TradeDetailView`) were maintaining independent local `setInterval` loops and local `now` state variables. This created up to 8+ concurrent timers ticking every second, competing for the browser's main thread, causing CPU thrashing and asynchronous rendering jitter. Consolidating to a unified `useNow` callback registration eliminates redundant interval overhead and batches rendering cycles synchronously.
+**Action:**
+Replaced all component-level independent timers with the centralized, high-performance `useNow` unified timer hook in `ActiveTradeCard.jsx`, `TradeDetailView.jsx`, and `DashboardView.jsx`.

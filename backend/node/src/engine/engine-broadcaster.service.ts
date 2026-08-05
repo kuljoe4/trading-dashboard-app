@@ -122,8 +122,14 @@ export class EngineBroadcasterService {
       }
     }
 
+    // DEBUG: Stateless evaluation of maximum estimated P&L to realize.
+    // The calculation dynamically evaluates priority and transitions between milestone stop-loss (ratchet)
+    // and active exit signals on every broadcast tick.
+    // 1. Initialize max estimated P&L with current ratchet (milestone stop-loss) P&L.
     let maxEstPnlForTrade = ratchetPnl;
     let estPnlSource = 'sl';
+
+    // 2. Iterate exit signals to see if any qualifying signal has a higher expected P&L.
     if (trade.exit_signals_status) {
       for (const [key, status] of Object.entries(trade.exit_signals_status)) {
         const sigStatus = status as any;
@@ -135,6 +141,11 @@ export class EngineBroadcasterService {
             signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
           }
           const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+          // DEBUG: If signalPnl > maxEstPnlForTrade, we switch the estimated P&L source to the signal.
+          // Note: If on a subsequent tick the milestone stop-loss (ratchetPnl) moves above the signal threshold
+          // (e.g., due to stop-loss trailing movements), maxEstPnlForTrade will start at the larger ratchetPnl
+          // on the next iteration and NOT be overwritten by the signal. This ensures robust, stateless,
+          // self-correcting transitions in either direction.
           if (!isDelayActive && signalPnl <= pnl && signalPnl > maxEstPnlForTrade) {
             maxEstPnlForTrade = signalPnl;
             estPnlSource = `signal:${key}`;

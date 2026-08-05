@@ -32,7 +32,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
               />
             </Dialog.Overlay>
             <Dialog.Content
-                className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10110 outline-none w-[calc(100%-2rem)] max-w-md"
+                className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10110 outline-none w-full max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-md"
             >
               <motion.div
                 role="alertdialog"
@@ -40,7 +40,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                className="bg-surface border border-border rounded-xl p-3.5 md:p-4 shadow-2xl overflow-hidden"
+                className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-xl p-3.5 md:p-4 shadow-2xl overflow-hidden"
               >
                   <div className="flex justify-between items-center mb-2">
                     <div className={cn(

@@ -73,14 +73,14 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                 className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
               />
             </Dialog.Overlay>
-            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10110 outline-none w-[calc(100%-2rem)] max-w-lg">
+            <Dialog.Content className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10110 outline-none w-full max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-lg">
               <motion.div
                 role="dialog"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-                className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
+                className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {/* Header */}
                 <div className="flex justify-between items-start mb-4 pb-3 border-b border-border/10">

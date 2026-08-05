@@ -54,7 +54,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
         <Dialog.Content 
           aria-labelledby="modal-title"
           aria-describedby="modal-description"
-          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[calc(100%-1.5rem)] md:w-full md:max-w-3xl max-h-[90vh] overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 rounded-xl p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
+          className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 w-full rounded-t-3xl rounded-b-none max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-3xl md:max-h-[90vh] md:rounded-xl overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
           <VisuallyHidden>
             <Dialog.Description id="modal-description">
               Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.

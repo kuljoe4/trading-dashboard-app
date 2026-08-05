@@ -32,7 +32,7 @@ export const ShortcutsModal = ({ isOpen, onClose }) => {
         <Dialog.Content
           aria-labelledby="shortcuts-title"
           aria-describedby="shortcuts-description"
-          className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-surface/95 border border-border/50 rounded-2xl p-5 md:p-6 shadow-2xl backdrop-blur-xl z-[10110] animate-in fade-in zoom-in-95 duration-300 focus:outline-none"
+          className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 w-full rounded-t-3xl rounded-b-none max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:rounded-2xl bg-surface/95 border border-border/50 p-5 md:p-6 shadow-2xl backdrop-blur-xl z-[10110] animate-in fade-in zoom-in-95 duration-300 focus:outline-none"
         >
           <Dialog.Title asChild>
             <VisuallyHidden>Keyboard Shortcuts Cheatsheet</VisuallyHidden>

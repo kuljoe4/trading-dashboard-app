@@ -253,8 +253,6 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   return (
     <motion.div
       layout
-      whileHover={{ scale: 1.01 }}
-      whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}

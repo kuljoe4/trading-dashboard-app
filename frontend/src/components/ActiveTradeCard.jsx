@@ -122,11 +122,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   return (
     <motion.div
       whileHover={{
-        scale: 1.01,
         borderColor: "rgba(91, 111, 255, 0.3)",
         boxShadow: "0 0 20px rgba(91, 111, 255, 0.12)"
       }}
-      whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
       onClick={onClick}
       onKeyDown={handleKeyDown}

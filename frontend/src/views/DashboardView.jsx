@@ -152,9 +152,8 @@ const BanBanner = ({ apiStatus }) => {
     return () => clearInterval(timer);
   }, [apiStatus?.banUntil]);
 
-  // BOLT: The local timer (timeLeft) is the source of truth for the cooldown.
-  // We hide the banner if the time has passed, even if the backend hasn't updated its status bit yet.
-  if (timeLeft <= 0) return null;
+  const hasBanTime = !!apiStatus?.banUntil;
+  if (hasBanTime && timeLeft <= 0) return null;
   if (!apiStatus?.isBanned && !apiStatus?.isRateLimited) return null;
 
   const isBan = apiStatus.isBanned;
@@ -197,12 +196,14 @@ const BanBanner = ({ apiStatus }) => {
           isBan ? "bg-red/20 border-red/30 text-red" : "bg-amber/20 border-amber/30 text-amber"
         )}>
           <span className="w-2 h-2 rounded-full bg-current motion-safe:animate-ping" aria-hidden="true" />
-          {timeLeft > 0 ? formatDuration(timeLeft) : 'Expiring...'}
+          {hasBanTime ? formatDuration(timeLeft) : 'Active'}
         </div>
-        <div className="flex items-center gap-1.5 opacity-60">
-          <History size={10} />
-          <span className="text-[9px] font-bold uppercase tracking-tighter">Ends at {cooldownEnd}</span>
-        </div>
+        {hasBanTime && (
+          <div className="flex items-center gap-1.5 opacity-60">
+            <History size={10} />
+            <span className="text-[9px] font-bold uppercase tracking-tighter">Ends at {cooldownEnd}</span>
+          </div>
+        )}
       </div>
     </motion.div>
   );

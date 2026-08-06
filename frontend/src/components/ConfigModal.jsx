@@ -1532,7 +1532,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert]);
 
   const loadPreset = React.useCallback((p) => {
-    const next = flattenConfig(p.config);
+    // Exclude saved strategy_variants from the loaded preset config to avoid bringing along old/stale variants
+    const cleanedConfig = {
+      ...(p.config || {}),
+      strategy_variants: []
+    };
+    const next = flattenConfig(cleanedConfig);
     setCfg(next);
     setLoadedPresetName(p.name);
     setPresetName(p.name);

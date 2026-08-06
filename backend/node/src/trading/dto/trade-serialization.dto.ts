@@ -8,8 +8,6 @@ export interface TradeSerializationDto {
   sl_price: number;
   tp_price: number | null;
   pnl: number;
-  market_pnl: number;
-  net_pnl: number;
   pnl_pct: number;
   realized_fee: number;
   funding_fee?: number;
@@ -30,6 +28,13 @@ export interface TradeSerializationDto {
   strategy_config?: Partial<SessionConfig>;
   entry_daily_change_pct?: number;
   initial_risk_usdt?: number;
+  risk_usdt?: number;
+  close_attempts?: number;
+  close_blocked?: boolean;
+  est_pnl_to_realize?: number;
+  est_pnl_source?: string;
+  exit_rr?: number;
+  min_rr_achieved?: number;
   _delta?: boolean;
   _thin?: boolean;
   _sl_len?: number;
@@ -44,8 +49,6 @@ export interface TickTradeDto {
   sl_price: number;
   tp_price: number | null;
   pnl: number;
-  market_pnl: number;
-  net_pnl: number;
   pnl_pct?: number;
   realized_fee: number;
   funding_fee?: number;
@@ -55,7 +58,14 @@ export interface TickTradeDto {
   entry_price: number;
   qty: number;
   entry_daily_change_pct?: number;
+  close_attempts?: number;
+  close_blocked?: boolean;
   initial_risk_usdt?: number;
+  risk_usdt?: number;
+  est_pnl_to_realize?: number;
+  est_pnl_source?: string;
+  exit_rr?: number;
+  min_rr_achieved?: number;
   _thin: boolean;
   _sl_len: number;
   _sig_json: string;

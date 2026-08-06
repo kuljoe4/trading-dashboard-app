@@ -1,10 +1,10 @@
 import React from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from "./utils"
 import * as ProgressPrimitive from "@radix-ui/react-progress"
 import * as TooltipPrimitive from "@radix-ui/react-tooltip"
-import { CheckCircle2, AlertCircle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info } from 'lucide-react'
-import { Sparkline as SparklineChart } from '../DataCharts'
+import { CheckCircle2, AlertCircle, AlertTriangle, Loader2, Zap, Copy, ChevronLeft, Plus, Minus, Lock, Unlock, Info, RefreshCw, ShieldCheck, Activity, X } from 'lucide-react'
+import { Sparkline as SparklineChart, CandlestickChart as CandlestickChartBase } from '../DataCharts'
 import { useTradingStore } from '../../store/trading'
 import { useTooltipContext, Tooltip } from './tooltip'
 
@@ -21,6 +21,60 @@ export const PulseDot = React.memo(({ color = "bg-green" }) => (
     )} />
   </span>
 ))
+
+// --- Alert Radar Ripple ---
+export const AlertRipple = React.memo(({ level = "info" }) => {
+  const colorMap = {
+    error: {
+      shadow: "shadow-[0_0_25px_rgba(255,68,102,0.6)]",
+      border: "border-red/40",
+      bg: "bg-red/5"
+    },
+    warn: {
+      shadow: "shadow-[0_0_25px_rgba(245,166,35,0.6)]",
+      border: "border-amber/40",
+      bg: "bg-amber/5"
+    },
+    warning: {
+      shadow: "shadow-[0_0_25px_rgba(245,166,35,0.6)]",
+      border: "border-amber/40",
+      bg: "bg-amber/5"
+    },
+    success: {
+      shadow: "shadow-[0_0_25px_rgba(0,229,160,0.6)]",
+      border: "border-green/40",
+      bg: "bg-green/5"
+    },
+    info: {
+      shadow: "shadow-[0_0_25px_rgba(91,111,255,0.6)]",
+      border: "border-accent/40",
+      bg: "bg-accent/5"
+    }
+  }
+
+  const activeColor = colorMap[level] || colorMap.info;
+
+  return (
+    <motion.div
+      initial={{ scale: 0.98, opacity: 0.8 }}
+      animate={{
+        scale: [0.98, 1.025, 1.05],
+        opacity: [0.8, 0.4, 0]
+      }}
+      transition={{
+        duration: 1.2,
+        ease: "easeOut"
+      }}
+      className={cn(
+        "absolute inset-0 rounded-full border pointer-events-none z-0",
+        activeColor.border,
+        activeColor.bg,
+        activeColor.shadow
+      )}
+    />
+  )
+})
+AlertRipple.displayName = 'AlertRipple'
 
 // --- Interactive Limit Card ---
 export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip, subValue, usagePct }) => {
@@ -77,29 +131,22 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       <div className="flex flex-col gap-0.5 w-full relative z-10">
         <div className="flex items-start w-full min-h-[2rem] md:min-h-[2.25rem]">
           <div className="flex items-center gap-2 flex-grow overflow-hidden mr-1">
-            <Tooltip content={tooltip}>
-              <div
-                className={cn(
-                  "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] cursor-help hover:text-dim/80 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-sm",
-                  tooltip && "border-b border-dotted border-dim/30"
-                )}
-                tabIndex={0}
-                role="button"
-              >{label}</div>
-            </Tooltip>
+            <div className={cn(
+              "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors"
+            )}>{label}</div>
             {indicator === 'amber' && (
-              <Tooltip content="Adaptive tightening active">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse cursor-help shrink-0" />
-              </Tooltip>
+              <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
             )}
           </div>
-          <button
-            onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
-            className={cn("p-1 rounded-md transition-colors shrink-0 mt-0.5", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
-            aria-label={isLocked ? "Unlock controls" : "Lock controls"}
-          >
-            {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
-          </button>
+          <Tooltip content={isLocked ? "Unlock Controls" : "Lock Controls"}>
+            <button
+              onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
+              className={cn("p-1 rounded-md transition-colors shrink-0 mt-0.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
+              aria-label={isLocked ? "Unlock controls" : "Lock controls"}
+            >
+              {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
+            </button>
+          </Tooltip>
         </div>
         <div className="flex items-center w-full gap-2">
           <div className="flex flex-col flex-grow min-w-0">
@@ -119,27 +166,27 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
               disabled={!isLocked && value <= min}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Decrease ${label}`}
             >
-              <Minus size={20} />
+              <Minus size={22} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
               disabled={!isLocked && value >= max}
               className={cn(
-                "w-10 h-10 rounded-lg border flex items-center justify-center transition-all active:scale-90",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Increase ${label}`}
             >
-              <Plus size={20} />
+              <Plus size={22} />
             </button>
           </div>
         </div>
@@ -161,61 +208,60 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact, ariaLabel }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
-  // This component currently doesn't show an icon, but if the value passed from parent has both '-' and an arrow,
-  // it might look redundant. The user pointed out: "Total Performance" displays ▼ - $9,920.52.
-  // We should ensure the parent (HistoryView or Dashboard) doesn't pass both.
-  // However, we can also sanitize it here.
-
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
     : value;
 
-  return (
+  const content = (
     <div
-      className="bg-surface border border-border/60 p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      className={cn(
+        "bg-surface border border-border/60 rounded-xl md:rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:border-accent/30 focus-visible:bg-white/[0.01]",
+        compact
+          ? "p-2 md:p-2.5 min-h-[48px] md:min-h-[56px] lg:min-h-[64px]"
+          : "p-3 md:p-4 lg:p-5 min-h-[64px] md:min-h-[80px] lg:min-h-[100px]"
+      )}
       role="region"
-      aria-label={`${label}: ${value}`}
+      aria-label={ariaLabel || `${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
       aria-busy={syncing}
+      tabIndex={tooltipText ? 0 : undefined}
     >
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-col gap-0.5 w-full">
-        <div className="flex items-start gap-1.5 min-h-[2rem] md:min-h-[2.25rem]">
-            <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1" aria-hidden="true">{label}</div>
-            {tooltipText && (
-              <Tooltip content={tooltipText}>
-                <button
-                  type="button"
-                  aria-label={`More information about ${label}`}
-                  className="p-1 -m-1 text-dim hover:text-accent transition-colors cursor-help focus-visible:ring-1 focus-visible:ring-accent rounded-sm shrink-0 mt-0.5"
-                >
-                  <Info size={10} />
-                </button>
-              </Tooltip>
-            )}
+      <div className={cn("flex flex-col w-full", compact ? "gap-0" : "gap-0.5")}>
+        <div className={cn("flex items-start gap-1.5", compact ? "min-h-[1.25rem]" : "min-h-[2rem] md:min-h-[2.25rem]")}>
+            <div className={cn("text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1", compact ? "text-[8px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">{label}</div>
+            {tooltipText && <Info size={compact ? 8 : 10} className="text-dim/30 group-hover:text-accent group-focus-visible:text-accent transition-colors" />}
         </div>
         <div className="flex flex-col">
           <div className={cn(
-            "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
+            "font-black font-mono tracking-tighter transition-all duration-500 truncate leading-none",
             color,
+            compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
             syncing && "opacity-40 blur-[1px]"
           )}>{sanitizedValue}</div>
           {subValue && (
             <div className={cn(
-              "text-[8px] md:text-[9px] text-dim font-mono font-black uppercase flex items-center gap-1.5 whitespace-nowrap overflow-hidden",
+              "text-dim font-mono font-black uppercase flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0",
+              compact ? "text-[7px] md:text-[7.5px] mt-0.5" : "text-[8px] md:text-[9px] mt-0.5",
               syncing && "text-accent/60 animate-pulse"
             )}>
-              {syncing && <Loader2 size={8} className="animate-spin shrink-0" aria-hidden="true" />}
-              <span className="truncate">{subValue}</span>
+              {syncing && <Loader2 size={compact ? 6 : 8} className="animate-spin shrink-0" aria-hidden="true" />}
+              <span className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</span>
             </div>
           )}
         </div>
       </div>
     </div>
   );
+
+  if (tooltipText) {
+    return <Tooltip content={tooltipText}>{content}</Tooltip>;
+  }
+
+  return content;
 })
 
 // --- Section Label ---
@@ -240,7 +286,7 @@ export const Btn = React.forwardRef(({ children, variant = "primary", onClick, c
       onClick={onClick}
       disabled={disabled || loading}
       className={cn(
-        "px-5 py-2.5 rounded-xl font-bold text-[13px] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95",
+        "px-5 py-2.5 rounded-xl font-bold text-[13px] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
         variants[variant],
         className
       )}
@@ -259,65 +305,99 @@ export const StatusBadge = ({ status }) => {
   
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold tracking-wider transition-all",
-      active
-        ? "text-green bg-green/10 border-green/20 shadow-[0_0_10px_rgba(0,229,160,0.05)]"
-        : "text-dim bg-surface border-border"
+      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-all",
+      active ? "text-green" : "text-dim"
     )}>
-      {active && <PulseDot color="bg-green" />}
-      {active ? "LIVE" : "STOPPED"}
+      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", active ? "bg-green animate-pulse" : "bg-dim/40")} />
+      {active ? "Active" : "Stopped"}
     </span>
   )
 }
 
 // --- Mode Badges ---
 export const PaperBadge = () => (
-  <Tooltip content="Paper Mode: Simulated trading with virtual funds. No real capital at risk.">
-    <span className="px-2.5 py-1 rounded-full border border-amber/20 bg-amber/10 text-[10px] text-amber font-bold tracking-wider flex items-center gap-1.5 cursor-help focus-visible:ring-2 focus-visible:ring-amber" tabIndex={0}>
-      <Zap size={10} fill="currentColor" />
-      PAPER
-    </span>
-  </Tooltip>
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-amber">
+    <span className="w-1.5 h-1.5 rounded-full bg-amber shrink-0" />
+    Paper
+  </span>
 )
 
-export const EcoBadge = () => (
-  <Tooltip content="Eco Mode: Power saver active. System is throttled to reduce CPU and network usage.">
-    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,229,160,0.05)] cursor-help focus-visible:ring-2 focus-visible:ring-green" tabIndex={0}>
-      <div className="w-1.5 h-1.5 bg-green rounded-full animate-pulse" />
-      ECO
+export const EcoBadge = () => {
+  const { wsStatus, isThrottled, isSyncingOnResume, sessionActive, isEcoMode } = useTradingStore(state => ({
+    wsStatus: state.wsStatus,
+    isThrottled: state.isThrottled,
+    isSyncingOnResume: state.isSyncingOnResume,
+    sessionActive: state.sessionActive,
+    isEcoMode: state.isEcoMode
+  }));
+
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+  const showResumingFeedback = sessionActive && isResuming;
+  const isEco = isThrottled || isEcoMode;
+
+  if (!showResumingFeedback && !isEco) return null;
+
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-colors",
+      showResumingFeedback ? "text-accent" : "text-green"
+    )}>
+      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", showResumingFeedback ? "bg-accent animate-spin" : "bg-green animate-pulse")} />
+      {showResumingFeedback ? 'Resuming' : 'Eco'}
     </span>
-  </Tooltip>
-)
+  );
+}
 
 export const DemoBadge = () => (
-  <Tooltip content="Testnet Mode: Real-time trading on the Binance Testnet (demo) environment.">
-    <span className="px-2.5 py-1 rounded-full border border-purple/20 bg-purple/10 text-[10px] text-purple font-bold tracking-wider flex items-center gap-1.5 cursor-help focus-visible:ring-2 focus-visible:ring-purple" tabIndex={0}>
-      <Zap size={10} fill="currentColor" />
-      DEMO
-    </span>
-  </Tooltip>
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-purple">
+    <span className="w-1.5 h-1.5 rounded-full bg-purple shrink-0" />
+    Demo
+  </span>
 )
 
 export const LiveBadge = () => (
-  <Tooltip content="Live Mode: Real-capital trading on Binance USDS-M Futures. Use with caution.">
-    <span className="px-2.5 py-1 rounded-full border border-green/20 bg-green/10 text-[10px] text-green font-bold tracking-wider flex items-center gap-1.5 cursor-help focus-visible:ring-2 focus-visible:ring-green" tabIndex={0}>
-      <Zap size={10} fill="currentColor" />
-      LIVE
-    </span>
-  </Tooltip>
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-green">
+    <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0 animate-pulse" />
+    Live
+  </span>
 )
+
+export const MonitoredBadge = React.memo(({ className, label = "Monitored" }) => (
+  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
+    <ShieldCheck size={12} className="text-accent shrink-0" />
+    <span className="text-[8px] md:text-[9px] font-black text-accent uppercase tracking-widest truncate">{label}</span>
+  </div>
+))
+MonitoredBadge.displayName = 'MonitoredBadge'
+
+export const InPosBadge = React.memo(({ className, label = "In Pos" }) => (
+  <div className={cn("flex items-center gap-1 whitespace-nowrap overflow-hidden", className)}>
+     <Zap size={10} className="text-green fill-green/20 shrink-0" />
+     <span className="text-[8px] font-black text-green uppercase tracking-tighter truncate">{label}</span>
+  </div>
+))
+InPosBadge.displayName = 'InPosBadge'
+
+export const SmartCandidateBadge = React.memo(({ className, label = "Predictive" }) => (
+  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
+    <Activity size={10} className="text-purple-400 shrink-0" />
+    <span className="text-[8px] md:text-[9px] font-black text-purple-400 uppercase tracking-widest truncate">{label}</span>
+  </div>
+))
+SmartCandidateBadge.displayName = 'SmartCandidateBadge'
 
 // --- Condition Widget ---
 export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%", satisfied, sublabel }) => {
+  const isCount = unit.includes('/') || unit.includes('signals');
   const absThreshold = Math.max(Math.abs(threshold), 0.0001);
-  const pct = threshold !== 0
-    ? Math.min((Math.abs(value) / (absThreshold * 1.5)) * 100, 100)
-    : Math.min(value > 0 ? 100 : 0, 100);
+  const pct = isCount
+    ? (threshold !== 0 ? Math.min((value / threshold) * 100, 100) : 100)
+    : (threshold !== 0
+        ? Math.min((Math.abs(value) / (absThreshold * 1.5)) * 100, 100)
+        : Math.min(value > 0 ? 100 : 0, 100));
   const colorClass = satisfied ? "bg-green" : "bg-amber";
   const textColorClass = satisfied ? "text-green" : "text-amber";
   const borderColorClass = satisfied ? "border-green/30 shadow-[0_0_15px_rgba(0,229,160,0.05)]" : "border-border";
-
-  const isCount = unit.includes('/') || unit.includes('signals');
   const formattedValue = Number.isFinite(value)
     ? `${!isCount && value > 0 ? "+" : ""}${isCount ? Math.round(value) : Number(value).toFixed(2)}${unit}`
     : `N/A ${unit}`;
@@ -326,6 +406,8 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
     ? `${isCount ? "" : "≥ "}${isCount ? Math.round(threshold) : threshold}${unit}`
     : "Trigger: 0";
 
+  const ariaText = `${label}: ${formattedValue}. Threshold is ${thresholdText}. ${satisfied ? 'Condition satisfied' : 'Awaiting signal'}. ${sublabel || ''}`;
+
   return (
     <div
       className={cn(
@@ -333,7 +415,7 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
         borderColorClass
       )}
       role="region"
-      aria-label={`${label}: ${satisfied ? 'Satisfied' : 'Awaiting'}`}
+      aria-label={ariaText}
     >
       <div className="flex justify-between items-start gap-4 min-h-[1.5rem] mb-4 md:mb-6">
         <div className="text-[10px] md:text-[11px] text-dim tracking-[0.15em] uppercase font-bold shrink-0 whitespace-nowrap">{label}</div>
@@ -374,9 +456,15 @@ export const ConditionWidget = React.memo(({ label, value, threshold, unit = "%"
 
 // --- P&L Bars ---
 export const PnLBars = React.memo(({ trades }) => {
-  if (!trades || trades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
+  const safeTrades = Array.isArray(trades) ? trades : [];
+  if (safeTrades.length === 0) return <div className="h-[60px] flex items-center justify-center text-[10px] text-dim font-bold uppercase tracking-widest">No Trade Data</div>
 
-  const max = Math.max(...trades.map(t => Math.abs(t.pnl || 0)), 1);
+  // BOLT: Single-pass O(N) loop to find maximum absolute PnL with zero intermediate allocations.
+  let max = 1;
+  for (let i = 0; i < safeTrades.length; i++) {
+    const val = Math.abs(safeTrades[i].pnl || 0);
+    if (val > max) max = val;
+  }
 
   return (
     <div
@@ -387,7 +475,7 @@ export const PnLBars = React.memo(({ trades }) => {
       {/* Zero baseline */}
       <div className="absolute left-0 right-0 h-px bg-border/40 z-0 top-1/2" />
 
-      {trades.map((t, i) => {
+      {safeTrades.map((t, i) => {
         const pnl = t.pnl || 0;
         const isPos = pnl >= 0;
         const absPnl = Math.abs(pnl);
@@ -427,22 +515,86 @@ export const VisuallyHidden = ({ children }) => (
   </span>
 )
 
-export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction }) => {
-  const { config, wsStatus, isThrottled, isEcoMode } = useTradingStore()
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming }) => {
+  const { config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
+
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
+  const showResumingFeedback = propsResuming ?? (sessionActive && isResuming)
+
+  const [alertIndex, setAlertIndex] = React.useState(0)
+  const [showDropdown, setShowDropdown] = React.useState(false)
+  const [hasActiveModal, setHasActiveModal] = React.useState(false)
+
+  const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
+  const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null)
+  const [triggerRippleKey, setTriggerRippleKey] = React.useState(0)
+
+  // Programmatically auto-focus the newest alert and trigger visual ripple cues
+  React.useEffect(() => {
+    if (!newestAlert) {
+      setLastProcessedAlert(null)
+      return
+    }
+    const isNewId = !lastProcessedAlert || lastProcessedAlert.id !== newestAlert.id
+    const isNewCount = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && (newestAlert.count || 1) > (lastProcessedAlert.count || 1)
+    const isNewTs = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && newestAlert.ts !== lastProcessedAlert.ts
+
+    if (isNewId || isNewCount || isNewTs) {
+      setLastProcessedAlert({ id: newestAlert.id, count: newestAlert.count || 1, ts: newestAlert.ts, level: newestAlert.level })
+      setAlertIndex(0)
+      setTriggerRippleKey(prev => prev + 1)
+    }
+  }, [newestAlert, lastProcessedAlert])
+
+  // SRE-PERF: Highly optimized MutationObserver to detect active overlay modals/dialogs.
+  // When a modal is open, we suppress the global ticker to prevent background visual noise,
+  // screen-reader clutter, and accidental background keyboard tab indexing.
+  React.useEffect(() => {
+    const checkModals = () => {
+      const isOpen = !!document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
+      setHasActiveModal(isOpen);
+    };
+
+    checkModals();
+
+    const observer = new MutationObserver(checkModals);
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['data-state', 'class', 'style']
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  React.useEffect(() => {
+    if (!alerts || alerts.length <= 1) {
+      setAlertIndex(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setAlertIndex(prev => (prev + 1) % alerts.length)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [alerts])
+
+  const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
   return (
     <div className={cn(
-      "z-40 transition-all duration-300 mb-4 lg:mb-6",
+      "z-40 transition-all duration-300 mb-2 lg:mb-3",
       sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-1.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
     )}>
-      <div className="flex flex-row items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 relative w-full">
+        {/* Left Side: Title and Badges */}
+        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1 w-full">
           {backAction && (
             <button
               onClick={backAction}
               aria-label="Go back"
-              className="p-1 hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0"
+              className="p-1 hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
               <ChevronLeft size={14} className="text-dim group-hover:text-text" />
             </button>
@@ -454,23 +606,23 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{title}</h1>
-                <div className="hidden sm:flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{showResumingFeedback ? 'Resuming...' : title}</h1>
+                <div className="flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
-                  {(isThrottled || isEcoMode) && <EcoBadge />}
+                  {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
                 </div>
               </div>
               {subTitle && (
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex items-center gap-2 min-w-0 flex-wrap">
                   <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
                     {subTitle}
                   </p>
-                  <div className="hidden lg:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
-                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
-                      {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
+                  <div className="flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
+                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
+                      {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
                     </span>
                     {wsStatus !== 'live' && (
                       <button
@@ -481,14 +633,132 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                         Retry
                       </button>
                     )}
-                    <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
-                    </div>
+                    <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
+                  </div>
                 </div>
               )}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0 scale-90 origin-right">
+
+        {/* Center: Integrated Non-Blocking Horizontal Ticker */}
+        {activeAlert && (
+          <div className="flex relative items-center justify-center min-w-0 w-full sm:w-auto flex-1 px-2 sm:px-4 z-50">
+            <div
+              onClick={() => setShowDropdown(!showDropdown)}
+              className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text max-w-[360px] lg:max-w-[440px] w-full transition-all duration-300 select-none animate-in fade-in"
+              title="Click to view all recent alerts"
+            >
+              {triggerRippleKey > 0 && (
+                <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
+              )}
+
+              <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeAlert.id + '-' + activeAlert.count}
+                    initial={{ y: 15, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: -15, opacity: 0 }}
+                    transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                    className="flex items-center gap-1.5 min-w-0 w-full h-full"
+                  >
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+                      activeAlert.level === 'error' ? "bg-red" :
+                      activeAlert.level === 'warn' ? "bg-amber" :
+                      activeAlert.level === 'success' ? "bg-green" :
+                      "bg-accent"
+                    )} />
+                    <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+                      {activeAlert.title || 'Alert'}
+                    </span>
+                    <span className="opacity-30 shrink-0 font-black">|</span>
+                    <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+                      {activeAlert.message}
+                    </span>
+                    {activeAlert.count > 1 && (
+                      <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+                    )}
+                    {alerts.length > 1 && (
+                      <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                        +{alerts.length - 1} more
+                      </span>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
+                  updateStats({ alerts: nextAlerts })
+                  if (nextAlerts.length === 0) setShowDropdown(false)
+                }}
+                className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10"
+                aria-label="Dismiss this alert"
+              >
+                <X size={10} />
+              </button>
+            </div>
+
+            {/* Dropdown Overlay containing the exact alert history */}
+            {showDropdown && (
+              <>
+                <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
+                <div className="absolute top-full mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+                  <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
+                      className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {alerts.map(a => (
+                      <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
+                        <div className="min-w-0 flex-1 text-[9.5px]">
+                          <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
+                            <span className={cn(
+                              "w-1 h-1 rounded-full shrink-0",
+                              a.level === 'error' ? "bg-red" :
+                              a.level === 'warn' ? "bg-amber" :
+                              a.level === 'success' ? "bg-green" :
+                              "bg-accent"
+                            )} />
+                            {a.title || 'System Alert'}
+                            {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
+                          </div>
+                          <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const nextAlerts = alerts.filter(item => item.id !== a.id)
+                            updateStats({ alerts: nextAlerts })
+                            if (nextAlerts.length === 0) setShowDropdown(false)
+                          }}
+                          className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+                          aria-label="Dismiss"
+                        >
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Right Side: Children Action Items */}
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:shrink-0 w-full sm:w-auto justify-start sm:justify-end scale-95 sm:scale-90 origin-left sm:origin-right mt-1.5 sm:mt-0">
           {children}
         </div>
       </div>
@@ -496,14 +766,178 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   )
 }
 
+// --- Modal Alert Ticker ---
+export const ModalAlertTicker = React.memo(() => {
+  const { alerts, updateStats } = useTradingStore()
+  const [alertIndex, setAlertIndex] = React.useState(0)
+  const [showDropdown, setShowDropdown] = React.useState(false)
+
+  const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
+  const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null)
+  const [triggerRippleKey, setTriggerRippleKey] = React.useState(0)
+
+  // Programmatically auto-focus the newest alert and trigger visual ripple cues
+  React.useEffect(() => {
+    if (!newestAlert) {
+      setLastProcessedAlert(null)
+      return
+    }
+    const isNewId = !lastProcessedAlert || lastProcessedAlert.id !== newestAlert.id
+    const isNewCount = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && (newestAlert.count || 1) > (lastProcessedAlert.count || 1)
+    const isNewTs = lastProcessedAlert && lastProcessedAlert.id === newestAlert.id && newestAlert.ts !== lastProcessedAlert.ts
+
+    if (isNewId || isNewCount || isNewTs) {
+      setLastProcessedAlert({ id: newestAlert.id, count: newestAlert.count || 1, ts: newestAlert.ts, level: newestAlert.level })
+      setAlertIndex(0)
+      setTriggerRippleKey(prev => prev + 1)
+    }
+  }, [newestAlert, lastProcessedAlert])
+
+  React.useEffect(() => {
+    if (!alerts || alerts.length <= 1) {
+      setAlertIndex(0)
+      return
+    }
+    const interval = setInterval(() => {
+      setAlertIndex(prev => (prev + 1) % alerts.length)
+    }, 4000)
+    return () => clearInterval(interval)
+  }, [alerts])
+
+  if (!alerts || alerts.length === 0) return null;
+
+  const activeAlert = alerts[alertIndex % alerts.length];
+
+  return (
+    <div className="relative flex items-center justify-center min-w-0 w-full px-4 py-2 border-b border-border/10 bg-surface/20 z-50 animate-in fade-in">
+      <div className="relative w-full max-w-[540px]">
+        <div
+          onClick={() => setShowDropdown(!showDropdown)}
+          className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1.5 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text w-full transition-all duration-300 select-none animate-in fade-in"
+          title="Click to view all recent alerts"
+        >
+          {triggerRippleKey > 0 && (
+            <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
+          )}
+
+          <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeAlert.id + '-' + activeAlert.count}
+                initial={{ y: 15, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -15, opacity: 0 }}
+                transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                className="flex items-center gap-1.5 min-w-0 w-full h-full"
+              >
+                <span className={cn(
+                  "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+                  activeAlert.level === 'error' ? "bg-red" :
+                  activeAlert.level === 'warn' ? "bg-amber" :
+                  activeAlert.level === 'success' ? "bg-green" :
+                  "bg-accent"
+                )} />
+                <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+                  {activeAlert.title || 'Alert'}
+                </span>
+                <span className="opacity-30 shrink-0 font-black">|</span>
+                <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+                  {activeAlert.message}
+                </span>
+                {activeAlert.count > 1 && (
+                  <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+                )}
+                {alerts.length > 1 && (
+                  <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                    +{alerts.length - 1} more
+                  </span>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
+              updateStats({ alerts: nextAlerts })
+              if (nextAlerts.length === 0) setShowDropdown(false)
+            }}
+            className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10"
+            aria-label="Dismiss this alert"
+          >
+            <X size={10} />
+          </button>
+        </div>
+
+        {/* Dropdown Overlay containing the exact alert history */}
+        {showDropdown && (
+          <>
+            <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+              <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
+                <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
+                  className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1"
+                >
+                  Clear All
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                {alerts.map(a => (
+                  <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
+                    <div className="min-w-0 flex-1 text-[9.5px]">
+                      <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
+                        <span className={cn(
+                          "w-1 h-1 rounded-full shrink-0",
+                          a.level === 'error' ? "bg-red" :
+                          a.level === 'warn' ? "bg-amber" :
+                          a.level === 'success' ? "bg-green" :
+                          "bg-accent"
+                        )} />
+                        {a.title || 'System Alert'}
+                        {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
+                      </div>
+                      <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const nextAlerts = alerts.filter(item => item.id !== a.id)
+                        updateStats({ alerts: nextAlerts })
+                        if (nextAlerts.length === 0) setShowDropdown(false)
+                      }}
+                      className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none"
+                      aria-label="Dismiss"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+})
+ModalAlertTicker.displayName = 'ModalAlertTicker'
+
 // --- Copy Button ---
-export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
+export const CopyButton = React.memo(({ value, getValue, className, tooltip = "Copy", successTooltip = "Copied!" }) => {
   const [copied, setCopied] = React.useState(false)
 
   const handleCopy = async (e) => {
     e.stopPropagation()
     try {
-      await navigator.clipboard.writeText(value)
+      // `getValue` defers expensive serialization until the user actually clicks copy,
+      // avoiding e.g. cloning/stringifying a large config object on every parent render.
+      const text = typeof getValue === 'function' ? getValue() : value
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
@@ -516,7 +950,7 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
       <button
         onClick={handleCopy}
         className={cn(
-          "p-1.5 rounded-md transition-all active:scale-90",
+          "p-1.5 rounded-md transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
           copied ? "text-green bg-green/10" : "text-dim hover:text-text hover:bg-white/5",
           className
         )}
@@ -526,7 +960,175 @@ export const CopyButton = ({ value, className, tooltip = "Copy", successTooltip 
       </button>
     </Tooltip>
   )
-}
+})
 
-// --- Sparkline ---
+// --- Charts ---
 export const Sparkline = SparklineChart;
+export const CandlestickChart = CandlestickChartBase;
+
+// --- Global Toaster & Toast Item ---
+export const ToastItem = React.memo(React.forwardRef(({ alert, onDismiss }, ref) => {
+  const [progress, setProgress] = React.useState(100)
+  const [isPaused, setIsPaused] = React.useState(false)
+  const duration = alert.id?.startsWith('playwright-') ? 60000 : (alert.level === 'error' ? 10000 : 6000) // Test toasts stay 60s, error 10s, others 6s
+  const startTime = React.useRef(Date.now())
+  const remainingTime = React.useRef(duration)
+  const lastTick = React.useRef(Date.now())
+
+  React.useEffect(() => {
+    if (isPaused) return
+
+    lastTick.current = Date.now()
+    const interval = setInterval(() => {
+      const now = Date.now()
+      const delta = now - lastTick.current
+      lastTick.current = now
+
+      remainingTime.current = Math.max(0, remainingTime.current - delta)
+      const nextProgress = (remainingTime.current / duration) * 100
+      setProgress(nextProgress)
+
+      if (remainingTime.current <= 0) {
+        clearInterval(interval)
+        onDismiss(alert.id)
+      }
+    }, 40)
+
+    return () => clearInterval(interval)
+  }, [isPaused, alert.id, onDismiss, duration])
+
+  // Reset countdown and progress if the alert ts updates (due to debouncing count increment)
+  React.useEffect(() => {
+    remainingTime.current = duration
+    setProgress(100)
+    lastTick.current = Date.now()
+  }, [alert.ts, duration])
+
+  const configByLevel = {
+    success: {
+      colorClass: "bg-green/10 border-green/20 shadow-[0_0_20px_rgba(0,229,160,0.06)]",
+      accentClass: "bg-green",
+      iconColor: "text-green",
+      icon: CheckCircle2,
+      role: "status"
+    },
+    error: {
+      colorClass: "bg-red/10 border-red/20 shadow-[0_0_20px_rgba(255,68,102,0.06)]",
+      accentClass: "bg-red",
+      iconColor: "text-red",
+      icon: AlertCircle,
+      role: "alert"
+    },
+    warn: {
+      colorClass: "bg-amber/10 border-amber/20 shadow-[0_0_20px_rgba(245,166,35,0.06)]",
+      accentClass: "bg-amber",
+      iconColor: "text-amber",
+      icon: AlertTriangle,
+      role: "alert"
+    },
+    warning: {
+      colorClass: "bg-amber/10 border-amber/20 shadow-[0_0_20px_rgba(245,166,35,0.06)]",
+      accentClass: "bg-amber",
+      iconColor: "text-amber",
+      icon: AlertTriangle,
+      role: "alert"
+    },
+    info: {
+      colorClass: "bg-accent/10 border-accent/20 shadow-[0_0_20px_rgba(91,111,255,0.06)]",
+      accentClass: "bg-accent",
+      iconColor: "text-accent",
+      icon: Info,
+      role: "status"
+    }
+  }
+
+  const config = configByLevel[alert.level] || configByLevel.info
+  const IconComponent = config.icon
+
+  return (
+    <motion.div
+      ref={ref}
+      layout
+      initial={{ opacity: 0, y: -20, scale: 0.95, x: 20 }}
+      animate={{ opacity: 1, y: 0, scale: 1, x: 0 }}
+      exit={{ opacity: 0, scale: 0.9, x: 50, transition: { duration: 0.15 } }}
+      transition={{ type: "spring", stiffness: 350, damping: 30 }}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      onFocus={() => setIsPaused(true)}
+      onBlur={() => setIsPaused(false)}
+      role={config.role}
+      aria-live={config.role === "alert" ? "assertive" : "polite"}
+      className={cn(
+        "pointer-events-auto relative overflow-hidden flex flex-col w-full min-w-[320px] max-w-[400px]",
+        "bg-surface/90 border backdrop-blur-md rounded-2xl transition-all duration-300",
+        config.colorClass
+      )}
+    >
+      <div className="flex gap-3.5 p-4 items-start relative z-10">
+        {/* Left Side: Indicator Line & Icon */}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <div className={cn("w-1 h-8 rounded-full", config.accentClass)} />
+          <div className={cn("w-6 h-6 rounded-lg bg-surface/40 flex items-center justify-center shrink-0 border border-white/5 shadow-sm", config.iconColor)}>
+            <IconComponent size={14} />
+          </div>
+        </div>
+
+        {/* Center: Title and Message */}
+        <div className="flex-grow min-w-0 pr-1 select-text">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h4 className="text-[11px] font-black uppercase tracking-wider text-text leading-tight truncate">
+              {alert.title || (alert.level === 'error' ? 'Error' : 'System Notice')}
+            </h4>
+            <AnimatePresence mode="popLayout">
+              {alert.count > 1 && (
+                <motion.span
+                  key={alert.count}
+                  initial={{ scale: 0.6, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.6, opacity: 0 }}
+                  className="bg-white/10 text-white border border-white/10 px-1.5 py-0.5 rounded-full text-[8px] font-black shrink-0 tracking-tight leading-none min-w-[16px] text-center"
+                >
+                  x{alert.count}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+          <p className="text-[10px] font-semibold text-dim mt-1 leading-relaxed break-words max-h-24 overflow-y-auto no-scrollbar">
+            {alert.message}
+          </p>
+        </div>
+
+        {/* Right Side: Accessible Close Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDismiss(alert.id)
+          }}
+          className={cn(
+            "p-1.5 rounded-lg transition-all shrink-0 text-dim/60 hover:text-red hover:bg-white/5",
+            "focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          )}
+          aria-label={`Dismiss notification: ${alert.title || ''}`}
+        >
+          <X size={12} />
+        </button>
+      </div>
+
+      {/* Bottom Progress Bar: Draining over time, pausing when hovered/focused */}
+      <div className="h-[2px] w-full bg-white/5 absolute bottom-0 left-0 right-0 z-20">
+        <div
+          className={cn("h-full transition-all duration-[40ms] ease-linear", config.accentClass)}
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+    </motion.div>
+  )
+}))
+ToastItem.displayName = 'ToastItem'
+
+export const GlobalToaster = React.memo(() => {
+  return null;
+})
+GlobalToaster.displayName = 'GlobalToaster'

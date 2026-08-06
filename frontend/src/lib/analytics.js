@@ -1,7 +1,8 @@
 import { TrendingUp, TrendingDown, Target, AlertTriangle, ShieldCheck, Zap } from 'lucide-react'
 
 export const getExpectancyStatus = (wr, wl) => {
-  const expectancy = (wr * wl) - (1 - wr);
+  const wlSafe = wl === Infinity || isNaN(wl) ? 100 : wl;
+  const expectancy = (wr * wlSafe) - (1 - wr);
 
   const tiers = [
     { label: 'Excellent', range: '> 0.50' },
@@ -47,44 +48,117 @@ export const getSharpeStatus = (sharpe) => {
  * BOLT OPTIMIZATION: Single-pass calculation of all performance metrics.
  * Eliminates redundant iterations and temporary array allocations.
  */
-export const calculatePerformanceMetrics = (trades = []) => {
+/**
+ * BOLT OPTIMIZATION: Unified performance metrics calculation.
+ * Aligned with backend AnalyticsService to use percentage returns for Sharpe/Sortino.
+ * This ensures consistency across session and lifetime views.
+ */
+export const calculatePerformanceMetrics = (trades = [], sessionBalance) => {
   const count = trades.length;
   if (count === 0) return { sharpe: 0, sortino: 0, profitFactor: 0, winRate: 0, wins: 0, totalPnl: 0, grossProfit: 0, grossLoss: 0 };
 
-  let sumPnL = 0;
-  let sumSquaredPnL = 0;
-  let downsideSumSquaredPnL = 0;
+  // BOLT OPTIMIZATION: Single-pass pre-processing and loop fusion.
+  // We pre-calculate numeric values and timestamps once, prioritizing pre-computed ms timestamps (exit_ts_ms, entry_ts_ms)
+  // to avoid redundant property accesses and expensive Date object creation inside sort and calculation loops.
+  const processed = new Array(count);
+  let totalNetPnL = 0;
+
+  for (let i = 0; i < count; i++) {
+    const t = trades[i];
+    const pnl = Number(t.pnl || 0);
+    totalNetPnL += pnl;
+    processed[i] = {
+      pnl,
+      exitTs: t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts || t.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : 0),
+      entryTs: t.entry_ts_ms !== undefined ? t.entry_ts_ms : (t.entry_ts || t.createdAt ? new Date(t.entry_ts || t.createdAt).getTime() : 0)
+    };
+  }
+
+  // BOLT OPTIMIZATION: Check if the array is already sorted chronologically to avoid O(N log N) sort.
+  // Since tradeHistory is typically sorted descending by exit_ts_ms, we can reverse it in O(N) instead of O(N log N) sorting.
+  let isSortedAsc = true;
+  let isSortedDesc = true;
+  for (let i = 1; i < count; i++) {
+    const current = processed[i].exitTs;
+    const prev = processed[i - 1].exitTs;
+    if (current < prev) {
+      isSortedAsc = false;
+    }
+    if (current > prev) {
+      isSortedDesc = false;
+    }
+  }
+
+  if (isSortedAsc) {
+    // Already sorted ascending, no action needed.
+  } else if (isSortedDesc) {
+    // Sorted descending, reverse in-place in O(N) with zero comparison/JS-to-native boundary overhead.
+    processed.reverse();
+  } else {
+    // Unsorted fallback
+    processed.sort((a, b) => a.exitTs - b.exitTs);
+  }
+
+  // If sessionBalance is not provided, we estimate it backwards from total PnL
+  // This matches the backend's effectiveStartingBalance logic.
+  let rollingBalance = sessionBalance ? Math.max(1, sessionBalance - totalNetPnL) : 10000;
+
+  let sumReturnPct = 0;
+  let sumSquaredReturnPct = 0;
+  let downsideSumSquaredReturnPct = 0;
   let wins = 0;
   let grossProfit = 0;
   let grossLoss = 0;
+  let sumPnL = 0;
 
+  let maxWinStreak = 0;
+  let maxLossStreak = 0;
+  let currentWinStreak = 0;
+  let currentLossStreak = 0;
+  let totalDurationMs = 0;
+
+  // BOLT OPTIMIZATION: Fused three passes into a single O(N) iteration.
   for (let i = 0; i < count; i++) {
-    const pnl = Number(trades[i].pnl || 0);
+    const t = processed[i];
+    const pnl = t.pnl;
     sumPnL += pnl;
-    sumSquaredPnL += pnl * pnl;
+
+    const tradeReturnPct = rollingBalance > 0 ? (pnl / rollingBalance) * 100 : 0;
+    rollingBalance = Math.max(1, rollingBalance + pnl);
+
+    sumReturnPct += tradeReturnPct;
+    sumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
+
+    if (t.entryTs && t.exitTs) totalDurationMs += (t.exitTs - t.entryTs);
 
     if (pnl > 0) {
       wins++;
       grossProfit += pnl;
+      currentWinStreak++;
+      currentLossStreak = 0;
+      if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
     } else if (pnl < 0) {
       grossLoss += Math.abs(pnl);
-      downsideSumSquaredPnL += pnl * pnl;
+      downsideSumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
+      currentLossStreak++;
+      currentWinStreak = 0;
+      if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
     }
   }
 
-  const mean = sumPnL / count;
+  const meanReturn = sumReturnPct / count;
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
 
   let sharpe = 0;
   let sortino = 0;
 
   if (count > 1) {
-    const variance = Math.max(0, (sumSquaredPnL / count) - (mean * mean));
+    const variance = Math.max(0, (sumSquaredReturnPct / count) - (meanReturn * meanReturn));
     const stdDev = Math.sqrt(variance);
-    const downsideStdDev = Math.sqrt(downsideSumSquaredPnL / count);
+    const downsideStdDev = Math.sqrt(downsideSumSquaredReturnPct / count);
 
-    if (stdDev > 0) sharpe = mean / stdDev;
-    if (downsideStdDev > 0) sortino = mean / downsideStdDev;
+    if (stdDev > 0) sharpe = meanReturn / stdDev;
+    if (downsideStdDev > 0) sortino = meanReturn / downsideStdDev;
   }
 
   return {
@@ -95,7 +169,10 @@ export const calculatePerformanceMetrics = (trades = []) => {
     wins,
     totalPnl: sumPnL,
     grossProfit,
-    grossLoss
+    grossLoss,
+    maxWinStreak,
+    maxLossStreak,
+    avgDuration: count > 0 ? Math.round(totalDurationMs / count) : 0
   };
 };
 
@@ -117,4 +194,19 @@ export const getSortinoStatus = (sortino) => {
   if (val >= 1.0) return { label: 'Acceptable', color: 'text-amber', icon: Target, description: 'Adequate protection.', tiers };
   if (val >= 0.5) return { label: 'Weak', color: 'text-orange', icon: AlertTriangle, description: 'Insufficient protection.', tiers };
   return { label: 'Poor', color: 'text-red', icon: TrendingDown, description: 'High downside risk.', tiers };
+};
+
+export const getRrRecommendationStatus = (rr) => {
+  const val = Number(rr || 0);
+  const tiers = [
+    { label: 'Aggressive', range: '≥ 3.0R' },
+    { label: 'Balanced', range: '1.5R - 3.0R' },
+    { label: 'Conservative', range: '0.8R - 1.5R' },
+    { label: 'Scalp', range: '< 0.8R' }
+  ];
+
+  if (val >= 3.0) return { label: 'Aggressive', color: 'text-purple', icon: Zap, description: 'High reward target.', tiers };
+  if (val >= 1.5) return { label: 'Balanced', color: 'text-blue', icon: Target, description: 'Optimal risk/reward.', tiers };
+  if (val >= 0.8) return { label: 'Conservative', color: 'text-green', icon: ShieldCheck, description: 'High probability target.', tiers };
+  return { label: 'Scalp', color: 'text-amber', icon: TrendingUp, description: 'Quick turnarounds.', tiers };
 };

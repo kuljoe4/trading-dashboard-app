@@ -9,6 +9,22 @@ import { encrypt, decrypt } from '../lib/crypto';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { extractIp } from '../lib/throttle';
 import { AuditLogService } from './audit-log.service';
+import { BinanceClientFactory } from '../lib/binanceClientFactory';
+
+/**
+ * Securely masks API keys and secrets.
+ * If the key is shorter than 16 characters, it is fully masked to prevent leakage of short or test credentials.
+ * If the key is 16 characters or longer, only the first 4 and last 4 characters are shown, with '...' in between.
+ */
+export function maskApiKey(key: any): string {
+  if (!key || typeof key !== 'string') return '';
+  const trimmed = key.trim();
+  if (trimmed.length === 0) return '';
+  if (trimmed.length < 16) {
+    return '*'.repeat(Math.min(trimmed.length, 8));
+  }
+  return `${trimmed.slice(0, 4)}...${trimmed.slice(-4)}`;
+}
 
 @Controller('settings')
 @UseGuards(ApiKeyGuard)
@@ -19,25 +35,33 @@ export class SettingsController {
     @InjectRepository(SettingsEntity)
     private settingsRepository: Repository<SettingsEntity>,
     private readonly auditLog: AuditLogService,
+    private readonly binanceClientFactory: BinanceClientFactory,
   ) {}
 
   @Get('keys')
-  async getKeys() {
+  async getKeys(@Req() req: Request) {
     const settings = await this.settingsRepository.findOne({
       where: { id: 'default' },
       select: ['id', 'binance_api_key', 'binance_testnet_api_key']
+    });
+
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    const userAgent = req.headers['user-agent'];
+
+    await this.auditLog.log({
+      action: 'VIEW_EXCHANGE_KEYS',
+      actor: clientIp,
+      ip: clientIp,
+      userAgent,
+      level: 'INFO'
     });
 
     const apiKey = decrypt(settings?.binance_api_key);
     const testnetApiKey = decrypt(settings?.binance_testnet_api_key);
 
     return {
-      api_key: apiKey
-        ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`
-        : '',
-      testnet_api_key: testnetApiKey
-        ? `${testnetApiKey.slice(0, 4)}...${testnetApiKey.slice(-4)}`
-        : '',
+      api_key: maskApiKey(apiKey),
+      testnet_api_key: maskApiKey(testnetApiKey),
     };
   }
 
@@ -48,78 +72,103 @@ export class SettingsController {
       checks: []
     };
 
-    // Test live API key with public endpoint to verify key format
-    if (body.api_key) {
-      try {
-        const response = await fetch('https://fapi.binance.com/fapi/v1/exchangeInfo', {
-          headers: {
-            'X-MBX-APIKEY': body.api_key.trim()
-          }
-        });
-        
-        if (response.ok) {
-          results.checks.push({
-            type: 'live',
-            status: 'valid',
-            message: 'Live API key is valid and can access Binance'
-          });
-        } else {
-          const error: any = await response.json().catch(() => ({ msg: response.statusText }));
-          results.valid = false;
-          results.checks.push({
-            type: 'live',
-            status: 'invalid',
-            message: `Live key failed: ${error.msg || error.message || 'Unknown error'}`,
-            code: error.code
-          });
-          this.logger.error(`Live API key validation failed: ${JSON.stringify(error)}`);
-        }
-      } catch (err) {
-        results.valid = false;
-        results.checks.push({
-          type: 'live',
-          status: 'error',
-          message: `Error testing live key: ${err instanceof Error ? err.message : 'Unknown error'}`
-        });
-        this.logger.error(`Live API key test error: ${err}`);
-      }
+    const settings = await this.settingsRepository.findOne({
+      where: { id: 'default' },
+    });
+
+    const savedApiKey = decrypt(settings?.binance_api_key);
+    const savedApiSecret = decrypt(settings?.binance_api_secret);
+    const savedTestnetKey = decrypt(settings?.binance_testnet_api_key);
+    const savedTestnetSecret = decrypt(settings?.binance_testnet_api_secret);
+
+    // Test live key and secret using signed futuresAccountBalanceV3 endpoint
+    let liveKeyToTest = body.api_key;
+    let liveSecretToTest = body.api_secret;
+
+    const isLiveMaskedOrEmpty = !liveKeyToTest || liveKeyToTest.includes('...') || liveKeyToTest.trim() === '';
+    if (isLiveMaskedOrEmpty) {
+      liveKeyToTest = savedApiKey;
+      liveSecretToTest = savedApiSecret;
     }
 
-    // Test testnet API key with public endpoint to verify key format
-    if (body.testnet_api_key) {
+    if (liveKeyToTest && liveSecretToTest) {
       try {
-        const response = await fetch('https://testnet.binancefuture.com/fapi/v1/exchangeInfo', {
-          headers: {
-            'X-MBX-APIKEY': body.testnet_api_key.trim()
-          }
+        const client = this.binanceClientFactory.createClient(liveKeyToTest.trim(), liveSecretToTest.trim(), false);
+        const res = await client.restAPI.futuresAccountBalanceV3({ asset: 'USDT' } as any);
+        if (res && (res.status === 200 || res.status === 201)) {
+          results.checks.push({
+            type: 'live',
+            status: 'valid',
+            message: 'Live API key & secret are valid and can access Binance'
+          });
+        } else {
+          throw new Error(`Unexpected status ${res ? res.status : 'unknown'}`);
+        }
+      } catch (err: any) {
+        results.valid = false;
+        const code = err.code || (err.data ? err.data.code : null);
+        const errMsg = err.data?.msg || err.message || 'Verification failed';
+        results.checks.push({
+          type: 'live',
+          status: 'invalid',
+          message: `Live key failed: ${errMsg}`,
+          code: code
         });
-        
-        if (response.ok) {
+        // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
+        this.logger.error(`Live API key validation failed: ${JSON.stringify({ msg: errMsg, code })}`);
+      }
+    } else if (body.api_key && !isLiveMaskedOrEmpty && !liveSecretToTest) {
+      results.valid = false;
+      results.checks.push({
+        type: 'live',
+        status: 'invalid',
+        message: 'Secret key is required to validate the API key'
+      });
+    }
+
+    // Test testnet key and secret using signed futuresAccountBalanceV3 endpoint
+    let testnetKeyToTest = body.testnet_api_key;
+    let testnetSecretToTest = body.testnet_api_secret;
+
+    const isTestnetMaskedOrEmpty = !testnetKeyToTest || testnetKeyToTest.includes('...') || testnetKeyToTest.trim() === '';
+    if (isTestnetMaskedOrEmpty) {
+      testnetKeyToTest = savedTestnetKey;
+      testnetSecretToTest = savedTestnetSecret;
+    }
+
+    if (testnetKeyToTest && testnetSecretToTest) {
+      try {
+        const client = this.binanceClientFactory.createClient(testnetKeyToTest.trim(), testnetSecretToTest.trim(), true);
+        const res = await client.restAPI.futuresAccountBalanceV3({ asset: 'USDT' } as any);
+        if (res && (res.status === 200 || res.status === 201)) {
           results.checks.push({
             type: 'testnet',
             status: 'valid',
-            message: 'Testnet API key is valid and can access Binance Testnet'
+            message: 'Testnet API key & secret are valid and can access Binance Testnet'
           });
         } else {
-          const error: any = await response.json().catch(() => ({ msg: response.statusText }));
-          results.valid = false;
-          results.checks.push({
-            type: 'testnet',
-            status: 'invalid',
-            message: `Testnet key failed: ${error.msg || error.message || 'Unknown error'}`,
-            code: error.code
-          });
-          this.logger.error(`Testnet API key validation failed: ${JSON.stringify(error)}`);
+          throw new Error(`Unexpected status ${res ? res.status : 'unknown'}`);
         }
-      } catch (err) {
+      } catch (err: any) {
         results.valid = false;
+        const code = err.code || (err.data ? err.data.code : null);
+        const errMsg = err.data?.msg || err.message || 'Verification failed';
         results.checks.push({
           type: 'testnet',
-          status: 'error',
-          message: `Error testing testnet key: ${err instanceof Error ? err.message : 'Unknown error'}`
+          status: 'invalid',
+          message: `Testnet key failed: ${errMsg}`,
+          code: code
         });
-        this.logger.error(`Testnet API key test error: ${err}`);
+        // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
+        this.logger.error(`Testnet API key validation failed: ${JSON.stringify({ msg: errMsg, code })}`);
       }
+    } else if (body.testnet_api_key && !isTestnetMaskedOrEmpty && !testnetSecretToTest) {
+      results.valid = false;
+      results.checks.push({
+        type: 'testnet',
+        status: 'invalid',
+        message: 'Testnet secret key is required to validate the API key'
+      });
     }
 
     return results;
@@ -144,33 +193,50 @@ export class SettingsController {
 
       // Security: Only update if explicitly provided to prevent accidental deletion
       // Also trim whitespace to prevent common copy-paste issues
+      // SENTINEL: Ignore any updates containing the masked representation "..." to prevent credential corruption
       if (body.api_key !== undefined) {
         const trimmedKey = body.api_key.trim();
         if (trimmedKey) {
-          settings.binance_api_key = encrypt(trimmedKey);
-          updatedFields.push('binance_api_key');
+          if (trimmedKey.includes('...')) {
+            this.logger.warn(`Skipped updating live API key as it contains masked characters (...)`);
+          } else {
+            settings.binance_api_key = encrypt(trimmedKey);
+            updatedFields.push('binance_api_key');
+          }
         }
       }
       if (body.api_secret !== undefined) {
         const trimmedSecret = body.api_secret.trim();
         if (trimmedSecret) {
-          settings.binance_api_secret = encrypt(trimmedSecret);
-          updatedFields.push('binance_api_secret');
+          if (trimmedSecret.includes('...')) {
+            this.logger.warn(`Skipped updating live API secret as it contains masked characters (...)`);
+          } else {
+            settings.binance_api_secret = encrypt(trimmedSecret);
+            updatedFields.push('binance_api_secret');
+          }
         }
       }
 
       if (body.testnet_api_key !== undefined) {
         const trimmedKey = body.testnet_api_key.trim();
         if (trimmedKey) {
-          settings.binance_testnet_api_key = encrypt(trimmedKey);
-          updatedFields.push('binance_testnet_api_key');
+          if (trimmedKey.includes('...')) {
+            this.logger.warn(`Skipped updating testnet API key as it contains masked characters (...)`);
+          } else {
+            settings.binance_testnet_api_key = encrypt(trimmedKey);
+            updatedFields.push('binance_testnet_api_key');
+          }
         }
       }
       if (body.testnet_api_secret !== undefined) {
         const trimmedSecret = body.testnet_api_secret.trim();
         if (trimmedSecret) {
-          settings.binance_testnet_api_secret = encrypt(trimmedSecret);
-          updatedFields.push('binance_testnet_api_secret');
+          if (trimmedSecret.includes('...')) {
+            this.logger.warn(`Skipped updating testnet API secret as it contains masked characters (...)`);
+          } else {
+            settings.binance_testnet_api_secret = encrypt(trimmedSecret);
+            updatedFields.push('binance_testnet_api_secret');
+          }
         }
       }
 
@@ -194,7 +260,8 @@ export class SettingsController {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       this.logger.error(`Failed to update API keys: ${errorMsg}`);
-      this.logger.error(`Full error: ${JSON.stringify(err)}`);
+      // SENTINEL: Do NOT use JSON.stringify(err) as it can leak credentials if the error contains the settings entity
+      this.logger.error(`Update failed for IP: ${req.ip || 'unknown'}`);
       throw err;
     }
   }

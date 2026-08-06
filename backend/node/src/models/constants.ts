@@ -31,6 +31,7 @@ export const CONFIG_LIMITS = {
   MAX_TRADES_24H_DEFAULT: 50,
   MIN_TRADE_INTERVAL_DEFAULT: 0,
   TRADES_JITTER_DEFAULT: 0,
+  TRADES_JITTER_MARKET_AWARE_DEFAULT: false,
   TP_RATIO_MIN: 0.1,
   TP_RATIO_DEFAULT: 2.0,
   TOTAL_SL_GUARD_DEFAULT: 200.0,
@@ -48,7 +49,10 @@ export const CONFIG_LIMITS = {
 };
 
 export const ENGINE_CONSTANTS = {
-  BINANCE_WS_BASE: process.env.BINANCE_WS_BASE || 'wss://fstream.binance.com/market',
+  BINANCE_WS_BASE: process.env.BINANCE_WS_BASE || 'wss://fstream.binance.com',
+  BINANCE_WS_PUBLIC: process.env.BINANCE_WS_PUBLIC || 'wss://fstream.binance.com/stream',
+  BINANCE_WS_MARKET: process.env.BINANCE_WS_MARKET || 'wss://fstream.binance.com/market/stream',
+  BINANCE_WS_PRIVATE: process.env.BINANCE_WS_PRIVATE || 'wss://fstream.binance.com/ws',
   BINANCE_REST_BASE: process.env.BINANCE_REST_BASE || 'https://fapi.binance.com',
   KLINE_STREAM_CHUNK_SIZE: 20,
   WATCHLIST_REFRESH_INTERVAL_MS: 120000,
@@ -63,6 +67,11 @@ export const ENGINE_CONSTANTS = {
   SPARKLINE_HISTORY_LEN: 20,
   WS_RECONNECT_DELAY_MS: 2000,
   WS_HANDSHAKE_TIMEOUT_MS: 15000,
+  // CHRONOS: Grace window (ms) applied before scheduling zero-weight position reconciliation
+  // when a position reaches 0 on exchange. This lets a concurrently-arriving ORDER_TRADE_UPDATE
+  // (with the authoritative fill price) execute first. Applied uniformly to all trades (not
+  // just those with a stop order) to avoid re-introducing the SL/ACCOUNT_UPDATE race.
+  UDS_ZERO_POSITION_DELAY_MS: 300,
   REST_BACKFILL_LIMIT: 200,
   USER_DATA_POLL_INTERVAL_MS: 30000,
   WS_HEARTBEAT_INTERVAL_MS: 30000,
@@ -70,4 +79,32 @@ export const ENGINE_CONSTANTS = {
   SIMULATED_FEE_RATE: 0.0004,
   SIMULATED_FUNDING_RATE: 0.0001,
   FUNDING_INTERVAL_HOURS: 8,
+};
+
+export const EXIT_REASONS = {
+  // Exchange-driven events
+  SL_HIT: 'SL_HIT',
+  TP_HIT: 'TP_HIT',
+  EXCHANGE_FILL: 'EXCHANGE_FILL',
+  EXCHANGE_SYNC: 'EXCHANGE_SYNC',
+  EXCHANGE_SYNC_RECOVERY: 'EXCHANGE_SYNC_RECOVERY',
+  EXCHANGE_SL_OR_MANUAL: 'EXCHANGE_SL_OR_MANUAL',
+
+  // Engine/Signal-driven events
+  SIGNAL: 'SIGNAL',
+  TRAILING_STOP: 'TRAILING_STOP',
+
+  // Lifecycle events
+  MANUAL_CLOSE: 'MANUAL_CLOSE',
+  SESSION_TERMINATED: 'SESSION_TERMINATED',
+
+  // Safety & Risk enforcement
+  SLIPPAGE_ABORT: 'SLIPPAGE_ABORT',
+  ENTRY_AT_OR_PAST_SL: 'ENTRY_AT_OR_PAST_SL',
+  ENTRY_TOO_CLOSE_TO_SL: 'ENTRY_TOO_CLOSE_TO_SL',
+  SL_PLACEMENT_FAILURE: 'SL_PLACEMENT_FAILURE',
+  WATCHDOG_NUCLEAR_CLOSE: 'WATCHDOG_NUCLEAR_CLOSE',
+  AUTO_RECONCILED_SL: 'AUTO_RECONCILED_SL',
+  AUTO_RECONCILED_TP: 'AUTO_RECONCILED_TP',
+  AUTO_RECONCILED_EXIT: 'AUTO_RECONCILED_EXIT',
 };

@@ -16,14 +16,15 @@ const downsample = (data, threshold = 100) => {
   return result;
 };
 
-export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) => {
+export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hideAxes = false }) => {
   const gradientId = useId().replace(/:/g, '')
   const glowId = `${gradientId}-glow`
   const containerRef = useRef(null);
   const [hoverData, setHoverData] = useState(null);
 
   const { points, viewMin, viewMax, viewRange } = useMemo(() => {
-    const downsampled = downsample(data).filter(d => d && typeof d.pnl === 'number');
+    const safeData = Array.isArray(data) ? data : [];
+    const downsampled = downsample(safeData).filter(d => d && typeof d.pnl === 'number');
     if (!downsampled || downsampled.length < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1 };
 
     const values = downsampled.map(d => d.pnl);
@@ -54,6 +55,41 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
   const areaAboveD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
   const areaBelowD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
 
+  const peaks = useMemo(() => {
+    if (points.length < 2) return [];
+    let currentMax = -Infinity;
+    return points.map(p => {
+        // Remember Y is inverted, so max PnL is MIN Y
+        if (currentMax === -Infinity || p.y < currentMax) {
+            currentMax = p.y;
+        }
+        return { x: p.x, y: currentMax };
+    });
+  }, [points]);
+
+  const peakPathD = useMemo(() => {
+    if (peaks.length < 2) return '';
+    let d = `M ${peaks[0].x} ${peaks[0].y}`;
+    for (let i = 1; i < peaks.length; i++) {
+        d += ` L ${peaks[i].x} ${peaks[i].y}`;
+    }
+    return d;
+  }, [peaks]);
+
+  const drawdownPathD = useMemo(() => {
+    if (points.length < 2 || peaks.length < 2) return '';
+    // Combine peak path and equity path to form a closed area for shading
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+        d += ` L ${points[i].x} ${points[i].y}`;
+    }
+    for (let i = peaks.length - 1; i >= 0; i--) {
+        d += ` L ${peaks[i].x} ${peaks[i].y}`;
+    }
+    d += ' Z';
+    return d;
+  }, [points, peaks]);
+
   const handleInteraction = (clientX) => {
     if (!containerRef.current || points.length < 2) return;
     const rect = containerRef.current.getBoundingClientRect();
@@ -83,20 +119,21 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
 
   const handleMouseLeave = () => setHoverData(null);
 
-  if (data.length < 2) {
+  const safeData = Array.isArray(data) ? data : [];
+  const currentPnl = safeData[safeData.length - 1]?.pnl ?? 0;
+
+  if (safeData.length < 2) {
     return (
-      <div className="flex flex-col items-center justify-center h-[180px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
+      <div className={cn("flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed", hideAxes ? "h-full" : "h-[180px]")}>
         <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Insufficient Trade Data</span>
       </div>
     );
   }
 
-  const currentPnl = data[data.length - 1]?.pnl ?? 0;
-
   return (
     <div
       ref={containerRef}
-      className="relative group cursor-crosshair select-none touch-none"
+      className="relative group cursor-crosshair select-none touch-none w-full h-full"
       role="img"
       aria-label={`Cumulative profit and loss chart, latest value ${fmtUSD(currentPnl)}.`}
       onMouseMove={handleMouseMove}
@@ -106,39 +143,41 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
       onTouchEnd={handleMouseLeave}
     >
       {/* Header Info - Moved above chart plot to prevent overlap */}
-      <div className="flex items-start justify-between mb-6 min-h-[64px]">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
-          <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentPnl >= 0 ? "text-green" : "text-red")}>
-            {fmtUSD(hoverData ? hoverData.pnl : currentPnl)}
-          </span>
-          <div className="h-4"> {/* Fix CLS by pre-allocating space for date */}
-            {hoverData?.ts && (
-              <span className="text-[9px] text-dim font-mono uppercase mt-1">
-                {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-              </span>
-            )}
+      {!hideAxes && (
+        <div className="flex items-start justify-between mb-6 min-h-[64px]">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Cumulative P&L</span>
+            <span className={cn("text-2xl font-bold font-mono tracking-tighter", currentPnl >= 0 ? "text-green" : "text-red")}>
+              {fmtUSD(hoverData ? hoverData.pnl : currentPnl)}
+            </span>
+            <div className="h-4"> {/* Fix CLS by pre-allocating space for date */}
+              {hoverData?.ts && (
+                <span className="text-[9px] text-dim font-mono uppercase mt-1">
+                  {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* High/Low Markers - Improved Contrast & Visibility */}
-        <div className="flex flex-col items-end gap-1.5 pt-1">
-          <div className="flex items-center gap-2">
-             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">High</span>
-             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMax)}</span>
-          </div>
-          <div className="flex items-center gap-2">
-             <span className="text-[9px] text-dim font-bold uppercase tracking-tight">Low</span>
-             <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMin)}</span>
+          {/* High/Low Markers - Improved Contrast & Visibility */}
+          <div className="flex flex-col items-end gap-1.5 pt-1">
+            <div className="flex items-center gap-2">
+               <span className="text-[9px] text-dim font-bold uppercase tracking-tight">High</span>
+               <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMax)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+               <span className="text-[9px] text-dim font-bold uppercase tracking-tight">Low</span>
+               <span className="text-[11px] text-text font-bold font-mono">{fmtUSD(viewMin)}</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <svg
         viewBox="0 0 100 100"
         preserveAspectRatio="none"
-        className="w-full overflow-visible"
-        style={{ height: `${height}px` }}
+        className={cn("w-full overflow-visible", hideAxes ? "mt-0" : "mt-2")}
+        style={{ height: hideAxes ? '100%' : `${height}px` }}
       >
         <defs>
           <linearGradient id={`${gradientId}-area-above`} x1="0" y1="0" x2="0" y2="1">
@@ -169,7 +208,17 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
         <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
 
         {/* Zero Baseline */}
-        <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/20" strokeWidth="0.3" strokeDasharray="1,2" />
+        {!hideAxes && (
+          <line x1="0" y1={zeroY} x2="100" y2={zeroY} stroke="currentColor" className="text-border/20" strokeWidth="0.3" strokeDasharray="1,2" />
+        )}
+
+        {/* Drawdown Shading */}
+        <path d={drawdownPathD} fill="var(--color-red)" fillOpacity="0.05" />
+
+        {/* Peak Watermark */}
+        {!hideAxes && (
+           <path d={peakPathD} fill="none" stroke="var(--color-accent)" strokeWidth="0.1" strokeDasharray="1,2" opacity="0.2" />
+        )}
 
         {/* Areas */}
         <path d={areaAboveD} fill={`url(#${gradientId}-area-above)`} clipPath={`url(#${gradientId}-clip-above)`} className="transition-all duration-700" />
@@ -234,17 +283,160 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false }) 
   );
 };
 
-export const TODPerformance = ({ data = [] }) => {
-  if (!data || data.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-[140px] md:h-[120px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
-        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">No Hourly Data</span>
-      </div>
-    );
-  }
+export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
+  const safeData = Array.isArray(data) ? data : [];
+  const containerRef = useRef(null);
+  const [hoverData, setHoverData] = useState(null);
+  const [hoverPos, setHoverDataPos] = useState(null);
 
-  const validData = data.filter(d => d && typeof d.pnl === 'number');
-  const maxPnl = Math.max(1, ...validData.map(d => Math.abs(d.pnl)));
+  if (safeData.length < 5) return null;
+
+  const maxPF = Math.max(1, ...safeData.map(d => d.profitFactor));
+  const minPF = 0;
+  const rangePF = maxPF - minPF;
+
+  const pointsPF = useMemo(() => {
+    return safeData.map((d, i) => {
+      const x = (i / (safeData.length - 1)) * 100;
+      const y = 100 - ((d.profitFactor - minPF) / (rangePF || 1)) * 100;
+      return { x, y, ...d };
+    });
+  }, [safeData, rangePF]);
+
+  const pathPF = useMemo(() => solveSmoothing(pointsPF), [pointsPF]);
+
+  const handleInteraction = (clientX) => {
+    if (!containerRef.current || !pointsPF.length) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
+
+    let closest = pointsPF[0];
+    let minDiff = Math.abs(pointsPF[0].x - xPct);
+
+    for (const p of pointsPF) {
+      const diff = Math.abs(p.x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = p;
+      }
+    }
+
+    setHoverData(closest);
+    setHoverDataPos({ x: closest.x, y: closest.y });
+  };
+
+  const currentStats = hoverData || safeData.find(d => d.threshold === recommendedRr) || safeData[Math.floor(safeData.length / 2)];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] text-dim font-bold uppercase tracking-widest text-left">Edge Optimization Curve</span>
+          <div className="flex items-baseline gap-3">
+            <span className={cn("text-2xl font-black font-mono tracking-tighter", hoverData ? "text-accent" : "text-text")}>
+              {Number(currentStats.threshold || 0).toFixed(1)}R
+            </span>
+            <span className="text-[10px] text-dim font-black uppercase tracking-widest">
+              Target Selection
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-1">
+           <div className="flex flex-col">
+              <span className="text-[8px] text-dim font-black uppercase tracking-widest">Profit Factor</span>
+              <span className="text-xs font-black font-mono text-accent">{Number(currentStats.profitFactor || 0).toFixed(2)}</span>
+           </div>
+           <div className="flex flex-col">
+              <span className="text-[8px] text-dim font-black uppercase tracking-widest">Win Rate</span>
+              <span className="text-xs font-black font-mono text-text">{Number(currentStats.winRate || 0).toFixed(0)}%</span>
+           </div>
+        </div>
+      </div>
+
+      <div
+        ref={containerRef}
+        onMouseMove={(e) => handleInteraction(e.clientX)}
+        onMouseLeave={() => { setHoverData(null); setHoverDataPos(null); }}
+        onTouchMove={(e) => e.touches?.[0] && handleInteraction(e.touches[0].clientX)}
+        onTouchEnd={() => { setHoverData(null); setHoverDataPos(null); }}
+        className="relative h-[160px] w-full cursor-crosshair select-none touch-none"
+      >
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full overflow-visible">
+          <defs>
+            <linearGradient id="pf-gradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-accent)" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+
+          {/* Grid */}
+          <line x1="0" y1="25" x2="100" y2="25" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+          <line x1="0" y1="50" x2="100" y2="50" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+          <line x1="0" y1="75" x2="100" y2="75" stroke="currentColor" className="text-border/5" strokeWidth="0.1" />
+
+          {/* Area */}
+          <path
+            d={`${pathPF} L 100 100 L 0 100 Z`}
+            fill="url(#pf-gradient)"
+            className="transition-all duration-700"
+          />
+
+          {/* PF Line */}
+          <path
+            d={pathPF}
+            fill="none"
+            stroke="var(--color-accent)"
+            strokeWidth="0.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="transition-all duration-700"
+          />
+
+          {/* Vertical line at recommended RR */}
+          {!hoverPos && recommendedRr > 0 && (
+            <g>
+              <line
+                x1={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+                y1="0"
+                x2={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+                y2="100"
+                stroke="var(--color-accent)"
+                strokeWidth="0.4"
+                strokeDasharray="2,2"
+                className="opacity-40"
+              />
+              <circle
+                cx={((safeData.findIndex(d => d.threshold === recommendedRr) || 0) / (safeData.length - 1)) * 100}
+                cy={100 - ((safeData.find(d => d.threshold === recommendedRr)?.profitFactor || 0) / (rangePF || 1)) * 100}
+                r="1.5"
+                fill="var(--color-accent)"
+              />
+            </g>
+          )}
+
+          {/* Hover Crosshair */}
+          {hoverPos && (
+            <g>
+              <line x1={hoverPos.x} y1="0" x2={hoverPos.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.3" strokeDasharray="1,2" />
+              <circle cx={hoverPos.x} cy={hoverPos.y} r="2.5" fill="var(--color-accent)" className="animate-pulse" />
+            </g>
+          )}
+        </svg>
+
+        <div className="absolute inset-x-0 -bottom-6 flex justify-between">
+          <span className="text-[8px] text-dim font-mono font-bold">{Number(safeData[0].threshold || 0).toFixed(1)}R</span>
+          <div className="h-px flex-1 mx-4 bg-border/10 self-center" />
+          <span className="text-[8px] text-dim font-mono font-bold">{Number(safeData[safeData.length - 1].threshold || 0).toFixed(1)}R</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const TODPerformance = ({ data = [] }) => {
+  const safeData = Array.isArray(data) ? data : [];
+  const validData = useMemo(() => safeData.filter(d => d && typeof d.pnl === 'number'), [safeData]);
+  const maxPnl = useMemo(() => Math.max(1, ...validData.map(d => Math.abs(d.pnl))), [validData]);
   const [hoverData, setHoverData] = useState(null);
   const [hoverHour, setHoverHour] = useState(null);
   const containerRef = useRef(null);
@@ -257,17 +449,25 @@ export const TODPerformance = ({ data = [] }) => {
       avgPos: pos.length ? pos.reduce((a, b) => a + b, 0) / pos.length : 0,
       avgNeg: neg.length ? neg.reduce((a, b) => a + b, 0) / neg.length : 0
     };
-  }, [data]);
+  }, [validData]);
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[140px] md:h-[120px] bg-surface/20 border border-border/40 rounded-2xl border-dashed">
+        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">No Hourly Data</span>
+      </div>
+    );
+  }
 
   const avgPosHeight = (Math.sqrt(avgPos) / Math.sqrt(maxPnl)) * 50;
   const avgNegHeight = (Math.sqrt(avgNeg) / Math.sqrt(maxPnl)) * 50;
 
   const handleInteraction = (clientX) => {
-    if (!containerRef.current || !data.length) return;
+    if (!containerRef.current || !validData.length) return;
     const rect = containerRef.current.getBoundingClientRect();
     const xPct = (clientX - rect.left) / rect.width;
-    const hourIndex = Math.min(Math.floor(xPct * data.length), data.length - 1);
-    const item = data[hourIndex];
+    const hourIndex = Math.min(Math.floor(xPct * validData.length), validData.length - 1);
+    const item = validData[hourIndex];
     
     // Calculate y position for pointer (center of the bar)
     const isPos = item.pnl >= 0;
@@ -277,10 +477,10 @@ export const TODPerformance = ({ data = [] }) => {
     const yPct = isPos ? (50 - heightPct / 2) : (50 + heightPct / 2);
 
     setHoverHour(item);
-    setHoverData({ x: (hourIndex + 0.5) * (100 / data.length), y: yPct });
+    setHoverData({ x: (hourIndex + 0.5) * (100 / validData.length), y: yPct });
   };
 
-  const currentHourStats = hoverHour || data.find(h => h.hour === new Date().getHours()) || data[0] || { pnl: 0, hour: 0, winRate: 0, wins: 0, total: 0 };
+  const currentHourStats = hoverHour || validData.find(h => h.hour === new Date().getHours()) || validData[0] || { pnl: 0, hour: 0, winRate: 0, wins: 0, total: 0 };
 
   return (
     <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
@@ -296,7 +496,7 @@ export const TODPerformance = ({ data = [] }) => {
           <div className="h-4">
              {currentHourStats && (
                <span className="text-[9px] text-dim font-mono uppercase">
-                  {(currentHourStats.winRate || 0).toFixed(0)}% Win Rate · {currentHourStats.wins || 0}/{currentHourStats.total || 0} Trades
+                  {Number(currentHourStats.winRate || 0).toFixed(0)}% Win Rate · {currentHourStats.wins || 0}/{currentHourStats.total || 0} Trades
                </span>
              )}
           </div>

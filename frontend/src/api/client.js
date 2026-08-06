@@ -1,9 +1,27 @@
 import axios from 'axios'
 
+export const normalizeUrl = (url, forceProtocol = null) => {
+  if (!url) return url;
+  let normalized = url.trim();
+
+  // DEPLOY-04: Aggressive URL normalization to handle common environment variable misconfigurations
+  // Strip all protocol-like prefixes repeatedly (handles 'https://https//', 'https//', etc.)
+  while (/^(https?|wss?)[:/]+/i.test(normalized)) {
+    normalized = normalized.replace(/^(https?|wss?)[:/]+/i, '');
+  }
+
+  // Determine which protocol to use: forced, existing (if it was valid), or fallback to https
+  const proto = forceProtocol || (url.match(/^(https?|wss?)[:/]+/i)?.[1]?.toLowerCase() || 'https');
+
+  // Re-assemble with exactly one protocol and no trailing slashes
+  return `${proto}://${normalized.replace(/\/+$/, '')}`;
+}
+
 const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_URL : undefined
-const baseURL = baseUrlEnv || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
+const baseURL = normalizeUrl(baseUrlEnv) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
 const api = axios.create({
   baseURL,
+  timeout: 15000, // 15 seconds default timeout to prevent indefinite hangs
 })
 
 // Dynamically inject Admin API Key
@@ -67,6 +85,7 @@ const sessionConfigAllowedKeys = [
   'scan_check_interval_sec',
   'watchlist_size',
   'watchlist_offset',
+  'discovery_mode',
   'entry_side',
   'excluded_symbols',
   'symbols',
@@ -87,6 +106,8 @@ const sessionConfigAllowedKeys = [
   'exit_signals',
   'exit_signal_logic',
   'exit_signal_delays',
+  'exit_signal_actions',
+  'exit_signals_override_ratchet',
   'risk_pct_per_trade',
   'max_open_trades',
   'max_open_trades_per_symbol',
@@ -95,6 +116,7 @@ const sessionConfigAllowedKeys = [
   'max_trades_24h',
   'min_trade_interval_min',
   'trades_jitter_pct',
+  'trades_jitter_market_aware',
   'frequency_shaping_enabled',
   'frequency_tod_integration',
   'max_total_risk_pct',
@@ -114,7 +136,30 @@ const sessionConfigAllowedKeys = [
   'tod_min_winrate',
   'hot_loop_interval_ms',
   'main_loop_interval_ms',
+  'slippage_warning_threshold',
+  'slippage_abort_threshold',
   'debug_mode',
+  'hibernation_mode',
+  'hibernation_grace_period_sec',
+  'trailing_guard_buffer_pct',
+  'scanner_weights',
+  'sl_out_of_bounds_action',
+  'scanner_signal_depth',
+  'engulfing_mode',
+  'engulfing_timing',
+  'engulfing_volume_confirm',
+  'engulfing_lookback',
+  'engulfing_streak',
+  'engulfing_sequential',
+  'risk_hardening_enabled',
+  'max_single_trade_risk_pct',
+  'smart_watchlist_enabled',
+  'smart_watchlist_sensitivity',
+  'trailing_stop_enabled',
+  'trailing_stop_distance_pct',
+  'signal_timeframes',
+  'paused',
+  'paused_strategies',
 ]
 
 const sanitizeSessionConfig = (config) => {
@@ -170,12 +215,13 @@ export const createSessionAPI = (apiInstance = api) => ({
   status: (config) => apiInstance.get('/session/status', config),
   list: () => apiInstance.get('/session/list'),
   update: (id, config) => apiInstance.patch(`/session/${id}`, { config: sanitizeSessionConfig(config) }),
-  pause: (paused) => apiInstance.post('/session/pause', { paused }),
+  pause: (paused, strategyLabel) => apiInstance.post('/session/pause', { paused, strategyLabel }),
   delete: (id) => apiInstance.delete(`/session/${id}`),
   rateLimit: () => apiInstance.get('/session/binance/rate-limit'),
   history: (sessionId) => apiInstance.get('/session/history', { params: { sessionId } }),
   getTrade: (id) => apiInstance.get(`/session/trade/${id}`),
   closeTrade: (symbol) => apiInstance.post(`/session/trade/${symbol}/close`),
+  updateTradeConfig: (id, payload) => apiInstance.patch(`/session/trade/${id}/config`, payload),
   analytics: () => apiInstance.get('/session/analytics'),
   getLifetimeAnalytics: (mode) => apiInstance.get('/session/lifetime-analytics', { params: { mode } }),
   resetPaperBalance: () => apiInstance.post('/session/reset-paper-balance'),
@@ -188,6 +234,12 @@ export const settingsAPI = {
   getKeys: () => api.get('/settings/keys'),
   validateKeys: (keys) => api.post('/settings/keys/validate', keys),
   updateKeys: (keys) => api.post('/settings/keys', keys),
+}
+
+export const presetsAPI = {
+  list: () => api.get('/presets'),
+  save: (name, config) => api.post('/presets', { name, config: sanitizeSessionConfig(config) }),
+  delete: (name) => api.delete(`/presets/${encodeURIComponent(name)}`),
 }
 
 export { sanitizeSessionConfig }

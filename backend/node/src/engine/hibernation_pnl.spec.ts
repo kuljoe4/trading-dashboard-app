@@ -26,7 +26,7 @@ describe('Hibernation PnL Integrity', () => {
       { clear: jest.fn() } as any, // klineStore
       {} as any, // signalEngine
       { canEnter: () => ({ canEnter: true }) } as any, // riskEngine
-      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn(), removeTrade: jest.fn() } as any, // positionTracker
+      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn(), removeTrade: jest.fn(), clear: jest.fn() } as any, // positionTracker
       { getTakerFeeRate: () => 0.0004 } as any, // orderManager
       {} as any, // marketFeed
       { start: jest.fn(), stop: jest.fn() } as any, // momentumScanner

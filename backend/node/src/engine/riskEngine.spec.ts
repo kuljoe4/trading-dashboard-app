@@ -81,7 +81,24 @@ describe('RiskEngineService - Frequency Limits', () => {
 
     const result = service.canEnter([], closed, 10000, 'BTCUSDT', mockConfig, 0);
 
-    const jitterFactor = 1 + ((Math.abs(Math.sin(lastTradeTs)) * 50) / 100);
+    // BOLT: Replicate backend hashing logic (FNV-1a + 32-bit mix hash)
+    const getHash = (n: number) => {
+      let h = n >>> 0;
+      h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+      h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+      h = h ^ (h >>> 15);
+      return (h >>> 0) / 4294967296;
+    };
+
+    let symbolHash = 0x811c9dc5;
+    for (let i = 0; i < 'BTCUSDT'.length; i++) {
+      symbolHash ^= 'BTCUSDT'.charCodeAt(i);
+      symbolHash = Math.imul(symbolHash, 0x01000193);
+    }
+    symbolHash = symbolHash >>> 0;
+
+    const jitterSeed = (Math.floor(lastTradeTs / 10000) * 10000) + (symbolHash % 10000);
+    const jitterFactor = 1 + (getHash(jitterSeed) * 50) / 100;
     const effectivePeriodMs = 60 * 60 * 1000 * jitterFactor;
     const isInside = (now - lastTradeTs) < effectivePeriodMs;
 
@@ -134,6 +151,35 @@ describe('RiskEngineService - Frequency Limits', () => {
       const result = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, totalSlUsed, enteringCount);
       expect(result.canEnter).toBe(false);
       expect(result.reason).toContain('Trade spacing active');
+    });
+  });
+
+  describe('Prospective Post-Scaling Risk Validation', () => {
+    it('should block entry if prospective scaled risk exceeds max_total_risk_pct', () => {
+      const activeTrades: any[] = [];
+      const closedTrades: any[] = [];
+      const balance = 1000;
+      const config = {
+        risk_pct_per_trade: 1.0, // nominal risk is 1.0%
+        max_total_risk_pct: 2.0 // limit is 2.0%
+      } as any;
+      const totalSlUsed = 1.5 * 10; // currently using 1.5% risk (15 USDT on 1000 USDT balance)
+
+      // Nominal check would succeed: 1.5% + 1.0% = 2.5% > 2.0% (wait, 1.5 + 1.0 is already 2.5% which exceeds 2.0%)
+      // Let's adjust totalSlUsed to 0.5% (5 USDT). Total = 0.5% + 1.0% = 1.5% < 2.0% (Nominal succeeds)
+      const currentSlUsed = 5; // 0.5% of 1000
+
+      // Case A: Nominal check: 0.5% + 1.0% = 1.5% < 2.0% (Should succeed)
+      const resultNominal = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, currentSlUsed);
+      expect(resultNominal.canEnter).toBe(true);
+
+      // Case B: Post-scaling check where scaled risk is 1.8% (due to min-notional scaling):
+      // Total risk would be 0.5% + 1.8% = 2.3% > 2.0% max limit. (Should be blocked!)
+      const prospectiveScaledRiskPct = 1.8;
+      const resultScaled = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, currentSlUsed, 0, undefined, prospectiveScaledRiskPct);
+      expect(resultScaled.canEnter).toBe(false);
+      expect(resultScaled.reason).toContain('Risk ceiling reached');
+      expect(resultScaled.reason).toContain('1.80% prospective');
     });
   });
 

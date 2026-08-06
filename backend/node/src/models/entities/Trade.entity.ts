@@ -1,7 +1,5 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
 import { Session } from './Session.entity';
-
-export const TERMINAL_STATUSES = ['CLOSED', 'CLOSED_SL', 'CLOSED_TP', 'CLOSED_SIGNAL', 'CLOSED_ORPHANED'] as const;
 
 @Entity()
 export class TradeEntity {
@@ -29,7 +27,13 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   max_rr_achieved: number;
 
-  @Column({ default: 0 })
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  min_rr_achieved: number;
+
+  @Column('decimal', { precision: 20, scale: 8, default: 0 })
+  exit_rr: number;
+
+  @Column({ default: -1 })
   rr_sequence_index: number;
 
   @CreateDateColumn()
@@ -51,92 +55,104 @@ export class TradeEntity {
   risk_usdt: number;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
-  initial_risk_usdt: number;
+  initial_risk_usdt: number | null;
 
   @Index()
   @Column()
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED';
 
   @Index()
-  @Column({ nullable: true })
-  exit_ts: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  exit_ts: Date | null;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
-  exit_price: number;
+  exit_price: number | null;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
-  mark_price: number;
+  mark_price: number | null;
 
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
-  last_price: number;
+  last_price: number | null;
 
-  @Column({ nullable: true })
-  exit_reason: string;
+  @Column({ type: 'varchar', nullable: true })
+  exit_reason: string | null;
 
-  @Column({ nullable: true })
-  exit_signal_type: string;
+  @Column({ type: 'varchar', nullable: true })
+  exit_signal_type: string | null;
 
-  @Column({ nullable: true })
-  exit_signal_reason: string;
+  @Column({ type: 'varchar', nullable: true })
+  exit_signal_reason: string | null;
 
   @Column('jsonb', { nullable: true })
-  exit_signals_status: any;
+  exit_signals_status: any | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  entry_signal_type: string | null;
+
+  @Column('decimal', { precision: 10, scale: 4, default: 0 })
+  entry_signal_confidence: number;
 
   @Column('jsonb', { default: [] })
   sl_adjustments: any[];
 
-  @Column('decimal', { precision: 10, scale: 4, nullable: true })
-  pnl_pct: number;
-
-  @Column({ nullable: true })
-  entry_signal_type: string;
-
-  @Column('decimal', { precision: 20, scale: 8, default: 0, nullable: false })
-  entry_signal_confidence: number;
-
-  @Column({ nullable: true })
-  binance_order_id: string;
-
-  @Column({ nullable: true })
-  binance_close_order_id: string;
-
-  @Column({ nullable: true })
-  binance_stop_order_id: string;
-
-  @Column({ nullable: true })
-  binance_stop_order_type: 'standard' | 'algo';
-
-  @Column({ default: 0, nullable: false })
-  close_attempts: number;
-
-  @Column('bigint', { nullable: true, transformer: {
-    to: (value: number) => value,
-    from: (value: string) => value ? parseInt(value, 10) : null
-  } })
-  last_close_attempt_ts: number;
-
-  @Column({ default: false, nullable: false })
-  close_blocked: boolean;
+  @Column({ type: 'text', nullable: true })
+  _sig_json: string | null;
 
   @Column('decimal', { precision: 10, scale: 4, nullable: true })
-  entry_daily_change_pct: number;
+  pnl_pct: number | null;
 
-  @Index()
-  @Column({ nullable: true })
-  sessionId: string;
+  @Column('decimal', { precision: 10, scale: 4, nullable: true })
+  entry_daily_change_pct: number | null;
 
-  @Index()
-  @Column({ nullable: true })
-  strategy_label: string;
+  @Column({ type: 'varchar', nullable: true })
+  binance_order_id: string | null;
 
-  @Column('jsonb', { nullable: true })
-  strategy_config: any;
+  @Column({ type: 'varchar', nullable: true })
+  binance_close_order_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  binance_stop_order_id: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  binance_stop_order_type: string | null;
 
   @Column({ default: false })
   is_reconciliation: boolean;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP', onUpdate: 'CURRENT_TIMESTAMP' })
+  @Column({ default: 0 })
+  close_attempts: number;
+
+  @Column('bigint', { nullable: true, transformer: {
+    to: (value: number | null) => value,
+    from: (value: string | null) => value ? parseInt(value, 10) : null
+  }})
+  last_close_attempt_ts: number;
+
+  @Column({ default: false })
+  close_blocked: boolean;
+
+  @Column({ default: false })
+  illiquid_blocked: boolean;
+
+  @UpdateDateColumn()
   updated_at: Date;
+
+  @Index()
+  @Column({ type: 'varchar', nullable: true })
+  sessionId: string | null;
+
+  @Index()
+  @Column({ type: 'varchar', nullable: true })
+  strategy_label: string | null;
+
+  @Column('jsonb', { nullable: true })
+  strategy_config: any | null;
+
+  @Column('jsonb', { nullable: true })
+  live_rr_sequence: number[] | null;
+
+  @Column('jsonb', { nullable: true })
+  exit_rr_sequence: number[] | null;
 
   @ManyToOne(() => Session)
   @JoinColumn({ name: 'sessionId' })

@@ -1,0 +1,833 @@
+     1	import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
+     2	import { shallow } from 'zustand/shallow'
+     3	import { pnlColor, fmtUSD, C } from '../lib/theme'
+     4	import { useTradingStore } from '../store/trading'
+     5	import { sessionAPI } from '../api/client'
+     6	import {
+     7	  StatCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
+     8	    ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden
+     9	  } from '../components/ui/primitives'
+    10	import {
+    11	  ChevronLeft, Plus, Trash2, LayoutDashboard, History,
+    12	  Settings as SettingsIcon, Activity, Zap, ShieldCheck,
+    13	  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
+    14	  Briefcase, TrendingUp, ArrowRight
+    15	} from 'lucide-react'
+    16	import { Drawer } from 'vaul'
+    17	import { motion, AnimatePresence } from 'framer-motion'
+    18	import { Sidebar, BottomNav } from '../components/Navigation'
+    19
+    20	// Lazy Load heavy components
+    21	const DecisionLog = lazy(() => import('../components/DecisionLog').then(module => ({ default: module.DecisionLog })))
+    22	const ConfigModal = lazy(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
+    23	const ScannerOverlay = lazy(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
+    24	import { ConfirmationModal } from '../components/ConfirmationModal'
+    25	const StrategyDetailView = lazy(() => import('./StrategyDetailView'))
+    26
+    27	const LoadingFallback = () => (
+    28	  <div className="flex items-center justify-center p-20">
+    29	    <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+    30	  </div>
+    31	)
+    32
+    33	// --- Strategy Card ---
+    34	const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, scannerResults, onOpenScanner }) => {
+    35	  const [isExpanded, setIsExpanded] = useState(false);
+    36	  const slPct = Math.min(((s.totalSlUsed / config.total_sl_guard_usdt) * 100) || 0, 100);
+    37	  const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+    38
+    39	  return (
+    40	    <motion.div
+    41	      layout
+    42	      onClick={onClick}
+    43	      className={cn(
+    44	        "bg-surface border border-border rounded-2xl p-6 cursor-pointer transition-all relative group shadow-sm h-full",
+    45	        tradingMode === 'paper' ? "hover:border-amber/40 hover:shadow-amber/5" :
+    46	        tradingMode === 'testnet' ? "hover:border-purple/40 hover:shadow-purple/5" :
+    47	        "hover:border-green/40 hover:shadow-green/5"
+    48	      )}
+    49	    >
+    50	      {paused && (
+    51	        <div className="absolute inset-0 bg-background/40 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center pointer-events-none">
+    52	          <div className="bg-amber/10 border border-amber/20 text-amber px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-2xl">
+    53	            <Pause size={12} fill="currentColor" /> Session Paused
+    54	          </div>
+    55	        </div>
+    56	      )}
+    57	        <div className="flex justify-between items-start mb-6" aria-live="polite">
+    58	        <div>
+    59	          <div className="flex items-center gap-2 mb-3">
+    60	            <StatusBadge status={s.sessionActive} />
+    61	            {tradingMode === 'paper' && <PaperBadge />}
+    62	            {tradingMode === 'testnet' && <DemoBadge />}
+    63	            {tradingMode === 'live' && <LiveBadge />}
+    64	          </div>
+    65	          <div className="text-[17px] font-bold">{s.strategy_label}</div>
+    66	          <div className="text-[11px] text-dim mt-1.5 font-bold uppercase tracking-wider flex flex-col gap-1">
+    67	            <div className="flex items-center gap-2">
+    68	              <Zap size={12} className={cn("text-accent", config.global_scanner_enabled === false && "text-dim")} />
+    69	              <span className={cn(config.global_scanner_enabled === false && "line-through decoration-red/40 decoration-2")}>
+    70	                {config.scan_interval} · {config.scan_pct_threshold}% threshold
+    71	              </span>
+    72	            </div>
+    73	            {(config.single_symbol_configs || []).filter(sc => sc.enabled).length > 0 && (
+    74	              <div className="flex items-center gap-2">
+    75	                <ShieldCheck size={12} className="text-accent" />
+    76	                <span>{config.single_symbol_configs.filter(sc => sc.enabled).length} Symbol Monitors Active</span>
+    77	              </div>
+    78	            )}
+    79	          </div>
+    80	        </div>
+    81	        <div className="text-right shrink-0">
+    82	          <div className="flex gap-2 mb-2 relative z-20">
+    83	            <Tooltip content={isExpanded ? "Hide Details" : "Show Details"}>
+    84	              <button
+    85	                onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
+    86	                aria-label={isExpanded ? "Hide strategy details" : "Show strategy details"}
+    87	                aria-expanded={isExpanded}
+    88	                className={cn(
+    89	                  "p-2 bg-surface border border-border rounded-lg transition-all active:scale-95",
+    90	                  isExpanded ? "text-accent border-accent/40" : "hover:border-accent/40 hover:text-accent"
+    91	                )}
+    92	              >
+    93	                <Activity size={14} />
+    94	              </button>
+    95	            </Tooltip>
+    96	            <Tooltip content="Edit Config">
+    97	              <button
+    98	                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+    99	                className="p-2 bg-surface border border-border rounded-lg hover:border-accent/40 hover:text-accent transition-all active:scale-95"
+   100	                aria-label="Edit strategy configuration"
+   101	              >
+   102	                <Edit3 size={14} />
+   103	              </button>
+   104	            </Tooltip>
+   105	            <Tooltip content={paused ? "Resume Session" : "Pause Session"}>
+   106	              <button
+   107	                onClick={(e) => { e.stopPropagation(); onPause(); }}
+   108	                className={cn(
+   109	                  "p-2 border rounded-lg transition-all active:scale-95",
+   110	                  paused ? "bg-green/10 border-green/20 text-green hover:bg-green/20" : "bg-amber/10 border-amber/20 text-amber hover:bg-amber/20"
+   111	                )}
+   112	                aria-label={paused ? "Resume strategy session" : "Pause strategy session"}
+   113	              >
+   114	                {paused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
+   115	              </button>
+   116	            </Tooltip>
+   117	          </div>
+   118	          <div className="text-2xl font-bold font-mono" style={{ color: pnlColor(s.totalPnl) }}>
+   119	            {fmtUSD(s.totalPnl)}
+   120	          </div>
+   121	          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mt-1">
+   122	            {s.entryCount} ENTRIES · {s.hitCount} HITS
+   123	          </div>
+   124	        </div>
+   125	      </div>
+   126
+   127	      <AnimatePresence>
+   128	        {isExpanded && (
+   129	          <motion.div
+   130	            initial={{ height: 0, opacity: 0 }}
+   131	            animate={{ height: 'auto', opacity: 1 }}
+   132	            exit={{ height: 0, opacity: 0 }}
+   133	            className="overflow-hidden"
+   134	          >
+   135	            <div className="mb-2 mt-4 pt-4 border-t border-border/20">
+   136	              <div className="flex justify-between text-[10px] text-dim font-bold tracking-widest mb-2 uppercase">
+   137	                <span className="flex items-center gap-1.5"><ShieldCheck size={12} /> SL GUARD</span>
+   138	                <span className={slPct > 70 ? "text-red" : "text-dim"}>${Number(s.totalSlUsed || 0).toFixed(0)} / ${config.total_sl_guard_usdt}</span>
+   139	              </div>
+   140	              <div className="h-1.5 bg-border rounded-full overflow-hidden mb-4">
+   141	                <div
+   142	                  className={cn(
+   143	                    "h-full transition-all duration-700",
+   144	                    slPct > 70 ? "bg-red" :
+   145	                    tradingMode === 'paper' ? "bg-amber shadow-[0_0_8px_rgba(245,166,35,0.4)]" :
+   146	                    tradingMode === 'testnet' ? "bg-purple shadow-[0_0_8px_rgba(168,85,247,0.4)]" :
+   147	                    "bg-green shadow-[0_0_8px_rgba(34,197,94,0.4)]"
+   148	                  )}
+   149	                  style={{ width: `${slPct}%` }}
+   150	                />
+   151	              </div>
+   152	              <ScannerPreview scannerResults={scannerResults || []} config={config} onOpen={(e) => { e.stopPropagation(); onOpenScanner(); }} />
+   153	            </div>
+   154	          </motion.div>
+   155	        )}
+   156	      </AnimatePresence>
+   157	    </motion.div>
+   158	  );
+   159	})
+   160
+   161	const GateBanner = ({ gateState, scannerPaused, reason, hibernating, activeTradesCount }) => {
+   162	  if (!gateState && !scannerPaused) return null
+   163
+   164	  const messages = {
+   165	    max_trades: 'Maximum open trades reached. Entry gated.',
+   166	    max_trades_period: 'Maximum trades for the current period reached. Scanner paused.',
+   167	    sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
+   168	    risk_pct: 'Total risk limit reached. Entries restricted.',
+   169	    tod_risk: 'Historical performance risk for this hour. Entries blocked.',
+   170	    sleeping: 'Engine idling outside trading windows.',
+   171	    risk: 'Risk gate active. Monitoring only.',
+   172	  }
+   173
+   174	  const isGatedIdle = (gateState === 'sleeping' || gateState === 'max_trades_period' || gateState === 'sl_guard') && activeTradesCount === 0;
+   175
+   176	  return (
+   177	    <motion.div
+   178	      initial={{ opacity: 0, y: -10 }}
+   179	      animate={{ opacity: 1, y: 0 }}
+   180	      className={cn(
+   181	        "p-4 rounded-xl mb-6 text-xs font-bold border flex flex-col gap-2 shadow-sm transition-colors",
+   182	        scannerPaused ? "bg-red/10 border-red/20 text-red" : "bg-amber/10 border-amber/20 text-amber",
+   183	        (hibernating || isGatedIdle) && "bg-accent/5 border-accent/20 text-accent/80"
+   184	      )}
+   185	    >
+   186	      <div className="flex items-center gap-3">
+   187	        {hibernating ? <Zap size={16} className="text-accent animate-pulse opacity-50" /> : gateState === 'sleeping' ? <Pause size={16} className="animate-pulse" /> : <XCircle size={16} className={scannerPaused ? "animate-pulse" : ""} />}
+   188	        <span className="uppercase tracking-widest">{messages[gateState] || 'Risk gate active.'}</span>
+   189	        {hibernating ? (
+   190	           <Tooltip content="Deep Sleep (Hibernation) Active: All market data connections closed to save maximum CPU/Memory. Engine will wake up automatically when limit expires.">
+   191	            <div className="ml-auto bg-accent/20 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/40 text-accent">
+   192	              <Zap size={10} fill="currentColor" /> DEEP SLEEP
+   193	            </div>
+   194	          </Tooltip>
+   195	        ) : isGatedIdle && (
+   196	          <Tooltip content="Resource Suppression Active: Market feed and scanner are throttled to save CPU/Memory while idle.">
+   197	            <div className="ml-auto bg-accent/10 px-2 py-0.5 rounded text-[10px] flex items-center gap-1.5 border border-accent/20">
+   198	              <Leaf size={10} /> RESOURCE SAVER
+   199	            </div>
+   200	          </Tooltip>
+   201	        )}
+   202	      </div>
+   203	      {reason && reason !== 'OK' && (
+   204	        <div className="pl-7 opacity-80 font-mono text-[10px] tracking-tight">
+   205	          Backend: {reason}
+   206	        </div>
+   207	      )}
+   208	    </motion.div>
+   209	  )
+   210	}
+   211
+   212	const ScannerPreview = ({ scannerResults, config, onOpen }) => {
+   213	  const threshold = config.scan_pct_threshold || 2
+   214	  const top = scannerResults.slice(0, 5)
+   215	  // Pre-allocate 5 slots to prevent layout shift
+   216	  const placeholders = Array.from({ length: Math.max(0, 5 - top.length) })
+   217
+   218	  return (
+   219	    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[385px] flex flex-col">
+   220	      <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
+   221	        <div className="flex flex-col">
+   222	          <SectionLabel className="mb-0">
+   223	            <Zap size={14} className="text-accent" /> Live Scanner
+   224	          </SectionLabel>
+   225	          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Opportunities</span>
+   226	        </div>
+   227	        <button className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest" aria-label="View all scanner results" onClick={onOpen}>Open Full</button>
+   228	      </div>
+   229	      <div className="flex-1">
+   230	        {top.length === 0 && placeholders.length === 5 ? (
+   231	          <div className="h-full flex items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse">
+   232	            Waiting for market data...
+   233	          </div>
+   234	        ) : (
+   235	          <>
+   236	            <AnimatePresence mode="popLayout">
+   237	              {top.map((opp, i) => {
+   238	                const passing = Math.abs(opp.pct) >= threshold
+   239	                const isLong = opp.pct >= 0
+   240	                const colorClass = isLong ? "text-green" : "text-red"
+   241	                const isLast = i === top.length - 1 && placeholders.length === 0;
+   242	                return (
+   243	                  <motion.div
+   244	                    key={opp.symbol}
+   245	                    layout
+   246	                    initial={{ opacity: 0 }}
+   247	                    animate={{ opacity: 1 }}
+   248	                    exit={{ opacity: 0 }}
+   249	                    className={cn(
+   250	                      "flex items-center gap-4 p-4 transition-colors hover:bg-white/5 h-[64px]",
+   251	                      !isLast && "border-b border-border/40",
+   252	                      !passing && "opacity-60"
+   253	                    )}
+   254	                  >
+   255	                    <span className="text-[10px] text-dim font-mono w-4">#{i + 1}</span>
+   256	                    <strong className="text-xs font-mono w-16">{opp.symbol.replace('USDT', '')}</strong>
+   257	                    <div className="flex-1 flex justify-center h-8">
+   258	                      <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
+   259	                    </div>
+   260	                    <em className={cn("text-xs font-bold font-mono w-16 text-right", colorClass)}>
+   261	                      {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
+   262	                    </em>
+   263	                    <b className={cn("text-[10px] font-bold w-12 text-right uppercase tracking-wider", passing ? "text-green" : "text-dim")}>
+   264	                      {passing ? 'PASS' : 'WAIT'}
+   265	                    </b>
+   266	                  </motion.div>
+   267	                )
+   268	              })}
+   269	            </AnimatePresence>
+   270	            {placeholders.map((_, i) => (
+   271	              <div key={`placeholder-${i}`} className={cn(
+   272	                "h-[64px] flex items-center px-4 opacity-10 grayscale",
+   273	                i !== placeholders.length - 1 && "border-b border-border/40"
+   274	              )}>
+   275	                <div className="w-4 h-2 bg-dim rounded-full mr-4" />
+   276	                <div className="w-16 h-3 bg-dim rounded-full mr-4" />
+   277	                <div className="flex-1" />
+   278	                <div className="w-16 h-3 bg-dim rounded-full mr-4" />
+   279	                <div className="w-12 h-2 bg-dim rounded-full" />
+   280	              </div>
+   281	            ))}
+   282	          </>
+   283	        )}
+   284	      </div>
+   285	    </div>
+   286	  )
+   287	}
+   288
+   289	export function DashboardView({ initialStrategy }) {
+   290	  const [selected, setSelected] = useState(initialStrategy || null)
+   291	  const [showConfig, setShowConfig] = useState(false)
+   292	  const [showScanner, setShowScanner] = useState(false)
+   293	  const [isEditMode, setIsEditMode] = useState(false)
+   294	  const [selectedConfig, setSelectedConfig] = useState(null)
+   295	  const [editingVariantIndex, setEditingVariantIndex] = useState(null)
+   296	  const [confirmStop, setConfirmStop] = useState(false)
+   297	  const [sessionToDelete, setSessionToDelete] = useState(null)
+   298
+   299	  const {
+   300	    sessionActive, sessionPaused, strategyId, balance, totalPnl, totalRiskPct,
+   301	    totalSlUsed, activeTrades, config, setSessionActive,
+   302	    updateConfig, gateState, gateReason, hibernating,
+   303	    scannerPaused, sessionList, fetchSessions, wsStatus,
+   304	    sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount
+   305	  } = useTradingStore(state => ({
+   306	    sessionActive: state.sessionActive,
+   307	    sessionPaused: state.sessionPaused,
+   308	    strategyId: state.strategyId,
+   309	    balance: state.balance,
+   310	    totalPnl: state.totalPnl,
+   311	    totalRiskPct: state.totalRiskPct,
+   312	    totalSlUsed: state.totalSlUsed,
+   313	    activeTrades: state.activeTrades,
+   314	    config: state.config,
+   315	    setSessionActive: state.setSessionActive,
+   316	    updateConfig: state.updateConfig,
+   317	    gateState: state.gateState,
+   318	    gateReason: state.gateReason,
+   319	    hibernating: state.hibernating,
+   320	    scannerPaused: state.scannerPaused,
+   321	    sessionList: state.sessionList,
+   322	    fetchSessions: state.fetchSessions,
+   323	    wsStatus: state.wsStatus,
+   324	    sidebarCollapsed: state.sidebarCollapsed,
+   325	    variantScannerResults: state.variantScannerResults,
+   326	    variantStats: state.variantStats,
+   327	    isThrottled: state.isThrottled,
+   328	    setThrottled: state.setThrottled,
+   329	    isEcoMode: state.isEcoMode,
+   330	    entryCount: state.entryCount,
+   331	    hitCount: state.hitCount
+   332	  }), shallow)
+   333
+   334	  const safeVariantStats = variantStats || {}
+   335
+   336
+   337	  const { updateStats } = useTradingStore(state => ({
+   338	    updateStats: state.updateStats
+   339	  }), shallow)
+   340
+   341	  const [loading, setLoading] = useState(false)
+   342
+   343	  useEffect(() => {
+   344	    let timer;
+   345	    if (confirmStop) {
+   346	      timer = setTimeout(() => setConfirmStop(false), 3000);
+   347	    }
+   348	    return () => clearTimeout(timer);
+   349	  }, [confirmStop]);
+   350
+   351	  const currentStrategy = useMemo(() => ({
+   352	    sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount,
+   353	    strategy_label: config.strategy_label || 'Momentum Strategy'
+   354	  }), [sessionActive, sessionPaused, strategyId, totalPnl, totalRiskPct, totalSlUsed, activeTrades, entryCount, hitCount, config.strategy_label])
+   355
+   356	  const maxRR = useMemo(() => activeTrades.reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+   357
+   358	  useEffect(() => {
+   359	    // Legacy support for scanner-only focus if not handled by hook
+   360	    if (showScanner) {
+   361	       useTradingStore.getState().registerInterest('scanner');
+   362	       return () => useTradingStore.getState().unregisterInterest('scanner');
+   363	    }
+   364	  }, [showScanner]);
+   365	  useEffect(() => {
+   366	    fetchSessions();
+   367
+   368	    const toggleScanner = () => setShowScanner(prev => !prev);
+   369	    window.addEventListener('toggle-scanner', toggleScanner);
+   370	    return () => window.removeEventListener('toggle-scanner', toggleScanner);
+   371	  }, []);
+   372
+   373	  async function handleConfigSave(newConfig) {
+   374	    setLoading(true)
+   375	    setShowConfig(false)
+   376	    try {
+   377	      let finalConfig = newConfig;
+   378	      if (editingVariantIndex !== null) {
+   379	        const variants = [...(config.strategy_variants || [])];
+   380	        variants[editingVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
+   381	        finalConfig = { ...config, strategy_variants: variants };
+   382	      }
+   383
+   384	      if (isEditMode && strategyId) {
+   385	        await sessionAPI.update(strategyId, finalConfig)
+   386	        updateConfig(finalConfig)
+   387	      } else {
+   388	        updateConfig(finalConfig)
+   389	        const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
+   390	        setSessionActive(true, res.data.strategyId || res.data.strategy_id)
+   391	      }
+   392	      await fetchSessions()
+   393	    } catch (e) {
+   394	      const isNetworkError = e.message === 'Network Error' || e.code === 'ERR_NETWORK';
+   395	      const msg = isNetworkError
+   396	        ? 'Network Error: Failed to reach backend. Check your internet or CORS settings.'
+   397	        : (e?.response?.data?.detail || e?.response?.data?.message || 'Failed to save config');
+   398	      alert(msg)
+   399	    } finally {
+   400	      setLoading(false)
+   401	      setIsEditMode(false)
+   402	      setEditingVariantIndex(null)
+   403	    }
+   404	  }
+   405
+   406	  async function togglePause() {
+   407	    try {
+   408	      await sessionAPI.pause(!sessionPaused)
+   409	    } catch (e) {
+   410	      console.error('Pause toggle failed:', e)
+   411	    }
+   412	  }
+   413
+   414	  async function handleResumeLast() {
+   415	    if (sessionList.length === 0) return;
+   416	    const last = sessionList[0];
+   417	    setLoading(true);
+   418	    try {
+   419	      const res = await sessionAPI.start(last.config, last.paperMode, last.id);
+   420	      setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+   421	    } catch (e) {
+   422	      alert('Failed to resume session');
+   423	    } finally {
+   424	      setLoading(false);
+   425	    }
+   426	  }
+   427
+   428	  async function handleStop() {
+   429	    setLoading(true)
+   430	    try {
+   431	      await sessionAPI.stop()
+   432	      setSessionActive(false, null)
+   433	      await fetchSessions()
+   434	    } catch (e) {
+   435	      setSessionActive(false, null)
+   436	      await fetchSessions()
+   437	    } finally {
+   438	      setLoading(false)
+   439	      setConfirmStop(false)
+   440	    }
+   441	  }
+   442
+   443	  async function handleDeleteSession() {
+   444	    if (!sessionToDelete) return
+   445	    setLoading(true)
+   446	    try {
+   447	      await sessionAPI.delete(sessionToDelete)
+   448	      await fetchSessions()
+   449	    } catch (e) {
+   450	      alert('Failed to delete session')
+   451	    } finally {
+   452	      setLoading(false)
+   453	      setSessionToDelete(null)
+   454	    }
+   455	  }
+   456
+   457	  if (selected) {
+   458	    return (
+   459	      <div className={cn(
+   460	        "pb-32 transition-all duration-300",
+   461	        sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
+   462	      )}>
+   463	        <Sidebar selected={selected} />
+   464	        <Suspense fallback={<LoadingFallback />}>
+   465	          <StrategyDetailView s={currentStrategy} onBack={() => setSelected(null)} />
+   466	        </Suspense>
+   467	        <BottomNav selected={selected} />
+   468	      </div>
+   469	    )
+   470	  }
+   471
+   472	  const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+   473
+   474	  return (
+   475	    <div className={cn(
+   476	      "min-h-screen transition-all duration-300 relative",
+   477	      sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]",
+   478	      tradingMode === 'paper' ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" :
+   479	      tradingMode === 'testnet' ? "shadow-[inset_0_0_100px_rgba(168,85,247,0.05)] border-purple/10" :
+   480	      "shadow-[inset_0_0_100px_rgba(34,197,94,0.05)] border-green/10"
+   481	    )}>
+   482	      {/* Audit Item 40: Persistent Paper Mode Indicator */}
+   483	      {tradingMode === 'paper' && (
+   484	        <div className="fixed top-0 left-0 right-0 h-1 bg-amber z-[100] shadow-[0_2px_10px_rgba(245,166,35,0.5)]" />
+   485	      )}
+   486	      <Sidebar selected={selected} />
+   487	      <div className="max-w-[1600px] mx-auto p-4 md:p-10 pb-32 lg:pb-10">
+   488
+   489	        <ConfirmationModal
+   490	          isOpen={confirmStop}
+   491	          onClose={() => setConfirmStop(false)}
+   492	          onConfirm={handleStop}
+   493	          title="Terminate Trading Session?"
+   494	          message="This will immediately close all open positions at market price and stop the engine. This action cannot be undone."
+   495	          confirmText="Terminate Everything"
+   496	          loading={loading}
+   497	        />
+   498
+   499	        <ConfirmationModal
+   500	          isOpen={!!sessionToDelete}
+   501	          onClose={() => setSessionToDelete(null)}
+   502	          onConfirm={handleDeleteSession}
+   503	          title="Delete Session History?"
+   504	          message="This will permanently remove this session's records from your history. This action cannot be undone."
+   505	          confirmText="Delete Permanently"
+   506	          loading={loading}
+   507	        />
+   508
+   509	        {/* Header Bar */}
+   510	        <motion.div
+   511	          initial={{ y: -20, opacity: 0 }}
+   512	          animate={{ y: 0, opacity: 1 }}
+   513	          className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 mb-10 bg-surface border border-border rounded-2xl p-6 shadow-sm"
+   514	        >
+   515	          <div className="flex items-center gap-4">
+   516	            <div className="flex flex-col">
+   517	              <div className="flex items-center gap-3 mb-1">
+   518	                <span className="text-xl font-bold tracking-tight">Operator Cockpit</span>
+   519	                {tradingMode === 'paper' && <PaperBadge />}
+   520	                {tradingMode === 'testnet' && <DemoBadge />}
+   521	                {tradingMode === 'live' && <LiveBadge />}
+   522	                {(isThrottled || isEcoMode) && <EcoBadge />}
+   523	              </div>
+   524	              <div className="flex items-center gap-3 lg:hidden">
+   525	                <span className={cn("text-[10px] font-bold font-mono tracking-widest uppercase", wsStatus === 'live' ? "text-green" : "text-amber")}>
+   526	                  {wsStatus === 'live' ? 'Connected' : 'Reconnecting'}
+   527	                </span>
+   528	                <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+   529	              </div>
+   530	              <div className="hidden lg:block text-[11px] text-dim font-bold uppercase tracking-widest">
+   531	                Real-time strategy management & market oversight
+   532	              </div>
+   533	            </div>
+   534	          </div>
+   535
+   536	          <div className="flex gap-3">
+   537	            <Tooltip content={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}>
+   538	              <button
+   539	                onClick={() => setThrottled(!isThrottled)}
+   540	                className={cn(
+   541	                  "p-3 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-2",
+   542	                  isThrottled
+   543	                    ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
+   544	                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+   545	                )}
+   546	              >
+   547	                <Leaf size={18} fill={isThrottled ? "currentColor" : "none"} />
+   548	                <span className="hidden md:inline text-[10px] font-bold uppercase tracking-widest">
+   549	                  {isThrottled ? "Eco Active" : "Eco Mode"}
+   550	                </span>
+   551	              </button>
+   552	            </Tooltip>
+   553
+   554	            {!sessionActive ? (
+   555	              <Btn variant="success" onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }} disabled={loading} className="flex-1 sm:flex-none">
+   556	                <Plus size={16} className="mr-2" /> New Session
+   557	              </Btn>
+   558	            ) : (
+   559	              <Btn
+   560	                variant="danger"
+   561	                onClick={() => setConfirmStop(true)}
+   562	                disabled={loading}
+   563	                className="flex-1 sm:flex-none"
+   564	              >
+   565	                <XCircle size={16} className="mr-2" /> Terminate Session
+   566	              </Btn>
+   567	            )}
+   568	          </div>
+   569	        </motion.div>
+   570
+   571	        <div aria-live="polite">
+   572	          <GateBanner
+   573	            gateState={gateState}
+   574	            scannerPaused={scannerPaused}
+   575	            reason={gateReason}
+   576	            hibernating={hibernating}
+   577	            activeTradesCount={activeTrades.length}
+   578	          />
+   579	        </div>
+   580
+   581	        {/* Global Metrics */}
+   582	        <motion.div
+   583	          initial={{ opacity: 0 }}
+   584	          animate={{ opacity: 1 }}
+   585	          transition={{ delay: 0.2 }}
+   586	          className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6"
+   587	        >
+   588	          <StatCard label="Account Balance" value={`$${balance.toLocaleString()}`} />
+   589	          <StatCard
+   590	            label="Session P&L"
+   591	            value={fmtUSD(totalPnl)}
+   592	            color={totalPnl >= 0 ? "text-green" : "text-red"}
+   593	            subValue={wsStatus !== 'live' ? "Synchronizing..." : undefined}
+   594	            syncing={wsStatus !== 'live'}
+   595	          />
+   596	          <StatCard label="Live Risk" value={`${Number(totalRiskPct || 0).toFixed(1)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+   597	          <StatCard label="Peak RR" value={`+${Number(maxRR || 0).toFixed(2)}`} color="text-accent" />
+   598	        </motion.div>
+   599
+   600	        {/* Active Positions Overview Banner */}
+   601	        <AnimatePresence>
+   602	          {activeTrades.length > 0 && (
+   603	            <motion.div
+   604	              initial={{ opacity: 0, height: 0 }}
+   605	              animate={{ opacity: 1, height: 'auto' }}
+   606	              exit={{ opacity: 0, height: 0 }}
+   607	              className="mb-10 overflow-hidden"
+   608	            >
+   609	              <button
+   610	                onClick={() => window.location.hash = '#/trades'}
+   611	                className="w-full bg-accent/5 border border-accent/20 rounded-2xl p-4 flex items-center justify-between group hover:bg-accent/10 transition-all"
+   612	              >
+   613	                <div className="flex items-center gap-4">
+   614	                  <div className="w-10 h-10 rounded-xl bg-accent text-white flex items-center justify-center shadow-lg shadow-accent/20">
+   615	                    <Briefcase size={20} />
+   616	                  </div>
+   617	                  <div className="text-left">
+   618	                    <div className="text-sm font-bold flex items-center gap-2">
+   619	                      {activeTrades.length} Active Positions
+   620	                      <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-0.5 rounded uppercase tracking-wider">Live</span>
+   621	                    </div>
+   622	                    <div className="text-[11px] text-dim font-bold uppercase tracking-widest mt-0.5">
+   623	                      Total Unrealized: <span className={activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0) >= 0 ? "text-green" : "text-red"}>
+   624	                        {fmtUSD(activeTrades.reduce((acc, t) => acc + (t.pnl || 0), 0))}
+   625	                      </span>
+   626	                    </div>
+   627	                  </div>
+   628	                </div>
+   629	                <div className="flex items-center gap-3 text-accent font-bold text-[10px] uppercase tracking-widest">
+   630	                  Monitor All <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+   631	                </div>
+   632	              </button>
+   633	            </motion.div>
+   634	          )}
+   635	        </AnimatePresence>
+   636
+   637	        {/* Main Grid */}
+   638	        <div className="grid grid-cols-1 xl:grid-cols-[1fr_420px] items-start gap-10">
+   639
+   640	          {/* Left Workspace */}
+   641	          <div className="space-y-10">
+   642	            <motion.div
+   643	              initial={{ x: -20, opacity: 0 }}
+   644	              animate={{ x: 0, opacity: 1 }}
+   645	              transition={{ delay: 0.3 }}
+   646	            >
+   647	              <SectionLabel>Active Strategy</SectionLabel>
+   648	              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+   649	                {sessionActive ? (
+   650	                  <>
+   651	                    <StrategyCard
+   652	                      s={{
+   653	                        ...currentStrategy,
+   654	                        ...safeVariantStats[currentStrategy.strategy_label]
+   655	                      }}
+   656	                      scannerResults={variantScannerResults[currentStrategy.strategy_label]}
+   657	                      config={config}
+   658	                      paused={sessionPaused}
+   659	                      onPause={togglePause}
+   660	                      onOpenScanner={() => setShowScanner(true)}
+   661	                      onEdit={() => { setIsEditMode(true); setSelectedConfig(config); setEditingVariantIndex(null); setShowConfig(true); }}
+   662	                      onClick={() => setSelected(currentStrategy.strategy_label)}
+   663	                    />
+   664	                    {(config.strategy_variants || []).filter(v => v.enabled !== false).map((variant, i) => {
+   665	                      const label = variant.strategy_label || `Variant ${i + 1}`;
+   666	                      const variantConfig = { ...config, ...variant };
+   667	                      return (
+   668	                        <StrategyCard
+   669	                          key={i}
+   670	                          s={{
+   671	                            ...currentStrategy,
+   672	                            strategy_label: label,
+   673	                            ...safeVariantStats[label]
+   674	                          }}
+   675	                          scannerResults={variantScannerResults[label]}
+   676	                          config={variantConfig}
+   677	                          paused={sessionPaused}
+   678	                          onPause={togglePause}
+   679	                          onOpenScanner={() => setShowScanner(true)}
+   680	                          onEdit={() => { setIsEditMode(true); setSelectedConfig(variantConfig); setEditingVariantIndex(i); setShowConfig(true); }}
+   681	                          onClick={() => setSelected(label)}
+   682	                        />
+   683	                      );
+   684	                    })}                  </>
+   685	                ) : (
+   686	                  <button
+   687	                    onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
+   688	                    aria-label="Create new trading session"
+   689	                    className="bg-background border-2 border-dashed border-border rounded-2xl p-10 flex flex-col items-center justify-center gap-4 text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all group h-[256px]"
+   690	                  >
+   691	                    <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+   692	                      <Plus size={24} />
+   693	                    </div>
+   694	                    <span className="text-[11px] font-bold uppercase tracking-widest">Configure Strategy</span>
+   695	                  </button>
+   696	                )}
+   697
+   698	                {sessionList
+   699	                  .filter(s => s.id !== strategyId)
+   700	                  .slice(0, 1)
+   701	                  .map(s => (
+   702	                  <div key={s.id} className="bg-surface/40 border border-border/60 rounded-2xl p-6 flex flex-col gap-6 opacity-90 h-[256px] relative group/prev">
+   703	                    {!sessionActive && (
+   704	                      <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] rounded-2xl z-10 flex items-center justify-center opacity-0 group-hover/prev:opacity-100 transition-opacity">
+   705	                        <button
+   706	                          onClick={handleResumeLast}
+   707	                          disabled={loading}
+   708	                          className="bg-accent text-white px-6 py-2.5 rounded-xl text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 shadow-xl active:scale-95 transition-transform"
+   709	                        >
+   710	                          <RefreshCw size={14} className={cn(loading && "animate-spin")} /> Resume Session
+   711	                        </button>
+   712	                      </div>
+   713	                    )}
+   714	                    <div className="flex justify-between items-start">
+   715	                      <div>
+   716	                        <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-2">Previous Session</div>
+   717	                        <div className="text-base font-bold">{s.config?.strategy_label || 'Momentum Strategy'}</div>
+   718	                        <div className="text-[10px] text-dim font-bold uppercase mt-1 tracking-tight">
+   719	                          {s.config?.scan_interval} · {s.config?.scan_pct_threshold}% threshold
+   720	                        </div>
+   721	                      </div>
+   722	                      <div className="text-right">
+   723	                        <div className={cn("text-xl font-bold font-mono", s.totalPnl >= 0 ? "text-green" : "text-red")}>
+   724	                          {fmtUSD(s.totalPnl)}
+   725	                        </div>
+   726	                      </div>
+   727	                    </div>
+   728	                    <div className="mt-auto pt-5 border-t border-border/20 flex justify-between items-center relative z-20">
+   729	                      <div className="flex items-center gap-1.5">
+   730	                        <span className="text-[10px] text-dim font-bold font-mono">ID: {s.id.substring(0, 8)}</span>
+   731	                        <CopyButton value={s.id} className="p-1" />
+   732	                      </div>
+   733	                      <button
+   734	                        onClick={() => setSessionToDelete(s.id)}
+   735	                        aria-label="Delete session history"
+   736	                        className="text-dim hover:text-red transition-colors"
+   737	                      >
+   738	                        <Trash2 size={16} />
+   739	                      </button>
+   740	                    </div>
+   741	                  </div>
+   742	                ))}
+   743	              </div>
+   744	            </motion.div>
+   745
+   746	            {/* Right Workspace (Context) */}
+   747	            <motion.div
+   748	              initial={{ x: 20, opacity: 0 }}
+   749	              animate={{ x: 0, opacity: 1 }}
+   750	              transition={{ delay: 0.5 }}
+   751	              className="space-y-10">
+   752	              <div className="bg-surface border border-border rounded-2xl p-6 flex flex-col h-[450px] shadow-sm">
+   753	                <SectionLabel className="mb-4">
+   754	                  <Activity size={14} className="text-accent" /> Session Logs
+   755	                </SectionLabel>
+   756	                <div className="flex-1 overflow-hidden">
+   757	                  <Suspense fallback={<LoadingFallback />}>
+   758	                    <DecisionLog />
+   759	                  </Suspense>
+   760	                </div>
+   761	                <div className="mt-2 text-[10px] text-dim font-bold uppercase tracking-widest text-center border-t border-border/20 pt-2">
+   762	                  Log Buffer: Latest 500 events
+   763	                </div>
+   764	              </div>
+   765	            </motion.div>
+   766	          </div>
+   767	        </div>
+   768
+   769	      {/* Modals & Drawers */}
+   770	        <Drawer.Root open={showConfig} onOpenChange={setShowConfig}>
+   771	          <Drawer.Portal>
+   772	            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
+   773	            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto">
+   774	              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
+   775	                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+   776	                <VisuallyHidden>
+   777	                  <Drawer.Title>Configuration</Drawer.Title>
+   778	                  <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
+   779	                </VisuallyHidden>
+   780	              </div>
+   781	              <div className="flex-1 overflow-hidden">
+   782	                <Suspense fallback={<LoadingFallback />}>
+   783	                  <ConfigModal
+   784	                    key={isEditMode ? (selectedConfig?.id || strategyId) : 'new'}
+   785	                    initialConfig={selectedConfig || config}
+   786	                    onSave={handleConfigSave}
+   787	                    onClose={() => setShowConfig(false)}
+   788	                    isEdit={isEditMode}
+   789	                  />
+   790	                </Suspense>
+   791	              </div>
+   792	            </Drawer.Content>
+   793	          </Drawer.Portal>
+   794	        </Drawer.Root>
+   795
+   796	        <Drawer.Root open={showScanner} onOpenChange={setShowScanner}>
+   797	          <Drawer.Portal>
+   798	            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
+   799	            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] h-full max-h-[96%] fixed bottom-0 left-0 right-0 z-50 focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto">
+   800	              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
+   801	                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+   802	                <VisuallyHidden>
+   803	                  <Drawer.Title>Scanner</Drawer.Title>
+   804	                  <Drawer.Description>View live market scanner opportunities</Drawer.Description>
+   805	                </VisuallyHidden>
+   806	              </div>
+   807	              <div className="flex-1 overflow-y-auto">
+   808	                <Suspense fallback={<LoadingFallback />}>
+   809	                  {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} />}
+   810	                </Suspense>
+   811	              </div>
+   812	            </Drawer.Content>
+   813	          </Drawer.Portal>
+   814	        </Drawer.Root>
+   815
+   816	        {/* Mobile Floating Controls */}
+   817	        <Tooltip content="Open Market Scanner" side="left">
+   818	          <motion.button
+   819	            whileHover={{ scale: 1.1 }}
+   820	            whileTap={{ scale: 0.9 }}
+   821	            onClick={() => setShowScanner(true)}
+   822	            aria-label="Open Market Scanner"
+   823	            className="lg:hidden fixed bottom-24 right-6 w-16 h-16 rounded-full bg-accent text-white shadow-2xl flex items-center justify-center z-40 animate-in fade-in zoom-in duration-500"
+   824	          >
+   825	            <Zap size={28} />
+   826	          </motion.button>
+   827	        </Tooltip>
+   828
+   829	        <BottomNav selected={selected} />
+   830	      </div>
+   831	    </div>
+   832	  )
+   833	}

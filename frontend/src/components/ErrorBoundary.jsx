@@ -17,7 +17,8 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       const isChunkError = this.state.error?.name === 'ChunkLoadError' ||
-                          this.state.error?.message?.includes('Failed to fetch dynamically imported module');
+                          /failed to fetch dynamically imported module/i.test(this.state.error?.message) ||
+                          /error loading dynamically imported module/i.test(this.state.error?.message);
 
       return (
         <div className="min-h-screen bg-slate-900 flex items-center justify-center p-6 text-center">

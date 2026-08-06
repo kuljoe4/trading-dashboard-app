@@ -4,21 +4,27 @@ import {
   Injectable,
   Logger,
   UnauthorizedException,
+  Optional,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Request } from "express";
 import { safeCompare } from "./crypto";
 import { isThrottled, recordFailure, clearFailures, extractIp } from "./throttle";
+import { AuditLogService } from "../trading/audit-log.service";
 
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
   private readonly logger = new Logger(ApiKeyGuard.name);
-  constructor(private configService: ConfigService) {}
+  constructor(
+    private configService: ConfigService,
+    @Optional() private readonly auditLog?: AuditLogService,
+  ) {}
 
   canActivate(context: ExecutionContext): boolean {
     const adminKey = this.configService.get<string>("ADMIN_API_KEY");
     const request = context.switchToHttp().getRequest<Request>();
     const isProduction = this.configService.get<string>("NODE_ENV") === "production";
+    const userAgent = request.headers["user-agent"];
     // Security: request.ip is populated by Express using 'trust proxy' if enabled.
     // We prefer it as it's more reliable than manually parsing headers.
     const clientIp = request.ip || extractIp(request.headers, request.socket?.remoteAddress || "unknown");
@@ -70,6 +76,19 @@ export class ApiKeyGuard implements CanActivate {
 
     const count = recordFailure(clientIp);
     this.logger.warn(`Failed auth attempt #${count} from IP: ${clientIp}`);
+
+    // PERSISTENT AUDIT: Log auth failure for forensic analysis
+    if (this.auditLog) {
+      this.auditLog.log({
+        action: 'AUTH_FAILURE',
+        actor: clientIp,
+        ip: clientIp,
+        userAgent,
+        details: { count, url: request.url },
+        level: 'WARN'
+      }).catch(err => this.logger.error(`Failed to log auth failure: ${err.message}`));
+    }
+
     throw new UnauthorizedException("Invalid or missing API Key");
   }
 }

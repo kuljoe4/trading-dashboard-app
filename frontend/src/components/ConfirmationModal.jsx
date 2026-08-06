@@ -1,60 +1,104 @@
-import React, { useEffect } from 'react'
+import React, { useRef, useEffect } from 'react'
+import * as Dialog from '@radix-ui/react-dialog'
 import { X, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { cn, Btn } from './ui/primitives'
+import { cn, Btn, Tooltip } from './ui/primitives'
 
 export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, confirmText = "Confirm", cancelText = "Cancel", variant = "danger", loading = false }) => {
-  useEffect(() => {
-    const handleEscape = (e) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
+  const cancelBtnRef = useRef(null);
 
-  if (!isOpen) return null;
+  // UX: Safe-by-default focus strategy. Auto-focus the non-destructive action (Cancel)
+  // to prevent accidental data loss from rapid 'Enter' key presses.
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        cancelBtnRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm"
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        className="relative bg-surface border border-border rounded-2xl p-6 w-full max-w-md shadow-2xl overflow-hidden"
-      >
-        <div className="flex justify-between items-start mb-4">
-          <div className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center",
-            variant === 'danger' ? "bg-red/10 text-red" : "bg-accent/10 text-accent"
-          )}>
-            <AlertTriangle size={20} />
-          </div>
-          <button
-            onClick={onClose}
-            className="text-dim hover:text-text p-1 transition-colors"
-            aria-label="Close"
-          >
-            <X size={20} />
-          </button>
-        </div>
+    <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <AnimatePresence>
+        {isOpen && (
+          <Dialog.Portal forceMount>
+            <Dialog.Overlay asChild>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
+              />
+            </Dialog.Overlay>
+            <Dialog.Content
+                className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10110 outline-none w-full max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-md"
+            >
+              <motion.div
+                role="alertdialog"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-xl p-3.5 md:p-4 shadow-2xl overflow-hidden"
+              >
+                  <div className="flex justify-between items-center mb-2">
+                    <div className={cn(
+                      "w-7 h-7 rounded-full flex items-center justify-center",
+                      variant === 'danger' ? "bg-red/10 text-red" : "bg-accent/10 text-accent"
+                    )}>
+                      <AlertTriangle size={14} />
+                    </div>
+                    <Tooltip content="Close">
+                      <Dialog.Close asChild>
+                        <button
+                          className="text-dim hover:text-text p-1 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          aria-label="Close dialog"
+                        >
+                          <X size={14} />
+                        </button>
+                      </Dialog.Close>
+                    </Tooltip>
+                  </div>
 
-        <h3 className="text-lg font-bold mb-2">{title}</h3>
-        <p className="text-sm text-dim leading-relaxed mb-6">{message}</p>
+                  <Dialog.Title className="text-sm font-bold mb-1">{title}</Dialog.Title>
+                  <Dialog.Description className="text-[11px] text-dim leading-relaxed mb-3">
+                    {message}
+                  </Dialog.Description>
 
-        <div className="flex gap-3">
-          <Btn variant="ghost" onClick={onClose} disabled={loading} className="flex-1">{cancelText}</Btn>
-          <Btn variant={variant} onClick={onConfirm} loading={loading} className="flex-1">{confirmText}</Btn>
-        </div>
-      </motion.div>
-    </div>
+                  <div className="flex flex-col-reverse sm:flex-row gap-2">
+                    <div className="flex-1">
+                      <Dialog.Close asChild>
+                        <Btn
+                          ref={cancelBtnRef}
+                          variant="ghost"
+                          disabled={loading}
+                          className="w-full h-9 py-1 text-[11px]"
+                        >
+                          {cancelText}
+                        </Btn>
+                      </Dialog.Close>
+                    </div>
+                    <div className="flex-1">
+                      <Btn
+                        variant={variant}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onConfirm();
+                        }}
+                        loading={loading}
+                        className="w-full h-9 py-1 text-[11px]"
+                      >
+                        {confirmText}
+                      </Btn>
+                    </div>
+                  </div>
+              </motion.div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        )}
+      </AnimatePresence>
+    </Dialog.Root>
   );
 }

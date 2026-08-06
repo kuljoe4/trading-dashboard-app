@@ -12,9 +12,16 @@ export interface Ticker {
 export class TickerCacheService {
   private readonly logger = new Logger(TickerCacheService.name);
   private tickers: Map<string, Ticker> = new Map();
+  private hasReceivedFirstData = false;
   private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
-  private readonly TOP_VOLUME_CACHE_TTL_MS = 60000;
+  private _topByChangeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
+  private readonly TOP_VOLUME_CACHE_TTL_MS = 300000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
+
+  // BOLT OPTIMIZATION: Read-only array cache of ticker values to prevent O(N) Array.from allocations.
+  // Since tickers are updated in-place (reference mutation), the cached array elements are always correct.
+  // We only invalidate the cache when a brand new symbol (a new key) is added to the tickers Map.
+  private latestTickersCache: Ticker[] | null = null;
 
   /**
    * BOLT OPTIMIZATION: Optimized to use object reuse and avoid redundant parseFloat.
@@ -43,6 +50,12 @@ export class TickerCacheService {
    */
   updateTicker(symbol: string, price?: string | number, volume?: string | number, open?: string | number, markPrice?: string | number) {
     if (!symbol) return;
+
+    if (!this.hasReceivedFirstData) {
+       this.hasReceivedFirstData = true;
+       this.logger.log(`[TickerCache] First ticker data received for ${symbol}. Bootstrap successful.`);
+    }
+
     const existing = this.tickers.get(symbol);
 
     const p = typeof price === 'string' ? parseFloat(price) : price;
@@ -56,21 +69,28 @@ export class TickerCacheService {
       if (p !== undefined && !Number.isNaN(p) && p > 0) existing.price = p;
       if (v !== undefined && !Number.isNaN(v)) existing.volume_24h = v;
       if (o !== undefined && !Number.isNaN(o) && o > 0) existing.open_24h = o;
-      if (mp !== undefined && !Number.isNaN(mp) && mp > 0) existing.mark_price = mp;
+      if (mp !== undefined && !Number.isNaN(mp) && mp > 0) {
+        existing.mark_price = mp;
+        // BOLT: Ensure price is initialized if we only have mark_price
+        if (existing.price === 0) existing.price = mp;
+      }
     } else {
       this.tickers.set(symbol, {
         symbol,
-        price: (p !== undefined && !Number.isNaN(p) && p > 0) ? p : 0,
+        price: (p !== undefined && !Number.isNaN(p) && p > 0) ? p : (mp || 0),
         mark_price: (mp !== undefined && !Number.isNaN(mp) && mp > 0) ? mp : undefined,
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
         open_24h: (o !== undefined && !Number.isNaN(o) && o > 0) ? o : undefined,
       });
+      this.latestTickersCache = null; // Invalidate cache on new symbol addition
     }
   }
 
   getPrice(symbol: string): number | null {
     const ticker = this.tickers.get(symbol);
-    return ticker ? ticker.price : null;
+    // BOLT: For Futures PnL, mark_price is more relevant and usually higher frequency (1s).
+    // Prioritize mark_price if available, falling back to last price.
+    return ticker ? (ticker.mark_price ?? ticker.price) : null;
   }
 
   /**
@@ -81,7 +101,10 @@ export class TickerCacheService {
   }
 
   getLatestTickers(): Ticker[] {
-    return Array.from(this.tickers.values());
+    if (!this.latestTickersCache) {
+      this.latestTickersCache = Array.from(this.tickers.values());
+    }
+    return this.latestTickersCache;
   }
 
   getCacheSize(): number {
@@ -89,11 +112,9 @@ export class TickerCacheService {
   }
 
   topByVolume(n: number, excluded: string[] = []): Ticker[] {
-    // BOLT OPTIMIZATION: Avoid expensive spread and sort for cache key when excluded list is empty (common case)
-    const cacheKey = excluded.length === 0
-      ? `${n}_none`
-      : `${n}_${[...excluded].sort().join(',')}`;
-
+    // BOLT OPTIMIZATION: Avoid expensive sort/join for empty exclusion lists (common case)
+    const hasExclusions = excluded && excluded.length > 0;
+    const cacheKey = !hasExclusions ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
     const cached = this._topByVolumeCache[cacheKey];
     const now = Date.now();
 
@@ -101,15 +122,29 @@ export class TickerCacheService {
       return cached.data;
     }
 
-    const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
-    // BOLT OPTIMIZATION: Avoid re-allocating full ticker array if cache miss is due only to time, but Map hasn't grown
-    const all = Array.from(this.tickers.values());
+    const excludedSet = hasExclusions ? new Set(excluded) : null;
+    const all = this.getLatestTickers();
     this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
-    const result = all
-      .filter(t => !excludedSet?.has(t.symbol))
-      .sort((a, b) => b.volume_24h - a.volume_24h)
-      .slice(0, n);
+    // BOLT OPTIMIZATION: Loop Fusion & Allocations Reduction.
+    // Instead of chaining filter, sort, and slice (which creates multiple intermediate arrays and processes elements redundantly),
+    // we filter out excluded symbols in a single linear pass and then perform the sort, pre-allocating the final result array.
+    const filtered: Ticker[] = [];
+    const len = all.length;
+    for (let i = 0; i < len; i++) {
+      const t = all[i];
+      if (!excludedSet?.has(t.symbol)) {
+        filtered.push(t);
+      }
+    }
+
+    filtered.sort((a, b) => b.volume_24h - a.volume_24h);
+
+    const resultLen = Math.min(n, filtered.length);
+    const result: Ticker[] = new Array(resultLen);
+    for (let i = 0; i < resultLen; i++) {
+      result[i] = filtered[i];
+    }
 
     const cacheKeys = Object.keys(this._topByVolumeCache);
     if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByVolumeCache[cacheKey]) {
@@ -124,12 +159,61 @@ export class TickerCacheService {
     return result;
   }
 
+  topByChangePct(n: number, excluded: string[] = []): Ticker[] {
+    const cacheKey = excluded.length === 0 ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
+    const cached = this._topByChangeCache[cacheKey];
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
+    const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
+    const all = this.getLatestTickers();
+    this.logger.verbose(`topByChangePct requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
+
+    // BOLT OPTIMIZATION: Schwartzian Transform (map-sort-map) & Loop Fusion.
+    // Pre-calculate absolute 24-hour change percentages in a single linear O(N) pass,
+    // avoiding redundant calculations, O(N log N) divisions/math, and multiple intermediate arrays.
+    const mapped: { ticker: Ticker; change: number }[] = [];
+    const len = all.length;
+    for (let i = 0; i < len; i++) {
+      const t = all[i];
+      if (!excludedSet?.has(t.symbol) && t.price && t.open_24h && t.open_24h > 0) {
+        const change = Math.abs(((t.price - t.open_24h) / t.open_24h) * 100);
+        mapped.push({ ticker: t, change });
+      }
+    }
+
+    mapped.sort((a, b) => b.change - a.change);
+
+    const resultLen = Math.min(n, mapped.length);
+    const result: Ticker[] = new Array(resultLen);
+    for (let i = 0; i < resultLen; i++) {
+      result[i] = mapped[i].ticker;
+    }
+
+    const cacheKeys = Object.keys(this._topByChangeCache);
+    if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByChangeCache[cacheKey]) {
+      delete this._topByChangeCache[cacheKeys[0]];
+    }
+
+    this._topByChangeCache[cacheKey] = {
+      data: result,
+      timestamp: now
+    };
+
+    return result;
+  }
+
   /**
    * Clear all ticker data to free up memory (Deep Sleep)
    */
   clear() {
     this.tickers.clear();
     this._topByVolumeCache = {};
+    this._topByChangeCache = {};
+    this.latestTickersCache = null; // Invalidate cache on clear
     this.logger.verbose('TickerCache cleared');
   }
 }

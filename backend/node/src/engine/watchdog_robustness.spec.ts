@@ -1,8 +1,11 @@
+import { OrderFilterService } from './order-filter.service';
+import { BroadcastService } from './broadcast.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { MaintenanceService } from './maintenance.service';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
+import { SessionStateService } from './session_state.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 
@@ -10,34 +13,57 @@ describe('Watchdog Robustness', () => {
   let service: MaintenanceService;
   let positionTracker: PositionTrackerService;
   let orderManager: OrderManagerService;
+  let module: TestingModule;
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
+        { provide: OrderFilterService, useValue: { applyFilters: jest.fn((sym, val) => val), checkLeverageBracket: jest.fn(() => ({ isAllowed: true, maxNotional: 1000000 })) } },
+        { provide: BroadcastService, useValue: { broadcast: jest.fn(), setWsBroadcaster: jest.fn() } },
         MaintenanceService,
         {
           provide: PositionTrackerService,
           useValue: {
             activeList: jest.fn(),
+            isEntering: jest.fn().mockReturnValue(false),
+            isClosing: jest.fn().mockReturnValue(false),
+            getInFlightSymbols: jest.fn().mockReturnValue([]),
+            recalculateTotalRisk: jest.fn(),
+            addTrade: jest.fn(),
+            reconcileMilestoneFromSl: jest.fn((trade, slPrice, config) => {
+              if (Number(slPrice) === 50000) trade.rr_sequence_index = 0;
+              return trade.rr_sequence_index;
+            }),
+            refreshTradeRisk: jest.fn(),
           },
         },
         {
           provide: OrderManagerService,
           useValue: {
-            fetchAllPositions: jest.fn().mockResolvedValue([]),
-            fetchOpenOrders: jest.fn().mockResolvedValue([]),
-            fetchAllOpenOrders: jest.fn().mockResolvedValue([]),
-            fetchAllOpenAlgoOrders: jest.fn().mockResolvedValue([]),
+            fetchAllPositions: jest.fn(),
+            fetchOpenOrders: jest.fn(),
+            fetchPosition: jest.fn(),
             isRatcheting: jest.fn().mockReturnValue(false),
-            placeStopLoss: jest.fn().mockResolvedValue({ orderId: '777' }),
-            cancelBinanceOrder: jest.fn().mockResolvedValue(true),
-            closeTrade: jest.fn().mockResolvedValue({ exitOccurred: true }),
+            isBanned: jest.fn().mockReturnValue(false),
+            placeStopLoss: jest.fn(),
+            cancelBinanceOrder: jest.fn(),
+            closeTrade: jest.fn(),
+            getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 0, limit: 2400 }),
+            fetchAllOpenOrders: jest.fn().mockResolvedValue([]),
+            seedRealTimePosition: jest.fn(),
           },
         },
         {
           provide: TickerCacheService,
           useValue: {
             getPrice: jest.fn(),
+            getTicker: jest.fn(),
+          },
+        },
+        {
+          provide: SessionStateService,
+          useValue: {
+            realTimePositions: new Map(),
           },
         },
         {
@@ -69,45 +95,101 @@ describe('Watchdog Robustness', () => {
   });
 
   it('should perform audit after cooldown window', async () => {
-    const trade = {
+    const trades = [{
       symbol: 'BTCUSDT',
       binance_order_id: '123',
-      updated_at: new Date(Date.now() - 60000), // 60s ago
-    } as Trade;
+      updated_at: new Date(Date.now() - 60000),
+    }] as Trade[];
 
-    (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
-    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
-    (orderManager.fetchAllOpenOrders as jest.Mock).mockResolvedValue([]);
-    (orderManager.fetchAllOpenAlgoOrders as jest.Mock).mockResolvedValue([]); // No SL found
+    (positionTracker.activeList as jest.Mock).mockReturnValue(trades);
+    (orderManager.fetchPosition as jest.Mock).mockResolvedValue({ symbol: 'BTCUSDT', positionAmt: '1.0' });
+    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
-    expect(orderManager.fetchAllPositions).toHaveBeenCalled();
+    expect(orderManager.fetchPosition).toHaveBeenCalledWith('BTCUSDT', { forceFresh: false });
     expect(orderManager.placeStopLoss).toHaveBeenCalled();
   });
 
   it('should trigger NUCLEAR OPTION if unprotected for > 2 minutes', async () => {
-    const trade = {
-      symbol: 'BTCUSDT',
-      binance_order_id: '123',
+    const eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+    const trades = Array(6).fill(null).map((_, i) => ({
+      id: `test-uuid-${i}`,
+      symbol: `BTCUSDT_${i}`,
+      binance_order_id: `123_${i}`,
+      qty: 1.0,
       updated_at: new Date(Date.now() - 150000), // 150s ago (> 120s)
-    } as Trade;
+    })) as Trade[];
 
-    (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
-    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT', positionAmt: '1.0' }]);
-    (orderManager.fetchAllOpenOrders as jest.Mock).mockResolvedValue([]);
-    (orderManager.fetchAllOpenAlgoOrders as jest.Mock).mockResolvedValue([]); // No SL found
+    (positionTracker.activeList as jest.Mock).mockReturnValue(trades);
+    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue(trades.map(t => ({ symbol: t.symbol, positionAmt: '1.0' })));
+    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([]); // No SL found in batch or fresh
 
     await service.protectionWatchdog(true, { paper_mode: false } as any);
 
-    expect(orderManager.closeTrade).toHaveBeenCalledWith(
-      'BTCUSDT',
-      trade,
-      0,
-      'WATCHDOG_NUCLEAR_CLOSE',
-      false,
-      false
-    );
+    // Should emit closure event instead of calling orderManager directly
+    expect(eventEmitter.emit).toHaveBeenCalledWith('trade.exchange_close', expect.objectContaining({
+      symbol: 'BTCUSDT_0',
+      exitPrice: 0,
+      reason: 'WATCHDOG_NUCLEAR_CLOSE'
+    }));
     expect(orderManager.placeStopLoss).not.toHaveBeenCalled(); // Close instead of repair
+  });
+
+  it('should reconcile rr_sequence_index when adopting untracked SL', async () => {
+    const trade = {
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 1.0,
+      entry_price: 50000,
+      initial_sl: 49000,
+      current_sl: 49000,
+      rr_sequence_index: -1,
+      binance_order_id: 'entry_123',
+      updated_at: new Date(Date.now() - 60000),
+    } as Trade;
+
+    const config = {
+      paper_mode: false,
+      exit_rr_sequence: [0, 1.0, 2.0], // 0 = Breakeven
+    };
+
+    (positionTracker.activeList as jest.Mock).mockReturnValue([trade]);
+    (orderManager.fetchPosition as jest.Mock).mockResolvedValue({ symbol: 'BTCUSDT', positionAmt: '1.0' });
+
+    // Exchange has SL at 50000 (Breakeven, index 0)
+    (orderManager.fetchOpenOrders as jest.Mock).mockResolvedValue([
+      { symbol: 'BTCUSDT', orderId: 'sl_999', type: 'STOP_MARKET', stopPrice: '50000', quantity: '1.0', reduceOnly: true }
+    ]);
+
+    await service.protectionWatchdog(true, config as any);
+
+    expect(trade.binance_stop_order_id).toBe('sl_999');
+    expect(trade.current_sl).toBe(50000);
+    expect(trade.rr_sequence_index).toBe(0); // Successfully reconciled index 0
+    expect(positionTracker.addTrade).toHaveBeenCalledWith(trade);
+  });
+
+  it('reconcileLiveState should exclude symbols that are currently closing from ghost position adoption', async () => {
+    const config = {
+      paper_mode: false,
+    };
+
+    // Mock that positionTracker says BTCUSDT is closing
+    (positionTracker.activeList as jest.Mock).mockReturnValue([]);
+    (positionTracker.isClosing as jest.Mock).mockImplementation((symbol) => symbol === 'BTCUSDT');
+
+    // Exchange has an active position for BTCUSDT
+    (orderManager.fetchAllPositions as jest.Mock).mockResolvedValue([
+      { symbol: 'BTCUSDT', positionAmt: '1.0', entryPrice: '50000' }
+    ]);
+    (orderManager.fetchAllOpenOrders as jest.Mock).mockResolvedValue([]);
+
+    const eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+
+    await service.reconcileLiveState(true, config as any);
+
+    // Should NOT emit adoption event since BTCUSDT is closing
+    expect(eventEmitter.emit).not.toHaveBeenCalledWith('reconciliation.adopt_positions', expect.any(Object));
   });
 });

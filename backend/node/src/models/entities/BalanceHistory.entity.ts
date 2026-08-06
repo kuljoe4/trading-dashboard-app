@@ -15,14 +15,14 @@ export class BalanceHistory {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   pnl: number;
 
-  @Column({ nullable: true })
-  type: string; // e.g., 'TRADE_CLOSE', 'SESSION_STOP', 'RESET'
+  @Column({ type: 'varchar', nullable: true })
+  type: string | null; // e.g., 'TRADE_CLOSE', 'SESSION_STOP', 'RESET'
 
-  @Column({ nullable: true })
-  sessionId: string;
+  @Column({ type: 'varchar', nullable: true })
+  sessionId: string | null;
 
-  @Column({ nullable: true })
-  tradeId: string;
+  @Column({ type: 'varchar', nullable: true })
+  tradeId: string | null;
 
   @Column({ type: 'varchar', default: 'paper' })
   @Index()

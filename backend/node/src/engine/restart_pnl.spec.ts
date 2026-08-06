@@ -15,6 +15,8 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       balancePaper: 9999.6,
       setActiveTrades: jest.fn(),
       minimize: jest.fn(),
+      updateStatsOnClose: jest.fn(),
+      addClosedTrade: jest.fn(),
     };
     orderManager = {
       setBinanceClient: jest.fn(),
@@ -29,7 +31,7 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       { clear: jest.fn() } as any, // klineStore
       {} as any, // signalEngine
       {} as any, // riskEngine
-      { activeList: () => [], activeCount: () => 0, setEntering: jest.fn(), removeTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: () => 0 } as any, // positionTracker
+      { activeList: () => [], activeCount: () => 0, setEntering: jest.fn(), removeTrade: jest.fn(), recalculateTotalRisk: jest.fn(), totalRisk: () => 0, clear: jest.fn() } as any, // positionTracker
       orderManager as any,
       { setCandleCloseCallback: jest.fn(), stop: jest.fn() } as any, // marketFeed
       { stop: jest.fn() } as any, // momentumScanner
@@ -41,9 +43,9 @@ describe('TradingSessionService Restart PnL Consistency', () => {
       sessionState as any,
       {} as any, // variantAnalytics
       { minimize: jest.fn(), getLastTickData: jest.fn(), getLastRiskResult: jest.fn(), getLastAnalyticsResult: jest.fn() } as any, // engineBroadcaster
-      {} as any, // gatingService
+      { mapGateState: jest.fn(), isInsideTradingWindow: jest.fn().mockReturnValue(true) } as any, // gatingService
       {} as any, // maintenanceService
-      {} as any, // auditLog
+      { log: jest.fn() } as any, // auditLog
       { emit: jest.fn() } as any, // eventEmitter
     );
   });
@@ -81,5 +83,42 @@ describe('TradingSessionService Restart PnL Consistency', () => {
     // New Balance = 9999.6 + 49.58 = 10049.18
     // Verification: Initial 10000 + Net 49.18 = 10049.18. CORRECT.
     expect(sessionState.balancePaper).toBe(10049.18);
+  });
+
+  it('should mark trade as CLOSED_ORPHANED and not fabricate PnL or balance updates on stop if closeTrade fails', async () => {
+    const config = { paper_mode: true, hot_loop_interval_ms: 100000, main_loop_interval_ms: 100000 } as SessionConfig;
+    const openTrade = { id: 'trade-2', pnl: -0.4, symbol: 'BTCUSDT', direction: 'LONG', entry_price: 100.0, qty: 1 } as Trade;
+
+    // Start session
+    await service.start(config, null, 'session-2', [], 10000.0, [openTrade]);
+
+    // Override activeList and activeCount of positionTracker mock
+    const activeListMock = [openTrade];
+    // @ts-ignore
+    service.positionTracker.activeList = jest.fn().mockReturnValue(activeListMock);
+    // @ts-ignore
+    service.positionTracker.activeCount = jest.fn().mockReturnValue(1);
+    // @ts-ignore
+    service.positionTracker.closeTrade = jest.fn().mockResolvedValue({ exitOccurred: false });
+
+    // Mock tickerCache to return a price
+    // @ts-ignore
+    service.tickerCache.getPrice = jest.fn().mockResolvedValue(105.0);
+
+    const onTradeUpdateSpy = jest.fn();
+    service.setTradeUpdateCallback(onTradeUpdateSpy);
+
+    // Stop session
+    await service.stop();
+
+    // Verify trade was marked CLOSED_ORPHANED, has its old pnl, and removeTrade was called
+    expect(openTrade.status).toBe('CLOSED_ORPHANED');
+    expect(openTrade.pnl).toBe(-0.4); // unmodified PnL
+    expect(openTrade.exit_reason).toBe('SESSION_TERMINATED');
+    expect(openTrade.exit_price).toBe(105.0); // reference price logged
+
+    // Verify we did NOT call updateStatsOnClose or updateBalance on failed close
+    expect(sessionState.updateStatsOnClose).not.toHaveBeenCalled();
+    expect(onTradeUpdateSpy).toHaveBeenCalledWith(openTrade, 9999.6);
   });
 });

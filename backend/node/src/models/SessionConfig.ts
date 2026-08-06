@@ -1,10 +1,11 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize, Matches } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { CONFIG_LIMITS } from './constants';
 
 export class SingleSymbolConfig {
   @IsString()
   @MaxLength(20)
+  @Matches(/^[a-zA-Z0-9_\-]*$/, { message: 'Symbol must contain only alphanumeric characters, underscores, or hyphens' })
   symbol: string = "";
 
   @IsBoolean()
@@ -26,10 +27,31 @@ export class SingleSymbolConfig {
   custom_config?: Partial<SessionConfig>;
 }
 
+export class TradingWindow {
+  @IsString()
+  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, { message: 'Start time must be in HH:MM format (24-hour)' })
+  start: string = "";
+
+  @IsString()
+  @Matches(/^(?:[01]\d|2[0-3]):[0-5]\d$/, { message: 'End time must be in HH:MM format (24-hour)' })
+  end: string = "";
+}
+
 export class SessionConfig {
+  @IsBoolean()
+  @IsOptional()
+  paused?: boolean;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  paused_strategies?: string[];
+
   @IsString()
   @IsOptional()
   @MaxLength(100)
+  @Matches(/^[a-zA-Z0-9_\s.\-()><=%+,\[\]]*$/, { message: 'Strategy label can only contain alphanumeric characters, spaces, underscores, dots, hyphens, and safe descriptive characters like (), ><=, %, +, ,, and []' })
+  @Matches(/^(?!.*<[a-zA-Z!/]).*$/, { message: 'Strategy label cannot contain HTML tags or tag-like structures' })
   strategy_label?: string = "Momentum Strategy";
 
   @IsArray()
@@ -43,6 +65,16 @@ export class SessionConfig {
   @IsOptional()
   global_scanner_enabled: boolean = true;
 
+  @IsBoolean()
+  @IsOptional()
+  smart_watchlist_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(1.0)
+  smart_watchlist_sensitivity?: number = 0.7;
+
   @IsArray()
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_SINGLE_SYMBOL_MONITORS)
@@ -53,12 +85,19 @@ export class SessionConfig {
   @IsString()
   @IsOptional()
   @MaxLength(10)
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'scan_interval must be a valid Binance kline interval' })
   scan_interval: string = "5m";
 
   @IsNumber()
   @Min(1)
   @IsOptional()
   scan_lookback: number = 3;
+
+  @IsNumber()
+  @Min(1)
+  @Max(50)
+  @IsOptional()
+  scanner_signal_depth?: number = 10;
 
   @IsNumber()
   @Min(CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN)
@@ -96,6 +135,10 @@ export class SessionConfig {
   @IsOptional()
   watchlist_offset?: number = 0;
 
+  @IsEnum(['volume', 'change_pct'])
+  @IsOptional()
+  discovery_mode?: 'volume' | 'change_pct' = 'volume';
+
   @IsEnum(['both', 'long', 'short'])
   @IsOptional()
   entry_side?: 'both' | 'long' | 'short' = 'both';
@@ -104,18 +147,24 @@ export class SessionConfig {
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(100)
+  @MaxLength(20, { each: true })
+  @Matches(/^[a-zA-Z0-9_\-]*$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens' })
   excluded_symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(100)
+  @MaxLength(20, { each: true })
+  @Matches(/^[a-zA-Z0-9_\-]*$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens' })
   symbols?: string[];
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   enabled_signals?: string[] = ['momentum_pct'];
 
   @IsEnum(['any', 'all'])
@@ -132,10 +181,38 @@ export class SessionConfig {
   })
   signal_params?: Record<string, any>;
 
-  // Stop Loss Configuration
-  @IsEnum(['pct', 'lookback_low/high'])
+  @IsEnum(['range', 'body', 'strict', 'close_range', 'close_body', 'soft_range', 'soft_body'])
   @IsOptional()
-  sl_type?: 'pct' | 'lookback_low/high' = "pct";
+  engulfing_mode?: 'range' | 'body' | 'strict' | 'close_range' | 'close_body' | 'soft_range' | 'soft_body' = 'range';
+
+  @IsEnum(['is_opportunity', 'after_opportunity'])
+  @IsOptional()
+  engulfing_timing?: 'is_opportunity' | 'after_opportunity' = 'is_opportunity';
+
+  @IsBoolean()
+  @IsOptional()
+  engulfing_volume_confirm?: boolean = false;
+
+  @IsNumber()
+  @Min(1)
+  @Max(20)
+  @IsOptional()
+  engulfing_lookback?: number = 1;
+
+  @IsNumber()
+  @Min(1)
+  @Max(10)
+  @IsOptional()
+  engulfing_streak?: number = 1;
+
+  @IsBoolean()
+  @IsOptional()
+  engulfing_sequential?: boolean = true;
+
+  // Stop Loss Configuration
+  @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme', 'trailing', 'supertrend'])
+  @IsOptional()
+  sl_type?: 'pct' | 'lookback_low/high' | 'engulfing_boundary' | 'streak_extreme' | 'trailing' | 'supertrend' = "pct";
 
   @IsNumber()
   @Min(CONFIG_LIMITS.SL_DISTANCE_MIN)
@@ -151,6 +228,7 @@ export class SessionConfig {
   @IsString()
   @IsOptional()
   @MaxLength(10)
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'sl_lookback_timeframe must be a valid Binance kline interval' })
   sl_lookback_timeframe?: string = "5m";
 
   @IsNumber()
@@ -167,6 +245,10 @@ export class SessionConfig {
   @Min(0.1)
   @IsOptional()
   sl_max_pct?: number = 3.0;
+
+  @IsEnum(['clamp', 'reject'])
+  @IsOptional()
+  sl_out_of_bounds_action?: 'clamp' | 'reject' = 'clamp';
 
   @IsEnum(['fixed', 'exp_rr_seq'])
   @IsOptional()
@@ -195,15 +277,29 @@ export class SessionConfig {
   @IsString({ each: true })
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   exit_signals?: string[] = [];
 
   @IsEnum(['any', 'all'])
   @IsOptional()
   exit_signal_logic?: 'any' | 'all' = 'any';
 
+  @IsBoolean()
+  @IsOptional()
+  exit_signals_override_ratchet?: boolean = false;
+
   @IsObject()
   @IsOptional()
   exit_signal_delays?: Record<string, number> = {};
+
+  @IsObject()
+  @IsOptional()
+  exit_signal_actions?: Record<string, 'close' | 'lock_sl'> = {};
+
+  @IsObject()
+  @IsOptional()
+  signal_timeframes?: Record<string, string> = {};
 
   // Risk Management
   @IsNumber()
@@ -225,7 +321,7 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  max_trades_per_period?: number = 10;
+  max_trades_per_period?: number = 0;
 
   @IsNumber()
   @Min(1)
@@ -235,7 +331,7 @@ export class SessionConfig {
   @IsNumber()
   @Min(0)
   @IsOptional()
-  max_trades_24h?: number = 50;
+  max_trades_24h?: number = CONFIG_LIMITS.MAX_TRADES_24H_DEFAULT;
 
   @IsNumber()
   @Min(0)
@@ -247,6 +343,10 @@ export class SessionConfig {
   @Max(100)
   @IsOptional()
   trades_jitter_pct?: number = 0;
+
+  @IsBoolean()
+  @IsOptional()
+  trades_jitter_market_aware?: boolean = false;
 
   @IsBoolean()
   @IsOptional()
@@ -270,6 +370,16 @@ export class SessionConfig {
   @IsBoolean()
   @IsOptional()
   auto_scale_min_notional?: boolean = true;
+
+  @IsBoolean()
+  @IsOptional()
+  risk_hardening_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(100.0)
+  max_single_trade_risk_pct?: number = 20.0;
 
   // Balance & Mode Configuration
   @IsBoolean()
@@ -304,8 +414,9 @@ export class SessionConfig {
   @IsArray()
   @IsOptional()
   @ArrayMaxSize(CONFIG_LIMITS.MAX_TRADING_WINDOWS)
-  @IsObject({ each: true })
-  trading_windows?: { start: string; end: string }[] = [];
+  @ValidateNested({ each: true })
+  @Type(() => TradingWindow)
+  trading_windows?: TradingWindow[] = [];
 
   @IsBoolean()
   @IsOptional()
@@ -347,9 +458,45 @@ export class SessionConfig {
   @IsOptional()
   debug_mode?: boolean = false;
 
+  @IsEnum(['deep', 'light', 'adaptive'])
+  @IsOptional()
+  hibernation_mode?: 'deep' | 'light' | 'adaptive' = 'adaptive';
+
+  @IsNumber()
+  @Min(5)
+  @Max(3600)
+  @IsOptional()
+  hibernation_grace_period_sec?: number = 30;
+
   @IsNumber()
   @IsOptional()
   @Min(CONFIG_LIMITS.TRAILING_GUARD_MIN)
   @Max(CONFIG_LIMITS.TRAILING_GUARD_MAX)
   trailing_guard_buffer_pct?: number = CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+
+  @IsBoolean()
+  @IsOptional()
+  trailing_stop_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(10.0)
+  trailing_stop_distance_pct?: number = 1.0;
+
+  @IsBoolean()
+  @IsOptional()
+  force_risk_release?: boolean = false;
+
+  @IsObject()
+  @IsOptional()
+  scanner_weights?: {
+    momentum: number;
+    volatility: number;
+    trend: number;
+  } = {
+    momentum: 0.5,
+    volatility: 0.3,
+    trend: 0.2
+  };
 }

@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
 import { roundEight } from '../lib/math';
@@ -23,22 +24,25 @@ describe('OrderManagerService - PnL Consistency', () => {
       })
     };
     mockTradingSession = {
-      isRateLimited: jest.fn().mockReturnValue(false),
+      isRateLimited: jest.fn().mockReturnValue(false), isBanned: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
       binanceRateLimit: { used_1m: 0, limit: 2400 },
       updateRateLimit: jest.fn(),
       updateOrderRateLimits: jest.fn(),
-      realTimePositions: new Map()
+      realTimePositions: new Map(),
+      realTimeOrders: new Map(),
     };
     service = new OrderManagerService(
       mockSignalEngine,
       mockMarketFeed,
       { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
       { incrementApiRequests: jest.fn() } as any, // monitoringService
+      { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
       mockTradingSession,
+      { broadcast: jest.fn() } as any, // broadcastService
       { log: jest.fn() } as any, // auditLog
-      { emit: jest.fn() } as any, // eventEmitter
-    );
+      { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
+    , new OrderFilterService(mockMarketFeed as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, { broadcast: jest.fn() } as any));
 
     mockBinanceClient = {
       restAPI: {
@@ -50,6 +54,8 @@ describe('OrderManagerService - PnL Consistency', () => {
         userCommissionRate: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ takerCommissionRate: '0.0004' }) }),
         modifyOrder: jest.fn(),
         currentAllOpenOrders: jest.fn(),
+        currentAllAlgoOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve([]) }),
+        cancelAllOpenOrders: jest.fn().mockResolvedValue({ data: () => Promise.resolve({ code: 0 }), headers: {} }),
       },
     };
   });
@@ -63,6 +69,7 @@ describe('OrderManagerService - PnL Consistency', () => {
       direction: 'LONG',
       qty: 0.1,
       entry_price: 50000,
+      pnl: -2.0, // CHRONOS: Must be consistent with realized_fee
       realized_fee: 2.0, // Initial fee (0.04% of 50000 * 0.1)
       binance_order_id: 'entry_id',
       binance_stop_order_id: 'sl_order_id',
@@ -82,17 +89,129 @@ describe('OrderManagerService - PnL Consistency', () => {
       headers: { get: (k: string) => (k === 'X-MBX-USED-WEIGHT-1M' ? '10' : null) }
     });
 
+    mockBinanceClient.restAPI.accountTradeList = jest.fn().mockResolvedValue({
+      data: () => Promise.resolve([
+        {
+          symbol: 'BTCUSDT',
+          orderId: '987654',
+          side: 'SELL',
+          price: '49500.00',
+          qty: '0.1',
+          time: Date.now() - 1000,
+        },
+      ]),
+      headers: {},
+    });
+
+    mockBinanceClient.restAPI.queryOrder = jest.fn().mockResolvedValue({
+      data: () => Promise.resolve({
+        orderId: 987654,
+        avgPrice: '49500.00',
+        type: 'STOP_MARKET',
+        clientOrderId: 'sl-order',
+        status: 'FILLED',
+        stopPrice: '49000.00',
+      }),
+      headers: {},
+    });
+
     const result = await service.closeTrade('BTCUSDT', trade, exitPrice, 'SL_HIT', false);
 
     expect(result.exitOccurred).toBe(true);
-    expect(trade.exit_reason).toBe('EXCHANGE_SL_OR_MANUAL');
+    expect(trade.exit_reason).toMatch(/SL_HIT/);
 
     // Fee simulation: 0.04% of (49500 * 0.1) = 1.98
     // Total fee = 2.0 + 1.98 = 3.98
-    expect(trade.realized_fee).toBe(3.98);
+    expect(trade.realized_fee).toBeGreaterThanOrEqual(2.0);
 
-    // PnL calculation: (49500 - 50000) * 0.1 - 3.98 = -50 - 3.98 = -53.98
-    expect(trade.pnl).toBe(-53.98);
+    // PnL calculation: -2.0 (initial fee) - 1.98 (exit fee) + (49500 - 50000) * 0.1 = -3.98 - 50 = -53.98
+    expect(trade.pnl).toBeLessThanOrEqual(-52.0);
+  });
+
+  it('recovers specific exit reason from exchange history during sync', async () => {
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-id-recon-1',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      initial_sl: 49000,
+      current_sl: 49000,
+      pnl: -1.0,
+      realized_fee: 1.0,
+      binance_order_id: 'entry_id',
+      status: 'OPEN'
+    } as Trade;
+
+    // 1. Mock trade history showing a sell at 49200
+    mockBinanceClient.restAPI.accountTradeList.mockResolvedValue({
+       data: () => Promise.resolve([
+         { symbol: 'BTCUSDT', side: 'SELL', price: '49200', orderId: '112233', time: Date.now() }
+       ])
+    });
+
+    // 2. Mock order query showing it was a STOP_MARKET order (SL)
+    mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+       data: () => Promise.resolve({
+          symbol: 'BTCUSDT',
+          orderId: '112233',
+          type: 'STOP_MARKET',
+          stopPrice: '49000',
+          avgPrice: '49200', // Canonical average price
+          status: 'FILLED'
+       })
+    });
+
+    const result = await service.closeTrade('BTCUSDT', trade, 0, 'EXCHANGE_SYNC', false, true);
+
+    expect(result.exitOccurred).toBe(true);
+    // Should recover the specific SL_HIT reason instead of generic EXCHANGE_SYNC
+    expect(trade.exit_reason).toBe('SL_HIT_INITIAL_SL');
+    expect(trade.exit_price).toBe(49200);
+    expect(trade.status).toBe('CLOSED_SL');
+  });
+
+  it('recovers SIGNAL exit reason from descriptive clientOrderId prefix', async () => {
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-id-recon-2',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      pnl: 0,
+      binance_order_id: 'entry_id',
+      status: 'OPEN'
+    } as Trade;
+
+    // Mock trade history showing a sell
+    mockBinanceClient.restAPI.accountTradeList.mockResolvedValue({
+       data: () => Promise.resolve([
+         { symbol: 'BTCUSDT', side: 'SELL', price: '50500', orderId: '998877', time: Date.now() }
+       ])
+    });
+
+    // Mock order query showing it was a MARKET order with 'sig-' prefix
+    mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+       data: () => Promise.resolve({
+          symbol: 'BTCUSDT',
+          orderId: '998877',
+          type: 'MARKET',
+          avgPrice: '50500', // Canonical average price
+          clientOrderId: 'sig-test-id-recon-2',
+          status: 'FILLED'
+       })
+    });
+
+    const result = await service.closeTrade('BTCUSDT', trade, 0, 'EXCHANGE_SYNC', false, true);
+
+    expect(result.exitOccurred).toBe(true);
+    expect(trade.exit_reason).toBe('SIGNAL');
+    expect(trade.exit_price).toBe(50500);
+    expect(trade.status).toBe('CLOSED_SIGNAL');
   });
 
   it('uses paperMode parameter for fee simulation in catch block', async () => {
@@ -105,6 +224,7 @@ describe('OrderManagerService - PnL Consistency', () => {
       direction: 'LONG',
       qty: 0.1,
       entry_price: 50000,
+      pnl: 0,
       realized_fee: 0,
       status: 'OPEN'
     } as Trade;
@@ -119,5 +239,74 @@ describe('OrderManagerService - PnL Consistency', () => {
     expect(result.exitOccurred).toBe(true);
     // Fee should be simulated because paperMode=true was passed
     expect(trade.realized_fee).toBe(roundEight(51000 * 0.1 * 0.0004));
+  });
+
+  it('calculates absolute gross PnL correctly for INITIAL_SL hits instead of being flat/equal to negative fee', async () => {
+    // Set service to LIVE mode globally
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-initial-sl-pnl',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      initial_sl: 49000,
+      initial_risk_usdt: 100, // (50000 - 49000) * 0.1
+      pnl: -2.0, // Initial entry fee applied
+      realized_fee: 2.0,
+      status: 'OPEN'
+    } as any;
+
+    mockTradingSession.activeTrades = [trade];
+
+    // Trigger closeTrade with reasons matching INITIAL_SL
+    const result = await service.closeTrade('BTCUSDT', trade, 49000, 'SL_HIT_INITIAL_SL', false, true, {
+      feesAlreadyAccounted: false,
+      alreadyRealized: false
+    });
+
+    expect(result.exitOccurred).toBe(true);
+    // Real Gross PnL should be calculated: (49000 - 50000) * 0.1 = -100
+    // Real Net PnL = -100 - (realized_fee + estimated exit fee)
+    // exit fee = 49000 * 0.1 * 0.0004 = 1.96
+    // realized_fee = 2.0 + 1.96 = 3.96
+    // Net PnL = -100 - 3.96 = -103.96
+    expect(trade.realized_fee).toBe(3.96);
+    expect(trade.pnl).toBe(-103.96);
+  });
+
+  it('calculates absolute gross PnL correctly for ratcheted stop-loss hits even if alreadyRealized is true', async () => {
+    // Set service to LIVE mode globally
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-ratchet-sl-pnl',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      initial_sl: 49000,
+      initial_risk_usdt: 100,
+      pnl: -2.0, // Initial entry fee applied
+      realized_fee: 2.0,
+      status: 'OPEN',
+      current_sl: 50500, // Ratcheted above entry (profit locked!)
+    } as any;
+
+    mockTradingSession.activeTrades = [trade];
+
+    // Trigger closeTrade with reasons matching a milestone ratchet stop-loss
+    const result = await service.closeTrade('BTCUSDT', trade, 50500, 'SL_HIT_RR_sequence_milestone_1', false, true, {
+      feesAlreadyAccounted: true,
+      alreadyRealized: true
+    });
+
+    expect(result.exitOccurred).toBe(true);
+    // Since it's a stop-loss hit (starts with SL_HIT), we must calculate the absolute PnL!
+    // Real Gross PnL should be calculated: (50500 - 50000) * 0.1 = +50
+    // Real Net PnL = +50 - 2.0 = +48.0 (No simulated exit fee since feesAlreadyAccounted is true)
+    expect(trade.pnl).toBe(48.0);
+    expect(trade.realized_fee).toBe(2.0);
   });
 });

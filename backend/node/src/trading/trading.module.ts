@@ -7,10 +7,13 @@ import { Log as LogEntity } from '../models/entities/Log.entity';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { AuditLog as AuditLogEntity } from '../models/entities/AuditLog.entity';
 import { BalanceHistory as BalanceHistoryEntity } from '../models/entities/BalanceHistory.entity';
+import { StrategyPreset as StrategyPresetEntity } from '../models/entities/StrategyPreset.entity';
+import { Kline as KlineEntity } from '../models/entities/Kline.entity';
 import { SignalEngineService } from '../engine/signalEngine';
 import { RiskEngineService } from '../engine/riskEngine';
 import { PositionTrackerService } from '../engine/positionTracker';
 import { OrderManagerService } from '../engine/orderManager';
+import { OrderFilterService } from '../engine/order-filter.service';
 import { TradingSessionService } from '../engine/trading_session.service';
 import { TickerCacheService } from '../engine/ticker_cache.service';
 import { MarketFeedService } from '../engine/market_feed.service';
@@ -25,11 +28,13 @@ import { AuditLogService } from './audit-log.service';
 import { SessionController } from './session.controller';
 import { SettingsController } from './settings.controller';
 import { MonitoringController } from './monitoring.controller';
+import { PresetsController } from './presets.controller';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { MonitoringService } from '../engine/monitoring.service';
 import { AnalyticsService } from '../engine/analytics.service';
 import { VariantAnalyticsService } from '../engine/variant-analytics.service';
+import { RrOptimizationService } from '../engine/rr-optimization.service';
 import { EngineBroadcasterService } from '../engine/engine-broadcaster.service';
 import { GatingService } from '../engine/gating.service';
 import { MaintenanceService } from '../engine/maintenance.service';
@@ -37,14 +42,15 @@ import { MaintenanceService } from '../engine/maintenance.service';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, AuditLogEntity, BalanceHistoryEntity]),
+    TypeOrmModule.forFeature([SessionEntity, TradeEntity, LogEntity, SettingsEntity, AuditLogEntity, BalanceHistoryEntity, StrategyPresetEntity, KlineEntity]),
   ],
-  controllers: [SessionController, SettingsController, MonitoringController],
+  controllers: [SessionController, SettingsController, MonitoringController, PresetsController],
   providers: [
     SignalEngineService,
     RiskEngineService,
     PositionTrackerService,
     OrderManagerService,
+    OrderFilterService,
     TradingSessionService,
     TickerCacheService,
     MarketFeedService,
@@ -59,6 +65,7 @@ import { MaintenanceService } from '../engine/maintenance.service';
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,
+    RrOptimizationService,
     EngineBroadcasterService,
     GatingService,
     MaintenanceService,
@@ -70,6 +77,7 @@ import { MaintenanceService } from '../engine/maintenance.service';
     RiskEngineService,
     PositionTrackerService,
     OrderManagerService,
+    OrderFilterService,
     TradingSessionService,
     TickerCacheService,
     MarketFeedService,
@@ -82,6 +90,7 @@ import { MaintenanceService } from '../engine/maintenance.service';
     MonitoringService,
     AnalyticsService,
     VariantAnalyticsService,
+    RrOptimizationService,
     EngineBroadcasterService,
     GatingService,
     MaintenanceService,

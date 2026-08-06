@@ -1,3 +1,5 @@
+import { isIP } from 'net';
+
 // SENTINEL: Centralized IP-based failure tracking to prevent brute-force
 const FAILURES = new Map<string, { count: number; lastFailure: number }>();
 const MAX_FAILURES = 10;
@@ -41,19 +43,48 @@ export function recordFailure(ip: string): number {
   return record.count;
 }
 
+import * as net from "net";
+
 export function clearFailures(ip: string): void {
   FAILURES.delete(ip);
 }
 
 export function extractIp(headers: any, defaultIp: string): string {
+  // SENTINEL: Prioritize edge-validated single-IP headers set by CDNs or fronting reverse proxies.
+  // This provides defense-in-depth protection against X-Forwarded-For spoofing attacks.
+  const cfIp = headers?.["cf-connecting-ip"];
+  if (cfIp) {
+    const singleCfIp = Array.isArray(cfIp) ? cfIp[0] : cfIp;
+    if (typeof singleCfIp === "string" && singleCfIp.length <= 45 && net.isIP(singleCfIp)) {
+      return singleCfIp;
+    }
+  }
+
+  const realIp = headers?.["x-real-ip"];
+  if (realIp) {
+    const singleRealIp = Array.isArray(realIp) ? realIp[0] : realIp;
+    if (typeof singleRealIp === "string" && singleRealIp.length <= 45 && net.isIP(singleRealIp)) {
+      return singleRealIp;
+    }
+  }
+
   const forwarded = headers?.["x-forwarded-for"];
   if (forwarded) {
     // SENTINEL: Handle both string and array of strings for multiple X-Forwarded-For headers.
+    const rawForwarded = Array.isArray(forwarded) ? (forwarded as string[]).join(",") : (forwarded as string);
+
+    // SENTINEL: Add a sanity length limit to the header to prevent memory exhaustion DoS or ReDoS
+    if (rawForwarded.length > 1024) {
+      return defaultIp;
+    }
+
     // When behind a trusted proxy, the last IP in the chain is the most reliable.
     // The leftmost IP can be spoofed by the client.
-    const rawForwarded = Array.isArray(forwarded) ? forwarded.join(',') : forwarded;
-    const ips = rawForwarded.split(',');
-    return ips[ips.length - 1].trim();
+    const ips = rawForwarded
+      .split(",")
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 0 && net.isIP(s));
+    return ips.length > 0 ? ips[ips.length - 1] : defaultIp;
   }
   return defaultIp;
 }

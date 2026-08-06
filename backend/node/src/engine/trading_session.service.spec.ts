@@ -8,7 +8,7 @@ describe('TradingSessionService', () => {
 
   beforeEach(() => {
     const variantAnalytics = new VariantAnalyticsService();
-    const positionTracker = { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn() } as any;
+    const positionTracker = { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn(), clear: jest.fn() } as any;
     const engineBroadcaster = new EngineBroadcasterService({} as any, {} as any, {} as any, {} as any, {} as any, variantAnalytics, {} as any, positionTracker);
 
     service = new TradingSessionService(

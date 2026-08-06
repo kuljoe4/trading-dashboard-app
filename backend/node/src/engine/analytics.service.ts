@@ -1,6 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { roundTo } from '../lib/math';
+import { RrOptimizationResult } from './rr-optimization.service';
+
+export interface RiskWidthBucket {
+  label: string;
+  minPct: number;
+  maxPct: number;
+  tradesCount: number;
+  winRate: number;
+  profitFactor: number;
+  avgDurationMs: number;
+  netPnl: number;
+}
 
 export interface AnalyticsResult {
   cumulativePnL: { ts: string; pnl: number }[];
@@ -25,6 +37,15 @@ export interface AnalyticsResult {
   profitFactor: number;
   sharpeRatio: number;
   sortinoRatio: number;
+  maxWinStreak: number;
+  maxLossStreak: number;
+  avgDuration: number;
+  roiTrends: {
+    sevenDay: number;
+    fourWeek: number;
+  };
+  rrOptimization?: RrOptimizationResult;
+  riskWidthBuckets?: RiskWidthBucket[];
 }
 
 @Injectable()
@@ -39,21 +60,45 @@ export class AnalyticsService {
    * If provided, overallPnlPct is calculated as (netPnL / (currentBalance - netPnL)) * 100.
    */
   calculateAnalytics(trades: TradeEntity[], startingBalance: number = 10000, currentBalance?: number): AnalyticsResult {
-    // BOLT OPTIMIZATION: Combine multiple iterations into a single-pass loop
-    // 1. Initial filter and sort (necessary for equity curve)
-    // BOLT: Include reconciliation trades and active trades with realized fees for curve fidelity
-    const sortedTrades = [...trades]
-      .filter(t => (t.status !== 'OPEN' || Number(t.pnl || 0) !== 0))
-      .map(t => {
-        if (t.status === 'OPEN' && !t.exit_ts) {
-          return { ...t, exit_ts: new Date() } as TradeEntity;
-        }
-        return t;
-      })
-      .filter(t => t.exit_ts) // Safety check
-      .sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
+    // BOLT OPTIMIZATION: Fuse filter and PnL summation into a single pass
+    const filteredTrades: TradeEntity[] = [];
+    let totalNetPnL = 0;
+
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if (t.status !== 'OPEN' && t.exit_ts && !t.is_reconciliation) {
+        filteredTrades.push(t);
+        totalNetPnL += Number(t.pnl || 0);
+      }
+    }
+
+    // BOLT OPTIMIZATION: Check if the filteredTrades array is already sorted chronologically (ascending or descending)
+    // to avoid the O(N log N) sorting overhead. Since trades are typically queried from TypeORM ordered by
+    // exit_ts DESC, the array will be sorted descending. Reversing it in O(N) is much faster than sorting.
+    let isSortedAsc = true;
+    let isSortedDesc = true;
+    for (let i = 1; i < filteredTrades.length; i++) {
+      const current = filteredTrades[i].exit_ts!.getTime();
+      const prev = filteredTrades[i - 1].exit_ts!.getTime();
+      if (current < prev) {
+        isSortedAsc = false;
+      }
+      if (current > prev) {
+        isSortedDesc = false;
+      }
+    }
+
+    let sortedTrades: TradeEntity[];
+    if (isSortedAsc) {
+      sortedTrades = filteredTrades;
+    } else if (isSortedDesc) {
+      sortedTrades = filteredTrades.reverse();
+    } else {
+      sortedTrades = filteredTrades.sort((a, b) => a.exit_ts!.getTime() - b.exit_ts!.getTime());
+    }
 
     const totalTrades = sortedTrades.length;
+
     let currentPnL = 0;
     let maxPnL = 0;
     let maxDD = 0;
@@ -70,26 +115,49 @@ export class AnalyticsService {
     let sumSquaredReturnPct = 0;
     let downsideSumSquaredReturnPct = 0;
 
-    // Performance Engineering: If currentBalance is provided, anchor the entire history
-    // to the current account power to ensure scale-invariant drawdown and performance.
-    const totalNetPnL = sortedTrades.reduce((sum, t) => sum + Number(t.pnl || 0), 0);
-    const effectiveStartingBalance = (currentBalance && currentBalance > 0)
-      ? Math.max(1, currentBalance - totalNetPnL)
-      : startingBalance;
+    // ROI Trends Calculation (UTC-aware) - Pre-calculate boundaries
+    const nowMs = Date.now();
+    const sevenDaysAgoMs = nowMs - 7 * 24 * 60 * 60 * 1000;
+    const fourWeeksAgoMs = nowMs - 28 * 24 * 60 * 60 * 1000;
+    let sevenDayPnL = 0;
+    let fourWeekPnL = 0;
+
+    let maxWinStreak = 0;
+    let maxLossStreak = 0;
+    let currentWinStreak = 0;
+    let currentLossStreak = 0;
+    let totalDurationMs = 0;
+
+    // Risk Width Buckets - Fused aggregation
+    const riskWidthBuckets = [
+      { label: 'Tight (<0.6%)', minPct: 0, maxPct: 0.6, grossProfit: 0, grossLoss: 0, totalDuration: 0, wins: 0, count: 0, netPnl: 0 },
+      { label: 'Medium (0.6%-1.5%)', minPct: 0.6, maxPct: 1.5, grossProfit: 0, grossLoss: 0, totalDuration: 0, wins: 0, count: 0, netPnl: 0 },
+      { label: 'Wide (>1.5%)', minPct: 1.5, maxPct: Infinity, grossProfit: 0, grossLoss: 0, totalDuration: 0, wins: 0, count: 0, netPnl: 0 }
+    ];
+
+    // Performance Engineering: Ensure a stable anchor for ROI calculations.
+    // If startingBalance is provided (e.g. from session config), use it.
+    // Otherwise, fallback to the recomputed balance logic.
+    // NOTE: anchoring to (currentBalance - totalNetPnL) is susceptible to drift
+    // if the user adds/removes funds. We prioritize startingBalance if available.
+    const effectiveStartingBalance = startingBalance > 0
+      ? startingBalance
+      : ((currentBalance && currentBalance > 0) ? Math.max(1, currentBalance - totalNetPnL) : 10000);
 
     let rollingBalance = effectiveStartingBalance;
     const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
     // Time of day analysis (0-23 hours) - Fixed size array for better performance
     const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
 
-    // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics to avoid multiple array iterations
-    let strategyTradeCount = 0;
+    // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics including ROI trends
     for (let i = 0; i < totalTrades; i++) {
       const t = sortedTrades[i];
       const pnl = Number(t.pnl || 0);
+      const exitTs = t.exit_ts!;
+      const exitTsMs = exitTs.getTime();
 
-      // BOLT: Update rolling balance for equity curve including ALL account changes
-      const balanceBeforeTrade = rollingBalance;
+      // Calculate return percentage relative to balance at time of trade
+      const tradeReturnPct = rollingBalance > 0 ? (pnl / rollingBalance) * 100 : 0;
       rollingBalance = Math.max(1, rollingBalance + pnl);
 
       // Equity curve & Drawdown
@@ -105,21 +173,16 @@ export class AnalyticsService {
       if (ddPct > maxDDPct) maxDDPct = ddPct;
 
       cumulativePnL[i] = {
-        ts: t.exit_ts!.toISOString(),
+        ts: exitTs.toISOString(),
         pnl: roundTo(currentPnL, 2),
       };
 
-      // Performance Metrics (Win Rate, Expectancy, Ratios)
-      // BOLT: Exclude reconciliation and open trades from strategy performance metrics
-      if (t.is_reconciliation || t.status === 'OPEN') continue;
-
-      strategyTradeCount++;
-
-      // Calculate return percentage relative to balance at time of trade
-      const tradeReturnPct = balanceBeforeTrade > 0 ? (pnl / balanceBeforeTrade) * 100 : 0;
+      // ROI Trends (Fused into main loop)
+      if (exitTsMs >= sevenDaysAgoMs) sevenDayPnL += pnl;
+      if (exitTsMs >= fourWeeksAgoMs) fourWeekPnL += pnl;
 
       // Time of Day
-      const hour = t.exit_ts!.getUTCHours();
+      const hour = exitTs.getUTCHours();
       const stats = todStats[hour];
       stats.pnl += pnl;
       stats.total += 1;
@@ -133,11 +196,44 @@ export class AnalyticsService {
         totalWins += 1;
         grossProfit += pnl;
         grossProfitPct += tradeReturnPct;
+
+        currentWinStreak++;
+        currentLossStreak = 0;
+        if (currentWinStreak > maxWinStreak) maxWinStreak = currentWinStreak;
       } else if (pnl < 0) {
         totalLosses += 1;
         grossLoss += Math.abs(pnl);
         grossLossPct += Math.abs(tradeReturnPct);
         downsideSumSquaredReturnPct += tradeReturnPct * tradeReturnPct;
+
+        currentLossStreak++;
+        currentWinStreak = 0;
+        if (currentLossStreak > maxLossStreak) maxLossStreak = currentLossStreak;
+      }
+
+      const entryTs = t.entry_ts;
+      let duration = 0;
+      if (entryTs) {
+        duration = exitTsMs - entryTs.getTime();
+        totalDurationMs += duration;
+      }
+
+      // Fused Risk-Width processing
+      const entryVal = Number(t.entry_price || 0);
+      const slVal = Number(t.initial_sl || t.current_sl || 0);
+      if (entryVal > 0 && slVal > 0) {
+        const slDistPct = (Math.abs(entryVal - slVal) / entryVal) * 100;
+        const bucketIdx = slDistPct < 0.6 ? 0 : (slDistPct < 1.5 ? 1 : 2);
+        const b = riskWidthBuckets[bucketIdx];
+        b.count++;
+        b.netPnl += pnl;
+        b.totalDuration += duration;
+        if (pnl > 0) {
+          b.wins++;
+          b.grossProfit += pnl;
+        } else if (pnl < 0) {
+          b.grossLoss += Math.abs(pnl);
+        }
       }
     }
 
@@ -151,7 +247,7 @@ export class AnalyticsService {
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
     const avgWinPct = totalWins > 0 ? grossProfitPct / totalWins : 0;
     const avgLossPct = totalLosses > 0 ? grossLossPct / totalLosses : 0;
-    const expectancyPct = strategyTradeCount > 0 ? sumReturnPct / strategyTradeCount : 0;
+    const expectancyPct = totalTrades > 0 ? sumReturnPct / totalTrades : 0;
 
     const avgWinLossRatio = avgLoss > 0 ? avgWin / avgLoss : 0;
     const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 100 : 0);
@@ -164,27 +260,43 @@ export class AnalyticsService {
     let sharpeRatio = 0;
     let sortinoRatio = 0;
 
-    if (strategyTradeCount > 1) {
-      const meanReturn = sumReturnPct / strategyTradeCount;
+    if (totalTrades > 1) {
+      const meanReturn = sumReturnPct / totalTrades;
       // Variance = E[X^2] - (E[X])^2
-      const variance = Math.max(0, (sumSquaredReturnPct / strategyTradeCount) - (meanReturn * meanReturn));
+      const variance = Math.max(0, (sumSquaredReturnPct / totalTrades) - (meanReturn * meanReturn));
       const stdDev = Math.sqrt(variance);
 
       // Sortino: uses target return of 0
-      const downsideVariance = downsideSumSquaredReturnPct / strategyTradeCount;
+      const downsideVariance = downsideSumSquaredReturnPct / totalTrades;
       const downsideStdDev = Math.sqrt(downsideVariance);
 
       if (stdDev > 0) sharpeRatio = meanReturn / stdDev;
       if (downsideStdDev > 0) sortinoRatio = meanReturn / downsideStdDev;
     }
 
+    const roiTrends = {
+      sevenDay: effectiveStartingBalance > 0 ? (sevenDayPnL / effectiveStartingBalance) * 100 : 0,
+      fourWeek: effectiveStartingBalance > 0 ? (fourWeekPnL / effectiveStartingBalance) * 100 : 0,
+    };
+
+    const finalizedBuckets: RiskWidthBucket[] = riskWidthBuckets.map(b => ({
+      label: b.label,
+      minPct: b.minPct,
+      maxPct: b.maxPct,
+      tradesCount: b.count,
+      winRate: b.count > 0 ? roundTo((b.wins / b.count) * 100, 2) : 0,
+      profitFactor: b.grossLoss > 0 ? roundTo(b.grossProfit / b.grossLoss, 2) : (b.grossProfit > 0 ? 100 : 0),
+      avgDurationMs: b.count > 0 ? Math.round(b.totalDuration / b.count) : 0,
+      netPnl: roundTo(b.netPnl, 2)
+    }));
+
     return {
       cumulativePnL,
       maxDrawdown: roundTo(maxDD, 2),
       maxDrawdownPct: roundTo(maxDDPct, 2),
       timeOfDay,
-      totalTrades: strategyTradeCount,
-      overallWinRate: strategyTradeCount > 0 ? (totalWins / strategyTradeCount) * 100 : 0,
+      totalTrades,
+      overallWinRate: totalTrades > 0 ? (totalWins / totalTrades) * 100 : 0,
       overallPnlPct: roundTo(overallPnlPct, 2),
       avgWin: roundTo(avgWin, 2),
       avgLoss: roundTo(avgLoss, 2),
@@ -195,6 +307,14 @@ export class AnalyticsService {
       profitFactor: roundTo(profitFactor, 2),
       sharpeRatio: roundTo(sharpeRatio, 2),
       sortinoRatio: roundTo(sortinoRatio, 2),
+      maxWinStreak,
+      maxLossStreak,
+      avgDuration: totalTrades > 0 ? Math.round(totalDurationMs / totalTrades) : 0,
+      roiTrends: {
+        sevenDay: roundTo(roiTrends.sevenDay, 2),
+        fourWeek: roundTo(roiTrends.fourWeek, 2),
+      },
+      riskWidthBuckets: finalizedBuckets,
     };
   }
 }

@@ -1,8 +1,22 @@
 import React, { useState } from 'react'
 import { SystemMetrics } from './SystemMetrics'
-import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus } from 'lucide-react'
+import { LayoutDashboard, Briefcase, History, Settings as SettingsIcon, ChevronLeft, ChevronRight, Zap, Plus, Keyboard } from 'lucide-react'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
+
+const preloadView = (path) => {
+  if (path === '/') import('../views/DashboardView');
+  else if (path === '/trades') import('../views/TradesView');
+  else if (path === '/history') import('../views/HistoryView');
+  else if (path === '/settings') import('../views/SettingsView');
+};
+
+const NAV_ITEMS = [
+  { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
+  { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },
+  { path: '/history', label: 'History', icon: History, shortcut: '3/H' },
+  { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '4' },
+]
 
 export const Sidebar = ({ selected }) => {
   const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, isSyncing, sessionActive, activeTrades } = useTradingStore()
@@ -10,7 +24,10 @@ export const Sidebar = ({ selected }) => {
   const isExpanded = !collapsed || isHovered
 
   const isActive = (path) => {
-    if (path === '/') return !selected && window.location.hash === '#/'
+    if (path === '/') {
+      const h = window.location.hash;
+      return h === '#/' || h === '' || h.startsWith('#/strategy/');
+    }
     return window.location.hash.startsWith(`#${path}`)
   }
 
@@ -39,19 +56,15 @@ export const Sidebar = ({ selected }) => {
       </div>
 
       <nav className="flex-1 flex flex-col gap-2">
-        {[
-          { path: '/', label: 'Cockpit', icon: LayoutDashboard, shortcut: '1/C' },
-          { path: '/trades', label: 'Trades', icon: Briefcase, shortcut: '2/T' },
-          { path: '/history', label: 'History', icon: History, shortcut: '3/H' },
-          { path: '/settings', label: 'Settings', icon: SettingsIcon, shortcut: '4' },
-        ].map(item => (
-          <Tooltip key={item.path} content={`${item.label} [${item.shortcut}]`} side="right">
+        {NAV_ITEMS.map(item => (
+          <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
             <button
               onClick={() => window.location.hash = `#${item.path}`}
-              aria-label={`${item.label} [${item.shortcut}]`}
+              onMouseEnter={() => preloadView(item.path)}
+              aria-label={`${item.label}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
               aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
-                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative",
+                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0",
                 isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
               )}
@@ -64,25 +77,50 @@ export const Sidebar = ({ selected }) => {
                   </span>
                 )}
               </div>
-              {isExpanded ? <span>{item.label}</span> : (
-                <span className="text-[7px] font-black uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-1">{item.label}</span>
+              {isExpanded && (
+                <span className="flex-1 flex items-center justify-between">
+                  <span>{item.label}</span>
+                  <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[{item.shortcut}]</span>
+                </span>
               )}
             </button>
           </Tooltip>
         ))}
 
-        <Tooltip content="Market Scanner [S]" side="right">
-          <button 
+        <Tooltip content={collapsed ? "Market Scanner [S]" : null} side="right">
+          <button
             onClick={triggerScanner}
             aria-label="Market Scanner [S]"
             className={cn(
-              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative",
+              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
               isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
             )}
           >
             <Zap size={20} className="shrink-0" />
-            {isExpanded ? <span>Scanner</span> : (
-              <span className="text-[7px] font-black uppercase tracking-tighter opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-1">Scanner</span>
+            {isExpanded && (
+              <span className="flex-1 flex items-center justify-between">
+                <span>Scanner</span>
+                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[S]</span>
+              </span>
+            )}
+          </button>
+        </Tooltip>
+
+        <Tooltip content={!isExpanded ? "Keyboard Shortcuts [?]" : null} side="right">
+          <button
+            onClick={() => window.dispatchEvent(new Event('toggle-shortcuts'))}
+            aria-label="Keyboard Shortcuts [?]"
+            className={cn(
+              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-dim hover:text-text hover:bg-white/5 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
+            )}
+          >
+            <Keyboard size={20} className="shrink-0" />
+            {isExpanded && (
+              <span className="flex-1 flex items-center justify-between">
+                <span>Shortcuts</span>
+                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[?]</span>
+              </span>
             )}
           </button>
         </Tooltip>
@@ -132,7 +170,10 @@ export const MobileHealthBar = () => {
 export const BottomNav = ({ selected }) => {
   const { wsStatus, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, healthEnabled, isSyncing, activeTrades } = useTradingStore()
   const isActive = (path) => {
-    if (path === '/') return !selected && window.location.hash === '#/'
+    if (path === '/') {
+      const h = window.location.hash;
+      return h === '#/' || h === '' || h.startsWith('#/strategy/');
+    }
     return window.location.hash.startsWith(`#${path}`)
   }
 
@@ -154,9 +195,10 @@ export const BottomNav = ({ selected }) => {
           <button
             key={item.path}
             onClick={() => window.location.hash = `#${item.path}`}
+            onMouseEnter={() => preloadView(item.path)}
             aria-current={isActive(item.path) ? 'page' : undefined}
             className={cn(
-              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all",
+              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
               isActive(item.path) ? "text-accent" : "text-dim hover:text-text"
             )}
           >

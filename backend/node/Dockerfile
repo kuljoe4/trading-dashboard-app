@@ -1,27 +1,29 @@
 # Build stage
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 
 WORKDIR /app
 ENV NODE_ENV=development
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
-COPY package*.json ./
-RUN npm ci --include=dev
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 # Production dependencies only
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 
 WORKDIR /app
 ENV NODE_ENV=production
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
-COPY package*.json ./
-RUN npm ci --omit=dev --ignore-scripts \
-  && npm cache clean --force
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile \
+  && pnpm store prune
 
 # Runtime stage
-FROM node:20-alpine
+FROM node:22-alpine
 
 WORKDIR /app
 ENV NODE_ENV=production \
@@ -30,7 +32,7 @@ ENV NODE_ENV=production \
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
-COPY package*.json ./
+COPY package.json ./
 
 USER node
 EXPOSE 3000

@@ -3,6 +3,7 @@ import { ValidationPipe, LogLevel, Logger } from "@nestjs/common";
 import { Request, Response, NextFunction, json, urlencoded } from "express";
 import { DynamicLogger } from "./lib/logger";
 import { ConfigService } from "@nestjs/config";
+import { getDataSourceToken } from "@nestjs/typeorm";
 import { WebSocketServer } from "ws";
 import { AppModule } from "./app.module";
 import { AllExceptionsFilter } from "./lib/all-exceptions.filter";
@@ -13,7 +14,9 @@ import { SessionService } from "./trading/session.service";
 import { MonitoringService } from "./engine/monitoring.service";
 import { TradingSessionService } from "./engine/trading_session.service";
 import { EngineBroadcasterService } from "./engine/engine-broadcaster.service";
+import { AuditLogService } from "./trading/audit-log.service";
 import { checkOrigin } from "./lib/origin";
+import "./lib/math"; // BOLT: Load math utilities early to initialize BigInt polyfill
 
 async function bootstrap() {
   const isProduction = process.env.NODE_ENV === "production";
@@ -51,6 +54,9 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      // SENTINEL: Prevent information leakage in default validation error responses.
+      // Target object and input values are excluded from the output.
+      validationError: { target: false, value: false },
     }),
   );
 
@@ -128,9 +134,11 @@ async function bootstrap() {
   // Health check endpoint
   app.getHttpAdapter().get("/health", async (req, res) => {
     try {
-      // Audit Item 35: Add DB health check
-      const entityManager = app.get("EntityManager");
-      await entityManager.query("SELECT 1");
+      // Audit Item 35: Add DB health check. Resolve the TypeORM DataSource via
+      // its token (the string "EntityManager" is NOT a registered provider, which
+      // previously threw and made the /health probe fail).
+      const dataSource = app.get(getDataSourceToken());
+      await dataSource.query("SELECT 1");
       res.status(200).send({ status: "ok", db: "connected", timestamp: new Date().toISOString() });
     } catch (e) {
       res.status(503).send({ status: "error", db: "disconnected", timestamp: new Date().toISOString() });
@@ -150,10 +158,13 @@ async function bootstrap() {
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);
   const engineBroadcaster = app.get(EngineBroadcasterService);
+  const auditLog = app.get(AuditLogService);
 
   const wss = new WebSocketServer({
     server: httpServer,
     path: "/session/ws",
+    // SENTINEL: Support token-based auth via sub-protocol to avoid leaking keys in URLs/logs
+    handleProtocols: (protocols) => [...protocols][0],
     perMessageDeflate: {
       zlibDeflateOptions: {
         chunkSize: 1024,
@@ -174,10 +185,23 @@ async function bootstrap() {
       const isOriginAllowed = !origin || checkOrigin(info.origin, allowedOrigins);
       const isDevFallback = !isOriginAllowed && nodeEnv !== "production";
       const clientIp = extractIp(info.req.headers, info.req.socket.remoteAddress || "unknown");
+      const userAgent = (Array.isArray(info.req.headers["user-agent"]) ? info.req.headers["user-agent"][0] : info.req.headers["user-agent"]) || "unknown";
+
+      const logAuthFailure = (action: string, details: any) => {
+        auditLog.log({
+          action,
+          actor: clientIp,
+          ip: clientIp,
+          userAgent,
+          details,
+          level: 'WARN'
+        }).catch((err: Error) => serverLogger.error(`Failed to log WS auth failure: ${err.message}`));
+      };
 
       // SENTINEL: Check WS IP throttle
       if (isThrottled(clientIp)) {
         serverLogger.warn(`WS Auth throttle triggered for IP: ${clientIp}`);
+        logAuthFailure('AUTH_THROTTLE_WS', { origin });
         return done(false, 429, "Too many failed attempts");
       }
 
@@ -185,7 +209,8 @@ async function bootstrap() {
         serverLogger.warn(
           `Blocked WebSocket connection from unauthorized origin: ${info.origin} (IP: ${clientIp})`,
         );
-        recordFailure(clientIp);
+        const count = recordFailure(clientIp);
+        logAuthFailure('AUTH_REJECT_WS_ORIGIN', { origin, count });
         return done(false);
       } else if (isDevFallback) {
         serverLogger.warn(
@@ -197,18 +222,18 @@ async function bootstrap() {
       const adminKey = configService.get<string>("ADMIN_API_KEY");
       if (adminKey) {
         try {
-          const url = new URL(
-            info.req.url || "",
-            `http://${info.req.headers.host}`,
-          );
-          const token = url.searchParams.get("token");
+          // SENTINEL: Extract token from sub-protocol header instead of query params
+          // to prevent sensitive keys from appearing in server access logs or browser history.
+          const protocolHeader = info.req.headers['sec-websocket-protocol'];
+          const token = Array.isArray(protocolHeader) ? protocolHeader[0] : protocolHeader;
 
           // SENTINEL: Validate token length and presence
           if (!token || token.length > 128) {
              serverLogger.warn(
                `Blocked WebSocket connection: Invalid API Key format/length from ${info.origin} (IP: ${clientIp})`,
              );
-             recordFailure(clientIp);
+             const count = recordFailure(clientIp);
+             logAuthFailure('AUTH_FAILURE_WS', { reason: 'invalid_format', count });
              return done(false);
           }
 
@@ -216,13 +241,15 @@ async function bootstrap() {
             serverLogger.warn(
               `Blocked WebSocket connection: Invalid API Key from ${info.origin} (IP: ${clientIp})`,
             );
-            recordFailure(clientIp);
+            const count = recordFailure(clientIp);
+            logAuthFailure('AUTH_FAILURE_WS', { reason: 'invalid_token', count });
             return done(false);
           }
           clearFailures(clientIp);
         } catch (err) {
           serverLogger.error(`WebSocket handshake URL parsing failed for ${info.origin} (IP: ${clientIp})`);
-          recordFailure(clientIp);
+          const count = recordFailure(clientIp);
+          logAuthFailure('AUTH_FAILURE_WS', { reason: 'parse_error', error: err instanceof Error ? err.message : String(err), count });
           return done(false);
         }
       } else if (nodeEnv === "production") {
@@ -306,27 +333,34 @@ async function bootstrap() {
       }
 
       if (payload.type === "scanner") {
-        // Optimization: Prune sparkline history for Dashboard to save bandwidth
-        if (!client.focusMode) {
-          const pruned = {
-            ...payload,
-            opportunities: (payload.opportunities || []).map((o: any) => {
-              const { history, signalResult, ...thin } = o;
-              return thin;
-            }),
-            variant_opportunities: (
-              basePayload.variant_opportunities || []
-            ).map((v: any) => ({
-              ...v,
-              opportunities: (v.opportunities || []).map((o: any) => {
-                const { history, signalResult, ...thin } = o;
-                return thin;
-              }),
-            })),
-          };
-          client.send(JSON.stringify(pruned));
-          return;
-        }
+        // Optimization: Prune sparkline history and ohlc_history to save bandwidth
+        const pruneOpp = (opp: any) => {
+          const keepOhlc = client.focusScannerSymbol && opp.symbol === client.focusScannerSymbol;
+          if (client.focusMode) {
+            if (keepOhlc) return opp;
+            const { ohlc_history, ...rest } = opp;
+            return rest;
+          } else {
+            const { history, signalResult, ohlc_history, ...thin } = opp;
+            return {
+              ...thin,
+              ...(keepOhlc ? { ohlc_history } : {})
+            };
+          }
+        };
+
+        const pruned = {
+          ...payload,
+          opportunities: (payload.opportunities || []).map(pruneOpp),
+          variant_opportunities: (
+            basePayload.variant_opportunities || []
+          ).map((v: any) => ({
+            ...v,
+            opportunities: (v.opportunities || []).map(pruneOpp),
+          })),
+        };
+        client.send(JSON.stringify(pruned));
+        return;
       }
       if (payload.type === "log" && client.logFilters) {
         if (client.logFilters[payload.level] === false) return;
@@ -369,6 +403,7 @@ async function bootstrap() {
     socket.focusMode = false;
     socket.focusTradeId = null;
     socket.focusStrategyLabel = null;
+    socket.focusScannerSymbol = null;
     socket.isActive = true; // Default to active on connect
     socket.logFilters = { info: true, warn: true, error: true };
     socket.msgCount = 0;
@@ -416,12 +451,13 @@ async function bootstrap() {
           socket.focusMode = data.enabled === true;
           socket.focusTradeId = data.tradeId || null;
           socket.focusStrategyLabel = data.strategyLabel || null;
+          socket.focusScannerSymbol = data.scannerSymbol || null;
 
           // If becoming focused, immediately broadcast the current session state to the client
           // to prevent UI "data gaps" during transition.
           if (!wasFocused && socket.focusMode) {
             const sessionService = app.get(SessionService);
-            const status = await sessionService.getStatus();
+            const status = await sessionService.getStatus(false);
             socket.send(JSON.stringify({
               type: "status",
               ...status,
@@ -441,7 +477,7 @@ async function bootstrap() {
             socket.send(
               JSON.stringify({
                 type: "status",
-                ...(await sessionService.getStatus()),
+                ...(await sessionService.getStatus(false)),
               }),
             );
           }
@@ -465,7 +501,7 @@ async function bootstrap() {
     });
 
     socket.send(
-      JSON.stringify({ type: "status", ...(await sessionService.getStatus()) }),
+      JSON.stringify({ type: "status", ...(await sessionService.getStatus(true)) }),
     );
   });
 

@@ -66,7 +66,7 @@ export const AuthOverlay = () => {
                     value={key}
                     onChange={(e) => setKey(e.target.value)}
                     placeholder="••••••••••••••••"
-                    className="w-full bg-background border border-border focus:border-accent focus:outline-none rounded-2xl pl-12 pr-4 py-4 text-sm font-mono transition-all"
+                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-2xl pl-12 pr-4 py-4 text-sm font-mono transition-all"
                   />
                 </div>
 

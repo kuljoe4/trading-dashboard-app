@@ -122,8 +122,14 @@ export class EngineBroadcasterService {
       }
     }
 
+    // DEBUG: Stateless evaluation of maximum estimated P&L to realize.
+    // The calculation dynamically evaluates priority and transitions between milestone stop-loss (ratchet)
+    // and active exit signals on every broadcast tick.
+    // 1. Initialize max estimated P&L with current ratchet (milestone stop-loss) P&L.
     let maxEstPnlForTrade = ratchetPnl;
     let estPnlSource = 'sl';
+
+    // 2. Iterate exit signals to see if any qualifying signal has a higher expected P&L.
     if (trade.exit_signals_status) {
       for (const [key, status] of Object.entries(trade.exit_signals_status)) {
         const sigStatus = status as any;
@@ -135,6 +141,11 @@ export class EngineBroadcasterService {
             signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
           }
           const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+          // DEBUG: If signalPnl > maxEstPnlForTrade, we switch the estimated P&L source to the signal.
+          // Note: If on a subsequent tick the milestone stop-loss (ratchetPnl) moves above the signal threshold
+          // (e.g., due to stop-loss trailing movements), maxEstPnlForTrade will start at the larger ratchetPnl
+          // on the next iteration and NOT be overwritten by the signal. This ensures robust, stateless,
+          // self-correcting transitions in either direction.
           if (!isDelayActive && signalPnl <= pnl && signalPnl > maxEstPnlForTrade) {
             maxEstPnlForTrade = signalPnl;
             estPnlSource = `signal:${key}`;
@@ -201,8 +212,8 @@ export class EngineBroadcasterService {
       min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       strategy_config: trade.strategy_config,
-      live_rr_sequence: trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [],
-      exit_rr_sequence: trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || [],
+      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || []),
+      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || []),
       exit_signal_logic: trade.strategy_config?.exit_signal_logic || config?.exit_signal_logic || 'any',
       tp_mode: trade.strategy_config?.tp_mode || config?.tp_mode || 'fixed',
       tp_ratio: trade.strategy_config?.tp_ratio || config?.tp_ratio || 2,
@@ -277,8 +288,8 @@ export class EngineBroadcasterService {
       _thin: true,
       _sl_len: trade.sl_adjustments?.length || 0,
       _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
-      live_rr_sequence: trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [],
-      exit_rr_sequence: trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || [],
+      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || []),
+      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || []),
     };
   }
 
@@ -395,46 +406,69 @@ export class EngineBroadcasterService {
       }
 
       const direction = trade.direction || 'LONG';
-      const entry = trade.entry_price || 0;
-      const qty = trade.qty || 0;
-      const grossPnl = direction === 'LONG' ? (current - entry) * qty : (entry - current) * qty;
+      const entry = Number(trade.entry_price) || 0;
+      const qty = Number(trade.qty) || 0;
+
+      let currentVal = Number(current);
+      if (isNaN(currentVal) || !isFinite(currentVal)) {
+        this.logger.warn(`[DEBUG] Invalid current price: ${current} for ${trade.symbol} (${trade.id}). Falling back to entry price: ${entry}`);
+        currentVal = entry;
+      }
+
+      let grossPnl = direction === 'LONG' ? (currentVal - entry) * qty : (entry - currentVal) * qty;
+      if (isNaN(grossPnl) || !isFinite(grossPnl)) {
+        this.logger.warn(`[DEBUG] NaN grossPnl detected for ${trade.symbol} (${trade.id}). Current: ${currentVal}, Entry: ${entry}, Qty: ${qty}. Forcing to 0`);
+        grossPnl = 0;
+      }
 
       // BOLT: Match exchange Unrealized PnL (Gross)
-      const pnlValue = roundEight(grossPnl);
+      let pnlValue = roundEight(grossPnl);
+      if (isNaN(pnlValue) || !isFinite(pnlValue)) {
+        pnlValue = 0;
+      }
       activePnl += pnlValue;
-      totalRiskUsdt += (trade.risk_usdt || 0);
+      totalRiskUsdt += (Number(trade.risk_usdt) || 0);
 
-      const slPriceForEst = trade.current_sl || trade.sl_price || 0;
+      const slPriceForEst = Number(trade.current_sl || trade.sl_price) || 0;
       let ratchetPnl = 0;
-      if (slPriceForEst > 0) {
+      if (slPriceForEst > 0 && !isNaN(slPriceForEst) && isFinite(slPriceForEst)) {
         if (direction === 'LONG') {
           ratchetPnl = (slPriceForEst - entry) * qty;
         } else {
           ratchetPnl = (entry - slPriceForEst) * qty;
         }
       }
+      if (isNaN(ratchetPnl) || !isFinite(ratchetPnl)) {
+        this.logger.warn(`[DEBUG] NaN ratchetPnl detected for ${trade.symbol} (${trade.id}). SL: ${slPriceForEst}, Entry: ${entry}, Qty: ${qty}. Forcing to 0`);
+        ratchetPnl = 0;
+      }
 
       let maxEstPnlForTrade = ratchetPnl;
       if (trade.exit_signals_status) {
         for (const [key, status] of Object.entries(trade.exit_signals_status)) {
           const sigStatus = status as any;
-          if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+          if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0 && !isNaN(sigStatus.threshold) && isFinite(sigStatus.threshold)) {
             let signalPnl = 0;
             if (direction === 'LONG') {
               signalPnl = (sigStatus.threshold - entry) * qty;
             } else {
               signalPnl = (entry - sigStatus.threshold) * qty;
             }
-            const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
-            // Skip estimated values that are higher than the current active P&L (representing unearned future profit targets) or have unexhausted delay
-            if (!isDelayActive && signalPnl <= pnlValue && signalPnl > maxEstPnlForTrade) {
-              maxEstPnlForTrade = signalPnl;
+            if (!isNaN(signalPnl) && isFinite(signalPnl)) {
+              const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+              // Skip estimated values that are higher than the current active P&L (representing unearned future profit targets) or have unexhausted delay
+              if (!isDelayActive && signalPnl <= pnlValue && signalPnl > maxEstPnlForTrade) {
+                maxEstPnlForTrade = signalPnl;
+              }
             }
           }
         }
       }
       // Defensively cap the estimated P&L to realize at the current active P&L to prevent overestimation
       maxEstPnlForTrade = Math.min(maxEstPnlForTrade, pnlValue);
+      if (isNaN(maxEstPnlForTrade) || !isFinite(maxEstPnlForTrade)) {
+        maxEstPnlForTrade = 0;
+      }
       totalEstPnlToRealize += maxEstPnlForTrade;
 
       const riskDist = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;

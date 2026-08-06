@@ -19,6 +19,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
+import { useNow } from '../hooks/useNow'
 
 const TemporalRiskGrid = React.memo(() => {
   const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs, nextSlotTs } = useTradingStore(state => ({
@@ -36,12 +37,7 @@ const TemporalRiskGrid = React.memo(() => {
     nextSlotTs: state.nextSlotTs
   }), shallow);
 
-  const [now, setNow] = React.useState(Date.now());
-  React.useEffect(() => {
-    if (!nextSlotTs) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [nextSlotTs]);
+  const now = useNow();
 
   const nextSlotSec = nextSlotTs ? Math.max(0, Math.ceil((nextSlotTs - now) / 1000)) : null;
   const waitTime = nextSlotSec !== null
@@ -257,8 +253,6 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   return (
     <motion.div
       layout
-      whileHover={{ scale: 1.01 }}
-      whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}
@@ -437,12 +431,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
   // the cryptic "Expected static flag was missing" crash on GateBanner mount).
   // The visibility guard is moved below the hooks.
   const config = useTradingStore(state => state.config);
-  const [now, setNow] = React.useState(Date.now());
-  React.useEffect(() => {
-    if (gateState !== 'max_trades_period' || !nextSlotTs) return;
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [gateState, nextSlotTs]);
+  const now = useNow();
 
   if (!gateState && !scannerPaused && !showResumingFeedback) return null;
 
@@ -673,7 +662,7 @@ export function DashboardView({ initialStrategy }) {
     updateStats, analytics,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
-    nextSlotTs, fetchTradeHistory, fetchLifetimeAnalytics, fetchAnalytics, tradeHistory
+    nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory
   } = useTradingStore(state => ({
     sessionActive: state.sessionActive,
     sessionPaused: state.sessionPaused,
@@ -720,7 +709,6 @@ export function DashboardView({ initialStrategy }) {
     isSyncingOnResume: state.isSyncingOnResume,
     nextSlotTs: state.nextSlotTs,
     fetchTradeHistory: state.fetchTradeHistory,
-    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
     fetchAnalytics: state.fetchAnalytics,
     tradeHistory: state.tradeHistory
   }), shallow)
@@ -875,14 +863,13 @@ export function DashboardView({ initialStrategy }) {
   }, [showScanner]);
   useEffect(() => {
     fetchSessions();
-    fetchTradeHistory();
+    fetchTradeHistory(strategyId || 'all');
     fetchAnalytics();
-    fetchLifetimeAnalytics(config?.paper_mode ? 'paper' : 'live');
 
     const toggleScanner = () => setShowScanner(prev => !prev);
     window.addEventListener('toggle-scanner', toggleScanner);
     return () => window.removeEventListener('toggle-scanner', toggleScanner);
-  }, [fetchSessions, fetchTradeHistory, fetchAnalytics, fetchLifetimeAnalytics, config?.paper_mode]);
+  }, [fetchSessions, fetchTradeHistory, fetchAnalytics, config?.paper_mode, strategyId]);
 
   const addAlert = useTradingStore(state => state.addAlert);
 
@@ -977,10 +964,18 @@ export function DashboardView({ initialStrategy }) {
     try {
       await sessionAPI.stop()
       setSessionActive(false, null)
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('config_draft');
+        sessionStorage.removeItem('loaded_preset_name');
+      }
       addAlert({ level: 'info', title: 'Session Terminated', message: 'Engine stopped and all positions closed at market.' });
       await fetchSessions()
     } catch (e) {
       setSessionActive(false, null)
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('config_draft');
+        sessionStorage.removeItem('loaded_preset_name');
+      }
       addAlert({ level: 'warn', title: 'Session Stopped', message: 'Engine halted, but some cleanup tasks might have failed.' });
       await fetchSessions()
     } finally {

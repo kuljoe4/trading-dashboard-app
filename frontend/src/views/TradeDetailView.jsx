@@ -8,16 +8,12 @@ import { sessionAPI } from '../api/client'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { TradeDetailContent } from '../components/trade/TradeDetailContent'
 import { formatDuration } from '../lib/formatters'
+import { useNow } from '../hooks/useNow'
 
 const TradeDetailView = ({ tradeId }) => {
   const { activeTrades, wsStatus, updateStats, addAlert, config } = useTradingStore()
   const trade = (activeTrades || []).find(t => t.id === tradeId || t.symbol === tradeId)
-  const [now, setNow] = useState(Date.now())
-
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
+  const now = useNow()
 
   const duration = useMemo(() => {
     if (!trade?.entry_ts) return '---'

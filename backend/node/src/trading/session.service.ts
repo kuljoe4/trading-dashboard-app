@@ -2190,6 +2190,21 @@ export class SessionService implements OnModuleInit {
     if (!this.sessionRunning) throw new ConflictException("No session running");
     this.tradingSessionService.setPaused(paused, strategyLabel);
 
+    if (this.currentSessionId) {
+      try {
+        const session = await this.sessionRepository.findOne({
+          where: { id: this.currentSessionId },
+        });
+        if (session && session.config) {
+          session.config.paused = this.tradingSessionService.sessionState.paused;
+          session.config.paused_strategies = Array.from(this.tradingSessionService.sessionState.pausedStrategies || []);
+          await this.sessionRepository.save(session);
+        }
+      } catch (e: any) {
+        this.logger.error(`Failed to save paused state to session config in DB: ${e.message}`);
+      }
+    }
+
     await this.auditLog.log({
       action: paused ? "PAUSE_SESSION" : "RESUME_SESSION",
       resourceId: this.currentSessionId || undefined,

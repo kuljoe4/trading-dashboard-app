@@ -422,7 +422,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().connectWS();
     }
   },
-  setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
+  setFocusMode: (f, tid = null, s = null, scannerSymbol = null) => { const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s, scannerSymbol })); },
   setSessionActive: (a, id) => {
     const wasActive = get().sessionActive;
     set({ sessionActive: a, strategyId: id });
@@ -431,8 +431,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().connectWS();
     } else {
       get().disconnectWS();
-      // Proactively clear ephemeral state on termination
+      // Clear active config drafts and loaded preset names from storage when deactivating/closing a session
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('config_draft');
+        sessionStorage.removeItem('loaded_preset_name');
+      }
+      // Proactively clear ephemeral state on termination and reset session config back to defaultConfig to prevent stale settings/variants bleeding
       set({
+        config: defaultConfig,
         activeTrades: [],
         scannerResults: [],
         variantScannerResults: {},
@@ -850,8 +856,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
     lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
-    scannerResults: state.scannerResults,
-    variantScannerResults: state.variantScannerResults,
     analytics: state.analytics
   }),
   version: 1,
@@ -867,6 +871,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       // Force collections to arrays to avoid TypeError: B is undefined
       state.activeTrades = Array.isArray(state.activeTrades) ? state.activeTrades : [];
       state.scannerResults = Array.isArray(state.scannerResults) ? state.scannerResults : [];
+      state.variantScannerResults = state.variantScannerResults && typeof state.variantScannerResults === 'object' ? state.variantScannerResults : {};
       state.tradeHistory = Array.isArray(state.tradeHistory) ? state.tradeHistory : [];
       state.logs = Array.isArray(state.logs) ? state.logs : [];
       state.alerts = Array.isArray(state.alerts) ? state.alerts : [];

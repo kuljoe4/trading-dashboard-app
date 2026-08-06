@@ -38,6 +38,15 @@ export class TradingWindow {
 }
 
 export class SessionConfig {
+  @IsBoolean()
+  @IsOptional()
+  paused?: boolean;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  paused_strategies?: string[];
+
   @IsString()
   @IsOptional()
   @MaxLength(100)
@@ -474,6 +483,10 @@ export class SessionConfig {
   @Min(0.1)
   @Max(10.0)
   trailing_stop_distance_pct?: number = 1.0;
+
+  @IsBoolean()
+  @IsOptional()
+  force_risk_release?: boolean = false;
 
   @IsObject()
   @IsOptional()

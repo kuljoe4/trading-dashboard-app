@@ -240,4 +240,74 @@ describe('OrderManagerService - PnL Consistency', () => {
     // Fee should be simulated because paperMode=true was passed
     expect(trade.realized_fee).toBe(roundEight(51000 * 0.1 * 0.0004));
   });
+
+  it('calculates absolute gross PnL correctly for INITIAL_SL hits instead of being flat/equal to negative fee', async () => {
+    // Set service to LIVE mode globally
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-initial-sl-pnl',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      initial_sl: 49000,
+      initial_risk_usdt: 100, // (50000 - 49000) * 0.1
+      pnl: -2.0, // Initial entry fee applied
+      realized_fee: 2.0,
+      status: 'OPEN'
+    } as any;
+
+    mockTradingSession.activeTrades = [trade];
+
+    // Trigger closeTrade with reasons matching INITIAL_SL
+    const result = await service.closeTrade('BTCUSDT', trade, 49000, 'SL_HIT_INITIAL_SL', false, true, {
+      feesAlreadyAccounted: false,
+      alreadyRealized: false
+    });
+
+    expect(result.exitOccurred).toBe(true);
+    // Real Gross PnL should be calculated: (49000 - 50000) * 0.1 = -100
+    // Real Net PnL = -100 - (realized_fee + estimated exit fee)
+    // exit fee = 49000 * 0.1 * 0.0004 = 1.96
+    // realized_fee = 2.0 + 1.96 = 3.96
+    // Net PnL = -100 - 3.96 = -103.96
+    expect(trade.realized_fee).toBe(3.96);
+    expect(trade.pnl).toBe(-103.96);
+  });
+
+  it('calculates absolute gross PnL correctly for adjusted/ratcheted/milestone stop-losses even when alreadyRealized is true', async () => {
+    // Set service to LIVE mode globally
+    service.setBinanceClient(mockBinanceClient, false);
+
+    const trade = {
+      id: 'test-ratchet-sl-pnl',
+      symbol: 'BTCUSDT',
+      direction: 'LONG',
+      qty: 0.1,
+      entry_price: 50000,
+      initial_sl: 49000,
+      current_sl: 49500,
+      initial_risk_usdt: 100, // (50000 - 49000) * 0.1
+      pnl: -2.0, // Initial entry fee applied
+      realized_fee: 2.0,
+      status: 'OPEN'
+    } as any;
+
+    mockTradingSession.activeTrades = [trade];
+
+    // Trigger closeTrade with reasons matching a ratcheted/milestone SL, and alreadyRealized=true
+    const result = await service.closeTrade('BTCUSDT', trade, 49500, 'SL_HIT_RATCHET_M1', false, true, {
+      feesAlreadyAccounted: false,
+      alreadyRealized: true
+    });
+
+    expect(result.exitOccurred).toBe(true);
+    // Gross PnL: (49500 - 50000) * 0.1 = -50
+    // exit fee = 49500 * 0.1 * 0.0004 = 1.98
+    // realized_fee = 2.0 + 1.98 = 3.98
+    // Net PnL = -50 - 3.98 = -53.98
+    expect(trade.realized_fee).toBe(3.98);
+    expect(trade.pnl).toBe(-53.98);
+  });
 });

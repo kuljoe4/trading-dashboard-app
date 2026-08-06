@@ -271,8 +271,8 @@ export class PositionTrackerService {
 
     // Find highest milestone crossed by max_rr
     let currentIndex = -1;
-    const liveRrSequence = config.live_rr_sequence || [];
-    const exitRrSequence = config.exit_rr_sequence || [];
+    const liveRrSequence = (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (config.live_rr_sequence || []);
+    const exitRrSequence = (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (config.exit_rr_sequence || []);
 
     for (let i = 0; i < liveRrSequence.length; i++) {
       if (trade.max_rr_achieved >= liveRrSequence[i]) {
@@ -650,7 +650,9 @@ export class PositionTrackerService {
       ? trade.current_sl >= trade.entry_price - tolerance
       : trade.current_sl <= trade.entry_price + tolerance;
 
-    if (isBreakevenOrBetter) {
+    const isForcedRelease = trade.strategy_config?.force_risk_release === true;
+
+    if (isBreakevenOrBetter || isForcedRelease) {
       trade.risk_usdt = 0;
     } else {
       const slDistance = Math.abs(trade.entry_price - trade.initial_sl);
@@ -711,7 +713,8 @@ export class PositionTrackerService {
     const risk = Math.abs(trade.entry_price - trade.initial_sl);
     if (risk <= 0) return trade.rr_sequence_index ?? -1;
 
-    const exitRrSequence = config.exit_rr_sequence || [];
+    const liveRrSequence = (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (config.live_rr_sequence || []);
+    const exitRrSequence = (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (config.exit_rr_sequence || []);
     let bestIndex = -1; // Default to pre-milestone
 
     for (let i = 0; i < exitRrSequence.length; i++) {
@@ -739,8 +742,8 @@ export class PositionTrackerService {
 
       // DATA-07: Also reconcile max_rr_achieved to match the discovered milestone
       // to ensure the ladder continues from the correct peak.
-      if (bestIndex !== -1 && config.live_rr_sequence?.[bestIndex] !== undefined) {
-        trade.max_rr_achieved = Math.max(trade.max_rr_achieved || 0, config.live_rr_sequence[bestIndex]);
+      if (bestIndex !== -1 && liveRrSequence[bestIndex] !== undefined) {
+        trade.max_rr_achieved = Math.max(trade.max_rr_achieved || 0, liveRrSequence[bestIndex]);
       }
 
       // BOLT: Only update the internal map if this trade is already tracked

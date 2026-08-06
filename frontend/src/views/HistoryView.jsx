@@ -26,6 +26,24 @@ export const ChartSkeleton = ({ height = 180 }) => (
 export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
   const [copied, setCopied] = useState(false);
 
+  // PERFORMANCE: Use loop-fused single-pass useMemo to calculate base/variant PnLs in O(N) time with zero array allocations
+  const variantPnls = useMemo(() => {
+    const map = new Map();
+    if (!trades) return map;
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      const label = strategyLabel(t);
+      const pnl = safeNum(t.pnl);
+      map.set(label, (map.get(label) || 0) + pnl);
+    }
+    return map;
+  }, [trades]);
+
+  const activeLabels = useMemo(() => {
+    return Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
+  }, [trades]);
+
+  // SEC: Rules of Hooks require all useX hooks to be declared above any early return statement
   if (!session) return null;
 
   const handleCopy = () => {
@@ -42,8 +60,6 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
     return formatDuration(end - start);
   })();
 
-  const activeLabels = Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
-
   return (
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <AnimatePresence>
@@ -57,14 +73,14 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                 className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
               />
             </Dialog.Overlay>
-            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10110 outline-none w-[calc(100%-2rem)] max-w-lg">
+            <Dialog.Content className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10110 outline-none w-full max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-lg">
               <motion.div
                 role="dialog"
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-                className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[90vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
+                className="bg-surface border border-border rounded-t-3xl rounded-b-none md:rounded-2xl p-5 md:p-6 shadow-2xl overflow-hidden max-h-[85vh] flex flex-col focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {/* Header */}
                 <div className="flex justify-between items-start mb-4 pb-3 border-b border-border/10">
@@ -148,14 +164,22 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                     <div className="flex flex-col gap-2">
                       {activeLabels.map(l => {
                         const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
+                        const pnlVal = variantPnls.get(l) || 0;
                         return (
-                          <div key={l} className="flex items-center justify-between p-2 bg-surface/50 border border-border/20 rounded-lg">
-                            <span className="text-[10.5px] font-bold text-text uppercase">{l}</span>
-                            <span className={cn(
-                              "text-[8px] font-black px-1.5 py-0.5 rounded border uppercase",
-                              isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
-                            )}>
-                              {isBase ? 'Base' : 'Variant'}
+                          <div key={l} className="flex items-center justify-between p-2.5 bg-surface/50 border border-border/20 rounded-lg hover:border-accent/15 transition-all">
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="text-[10.5px] font-black text-text uppercase truncate max-w-[200px] sm:max-w-xs">{l}</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={cn(
+                                  "text-[7.5px] font-black px-1.5 py-0.5 rounded border uppercase leading-none tracking-wider",
+                                  isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
+                                )}>
+                                  {isBase ? 'Base' : 'Variant'}
+                                </span>
+                              </div>
+                            </div>
+                            <span className={cn("text-xs font-black font-mono tracking-tight shrink-0", pnlClass(pnlVal))}>
+                              {fmtUSD(pnlVal)}
                             </span>
                           </div>
                         );
@@ -553,6 +577,38 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     };
   }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
 
+  const exitRrDistribution = useMemo(() => {
+    let rangeMinusToZero = 0;
+    let rangeZeroToOne = 0;
+    let rangeOneToTwo = 0;
+    let rangeTwoToThree = 0;
+    let rangeThreePlus = 0;
+
+    trades.forEach(t => {
+      const err = Number(t.exit_rr ?? 0);
+      if (err <= 0) {
+        rangeMinusToZero++;
+      } else if (err > 0 && err <= 1.0) {
+        rangeZeroToOne++;
+      } else if (err > 1.0 && err <= 2.0) {
+        rangeOneToTwo++;
+      } else if (err > 2.0 && err <= 3.0) {
+        rangeTwoToThree++;
+      } else {
+        rangeThreePlus++;
+      }
+    });
+
+    const total = trades.length || 1;
+    return [
+      { label: '≤ 0 R', count: rangeMinusToZero, pct: ((rangeMinusToZero / total) * 100).toFixed(1), color: 'text-red bg-red/10 border-red/20' },
+      { label: '0 to 1 R', count: rangeZeroToOne, pct: ((rangeZeroToOne / total) * 100).toFixed(1), color: 'text-dim bg-background/20 border-border/20' },
+      { label: '1 to 2 R', count: rangeOneToTwo, pct: ((rangeOneToTwo / total) * 100).toFixed(1), color: 'text-accent bg-accent/10 border-accent/20' },
+      { label: '2 to 3 R', count: rangeTwoToThree, pct: ((rangeTwoToThree / total) * 100).toFixed(1), color: 'text-green bg-green/10 border-green/20' },
+      { label: '3R +', count: rangeThreePlus, pct: ((rangeThreePlus / total) * 100).toFixed(1), color: 'text-purple bg-purple/10 border-purple/20' },
+    ];
+  }, [trades]);
+
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
       {/* Responsive Header Row */}
@@ -570,7 +626,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               id="usePctRisk"
               checked={usePctRisk}
               onChange={(e) => setUsePctRisk(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer"
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              aria-label="Toggle percentage risk calculation"
             />
             <label htmlFor="usePctRisk" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none">
               Risk % of Bal:
@@ -584,7 +641,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               value={riskPct}
               onChange={(e) => setRiskPct(e.target.value)}
               onBlur={handleRiskBlur}
-              className="w-12 bg-background/50 border border-border/50 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold text-text disabled:opacity-40 focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              className="w-12 bg-background/50 border border-border/50 rounded px-1 py-0.5 text-center font-mono text-[10px] font-bold text-text disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               aria-label="Risk percent of starting balance"
             />
             <span className="text-[10px] font-bold font-mono text-dim">%</span>
@@ -597,7 +654,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               checked={useCompounding}
               disabled={!usePctRisk}
               onChange={(e) => setUseCompounding(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer disabled:opacity-30"
+              className="w-3.5 h-3.5 rounded border-border text-accent focus:ring-accent bg-background cursor-pointer disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              aria-label="Toggle compounding returns calculation"
             />
             <label htmlFor="useCompounding" className="text-[8px] text-dim font-black uppercase tracking-wider whitespace-nowrap cursor-pointer select-none disabled:opacity-30">
               Compounding
@@ -632,18 +690,24 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           step="0.1"
           value={targetRr}
           onChange={(e) => setTargetRr(Number(e.target.value))}
-          className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none"
+          aria-label="Target Risk-to-Reward Ratio"
+          aria-valuemin="0.5"
+          aria-valuemax="6.0"
+          aria-valuenow={targetRr}
+          className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         <div className="flex items-center gap-1.5 shrink-0">
           <button
             onClick={() => setTargetRr(prev => Math.max(0.5, Number((prev - 0.5).toFixed(1))))}
-            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+            aria-label="Decrease target Risk-to-Reward ratio by 0.5"
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             -
           </button>
           <button
             onClick={() => setTargetRr(prev => Math.min(6.0, Number((prev + 0.5).toFixed(1))))}
-            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none"
+            aria-label="Increase target Risk-to-Reward ratio by 0.5"
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             +
           </button>
@@ -733,6 +797,24 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           <span className="text-xs font-black font-mono tracking-tight text-red truncate">
             {usePctRisk ? `-${stats.maxStreakDrawdownPct}%` : '---'}
           </span>
+        </div>
+      </div>
+
+      {/* Exit RR Frequency Distribution */}
+      <div className="pt-2.5 border-t border-border/10 flex flex-col gap-1.5">
+        <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none">Exit RR Distribution Frequency</span>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1">
+          {exitRrDistribution.map((dist, idx) => (
+            <div key={idx} className={cn("p-1.5 rounded-lg border flex flex-col justify-between gap-1", dist.color.split(' ')[1], dist.color.split(' ')[2])}>
+              <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-wider">
+                <span className="text-dim/80">{dist.label}</span>
+                <span className={cn("font-mono font-black", dist.color.split(' ')[0])}>{dist.count} ({dist.pct}%)</span>
+              </div>
+              <div className="w-full bg-background/30 rounded-full h-1 overflow-hidden mt-0.5">
+                <div className={cn("h-full rounded-full", dist.color.split(' ')[0].replace('text-', 'bg-'))} style={{ width: `${dist.pct}%` }} />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -1069,6 +1151,7 @@ export const HistoryView = () => {
   // are already handled by other components or the global store, making the local fetch redundant.
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
   const [loading, setLoading] = useState(true)
+  const isFirstRender = React.useRef(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [search, setSearch] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -1245,18 +1328,27 @@ export const HistoryView = () => {
   const sharpeStatus = useMemo(() => getSharpeStatus(currentAnalytics?.sharpeRatio), [currentAnalytics?.sharpeRatio]);
   const sortinoStatus = useMemo(() => getSortinoStatus(currentAnalytics?.sortinoRatio), [currentAnalytics?.sortinoRatio]);
 
+  // Parallel fetch on initial mount for lists (independent of mode) and mode-specific initial analytics
   useEffect(() => {
     setLoading(true)
     Promise.all([
       fetchTradeHistory(),
       fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
-    ]).then(() => {
-      // WISP OPTIMIZATION: Bypassed redundant active-session analytics state setting as it's unused in HistoryView.
-    }).finally(() => {
+    ]).finally(() => {
+      setLoading(false)
+      isFirstRender.current = false
+    })
+  }, [fetchTradeHistory, fetchSessions, fetchLifetimeAnalytics])
+
+  // Fetch only lightweight analytics on subsequent mode toggles
+  useEffect(() => {
+    if (isFirstRender.current) return
+    setLoading(true)
+    fetchLifetimeAnalytics(lifetimeMode).finally(() => {
       setLoading(false)
     })
-  }, [updateStats, fetchSessions, fetchLifetimeAnalytics, lifetimeMode, fetchTradeHistory])
+  }, [fetchLifetimeAnalytics, lifetimeMode])
 
   // Handle URL hash query param auto-expansion
   useEffect(() => {
@@ -1310,6 +1402,8 @@ export const HistoryView = () => {
                   setLifetimeMode(m);
                   localStorage.setItem('history_trade_mode', m);
                 }}
+                aria-pressed={lifetimeMode === m}
+                aria-label={`Switch history to ${m} mode`}
                 className={cn(
                   "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                   lifetimeMode === m ? "bg-accent text-white shadow-md shadow-accent/20" : "text-dim hover:text-text"
@@ -1366,6 +1460,8 @@ export const HistoryView = () => {
                   <button
                     key={opt.id}
                     onClick={() => setSortBy(opt.id)}
+                    aria-pressed={sortBy === opt.id}
+                    aria-label={`Sort sessions by ${opt.label}`}
                     className={cn(
                       "px-2.5 py-1.5 rounded-lg text-[8.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                       sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"

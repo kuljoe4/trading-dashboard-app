@@ -3218,11 +3218,10 @@ export class OrderManagerService {
          const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
          const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
 
-         const isInitialSl = exitReason === `${EXIT_REASONS.SL_HIT}_INITIAL_SL` ||
-                             exitReason === 'SL_HIT_INITIAL_SL' ||
-                             (exitReason && exitReason.startsWith(EXIT_REASONS.SL_HIT) && trade.current_sl === trade.initial_sl);
+         const isAnySlHit = exitReason === `${EXIT_REASONS.SL_HIT}` ||
+                            (exitReason && exitReason.startsWith(EXIT_REASONS.SL_HIT));
 
-         if ((options.alreadyRealized || options.feesAlreadyAccounted) && !isInitialSl) {
+         if ((options.alreadyRealized || options.feesAlreadyAccounted) && !isAnySlHit) {
             this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
          } else {
             // CHRONOS: Absolute PnL Calculation for Live mode.

@@ -738,4 +738,79 @@ describe('SessionService Validation', () => {
       await expect(service.updateTradeConfig('trade-id-123', dto)).rejects.toThrow();
     });
   });
+
+  describe('Manual Position Reconciliation & Adoption', () => {
+    it('getUntrackedPositions should return untracked positions', async () => {
+      // Set up in-service states
+      (service as any).sessionRunning = true;
+      (service as any).currentSessionId = 'session-123';
+
+      mockRepository.findOne.mockResolvedValue({
+        id: 'session-123',
+        tradingMode: 'live',
+        paperMode: false,
+        config: new SessionConfig()
+      });
+
+      mockTradeRepository.findOne.mockResolvedValue(null);
+      mockTradeRepository.find.mockResolvedValue([]);
+
+      mockTradingSessionService.fetchAllPositions = jest.fn().mockResolvedValue([
+        { symbol: 'BTCUSDT', positionAmt: '1.5', entryPrice: '50000', markPrice: '50100' }
+      ]);
+      mockTradingSessionService.getActiveTradesRaw = jest.fn().mockReturnValue([]);
+
+      mockOrderManagerService.fetchAllOpenOrders = jest.fn().mockResolvedValue([]);
+
+      const res = await service.getUntrackedPositions();
+      expect(res.positions).toHaveLength(1);
+      expect(res.positions[0].symbol).toBe('BTCUSDT');
+      expect(res.positions[0].notional).toBe(75000);
+      expect(res.positions[0].startedByUs).toBe(false); // No trades exist in DB
+    });
+
+    it('adoptPositionManually should successfully adopt untracked positions with selected strategy config override', async () => {
+      (service as any).sessionRunning = true;
+      (service as any).currentSessionId = 'session-123';
+
+      const mockConfig = new SessionConfig();
+      mockConfig.strategy_label = 'Momentum Strategy';
+      mockConfig.strategy_variants = [
+        { strategy_label: 'Macd 1hr', enabled: true, scan_interval: '1h' } as any
+      ];
+
+      mockRepository.findOne.mockResolvedValue({
+        id: 'session-123',
+        tradingMode: 'live',
+        paperMode: false,
+        config: mockConfig
+      });
+
+      mockTradingSessionService.getActiveTradesRaw = jest.fn().mockReturnValue([]);
+      mockOrderManagerService.fetchPosition = jest.fn().mockResolvedValue({
+        symbol: 'BTCUSDT',
+        positionAmt: '1.5',
+        entryPrice: '50000',
+        markPrice: '50100'
+      });
+      mockOrderManagerService.fetchOpenOrders = jest.fn().mockResolvedValue([]);
+      mockOrderManagerService.placeStopLoss = jest.fn().mockResolvedValue({
+        orderId: 'sl-order-123',
+        price: 49000
+      });
+
+      // Mock save to return a TradeEntity
+      mockTradeRepository.create.mockImplementation((dto: any) => dto);
+      mockTradeRepository.save.mockResolvedValue({});
+
+      mockTradingSessionService.addTrade = jest.fn();
+      mockTradingSessionService.seedActiveTrades = jest.fn();
+
+      const res = await service.adoptPositionManually('BTCUSDT', 'Macd 1hr');
+      expect(res.status).toBe('adopted');
+      expect(res.trade.symbol).toBe('BTCUSDT');
+      expect(res.trade.strategy_label).toBe('Macd 1hr');
+      expect(res.trade.strategy_config.scan_interval).toBe('1h'); // Successfully rehydrated target variant config!
+    });
+  });
 });

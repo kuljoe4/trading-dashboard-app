@@ -8,10 +8,6 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const TAG_LENGTH = 16;
 
-// SENTINEL: Cache for derived encryption key to prevent CPU-intensive scryptSync on every operation
-let cachedKey: Buffer | null = null;
-let lastUsedRawKey: string | null = null;
-
 function getEncryptionKey(): Buffer {
   const key = process.env.ENCRYPTION_KEY;
   if (!key) {
@@ -20,28 +16,14 @@ function getEncryptionKey(): Buffer {
     );
   }
 
-  // SENTINEL: If the environment variable matches our cache, return the cached buffer
-  if (cachedKey && lastUsedRawKey === key) {
-    return cachedKey;
-  }
-
   // SENTINEL: Enforce minimum key length for adequate entropy
-  if (key.length < 32) {
-    if (key.length < 16) {
-      logger.error("CRITICAL: ENCRYPTION_KEY is too short (min 16 chars). Cryptographic operations are at risk.");
-      throw new ConfigValidationException("ENCRYPTION_KEY must be at least 16 characters long for security.");
-    }
-    logger.warn("SECURITY WARNING: ENCRYPTION_KEY is shorter than 32 characters. Consider using a longer key for maximum entropy.");
+  if (key.length < 16) {
+    logger.error("CRITICAL: ENCRYPTION_KEY is too short (min 16 chars). Cryptographic operations are at risk.");
+    throw new ConfigValidationException("ENCRYPTION_KEY must be at least 16 characters long for security.");
   }
 
   // Use a fixed salt for scrypt to ensure the same key is generated from the same environment variable
-  const derived = crypto.scryptSync(key, "momentum-engine-salt", 32);
-
-  // Update cache
-  cachedKey = derived;
-  lastUsedRawKey = key;
-
-  return derived;
+  return crypto.scryptSync(key, "momentum-engine-salt", 32);
 }
 
 export function encrypt(text: string): string {
@@ -63,10 +45,8 @@ export function decrypt(text: string | null | undefined): string {
 
   const parts = text.split(":");
   if (parts.length !== 3) {
-    // SENTINEL: Removed legacy plaintext fallback.
-    // Invalid formats now return an empty string to prevent accidental data disclosure.
-    logger.warn("Rejected decryption request: Invalid data format (expected iv:tag:encrypted)");
-    return "";
+    // If not in iv:tag:encrypted format, assume it's legacy plaintext
+    return text;
   }
 
   // SENTINEL: Validate IV and Tag lengths to prevent malformed buffer exploits

@@ -1,24 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
+import { SessionStateService } from './session_state.service';
 import { ENGINE_EVENTS } from './events';
-import { ENGINE_CONSTANTS } from '../models/constants';
 import { roundEight } from '../lib/math';
+import { EXIT_REASONS } from '../models/constants';
+import { BinanceOrderReceipt, BinanceAlgoOrderReceipt, BinancePositionV3 } from '../models/binance.types';
 
 @Injectable()
 export class MaintenanceService {
   private readonly logger = new Logger(MaintenanceService.name);
   private isProcessingWatchdog = false;
-  private isProcessingFunding = false;
+  private isProcessingFullReconciliation = false;
+  private reactiveAuditTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
   constructor(
     private readonly positionTracker: PositionTrackerService,
     private readonly orderManager: OrderManagerService,
     private readonly tickerCache: TickerCacheService,
+    private readonly sessionState: SessionStateService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
@@ -26,105 +30,307 @@ export class MaintenanceService {
    * PROTECTION WATCHDOG: Periodically verifies that all active Live positions
    * have a corresponding SL order on Binance. If missing, it re-places it.
    */
-  async protectionWatchdog(running: boolean, config: SessionConfig | null) {
-    if (!running || !config || config.paper_mode || this.isProcessingWatchdog) return;
-    this.isProcessingWatchdog = true;
+  private getOrderId(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): string {
+    return String((o as any).algoId || (o as any).orderId || '');
+  }
 
-    const activeTrades = this.positionTracker.activeList();
-    if (activeTrades.length === 0) return;
+  private getOrderQty(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): number {
+    const qtyStr = (o as any).origQty || (o as any).quantity || '0';
+    return parseFloat(String(qtyStr));
+  }
 
-    // Filter out trades that are still in cooldown
-    const tradesToAudit = activeTrades.filter(trade => {
-      if (!trade.binance_order_id) return false;
-      const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
-      const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
-      return secondsSinceUpdate >= 45;
-    });
+  private getOrderExecutedQty(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): number {
+    return parseFloat(String((o as any).executedQty || '0'));
+  }
 
-    if (tradesToAudit.length === 0) {
-      this.isProcessingWatchdog = false;
-      return;
-    }
+  private getOrderStopPrice(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): number {
+    const priceStr = (o as any).stopPrice || (o as any).triggerPrice || '0';
+    return parseFloat(String(priceStr));
+  }
 
-    const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
-    this.logger.log(`[Watchdog] Running protection audit for ${uniqueSymbols.length} unique symbols (Hybrid Strategy)...`);
+  private isAlgoType(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): boolean {
+    return !!((o as any).algoId || (o as any).algoType);
+  }
+
+  async protectionWatchdog(running: boolean, config: SessionConfig | null, targetSymbol?: string) {
+    if (!running || !config || config.paper_mode) return;
+
+    // SRE: Immunity check. If we are currently banned, don't try to audit
+    // as it will just trigger more connection-attempt penalties.
+    if (this.orderManager.isBanned()) return;
+
+    if (!targetSymbol && this.isProcessingWatchdog) return;
+    if (!targetSymbol) this.isProcessingWatchdog = true;
 
     try {
-      // BOLT: Parallelize exchange data fetching to minimize watchdog duration
-      const [allPositions, allOrders, allAlgoOrders] = await Promise.all([
-        this.orderManager.fetchAllPositions(),
-        this.orderManager.fetchAllOpenOrders(),
-        this.orderManager.fetchAllOpenAlgoOrders(),
-      ]);
+      const activeTrades = this.positionTracker.activeList();
+      if (activeTrades.length === 0) return;
 
-      const activePositionsMap = new Map(allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).map(p => [p.symbol, p]));
+      const tradesToAudit = activeTrades.filter(trade => {
+        if (!trade.binance_order_id) return false;
+        if (targetSymbol) {
+          return trade.symbol === targetSymbol;
+        }
 
-      let slOrdersBySymbol = new Map<string, any[]>();
-
-      const isSlOrder = (o: any) => (o.type === 'STOP_MARKET' || o.type === 'STOP' || o.algoType === 'CONDITIONAL') &&
-                                    (o.closePosition === true || o.closePosition === 'true' || o.reduceOnly === true || o.reduceOnly === 'true');
-
-      const combinedOrders = [...allOrders, ...allAlgoOrders];
-      combinedOrders.filter(isSlOrder).forEach(o => {
-        const list = slOrdersBySymbol.get(o.symbol) || [];
-        list.push(o);
-        slOrdersBySymbol.set(o.symbol, list);
+        const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
+        const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
+        return secondsSinceUpdate >= 45;
       });
+
+      if (tradesToAudit.length === 0) return;
+
+      this.logger.debug(`[Watchdog] Audit weights: used=${this.orderManager.getBinanceRateLimit().used_weight_1m}/${this.orderManager.getBinanceRateLimit().limit}`);
+
+      if (this.orderManager.getBinanceRateLimit().used_weight_1m > this.orderManager.getBinanceRateLimit().limit * 0.85) {
+        this.logger.warn(`[Watchdog] High API weight detected. Skipping batch audit to preserve IP status.`);
+        return;
+      }
+
+      // SRE: Optimized Audit Pattern. For small sets of trades (<= 5), use targeted per-symbol calls
+      // to minimize weight (7 weight per symbol). Revert to bulk for larger sets (45+ weight).
+      const useBulkAudit = tradesToAudit.length > 5 && !targetSymbol;
+      let activePositionsMap = new Map<string, BinancePositionV3>();
+      let slOrdersBySymbol = new Map<string, (BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]>();
+
+      const isSlOrder = (o: BinanceOrderReceipt | BinanceAlgoOrderReceipt) => {
+        const type = ((o as any).type || (o as any).algoType || "").toUpperCase();
+        const isStandardSl = (type === 'STOP_MARKET' || type === 'STOP')
+          && ((o as any).closePosition === true || String((o as any).closePosition) === 'true' || (o as any).reduceOnly === true || String((o as any).reduceOnly) === 'true');
+        const isConditionalAlgoSl = !!(o as any).algoId && ((o as any).algoType === 'CONDITIONAL' || type === 'STOP_MARKET');
+        return isStandardSl || isConditionalAlgoSl;
+      };
+
+      const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
+      const processedOrphans = new Set<string>();
+
+      if (useBulkAudit) {
+        this.logger.log(`[Watchdog] Performing bulk audit for ${tradesToAudit.length} trades...`);
+        // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
+        const allPositions = await this.orderManager.fetchAllPositions();
+        allPositions.filter(p => Math.abs(parseFloat(p.positionAmt)) > 0).forEach(p => activePositionsMap.set(p.symbol, p));
+
+        // SRE Overwatch: Mandatory stagger delay between heavy bulk calls to flatten the weight profile
+        this.logger.debug(`[Watchdog] Staggering bulk order audit (2s cooldown)...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const allOrders = await this.orderManager.fetchAllOpenOrders();
+        allOrders.filter(isSlOrder).forEach(o => {
+          const list = slOrdersBySymbol.get(o.symbol) || [];
+          list.push(o);
+          slOrdersBySymbol.set(o.symbol, list);
+        });
+      } else {
+        this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
+        for (const symbol of uniqueSymbols) {
+           // Zero-Weight Path: Try cache first
+           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
+           if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
+             activePositionsMap.set(symbol, pos);
+           }
+
+           const orders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: false });
+           slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
+        }
+      }
+
+      // WebSocket-First state reconciliation: Use UDS cache for active positions to avoid frequent bulk REST calls
+      for (const [symbol, pos] of activePositionsMap.entries()) {
+         this.orderManager.seedRealTimePosition(symbol, parseFloat(pos.positionAmt), parseFloat(pos.entryPrice));
+      }
 
       for (const trade of tradesToAudit) {
         try {
-          // Cooldown check moved up to batch filter for efficiency
-          const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
-          const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
-
-          // Audit Item 13: Skip symbols undergoing ratchet updates to avoid desync race
-          if (this.orderManager.isRatcheting(trade.symbol)) {
-             this.logger.debug(`[Watchdog] Skipping audit for ${trade.symbol}: Ratchet update in progress.`);
+          if (this.orderManager.isRatcheting(trade.symbol) || this.positionTracker.isEntering(trade.symbol) || this.positionTracker.isClosing(trade.symbol)) {
              continue;
           }
 
-          const pos = activePositionsMap.get(trade.symbol);
+          if (trade.close_blocked || trade.illiquid_blocked) {
+             const lastAttempt = trade.last_close_attempt_ts || 0;
+             const minutesSinceLastAttempt = (Date.now() - lastAttempt) / 60000;
 
-          if (!pos) {
-            // BOLT: Handle orphaned local positions. If bot thinks it's open but exchange says 0.
-            this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Ghost position detected for ${trade.symbol}. Force-syncing to closed.`, level: 'error' });
-
-            // Trigger a local sync-only closure to stop the engine from trying to manage this non-existent trade.
-            // We use EXCHANGE_SYNC so it doesn't try to send more orders.
-            await this.orderManager.closeTrade(trade.symbol, trade, 0, 'EXCHANGE_SYNC', false, true);
-            continue;
+             // SRE: Rescue stuck trades. If a trade is blocked but hasn't been attempted for 15+ minutes,
+             // trigger a forced nuclear close to attempt recovery.
+             if (minutesSinceLastAttempt >= 15) {
+                this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} has been blocked (illiquid=${!!trade.illiquid_blocked}) for ${minutesSinceLastAttempt.toFixed(1)}m. Triggering forced recovery close.`);
+                this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+                   symbol: trade.symbol,
+                   exitPrice: 0,
+                   reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE,
+                   needsMarketClose: true,
+                   feesAlreadyAccounted: false,
+                   ignoreBlocked: true
+                });
+             }
+             continue;
           }
 
-          const slOrders = slOrdersBySymbol.get(trade.symbol) || [];
-          const hasProtection = slOrders.some(o => String(o.orderId) === trade.binance_stop_order_id || o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`);
+          // Merge trade-specific config for accurate reconciliation
+          const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
 
-          if (!hasProtection) {
-            // STRATEGY B: NUCLEAR OPTION
-            // If the unprotected position is older than 2 minutes, the situation is critical.
-            // Market close the position to protect capital.
+          let pos = activePositionsMap.get(trade.symbol);
+
+          if (!pos) {
+            const cachedPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: false });
+            if (cachedPos && Math.abs(parseFloat(cachedPos.positionAmt)) > 0) {
+               pos = cachedPos;
+            } else {
+               const freshPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
+               if (freshPos && Math.abs(parseFloat(freshPos.positionAmt)) > 0) {
+                  pos = freshPos;
+               }
+            }
+          }
+
+          if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) {
+              this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC, feesAlreadyAccounted: false });
+              continue;
+          }
+
+          const exAmt = Math.abs(parseFloat(pos.positionAmt));
+          if (Math.abs(exAmt - trade.qty) > 0.00000001) {
+            this.logger.warn(`[Watchdog] ${trade.symbol} quantity mismatch: Local ${trade.qty} vs Exchange ${exAmt}. Syncing local state.`);
+            trade.qty = exAmt;
+
+            // SRE: Live Risk Mitigation during watchdog sync
+            this.positionTracker.refreshTradeRisk(trade);
+
+            trade.updated_at = new Date();
+            this.positionTracker.recalculateTotalRisk();
+            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          }
+
+          let slOrders = slOrdersBySymbol.get(trade.symbol) || [];
+          let matchingOrder = slOrders.find(o =>
+            this.getOrderId(o) === trade.binance_stop_order_id ||
+            o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
+          );
+
+          if (!matchingOrder) {
+            const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });
+            slOrders = freshOrders.filter(isSlOrder);
+            matchingOrder = slOrders.find(o =>
+              this.getOrderId(o) === trade.binance_stop_order_id ||
+              o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
+            );
+
+            if (!matchingOrder && slOrders.length > 0) {
+              const validSl = slOrders.find(o => Math.abs(this.getOrderQty(o) - trade.qty) < 0.00000001);
+              if (validSl) {
+                const slId = this.getOrderId(validSl);
+                this.logger.log(`[Watchdog] ${trade.symbol} adopting untracked exchange SL: ${slId}`);
+                trade.binance_stop_order_id = slId;
+                trade.binance_stop_order_type = this.isAlgoType(validSl) ? 'algo' : 'standard';
+                const exSlPrice = this.getOrderStopPrice(validSl);
+
+                if (exSlPrice > 0 && Math.abs(exSlPrice - trade.current_sl) > 0.00000001) {
+                  this.logger.log(`[Watchdog] ${trade.symbol} syncing SL price from exchange: ${trade.current_sl} -> ${exSlPrice}`);
+                  trade.current_sl = exSlPrice;
+
+                  // SRE: Live Risk Mitigation during SL sync
+                  this.positionTracker.refreshTradeRisk(trade);
+
+                  // SRE: Reconcile rr_sequence_index based on adopted SL price
+                  this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
+
+                  // Re-seed to ensure all internal maps and risk totals are in sync
+                  this.positionTracker.addTrade(trade);
+                }
+
+                trade.updated_at = new Date();
+                matchingOrder = validSl;
+                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+              }
+            }
+          }
+
+          // SRE: Single-Truth SL Audit. Cancel any orphan SL orders to prevent ghost fills
+          // and avoid Binance's 10-conditional-order limit (Error -2027).
+          // We run this BEFORE the missing-SL check to ensure a clean slate if re-placement is needed.
+          const orphans = slOrders.filter(o =>
+             !matchingOrder || this.getOrderId(o) !== this.getOrderId(matchingOrder)
+          );
+
+          for (const orphan of orphans) {
+             const orphanId = this.getOrderId(orphan);
+             if (processedOrphans.has(orphanId)) continue;
+             processedOrphans.add(orphanId);
+
+             // SRE: Anti-Spam Guard. Use a local set during the watchdog pass to avoid
+             // redundant cancel attempts if multiple local trades share the same orphan.
+             this.logger.warn(`[Watchdog] ${trade.symbol} found orphan SL order ${orphanId}. Cancelling for state integrity.`);
+             await this.orderManager.cancelBinanceOrder(
+                trade.symbol,
+                orphanId,
+                this.isAlgoType(orphan) ? 'algo' : 'standard'
+             );
+          }
+
+          if (!matchingOrder) {
+            const lastUpdate = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
+            const secondsSinceUpdate = (Date.now() - lastUpdate) / 1000;
             if (secondsSinceUpdate > 120) {
-              const nuclearMsg = `[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for >2 minutes. Market closing position for capital safety.`;
-              this.logger.error(nuclearMsg);
-              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: nuclearMsg, level: 'error' });
-
-              await this.orderManager.closeTrade(trade.symbol, trade, 0, 'WATCHDOG_NUCLEAR_CLOSE', false, false);
+              this.logger.error(`[Watchdog] NUCLEAR OPTION: ${trade.symbol} unprotected for ${secondsSinceUpdate.toFixed(0)}s. Market closing position.`);
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.WATCHDOG_NUCLEAR_CLOSE, feesAlreadyAccounted: false });
               continue;
             }
+            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} missing SL. Re-placing...`);
+            // SRE: Never re-arm with a zeroed/non-positive SL price. If local current_sl is 0
+            // (e.g. adopted/synthetic trade without a valid baseline), derive a real protective
+            // SL from entry_price and the session sl_distance_pct so placeStopLoss receives a
+            // valid price instead of a 0 that would be silently clamped to the band edge.
+            const slDistPct = tradeConfig?.sl_distance_pct || 2.0;
+            const fallbackSl = trade.direction === 'LONG'
+              ? trade.entry_price * (1 - slDistPct / 100)
+              : trade.entry_price * (1 + slDistPct / 100);
+            const reArmPrice = trade.current_sl > 0 ? trade.current_sl : fallbackSl;
 
-            this.logger.warn(`[Watchdog] CRITICAL: ${trade.symbol} position found without expected SL order on Binance. (Expected: ${trade.binance_stop_order_id}). Found: ${slOrders.length}. Re-placing...`);
-
-            // SECURITY: If we found orders that DON'T match our expected ID, they are likely orphans from a race condition.
-            // We should cancel them before placing a new authoritative one.
-            // AUDIT-FIRST: We cancel ALL found orders to ensure we have a clean slate.
-            for (const orphan of slOrders) {
-               this.logger.log(`[Watchdog] Canceling potential orphan SL ${orphan.orderId} for ${trade.symbol} before re-protection.`);
-               await this.orderManager.cancelBinanceOrder(trade.symbol, String(orphan.orderId), orphan.algoType ? 'algo' : 'standard');
+            // PRICE PROTECTION BREACH CHECK: Skip SL re-arm if it would immediately trigger
+            const ticker = this.tickerCache.getTicker(trade.symbol);
+            const markPrice = ticker?.mark_price;
+            if (markPrice) {
+               const breach = trade.direction === 'LONG' ? (reArmPrice >= markPrice) : (reArmPrice <= markPrice);
+               if (breach) {
+                  this.logger.warn(`[Watchdog] ${trade.symbol} SL re-arm deferred: Price ${reArmPrice.toFixed(5)} is too close to MarkPrice ${markPrice.toFixed(5)} (Breach). Waiting for market movement.`);
+                  continue;
+               }
             }
 
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: `[Watchdog] Missing SL detected for ${trade.symbol}. Recovering protection...`, level: 'warn' });
-            await this.orderManager.placeStopLoss(trade, trade.current_sl);
+            await this.orderManager.placeStopLoss(trade, reArmPrice);
             trade.updated_at = new Date();
+          } else {
+            // SRE: Quantity Parity Audit. Ensure the exchange SL matches the real position quantity.
+            // Skip check for 'Close Position' orders which are quantity-agnostic.
+            const isClosePosition = (matchingOrder as any).closePosition === true || String((matchingOrder as any).closePosition) === 'true';
+
+            if (!isClosePosition) {
+              // DATA-ACCURACY: Compare trade quantity with REMAINING exchange order quantity to support partial fills
+              const orderQty = this.getOrderQty(matchingOrder);
+              const executedQty = this.getOrderExecutedQty(matchingOrder);
+              const remainingOrderQty = Math.max(0, orderQty - executedQty);
+
+              if (Math.abs(remainingOrderQty - trade.qty) > 0.00000001) {
+                this.logger.warn(`[Watchdog] ${trade.symbol} SL quantity mismatch: Order Remaining ${remainingOrderQty} vs Position ${trade.qty}. Triggering cancel-replace.`);
+
+                const matchingId = this.getOrderId(matchingOrder);
+                const cancelSuccess = await this.orderManager.cancelBinanceOrder(
+                  trade.symbol,
+                  matchingId,
+                  this.isAlgoType(matchingOrder) ? 'algo' : 'standard'
+                );
+
+                if (cancelSuccess) {
+                  const slDistPct = tradeConfig?.sl_distance_pct || 2.0;
+                  const fallbackSl = trade.direction === 'LONG'
+                    ? trade.entry_price * (1 - slDistPct / 100)
+                    : trade.entry_price * (1 + slDistPct / 100);
+                  const reArmPrice = trade.current_sl > 0 ? trade.current_sl : fallbackSl;
+                  await this.orderManager.placeStopLoss(trade, reArmPrice);
+                  trade.updated_at = new Date();
+                  this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+                }
+              }
+            }
           }
         } catch (innerErr) {
           this.logger.error(`[Watchdog] Error auditing ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
@@ -133,42 +339,152 @@ export class MaintenanceService {
     } catch (err) {
       this.logger.error(`[Watchdog] Audit failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      this.isProcessingWatchdog = false;
+      if (!targetSymbol) this.isProcessingWatchdog = false;
     }
   }
 
-  async checkFundingFees(running: boolean, config: SessionConfig | null) {
-    if (!running || !config || this.isProcessingFunding) return;
-    const now = new Date();
-    const isFundingTime = now.getUTCHours() % ENGINE_CONSTANTS.FUNDING_INTERVAL_HOURS === 0 && now.getUTCMinutes() === 0;
+  @OnEvent('watchdog.reactive_audit')
+  handleReactiveAudit(payload: { symbol: string }) {
+    const symbol = payload.symbol;
+    const existing = this.reactiveAuditTimeouts.get(symbol);
+    if (existing) clearTimeout(existing);
 
-    if (isFundingTime) {
-      this.isProcessingFunding = true;
+    // RE-02: 15s Debounce window.
+    // This allows SL Ratchet operations (Cancel-then-Replace) to finish
+    // before the watchdog checks for protection.
+    const timeout = setTimeout(async () => {
       try {
-        const activeTrades = this.positionTracker.activeList();
-        for (const trade of activeTrades) {
-          try {
-            const isLong = trade.direction === 'LONG';
-            const notional = (trade.mark_price || trade.last_price || trade.entry_price) * trade.qty;
-            const fundingDelta = roundEight(notional * ENGINE_CONSTANTS.SIMULATED_FUNDING_RATE * (isLong ? 1 : -1));
+        this.reactiveAuditTimeouts.delete(symbol);
+        if (this.orderManager.isRatcheting(symbol) || this.positionTracker.isEntering(symbol) || this.positionTracker.isClosing(symbol)) {
+          return;
+        }
+        this.eventEmitter.emit('watchdog.request_symbol_audit', { symbol });
+      } catch (err) {
+        this.logger.error(`Reactive audit failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }, 15000);
 
-            trade.funding_fee = roundEight((trade.funding_fee || 0) + fundingDelta);
-            trade.pnl = roundEight(trade.pnl - fundingDelta);
-            trade._last_funding_delta = fundingDelta;
+    this.reactiveAuditTimeouts.set(symbol, timeout);
+  }
 
-            // Emit event to update balance in TradingSessionService
-            this.eventEmitter.emit(ENGINE_EVENTS.FUNDING_APPLIED, { trade, fundingDelta });
+  /**
+   * SRE: Performs a full audit of local state against Binance exchange state.
+   * This logic was extracted from SessionService to decouple the engine from the persistence layer.
+   */
+  async reconcileLiveState(running: boolean, config: SessionConfig | null) {
+    if (!running || !config || config.paper_mode || this.isProcessingFullReconciliation) return;
 
-            this.logger.log(`[Funding] Applied ${fundingDelta} estimated funding fee to ${trade.symbol} (${config.paper_mode ? 'Paper' : 'Live'})`);
-          } catch (innerErr) {
-            this.logger.error(`[Funding] Failed to apply fee for ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+    // SRE: Immunity check for ban status
+    if (this.orderManager.isBanned()) return;
+
+    this.isProcessingFullReconciliation = true;
+    try {
+      this.logger.log(`[SRE] Periodic full state reconciliation started.`);
+
+      const allExchangePositions = await this.orderManager.fetchAllPositions();
+      const activeExPositions = allExchangePositions.filter(
+        (p) => Math.abs(parseFloat(p.positionAmt)) > 0,
+      );
+      const activeExMap = new Map(activeExPositions.map((p) => [p.symbol, p]));
+
+      // PERF: Fetch all open orders once for the entire reconciliation to save weight
+      const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+
+      const localOpenTrades = this.positionTracker.activeList();
+      const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
+
+      // CHRONOS: Include in-flight/entering symbols in the "known" set to prevent
+      // incorrect ghost adoption during the entry window.
+      const inFlightSymbols = this.positionTracker.getInFlightSymbols();
+      inFlightSymbols.forEach(s => localSymbols.add(s));
+
+      this.logger.debug(
+        `[Reconciliation] Local symbols (inc. in-flight): [${Array.from(localSymbols).join(",")}], Exchange symbols: [${Array.from(activeExMap.keys()).join(",")}]`,
+      );
+
+      // 0. Audit Real-time Position Cache (Cache -> Exchange)
+      // This fixes the "Ghost Position" lockout by clearing stale entries in the UDS cache
+      // for symbols that have no local trade but show a non-zero amount.
+      let phantomCount = 0;
+      for (const [symbol, cachedPos] of this.sessionState.realTimePositions.entries()) {
+        if (cachedPos.amount !== 0) {
+          const exPos = activeExMap.get(symbol);
+          if (!exPos || Math.abs(parseFloat(exPos.positionAmt)) === 0) {
+            this.logger.warn(`[Reconciliation] Detected ghost position in cache for ${symbol} (Cache: ${cachedPos.amount}, Exchange: 0). Zeroing cache.`);
+            this.sessionState.realTimePositions.set(symbol, { amount: 0, entryPrice: 0 });
+            phantomCount++;
           }
         }
-      } catch (err) {
-        this.logger.error(`[Funding] Batch application failed: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        this.isProcessingFunding = false;
       }
+
+      // Also ensure cache is up-to-date for all exchange positions
+      for (const [symbol, exPos] of activeExMap.entries()) {
+        const amt = parseFloat(exPos.positionAmt);
+        const ep = parseFloat(exPos.entryPrice);
+        const cached = this.sessionState.realTimePositions.get(symbol);
+
+        if (!cached || Math.abs(cached.amount - amt) > 0.00000001 || Math.abs(cached.entryPrice - ep) > 0.00000001) {
+          this.logger.debug(`[Reconciliation] Updating real-time cache for ${symbol} from exchange truth: ${amt} @ ${ep}`);
+          this.sessionState.realTimePositions.set(symbol, { amount: amt, entryPrice: ep });
+        }
+      }
+
+      if (phantomCount > 0) {
+        this.logger.log(`[Reconciliation] [Audit] ${phantomCount} phantom positions corrected in real-time cache.`);
+      }
+
+      // 1. Audit Local Trades (Local -> Exchange)
+      for (const trade of localOpenTrades) {
+        // Skip reconciliation trades themselves to avoid loops, and only check truly OPEN trades
+        if (trade.is_reconciliation || trade.status !== "OPEN") continue;
+
+        const exPos = activeExMap.get(trade.symbol);
+        if (!exPos) {
+          const metadata = {
+            id: trade.id,
+            entryPrice: trade.entry_price,
+            qty: trade.qty,
+            entryTs: trade.entry_ts,
+          };
+          this.logger.error(
+            `[Reconciliation] [CRITICAL] Local trade ${trade.symbol} not found on exchange. Triggering sync close. Meta: ${JSON.stringify(metadata)}`,
+          );
+
+          this.eventEmitter.emit("trade.exchange_close", {
+            symbol: trade.symbol,
+            exitPrice: 0,
+            reason: EXIT_REASONS.EXCHANGE_SYNC,
+            isReconciliation: true,
+            feesAlreadyAccounted: false,
+          });
+        }
+      }
+
+      // 2. Audit Exchange Positions (Exchange -> Local)
+      const ghostPositions = activeExPositions.filter(
+        (p) => !localSymbols.has(p.symbol) && !this.positionTracker.isClosing(p.symbol),
+      );
+
+      if (ghostPositions.length > 0) {
+        this.logger.warn(
+          `[Reconciliation] Found ${ghostPositions.length} untracked positions during periodic audit. Emitting adoption request...`,
+        );
+
+        // SRE: Instead of adopting directly (which requires DB access), we emit an event.
+        // SessionService will handle the DB persistence and synthetic trade creation.
+        this.eventEmitter.emit('reconciliation.adopt_positions', {
+           positions: ghostPositions,
+           orders: allOpenOrders
+        });
+      }
+
+      this.logger.log(`[SRE] Periodic reconciliation complete. State verified.`);
+    } catch (e) {
+      this.logger.error(
+        `[Reconciliation] Periodic logic failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    } finally {
+      this.isProcessingFullReconciliation = false;
     }
   }
 }

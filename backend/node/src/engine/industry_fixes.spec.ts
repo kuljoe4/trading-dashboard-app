@@ -1,3 +1,4 @@
+import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { roundEight, floorStep } from '../lib/math';
 
@@ -5,7 +6,7 @@ describe('Industry Fixes Verification', () => {
   describe('Financial Precision (math.ts)', () => {
     it('correctly rounds to 8 decimal places using roundEight', () => {
       expect(roundEight(0.1 + 0.2)).toBe(0.30000000);
-      expect(roundEight(1.0000000051)).toBe(1.00000001);
+      expect(roundEight(1.000000005)).toBe(1.00000001);
       expect(roundEight(1.000000004)).toBe(1.00000000);
       expect(roundEight(0)).toBe(0);
     });
@@ -26,6 +27,10 @@ describe('Industry Fixes Verification', () => {
       mockSignalEngine = {};
       mockMarketFeed = {
         getSymbolFilters: jest.fn().mockReturnValue({
+          tickSize: 0.1,
+          pricePrecision: 1,
+          stepSize: 0.01,
+          qtyPrecision: 2,
           filters: [
             { filterType: 'PRICE_FILTER', tickSize: '0.1' },
             { filterType: 'LOT_SIZE', stepSize: '0.01' }
@@ -37,10 +42,13 @@ describe('Industry Fixes Verification', () => {
         mockMarketFeed,
         { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
         { incrementApiRequests: jest.fn() } as any, // monitoringService
-        { isRateLimited: () => false } as any, // sessionState
+        { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn() } as any, // positionTracker
+        { isRateLimited: () => false, realTimePositions: new Map(), realTimeOrders: new Map() } as any, // sessionState
+        { broadcast: jest.fn() } as any, // broadcastService
         { log: jest.fn() } as any, // auditLog
-        { emit: jest.fn() } as any, // eventEmitter
-      );
+        { emit: jest.fn() } as any, { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } as any
+      , new OrderFilterService(mockMarketFeed as any, { getTicker: jest.fn(), getPrice: jest.fn() } as any, // sessionState
+        { broadcast: jest.fn() } as any));
     });
 
     it('applies PRICE_FILTER and LOT_SIZE during trade entry', async () => {

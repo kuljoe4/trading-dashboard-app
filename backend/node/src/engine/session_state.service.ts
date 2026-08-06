@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { roundEight } from '../lib/math';
@@ -7,10 +8,12 @@ import { ENGINE_CONSTANTS } from '../models/constants';
 @Injectable()
 export class SessionStateService {
   private readonly logger = new Logger(SessionStateService.name);
+  private static readonly DEFAULT_STRATEGY_LABEL = 'Momentum Strategy';
 
   public balancePaper = 0;
   public balanceLive = 0;
   public lastExchangeBalance = 0;
+  public lastUdsBalanceUpdate = 0;
   public paused = false;
   public binanceRateLimit: { used_1m: number; limit: number } = { used_1m: 0, limit: 2400 };
   public binanceOrderLimit: {
@@ -24,6 +27,17 @@ export class SessionStateService {
     used_1m: 0,
     limit_1m: 1200
   };
+  public apiStatus: {
+    isBanned: boolean;
+    isRateLimited: boolean;
+    banUntil: number | null;
+    lastErrorMessage: string | null;
+  } = {
+    isBanned: false,
+    isRateLimited: false,
+    banUntil: null,
+    lastErrorMessage: null
+  };
   public stats = {
     entryCount: 0,
     hitCount: 0,
@@ -32,52 +46,158 @@ export class SessionStateService {
   public statsVersion = 0;
   public gateState: string | null = null;
   public gateReason: string | null = null;
+  public pausedStrategies: Set<string> = new Set();
+  public strategyGateStates: Map<string, { gateState: string | null; gateReason: string | null; isAdaptiveTightened?: boolean }> = new Map();
   public hibernating = false;
   public agreementRequired = false;
   public isAdaptiveTightened = false;
+  public last_scan_ts = 0;
   public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
+  public realTimeOrders: Map<string, any[]> = new Map();
+
+  // Idempotency tracking
+  private appliedGlobalPnL: Map<string, number> = new Map();
+  private countedGlobalEntries: Set<string> = new Set();
+  private countedGlobalHits: Set<string> = new Set();
+
+  private appliedStrategyPnL: Map<string, number> = new Map();
+  private countedStrategyEntries: Set<string> = new Set();
+  private countedStrategyHits: Set<string> = new Set();
+
   public config: SessionConfig | null = null;
   public closedTrades: Trade[] = [];
   public activeTrades: Trade[] = []; // BOLT: Track active trades here for circular dependency removal
   public cachedClosedTradesStats: Record<string, { pnl: number, count: number, hits: number }> = {};
+  private appliedStatsPnL: Map<string, number> = new Map(); // trade.id -> pnl portion already in stats.totalPnl
 
   public listenerCount = 0;
   public dashboardCount = 0;
 
-  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string) {
-    this.config = config;
+  // SRE: Entry Pipeline Lock to prevent concurrent entry evaluations and dispatches
+  public entryInProgress = false;
 
-    // DATA-07: Stats should be session-specific even if we load mode-wide history for risk gating
-    const sessionHistory = sessionId ? initialHistory.filter(t => t.sessionId === sessionId) : [];
-    this.stats = {
-      entryCount: sessionHistory.length,
-      hitCount: sessionHistory.filter(t => (t.pnl || 0) > 0).length,
-      totalPnl: sessionHistory.reduce((acc, t) => acc + (t.pnl || 0), 0),
-    };
+  public udsConfirmedClosedTrades: Set<string> = new Set();
+  public localTradePnLAdjustments: Map<string, number> = new Map();
+  public currentSessionId: string | null = null;
+  public assetBalances: Map<string, number> = new Map();
+
+  isStrategyPaused(label: string): boolean {
+    return this.paused || (this.pausedStrategies ? this.pausedStrategies.has(label) : false);
+  }
+
+  setStrategyPaused(label: string, paused: boolean) {
+    if (!this.pausedStrategies) {
+      this.pausedStrategies = new Set();
+    }
+    if (paused) {
+      this.pausedStrategies.add(label);
+    } else {
+      this.pausedStrategies.delete(label);
+    }
+  }
+
+  reset(config: SessionConfig, initialHistory: Trade[] = [], currentBalance?: number, sessionId?: string, initialOpen: Trade[] = []) {
+    this.config = config;
+    this.currentSessionId = sessionId || null;
+    this.assetBalances.clear();
+
     this.statsVersion = 0;
     this.closedTrades = initialHistory;
-    this.activeTrades = [];
+    this.activeTrades = initialOpen;
     this.gateState = null;
     this.gateReason = null;
+    this.pausedStrategies = new Set(config?.paused_strategies || []);
+    this.strategyGateStates.clear();
     this.hibernating = false;
     this.agreementRequired = false;
     this.isAdaptiveTightened = false;
-    this.paused = false;
-    this.binanceRateLimit = { used_1m: 0, limit: 2400 };
+    this.paused = !!config?.paused;
+    // SRE: Preserve the existing weight limit during reset to ensure persistent dynamic limits (Issue 5)
+    const currentLimit = this.binanceRateLimit.limit || 2400;
+    this.binanceRateLimit = { used_1m: 0, limit: currentLimit };
+    this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
     this.cachedClosedTradesStats = {};
+    this.appliedStatsPnL.clear();
     this.realTimePositions.clear();
+    this.realTimeOrders.clear();
 
-    for (const trade of initialHistory) {
-      const label = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
+    this.appliedGlobalPnL.clear();
+    this.countedGlobalEntries.clear();
+    this.countedGlobalHits.clear();
+    this.appliedStrategyPnL.clear();
+    this.countedStrategyEntries.clear();
+    this.countedStrategyHits.clear();
+    this.udsConfirmedClosedTrades.clear();
+    this.localTradePnLAdjustments.clear();
+
+    let totalPnlAcc = 0;
+    const processedTradeIds = new Set<string>();
+
+    const processTrade = (trade: Trade) => {
+      if (processedTradeIds.has(trade.id)) return;
+      processedTradeIds.add(trade.id);
+
+      const label = trade.strategy_label || config.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
       if (!trade.strategy_label) trade.strategy_label = label;
 
       if (!this.cachedClosedTradesStats[label]) {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
-      this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
-      this.cachedClosedTradesStats[label].count++;
-      if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits++;
+
+      const pnl = trade.pnl || 0;
+      totalPnlAcc += pnl;
+
+      // Populate idempotency maps/sets to prevent double-counting
+      if (!trade.is_reconciliation) {
+        this.countedGlobalEntries.add(trade.id);
+        this.countedStrategyEntries.add(trade.id);
+
+        if (trade.status !== 'OPEN') {
+          if (pnl > 0) {
+            this.countedGlobalHits.add(trade.id);
+            this.countedStrategyHits.add(trade.id);
+          }
+        }
+      }
+
+      // Realized portion (fees/funding) is tracked even for OPEN trades
+      this.appliedGlobalPnL.set(trade.id, pnl);
+      this.appliedStrategyPnL.set(trade.id, pnl);
+      this.appliedStatsPnL.set(trade.id, pnl);
+
+      // Populate strategy-specific stats (only for closed trades to prevent double-counting upon session resume)
+      if (trade.status !== 'OPEN') {
+        const stats = this.cachedClosedTradesStats[label];
+        stats.pnl = roundEight(stats.pnl + pnl);
+
+        if (!trade.is_reconciliation) {
+          stats.count++;
+          if (pnl > 0) {
+            stats.hits++;
+          }
+        }
+      }
+    };
+
+    // BOLT: Optimize by using loop fusion and avoiding intermediate array spreads
+    // Filter by sessionId during processing to avoid redundant allocations
+    for (let i = 0; i < initialHistory.length; i++) {
+      if (!sessionId || initialHistory[i].sessionId === sessionId) {
+        processTrade(initialHistory[i]);
+      }
     }
+    for (let i = 0; i < initialOpen.length; i++) {
+      if (!sessionId || initialOpen[i].sessionId === sessionId) {
+        processTrade(initialOpen[i]);
+      }
+    }
+
+    // Finalize session stats
+    this.stats = {
+        entryCount: this.countedGlobalEntries.size,
+        hitCount: this.countedGlobalHits.size,
+        totalPnl: roundEight(totalPnlAcc)
+    };
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     if (currentBalance !== undefined) {
@@ -94,7 +214,7 @@ export class SessionStateService {
     } else {
       this.balancePaper = config.paper_starting_balance || 10000;
       if (mode === 'testnet') {
-        this.balanceLive = (config as any).testnet_starting_balance || 0;
+        this.balanceLive = config.testnet_starting_balance || 0;
       } else {
         this.balanceLive = config.live_starting_balance || 0;
       }
@@ -106,28 +226,94 @@ export class SessionStateService {
   }
 
   isGated(): boolean {
-    return this.paused ||
-      ['max_trades', 'sl_guard', 'max_trades_period', 'max_trades_24h', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
+    if (this.paused) return true;
+    if (this.strategyGateStates && this.strategyGateStates.size > 0) {
+      for (const [label, state] of this.strategyGateStates.entries()) {
+        const isPaused = this.pausedStrategies ? this.pausedStrategies.has(label) : false;
+        const isGated = ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(state.gateState || '');
+        if (!isPaused && !isGated) {
+          return false; // at least one enabled strategy is NOT gated or paused
+        }
+      }
+      return true; // all strategies are gated or paused
+    }
+    return ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
   }
 
+  @OnEvent('binance.weight_update')
   updateRateLimit(used1m: number, limit?: number) {
     this.binanceRateLimit.used_1m = used1m;
     if (limit) {
       this.binanceRateLimit.limit = limit;
+
+      // SRE: Proactively sync with static gateway queue
+      // Since BinanceClientFactory might not be available yet due to circular dep,
+      // we use a dynamic check if needed, but BinanceRequestQueue is static.
+      try {
+        const { BinanceRequestQueue } = require('../lib/binanceClientFactory');
+        if (BinanceRequestQueue && typeof BinanceRequestQueue.setWeightLimit === 'function') {
+          BinanceRequestQueue.setWeightLimit(limit);
+        }
+      } catch (e) {
+        // Fallback or ignore if module not loaded
+      }
     }
   }
 
-  updateOrderRateLimits(headers: any) {
+  @OnEvent('binance.order_limit_update')
+  handleOrderLimitUpdate(payload: { headers: any }) {
+    this.updateOrderRateLimits(payload.headers);
+  }
+
+  @OnEvent('binance.api_limit_cleared')
+  handleApiLimitCleared() {
+    this.apiStatus = {
+      isBanned: false,
+      isRateLimited: false,
+      banUntil: null,
+      lastErrorMessage: null
+    };
+    this.logger.log(`API Status restored: Recovery event received from Gateway.`);
+  }
+
+  @OnEvent('binance.api_limit_reached')
+  handleApiLimitReached(payload: {
+    type?: 'BAN' | 'RATE_LIMIT';
+    message?: string;
+    until?: number;
+    banUntil?: number;
+    reason?: string;
+  }) {
+    const isBan = payload.type ? (payload.type === 'BAN') : true;
+    const isRateLimit = payload.type ? (payload.type === 'RATE_LIMIT') : false;
+    const until = payload.until !== undefined ? payload.until : payload.banUntil;
+    const message = payload.message !== undefined ? payload.message : payload.reason;
+
+    this.apiStatus.isBanned = isBan;
+    this.apiStatus.isRateLimited = isRateLimit;
+    this.apiStatus.banUntil = until || null;
+    this.apiStatus.lastErrorMessage = message || null;
+
+    const untilStr = until && !isNaN(until) ? new Date(until).toISOString() : 'unknown';
+    this.logger.warn(`[SessionState] Centralized ban event received: Until ${untilStr}, Reason: ${message}`);
+  }
+
+  updateOrderRateLimits(headers: any | null, limits?: { limit10s?: number, limit1m?: number }) {
+    if (limits) {
+       if (limits.limit10s) this.binanceOrderLimit.limit_10s = limits.limit10s;
+       if (limits.limit1m) this.binanceOrderLimit.limit_1m = limits.limit1m;
+       return;
+    }
     if (!headers) return;
 
     const getHeader = (name: string) => {
-      return typeof headers.get === 'function'
+      return (headers && typeof headers.get === 'function')
         ? headers.get(name)
-        : (headers[name.toLowerCase()] || headers[name]);
+        : (headers ? (headers[name.toLowerCase()] || headers[name]) : null);
     };
 
-    const used10s = getHeader('X-MBX-ORDER-COUNT-10S');
-    const used1m = getHeader('X-MBX-ORDER-COUNT-1M');
+    const used10s = getHeader('X-FAPI-ORDER-COUNT-10S') || getHeader('X-MBX-ORDER-COUNT-10S');
+    const used1m = getHeader('X-FAPI-ORDER-COUNT-1M') || getHeader('X-MBX-ORDER-COUNT-1M');
 
     if (used10s) {
       const parts = used10s.split(',');
@@ -144,9 +330,44 @@ export class SessionStateService {
   }
 
   isRateLimited(threshold = 0.8): boolean {
+    if (this.isBanned()) return true;
     const used = this.binanceRateLimit.used_1m;
     const limit = this.binanceRateLimit.limit;
     return (used / limit) > threshold;
+  }
+
+  isBanned(): boolean {
+    // SRE: Proactive ban expiration. If the ban time has passed, treat it as cleared
+    // regardless of the isBanned status bit.
+    if (this.apiStatus.isBanned) {
+      if (!this.apiStatus.banUntil || Date.now() < this.apiStatus.banUntil) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * CHRONOS: Verify if there are enough order slots available for a multi-part operation.
+   * Priority:
+   * 0 - Emergency (always true unless absolute 0 remains)
+   * 1 - Normal (requires at least 5% buffer + requiredCount)
+   * 2 - Low (requires at least 15% buffer + requiredCount)
+   */
+  hasOrderCapacity(requiredCount: number, priority: number): boolean {
+    const limit10s = this.binanceOrderLimit.limit_10s;
+    const remaining10s = limit10s - this.binanceOrderLimit.used_10s;
+
+    const limit1m = this.binanceOrderLimit.limit_1m;
+    const remaining1m = limit1m - this.binanceOrderLimit.used_1m;
+
+    const buffer10s = priority === 0 ? 1 : (priority === 1 ? Math.ceil(limit10s * 0.05) : Math.ceil(limit10s * 0.15));
+    const buffer1m = priority === 0 ? 5 : (priority === 1 ? Math.ceil(limit1m * 0.05) : Math.ceil(limit1m * 0.15));
+
+    if (remaining10s < (requiredCount + buffer10s)) return false;
+    if (remaining1m < (requiredCount + buffer1m)) return false;
+
+    return true;
   }
 
   /**
@@ -185,19 +406,82 @@ export class SessionStateService {
     };
   }
 
-  updateStatsOnEntry() {
-    this.stats.entryCount++;
+  private getStrategyLabelForTrade(tradeId: string): string | null {
+    const active = this.activeTrades.find(t => t.id === tradeId);
+    if (active) return active.strategy_label || this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
+
+    const closed = this.closedTrades.find(t => t.id === tradeId);
+    if (closed) return closed.strategy_label || this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
+
+    return this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
+  }
+
+  updateStatsOnEntry(tradeId?: string, strategyLabel?: string) {
+    if (tradeId) {
+      if (!this.countedGlobalEntries.has(tradeId)) {
+        this.stats.entryCount++;
+        this.countedGlobalEntries.add(tradeId);
+
+        // Update Strategy Stats
+        const label = strategyLabel || this.getStrategyLabelForTrade(tradeId);
+        if (label) {
+          if (!this.cachedClosedTradesStats[label]) {
+            this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
+          }
+          const stats = this.cachedClosedTradesStats[label];
+          if (!this.countedStrategyEntries.has(tradeId)) {
+            stats.count++;
+            this.countedStrategyEntries.add(tradeId);
+          }
+        }
+      }
+    } else {
+      this.stats.entryCount++;
+    }
     this.statsVersion++;
   }
 
-  updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false) {
-    if (!isReconciliation && isWin) this.stats.hitCount++;
-    this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);
+
+  updateStatsOnClose(isWin: boolean, pnl: number = 0, isReconciliation: boolean = false, tradeId?: string, strategyLabel?: string) {
+    if (tradeId) {
+      if (!isReconciliation && isWin && !this.countedGlobalHits.has(tradeId)) {
+        this.stats.hitCount++;
+        this.countedGlobalHits.add(tradeId);
+      }
+
+      const applied = this.appliedGlobalPnL.get(tradeId) || 0;
+      const delta = roundEight(pnl - applied);
+      this.stats.totalPnl = roundEight(this.stats.totalPnl + delta);
+      this.appliedGlobalPnL.set(tradeId, pnl);
+
+      // Update Strategy Stats
+      const label = strategyLabel || this.getStrategyLabelForTrade(tradeId);
+      if (label) {
+        if (!this.cachedClosedTradesStats[label]) {
+          this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
+        }
+        const stats = this.cachedClosedTradesStats[label];
+        const appliedStr = this.appliedStrategyPnL.get(tradeId) || 0;
+        const deltaStr = roundEight(pnl - appliedStr);
+
+        stats.pnl = roundEight(stats.pnl + deltaStr);
+        this.appliedStrategyPnL.set(tradeId, pnl);
+
+        if (!isReconciliation && isWin && !this.countedStrategyHits.has(tradeId)) {
+          stats.hits++;
+          this.countedStrategyHits.add(tradeId);
+        }
+      }
+    } else {
+      if (!isReconciliation && isWin) this.stats.hitCount++;
+      this.stats.totalPnl = roundEight(this.stats.totalPnl + pnl);
+    }
+
     this.statsVersion++;
   }
 
   addClosedTrade(trade: Trade) {
-    const label = trade.strategy_label || this.config?.strategy_label || 'Momentum Strategy';
+    const label = trade.strategy_label || this.config?.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
     if (!trade.strategy_label) trade.strategy_label = label;
 
     // Reconciliation trades should contribute to PnL (for accurate balance) but NOT to counts/hits
@@ -205,30 +489,80 @@ export class SessionStateService {
     if (!this.cachedClosedTradesStats[label]) {
       this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
     }
-    this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl + (trade.pnl || 0));
+
+    const stats = this.cachedClosedTradesStats[label];
+    const applied = this.appliedStrategyPnL.get(trade.id) || 0;
+    const delta = roundEight((trade.pnl || 0) - applied);
+
+    stats.pnl = roundEight(stats.pnl + delta);
+    this.appliedStrategyPnL.set(trade.id, trade.pnl || 0);
 
     if (!trade.is_reconciliation) {
-      this.cachedClosedTradesStats[label].count++;
-      if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits++;
+      if (!this.countedStrategyEntries.has(trade.id)) {
+        stats.count++;
+        this.countedStrategyEntries.add(trade.id);
+      }
+      if ((trade.pnl || 0) > 0 && !this.countedStrategyHits.has(trade.id)) {
+        stats.hits++;
+        this.countedStrategyHits.add(trade.id);
+      }
     }
 
-    this.closedTrades.unshift(trade);
-    if (this.closedTrades.length > 500) {
-      this.closedTrades = this.closedTrades.slice(0, 500);
+    // Prevent duplicate entries in closedTrades array
+    const existingIndex = this.closedTrades.findIndex(t => t.id === trade.id);
+    if (existingIndex !== -1) {
+      this.closedTrades[existingIndex] = trade;
+    } else {
+      this.closedTrades.unshift(trade);
+      if (this.closedTrades.length > 500) {
+        this.closedTrades = this.closedTrades.slice(0, 500);
+        this.pruneIdempotencyCaches();
+      }
     }
   }
 
-  rollbackClosedTrade(trade: Trade) {
-    const label = trade.strategy_label || 'Momentum Strategy';
+  rollbackClosedTrade(trade: Trade, prevAppliedPnL: number = 0) {
+    const label = trade.strategy_label || SessionStateService.DEFAULT_STRATEGY_LABEL;
+
+    // Rollback Strategy Stats
+    const appliedStr = this.appliedStrategyPnL.get(trade.id) || 0;
     if (this.cachedClosedTradesStats[label]) {
-      this.cachedClosedTradesStats[label].pnl = roundEight(this.cachedClosedTradesStats[label].pnl - (trade.pnl || 0));
+      const stats = this.cachedClosedTradesStats[label];
+      stats.pnl = roundEight(stats.pnl - appliedStr);
+
       if (!trade.is_reconciliation) {
-        this.cachedClosedTradesStats[label].count--;
-        if ((trade.pnl || 0) > 0) this.cachedClosedTradesStats[label].hits--;
+        if (this.countedStrategyEntries.has(trade.id)) {
+          stats.count--;
+          this.countedStrategyEntries.delete(trade.id);
+        }
+        if (this.countedStrategyHits.has(trade.id)) {
+          stats.hits--;
+          this.countedStrategyHits.delete(trade.id);
+        }
       }
     }
-    if (this.closedTrades[0] && this.closedTrades[0].id === trade.id) {
-      this.closedTrades.shift();
+    this.appliedStrategyPnL.delete(trade.id);
+
+    // Rollback Global Stats
+    const appliedGl = this.appliedGlobalPnL.get(trade.id) || 0;
+    this.stats.totalPnl = roundEight(this.stats.totalPnl - appliedGl);
+    this.appliedGlobalPnL.delete(trade.id);
+
+    if (this.countedGlobalEntries.has(trade.id)) {
+      this.stats.entryCount--;
+      this.countedGlobalEntries.delete(trade.id);
+    }
+
+    if (this.countedGlobalHits.has(trade.id)) {
+      this.stats.hitCount--;
+      this.countedGlobalHits.delete(trade.id);
+    }
+
+    this.statsVersion++;
+
+    const idx = this.closedTrades.findIndex(t => t.id === trade.id);
+    if (idx !== -1) {
+      this.closedTrades.splice(idx, 1);
     }
   }
 
@@ -241,6 +575,43 @@ export class SessionStateService {
   }
 
   /**
+   * CHRONOS: Prunes idempotency maps and sets to prevent unbounded growth during long sessions.
+   * Keeps data for trades currently in history or active list.
+   */
+  pruneIdempotencyCaches() {
+    const validIds = new Set([
+      ...this.activeTrades.map(t => t.id),
+      ...this.closedTrades.map(t => t.id)
+    ]);
+
+    for (const tradeId of this.appliedGlobalPnL.keys()) {
+      if (!validIds.has(tradeId)) this.appliedGlobalPnL.delete(tradeId);
+    }
+    for (const tradeId of this.countedGlobalEntries) {
+      if (!validIds.has(tradeId)) this.countedGlobalEntries.delete(tradeId);
+    }
+    for (const tradeId of this.countedGlobalHits) {
+      if (!validIds.has(tradeId)) this.countedGlobalHits.delete(tradeId);
+    }
+
+    for (const tradeId of this.appliedStrategyPnL.keys()) {
+      if (!validIds.has(tradeId)) this.appliedStrategyPnL.delete(tradeId);
+    }
+    for (const tradeId of this.countedStrategyEntries) {
+      if (!validIds.has(tradeId)) this.countedStrategyEntries.delete(tradeId);
+    }
+    for (const tradeId of this.countedStrategyHits) {
+      if (!validIds.has(tradeId)) this.countedStrategyHits.delete(tradeId);
+    }
+
+    for (const tradeId of this.appliedStatsPnL.keys()) {
+      if (!validIds.has(tradeId)) this.appliedStatsPnL.delete(tradeId);
+    }
+
+    this.logger.debug(`Idempotency caches pruned. Valid trades: ${validIds.size}`);
+  }
+
+  /**
    * BOLT OPTIMIZATION: Clears non-essential state when session stops.
    * Keeps starting balances and history (required for risk gating) but clears transient caches.
    */
@@ -248,6 +619,7 @@ export class SessionStateService {
     this.activeTrades = [];
     this.binanceRateLimit = { used_1m: 0, limit: 2400 };
     this.realTimePositions.clear();
+    this.realTimeOrders.clear();
     // DATA-07: Preserve stats during hibernation so dashboard remains accurate
     this.statsVersion++;
 

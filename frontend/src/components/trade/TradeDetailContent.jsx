@@ -1,100 +1,123 @@
-import React, { useState, useEffect, useMemo, memo } from 'react'
+import React, { useState, useEffect, useMemo, memo, useRef } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
-  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2
+  Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight,
+  Edit3, Sliders, Plus, Trash
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
-import { price, formatDuration } from '../../lib/formatters'
-import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot } from '../ui/primitives'
+import { useTradingStore } from '../../store/trading'
+import { price, formatDuration, calculateProximity } from '../../lib/formatters'
+import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '../ui/primitives'
+import { SignalGauge } from '../ui/SignalGauge'
 import { motion, AnimatePresence } from 'framer-motion'
+import { ConfirmationModal } from '../ConfirmationModal'
 
-const Metric = memo(({ label, value, tooltip }) => (
+const FRIENDLY_SIGNAL_NAMES = {
+  ema_close: 'EMA Close',
+  ema_dual_close: 'EMA Dual Close',
+  macd_fade: 'MACD Fade',
+  macd_impulse: 'MACD Impulse',
+  macd_pbc: 'MACD PBC',
+  supertrend: 'Supertrend',
+  momentum_pct: 'Momentum %',
+  breakout_hl: 'Breakout High/Low',
+  engulfing: 'Engulfing Candle',
+  ma: 'Moving Average',
+  ema: 'Exponential MA',
+  ema_cross: 'EMA Cross',
+  ema_price_cross: 'EMA Price Cross',
+};
+
+const Metric = memo(({ label, value }) => (
   <div className="flex flex-col gap-1.5 group/metric">
     <div className="flex items-center gap-1">
       <span className="text-[9px] font-black text-dim uppercase tracking-[0.2em]">{label}</span>
-      {tooltip && (
-        <Tooltip content={tooltip} side="top" align="center" className="z-[102]">
-          <button
-            type="button"
-            aria-label={`More information about ${label}`}
-            className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
-          >
-            <Info size={12} className="md:size-[10px]" />
-          </button>
-        </Tooltip>
-      )}
     </div>
     <span className="font-mono text-sm font-bold text-text/90">{value}</span>
   </div>
 ))
 Metric.displayName = 'Metric'
 
-const RRLadder = ({ trade }) => {
+const RRLadder = memo(({ trade }) => {
   const triggers = trade.live_rr_sequence || []
   const exits = trade.exit_rr_sequence || []
   const maxRR = trade.max_rr || 0
   const liveRR = trade.rr || 0
   const risk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price))
   const activeIdx = triggers.reduce((idx, trigger, i) => maxRR >= trigger ? i : idx, -1)
-  const currentExitRR = activeIdx >= 0 ? exits[activeIdx] : null
-  const currentSl = currentExitRR == null
-    ? (trade.initial_sl || trade.sl_price)
-    : trade.direction === 'LONG'
-      ? trade.entry_price + risk * currentExitRR
-      : trade.entry_price - risk * currentExitRR
+
+  // Use authoritative current_sl if available, otherwise fall back to ladder recompute
+  const currentSl = trade.sl_price || (activeIdx >= 0 ?
+    (trade.direction === 'LONG' ? trade.entry_price + risk * exits[activeIdx] : trade.entry_price - risk * exits[activeIdx]) :
+    (trade.initial_sl || trade.sl_price))
 
   const getEstPnl = (price) => {
     if (!price || !trade.entry_price || !trade.qty) return 0
     return (price - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
   }
 
+// Simplified 5-column grid for RRLadder
   return (
-    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-      <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center gap-2">
-          <SectionLabel className="mb-0">
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+      <div className="flex justify-between items-center mb-3 md:mb-5">
+         <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
-          <Tooltip content="Incremental profit milestones that automatically adjust your stop loss to lock in gains." className="z-[102]">
-            <button
-              type="button"
-              aria-label="More information about Guard Ladder"
-              className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
-            >
-              <Info size={12} />
-            </button>
-          </Tooltip>
-        </div>
-        <Tooltip content="Live Ratchet: The engine proactively trails your stop loss as these milestones are hit." className="z-[102]">
-          <button
-            type="button"
-            className="text-[10px] text-accent font-mono bg-accent/10 px-2 py-0.5 rounded border border-accent/20 cursor-help focus-visible:ring-1 focus-visible:ring-accent"
-          >
-            Live Ratchet
-          </button>
-        </Tooltip>
       </div>
 
-      <div className="flex gap-4 overflow-x-auto no-scrollbar mb-8 pb-2">
-        {triggers.map((trigger, i) => {
+      <div className="relative flex items-center justify-between gap-2 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-3 pt-2 w-full">
+        {/* Continuous background connector timeline */}
+        <div className="absolute left-[30px] right-[30px] top-[43px] h-1 bg-border/40 rounded-full z-0 pointer-events-none" />
+
+        {/* Dynamic colored progress fill based on activeIdx / triggers count */}
+        <div
+          className="absolute left-[30px] top-[43px] h-1 bg-gradient-to-r from-green to-accent rounded-full z-0 pointer-events-none transition-all duration-500"
+          style={{
+            width: triggers.length > 1
+              ? `calc(${(Math.max(0, activeIdx) / (triggers.length - 1)) * 100}% - ${(Math.max(0, activeIdx) / (triggers.length - 1)) * 12}px)`
+              : '0%'
+          }}
+        />
+
+        {(triggers || []).map((trigger, i) => {
           const done = maxRR >= trigger
           const current = i === activeIdx
           return (
-            <div key={`${trigger}-${i}`} className="min-w-[80px] flex-1">
+            <div key={`${trigger}-${i}`} className="flex flex-col items-center flex-1 min-w-[70px] z-10 relative">
+              {/* Trigger Name / RR target */}
               <div className={cn(
-                "text-xs font-bold mb-3 text-center",
-                current ? "text-accent" : done ? "text-green" : "text-dim"
-              )}>{trigger}R</div>
+                "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300",
+                current ? "text-accent scale-110" : done ? "text-green" : "text-dim"
+              )}>
+                {trigger}R
+              </div>
+
+              {/* Stepper Node Bubble */}
               <div className={cn(
-                "h-2 rounded-full transition-all duration-500",
-                done ? (current ? "bg-accent shadow-[0_0_10px_rgba(91,111,255,0.4)]" : "bg-green") : "bg-border"
-              )} />
+                "w-5 h-5 rounded-full flex items-center justify-center border-2 transition-all duration-500 shadow-md",
+                current
+                  ? "bg-surface border-accent text-accent scale-125 ring-4 ring-accent/15"
+                  : done
+                  ? "bg-green border-green text-surface"
+                  : "bg-surface border-border text-dim/60"
+              )}>
+                {done && !current ? (
+                  <CheckCircle2 size={10} className="text-surface fill-current" />
+                ) : (
+                  <div className={cn(
+                    "w-1.5 h-1.5 rounded-full",
+                    current ? "bg-accent animate-ping" : "bg-current"
+                  )} />
+                )}
+              </div>
+
+              {/* secured stop representation */}
               <div className={cn(
-                "text-[10px] font-bold mt-3 uppercase tracking-widest text-center flex flex-col",
-                done ? "text-text" : "text-dim"
+                "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300",
+                done ? "text-text font-black" : "text-dim/60"
               )}>
                 <span>SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}</span>
-                <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-40")}>
+                <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-30")}>
                   {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
                 </span>
               </div>
@@ -102,191 +125,305 @@ const RRLadder = ({ trade }) => {
           )
         })}
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Live RR</div>
-          <div className={cn("text-xl font-mono font-bold", liveRR >= 0 ? "text-green" : "text-red")}>{fmt(liveRR, 2)}</div>
-        </div>
-        <div className="p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Peak RR</div>
-          <div className="text-xl font-mono font-bold text-accent">{fmt(maxRR, 2)}</div>
-        </div>
-        <div className="p-4 bg-background/40 rounded-xl border border-border">
-          <div className="text-[10px] text-dim font-bold uppercase tracking-widest mb-1">Secured SL</div>
-          <div className="text-xl font-mono font-bold text-text flex flex-col">
-            <span>{price(currentSl)}</span>
-            <span className={cn("text-[10px]", pnlClass(getEstPnl(currentSl)))}>
-              Est. {fmtUSD(getEstPnl(currentSl))}
-            </span>
-          </div>
-        </div>
-      </div>
     </div>
   )
-}
+})
 
-const ExitMonitor = ({ status, logic, trade }) => {
+const getBaseSignalType = (key) => {
+  const signalHandlers = [
+    'momentum_pct', 'breakout_hl', 'engulfing', 'ma', 'ema', 'ema_cross',
+    'ema_price_cross', 'ema_dual_cross', 'ema_close', 'ema_dual_close',
+    'macd_impulse', 'macd_fade', 'macd_pbc', 'supertrend'
+  ];
+  if (signalHandlers.includes(key)) return key;
+  const lastUnderscore = key.lastIndexOf('_');
+  if (lastUnderscore > 0) {
+    const potentialBase = key.substring(0, lastUnderscore);
+    if (signalHandlers.includes(potentialBase)) {
+      return potentialBase;
+    }
+  }
+  return key;
+};
+
+const getSignalInfo = (key, config) => {
+  const base = getBaseSignalType(key);
+  let tf = config?.signal_timeframes?.[key] || config?.scan_interval || config?.interval || '1m';
+  if (tf === 'default') {
+    tf = config?.scan_interval || config?.interval || '1m';
+  }
+  const params = [];
+  const sp = config?.signal_params || {};
+
+  switch (base) {
+    case 'macd_fade':
+    case 'macd_impulse':
+    case 'macd_pbc': {
+      const fast = sp.macd_fast ?? 12;
+      const slow = sp.macd_slow ?? 26;
+      const sig = sp.macd_signal ?? 9;
+      params.push({ label: 'Fast', value: fast });
+      params.push({ label: 'Slow', value: slow });
+      params.push({ label: 'Signal', value: sig });
+      if (base === 'macd_pbc') {
+        const trendEma = sp.macd_pbc_trend_ema ?? 50;
+        const lb = sp.macd_pbc_lookback ?? 10;
+        params.push({ label: 'Trend EMA', value: trendEma });
+        params.push({ label: 'Lookback', value: lb });
+      } else if (base === 'macd_impulse') {
+        const strict = sp.macd_strict_expansion === true || sp.macd_strict_expansion === 'true';
+        params.push({ label: 'Strict', value: strict ? 'Yes' : 'No' });
+      }
+      break;
+    }
+    case 'supertrend': {
+      const period = sp.supertrend_period ?? 10;
+      const mult = sp.supertrend_multiplier ?? 3;
+      const mode = sp.supertrend_mode ?? 'trend';
+      params.push({ label: 'Period', value: period });
+      params.push({ label: 'Mult', value: mult });
+      params.push({ label: 'Mode', value: mode });
+      break;
+    }
+    case 'engulfing': {
+      const lookback = config?.engulfing_lookback ?? sp.engulfing_lookback ?? 1;
+      const streak = config?.engulfing_streak ?? sp.engulfing_streak ?? 1;
+      const mode = config?.engulfing_mode ?? sp.engulfing_mode ?? 'range';
+      const volConfirm = config?.engulfing_volume_confirm ?? sp.engulfing_volume_confirm ?? false;
+      params.push({ label: 'Lookback', value: lookback });
+      params.push({ label: 'Streak', value: streak });
+      params.push({ label: 'Mode', value: mode });
+      params.push({ label: 'Vol Conf', value: volConfirm ? 'Yes' : 'No' });
+      break;
+    }
+    case 'ema':
+    case 'ema_cross':
+    case 'ema_price_cross':
+    case 'ema_close': {
+      const period = sp.exit_ema_period ?? sp.ema_period ?? 12;
+      params.push({ label: 'Period', value: period });
+      break;
+    }
+    case 'ema_dual_cross':
+    case 'ema_dual_close': {
+      const fast = sp.exit_ema_fast ?? sp.entry_ema_fast ?? 9;
+      const slow = sp.exit_ema_slow ?? sp.entry_ema_slow ?? 21;
+      params.push({ label: 'Fast', value: fast });
+      params.push({ label: 'Slow', value: slow });
+      break;
+    }
+    case 'ma': {
+      const period = sp.ma_period ?? 20;
+      params.push({ label: 'Period', value: period });
+      break;
+    }
+    case 'momentum_pct': {
+      const threshold = config?.scan_pct_threshold ?? sp.scan_pct_threshold ?? 2.0;
+      const lookback = config?.scan_lookback ?? sp.scan_lookback ?? 3;
+      params.push({ label: 'Threshold', value: `${threshold}%` });
+      params.push({ label: 'Lookback', value: lookback });
+      break;
+    }
+    case 'breakout_hl': {
+      const lookback = config?.scan_lookback ?? sp.scan_lookback ?? 3;
+      params.push({ label: 'Lookback', value: lookback });
+      break;
+    }
+    default:
+      break;
+  }
+
+  return { timeframe: tf, params };
+};
+
+const ExitMonitor = memo(({ status, logic, trade }) => {
+  const [editingDelay, setEditingDelay] = useState(null) // key being edited
+  const [tempDelay, setTempDelay] = useState('')
+  const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
+
+  // Sort entries by proximity (triggerProgress descending)
+  const entries = useMemo(() => {
+    if (!status) return [];
+    return Object.entries(status).map(([key, s]) => {
+      const progress = s.distPct ?? 0;
+      return [key, { ...s, progress }];
+    }).sort((a, b) => b[1].progress - a[1].progress);
+  }, [status]);
+
+  // These hooks must be called unconditionally
+  const handleUpdateDelay = async (key, val) => {
+    const newDelay = Number(val);
+    if (isNaN(newDelay) || newDelay < 0) return;
+
+    const currentDelays = trade.strategy_config?.exit_signal_delays || {};
+    const payload = {
+      strategy_config: {
+        exit_signal_delays: { ...currentDelays, [key]: newDelay }
+      }
+    };
+    await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+    setEditingDelay(null);
+    setTempDelay('');
+  };
+
   if (!status || Object.keys(status).length === 0) return null;
-  const entries = Object.entries(status)
+  const mark = Number(trade.current_price || trade.mark_price || 0)
+  const isLong = trade.direction === 'LONG'
+  const entryPrice = Number(trade.entry_price || 0)
+  const qty = Number(trade.qty || 0)
+  const riskUsdt = Number(trade.initial_risk_usdt || trade.risk_usdt || Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price)) * trade.qty || 0)
+
+  const satisfiedCount = entries.filter(([_, s]) => s.fired && s.active).length
+  const totalCount = entries.length
+  const allFired = satisfiedCount === totalCount
+  const criteriaMet = logic === 'all' ? allFired : satisfiedCount > 0;
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm flex flex-col">
-      <div className="flex items-center justify-between mb-6">
-        <SectionLabel className="mb-0">
-          <ShieldCheck size={14} className="text-red" /> Technical Exit Signals
-        </SectionLabel>
-        <div className="px-2 py-0.5 rounded bg-background/50 border border-border/50 text-[8px] font-black text-dim uppercase tracking-widest">
-          {logic === 'all' ? 'Consensus' : 'Any'}
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col">
+      <div className="flex items-center justify-between mb-2 md:mb-5">
+        <div className="flex flex-col gap-0.5">
+          <SectionLabel className={cn("mb-0 flex items-center gap-1.5", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
+            {criteriaMet ? <Zap size={11} className="fill-red" /> : satisfiedCount > 0 ? <Activity size={11} /> : <ShieldCheck size={11} />}
+            <span className="md:inline hidden">{criteriaMet ? 'Ready to Exit' : satisfiedCount > 0 ? 'Risk Building' : 'Watching'}</span>
+            <span className="md:hidden inline">{criteriaMet ? 'EXIT' : satisfiedCount > 0 ? 'RISK' : 'WAIT'}</span>
+          </SectionLabel>
+          <div className="text-[7px] md:text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
+            {logic === 'all' ? 'Match All' : 'Match Any'}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 md:gap-3">
+           <div className="flex -space-x-1">
+              {entries.map(([key, s]) => (
+                 <div key={key} className={cn(
+                   "w-2 h-2 md:w-3 md:h-3 rounded-full border border-surface transition-all duration-500",
+                   s.fired && s.active ? "bg-green shadow-lg shadow-green/20" : "bg-dim/20"
+                 )} />
+              ))}
+           </div>
+           <span className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-tighter", satisfiedCount > 0 ? (allFired ? "text-red" : "text-amber") : "text-dim")}>
+              {satisfiedCount}/{totalCount}
+           </span>
         </div>
       </div>
 
-      <div className="space-y-3 flex-1">
+      <div className="space-y-1.5 md:space-y-4 flex-1">
         {entries.map(([key, s]) => {
-          const value = Number.isFinite(Number(s.value)) ? Number(s.value) : 0
-          const threshold = Math.max(Math.abs(Number(s.threshold) || 1), 0.0001)
           const isFired = s.fired && s.active
-          const isDelayed = s.remaining_delay > 0
-          const progress = s.insufficientData ? 0 : Math.min((Math.abs(value) / threshold) * 100, 100)
+          const threshold = Number(s.threshold) || 0
 
-          const estExitPrice = s.threshold_is_price ? threshold : null
-          const estPnl = (estExitPrice && trade.entry_price && trade.qty)
-            ? (estExitPrice - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
-            : null
+          // Estimated PnL at trigger
+          const estPnl = s.threshold_is_price
+            ? (threshold - entryPrice) * qty * (isLong ? 1 : -1)
+            : null;
+          const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null;
+
+          const { timeframe, params } = getSignalInfo(key, trade.strategy_config);
 
           return (
-            <div key={key} className={cn(
-              "group relative overflow-hidden p-3 md:p-4 rounded-xl border transition-all duration-300",
-              isFired ? "bg-red/5 border-red/30 shadow-[0_0_15px_rgba(255,68,102,0.05)]" : "bg-background/20 border-border hover:border-accent/30",
-              isDelayed && !isFired && "opacity-80"
-            )}>
-              {isFired && (
-                <div className="absolute top-0 right-0 p-1">
-                   <PulseDot color="bg-red" />
+            <div key={key} className="space-y-1 md:space-y-3 p-2 bg-white/[0.01] border border-white/[0.02] rounded-xl hover:bg-white/[0.02] hover:border-white/[0.05] transition-all">
+              <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
+                <div className="flex items-center gap-1.5 md:gap-2">
+                  <span className={isFired ? "text-red" : s.fired ? "text-amber" : "text-dim"}>{s.label || key}</span>
+                  <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
+                    {timeframe}
+                  </span>
+                  {s.insufficientData ? (
+                    <span className="text-dim bg-background/50 border border-border/40 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
+                      Collecting
+                    </span>
+                  ) : s.remaining_delay > 0 && !isFired && (
+                    <div className="flex items-center gap-1 bg-amber/10 text-amber px-1 rounded cursor-pointer hover:bg-amber/20 transition-colors">
+                      <Clock size={8} />
+                      {editingDelay === key ? (
+                        <div className="flex items-center gap-1">
+                          <input type="number" className="w-10 bg-transparent text-amber font-mono outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1" value={tempDelay}
+                                 onChange={(e) => setTempDelay(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)} autoFocus />
+                          <button onClick={() => handleUpdateDelay(key, tempDelay)} className="text-green"><CheckCircle2 size={10} /></button>
+                        </div>
+                      ) : (
+                        <span className="cursor-pointer hover:underline" onClick={() => { setEditingDelay(key); setTempDelay(String(s.remaining_delay)); }}>
+                          {formatDuration(s.remaining_delay * 1000)}
+                        </span>
+                      )}
+                      {editingDelay !== key && <button onClick={() => handleUpdateDelay(key, 0)} className="text-[7px] bg-red/20 px-1 rounded">SKIP</button>}
+                    </div>
+                  )}
+                  <span className={cn(
+                    "md:hidden inline text-[8px] font-mono",
+                    isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
+                  )}>{s.insufficientData ? '---' : `${Number(s.progress || 0).toFixed(0)}%`}</span>
                 </div>
-              )}
+                <div className="md:flex hidden items-center gap-2 font-mono">
+                  <span className="text-dim/60">Mark: {price(mark)}</span>
+                  <ArrowRight size={10} className="text-dim/40" />
+                  <span className={isFired ? "text-red" : "text-text"}>{price(threshold)}</span>
+                </div>
+              </div>
 
-              <div className="flex justify-between items-center mb-3 gap-2">
-                <div className="flex items-center gap-2 md:gap-3 min-w-0">
-                   <div className={cn(
-                     "w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center border transition-colors shrink-0",
-                     isFired ? "bg-red text-white border-red/20 shadow-lg shadow-red/20" : "bg-surface border-border text-dim group-hover:text-accent group-hover:border-accent/20"
-                   )}>
-                     {isFired ? <Zap size={16} className="md:size-[18px]" fill="currentColor" /> : <Activity size={16} className="md:size-[18px]" />}
-                   </div>
-                   <div className="flex flex-col min-w-0">
-                     <div className="flex items-center gap-1.5">
-                       <span className="text-[10px] md:text-xs font-black uppercase tracking-tight truncate">{s.label || key}</span>
-                       {isDelayed && !isFired && (
-                         <div className="flex items-center gap-1 text-amber text-[7px] font-black uppercase tracking-tighter">
-                            <Clock size={8} /> {Math.ceil(s.remaining_delay)}s
-                         </div>
-                       )}
-                     </div>
-                     <span className="text-[8px] md:text-[9px] text-dim font-bold truncate uppercase opacity-60 tracking-tighter">
-                       {isDelayed && !isFired ? 'Waiting for warm-up...' : (s.description || 'Monitoring')}
-                     </span>
-                   </div>
-                <div className="flex flex-col items-end shrink-0 gap-1">
-                   <div className={cn("text-xs md:text-sm font-mono font-black tracking-tighter", isFired ? "text-red" : "text-text")}>
-                     {s.insufficientData ? 'N/A' : Number(value).toFixed(value >= 100 ? 2 : 4)}
-                     <span className="text-[9px] md:text-[10px] ml-0.5 opacity-40 font-bold">{s.unit}</span>
-                   </div>
-                   <div className="text-[7px] md:text-[8px] font-black uppercase text-accent tracking-tight">
-                     {s.insufficientData ? 'Collecting...' : `${progress.toFixed(0)}% Triggered`}
-                   </div>
-                </div>
-                </div>
-
-                {!s.insufficientData && (
-                <div className="h-1 bg-background/50 rounded-full overflow-hidden mb-3">
-                  <div 
-                    className={cn("h-full transition-all duration-300", isFired ? "bg-red" : "bg-accent")} 
-                    style={{ width: `${progress}%` }} 
+              {/* Enhanced Proximity Bar (SignalGauge Style) */}
+              <div className="space-y-0.5 md:space-y-1.5">
+                <div className="h-1.5 md:h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${s.progress}%` }}
+                    transition={{ type: "spring", stiffness: 40, damping: 20 }}
+                    className={cn(
+                      "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
+                      isFired ? "bg-red shadow-[0_0_8px_rgba(255,68,102,0.4)]" : s.fired ? "bg-amber" : "bg-accent"
+                    )}
                   />
                 </div>
+
+                <div className="flex justify-between items-center px-0.5 md:px-1">
+                   <div className="flex items-center gap-1.5 font-mono">
+                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline-block hidden">
+                        {s.insufficientData ? 'Collecting' : `${Number(s.progress || 0).toFixed(1)}% Proxy`}
+                      </span>
+                      <span className="text-[7.5px] md:text-[9px] text-dim/60">{price(mark)}</span>
+                      <ArrowRight size={8} className="text-dim/20" />
+                      <span className={cn("text-[7.5px] md:text-[9px]", isFired ? "text-red" : "text-text/80")}>{price(threshold)}</span>
+                   </div>
+                   {estPnl !== null && (
+                      <div className={cn(
+                        "text-[8px] md:text-[9px] font-mono font-black",
+                        estPnl >= 0 ? "text-green" : "text-red"
+                      )}>
+                        {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({Number(estRr || 0).toFixed(1)}R)
+                      </div>
+                   )}
+                </div>
+              </div>
+
+              {/* Technical signal parameters and relevant live details */}
+              <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-white/[0.03]">
+                {/* Parameters badges */}
+                {params.length > 0 && (
+                  <div className="flex flex-wrap gap-1 items-center">
+                    <span className="text-[7px] text-dim/50 uppercase font-black tracking-wider">Params:</span>
+                    {params.map((p, pIdx) => (
+                      <span key={pIdx} className="text-[7.5px] font-mono text-dim/80 bg-white/[0.04] px-1.5 py-0.5 rounded border border-white/[0.05]">
+                        <span className="text-dim/50 uppercase mr-0.5">{p.label}:</span>
+                        <span className="font-bold text-text/80">{p.value}</span>
+                      </span>
+                    ))}
+                  </div>
                 )}
-
-                <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-dim/60 border-t border-border/40 pt-2 mt-auto">
-                 <span>Target: {s.threshold}</span>
-                 <div className="flex items-center gap-3">
-                    {estPnl !== null && (
-                       <span className={pnlClass(estPnl)}>PnL: {fmtUSD(estPnl)}</span>
-                    )}
-                    {/* RR calculation: PnL / Absolute Risk */}
-                    {estPnl !== null && trade.risk_usdt && (
-                       <span>RR: {(Math.abs(estPnl) / Number(trade.risk_usdt)).toFixed(1)}</span>
-                    )}
-                 </div>
-                 </div>
-                 </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center px-0.5">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[7px] font-black text-dim uppercase tracking-widest">Activation</span>
-                      <Tooltip content="Proximity to technical trigger threshold. 100% means the signal is fully active." className="z-[102]">
-                      <button
-                        type="button"
-                        aria-label="More information about Activation"
-                        className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
-                      >
-                        <Info size={10} className="md:size-[8px]" />
-                      </button>
-                      </Tooltip>
-                    </div>
-                    <span className={cn("text-[8px] font-black font-mono", isFired ? "text-red" : "text-accent")}>
-                      {s.distPct ? Math.min(100, s.distPct).toFixed(1) : '0.0'}%
-                    </span>
-                  </div>
-                  <div className="h-1 bg-background/50 rounded-full overflow-hidden relative">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${progress}%` }}
-                      transition={{ type: "spring", stiffness: 60, damping: 25 }}
-                      className={cn(
-                        "absolute top-0 left-0 h-full rounded-full",
-                        isFired ? "bg-red" : isDelayed ? "bg-amber/40" : "bg-accent"
-                      )}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex justify-between items-center px-0.5">
-                    <div className="flex items-center gap-1 w-full justify-end">
-                      <Tooltip content="Price Proximity: Visual indicator of how close the price is to the target RR (Take Profit)." className="z-[102]">
-                        <button
-                          type="button"
-                          aria-label="More information about Price Proximity"
-                          className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
-                        >
-                          <Info size={10} className="md:size-[8px]" />
-                        </button>
-                      </Tooltip>
-                      <span className="text-[7px] font-black text-dim uppercase tracking-widest text-right">Price Prox.</span>
-                    </div>
-                  </div>
-                  <div className="h-1 bg-background/50 rounded-full overflow-hidden relative flex justify-end">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${Math.min(100, Math.max(0, trade.rr * 20))}%` }}
-                      className={cn(
-                        "h-full rounded-full transition-colors duration-500",
-                        trade.rr > 0 ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.3)]" : "bg-red/40"
-                      )}
-                    />
-                  </div>
-                </div>
+                {/* Live description/relevancy details */}
+                {s.description && (
+                  <p className="text-[8px] md:text-[9px] text-dim/70 leading-relaxed font-medium">
+                    <span className="text-accent/60 mr-1 font-mono">➔</span>
+                    {s.description}
+                  </p>
+                )}
               </div>
             </div>
           )
         })}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 p-3 bg-white/[0.02] border border-white/[0.05] rounded-xl">
-        <Info size={12} className="text-dim" />
-        <p className="text-[8px] text-dim font-bold uppercase tracking-widest leading-relaxed">
+      <div className="mt-2.5 md:mt-6 flex items-center gap-2 md:gap-3 p-2.5 md:p-4 bg-white/[0.03] border border-white/[0.08] rounded-2xl">
+        <Info size={10} className="text-dim shrink-0" />
+        <p className="text-[7px] md:text-[8px] text-dim font-bold uppercase tracking-widest leading-normal">
           {logic === 'all'
             ? 'All technical conditions must be satisfied simultaneously to trigger an automated exit.'
             : 'Any single technical signal reaching its threshold will trigger an immediate trade liquidation.'}
@@ -294,11 +431,197 @@ const ExitMonitor = ({ status, logic, trade }) => {
       </div>
     </div>
   )
-}
+})
 
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
-  const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals } = useMemo(() => {
-    if (!trade) return {}
+  const activeSessionPnl = useTradingStore(state => state.totalPnl);
+  const activeSessionConfig = useTradingStore(state => state.config);
+  const sessionActive = useTradingStore(state => state.sessionActive);
+  const activeSessionBalance = useTradingStore(state => state.balance);
+  const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
+
+  // Ref to track if we just completed a successful configuration save to prevent stale overwrites
+  const justSavedConfig = useRef(false)
+
+  // Active Trade Customization Form State
+  const [isEditing, setIsEditing] = useState(false)
+  const [formSl, setFormSl] = useState(trade?.sl_price || trade?.current_sl || 0)
+
+  // Force Risk Release State
+  const [formForceRiskRelease, setFormForceRiskRelease] = useState(false)
+
+  // Guard Ladder state representation
+  const [formLadder, setFormLadder] = useState([])
+
+  // Overrides configurations
+  const [formOverrides, setFormOverrides] = useState({
+    exit_ema_period: '',
+    supertrend_period: '',
+    supertrend_multiplier: '',
+    macd_fast: '',
+    macd_slow: '',
+    macd_signal: '',
+  })
+
+  // Exit Signal Delays state
+  const [formDelays, setFormDelays] = useState({})
+
+  const [savingConfig, setSavingConfig] = useState(false)
+
+  const activeSignalKeys = useMemo(() => {
+    const keys = new Set();
+    if (trade?.exit_signals_status) {
+      Object.keys(trade.exit_signals_status).forEach(k => keys.add(k));
+    }
+    if (trade?.strategy_config?.exit_signals) {
+      trade.strategy_config.exit_signals.forEach(k => keys.add(k));
+    }
+    if (activeSessionConfig?.exit_signals) {
+      activeSessionConfig.exit_signals.forEach(k => keys.add(k));
+    }
+    return Array.from(keys);
+  }, [trade, activeSessionConfig]);
+
+  // Reset editing mode when switching active trades
+  useEffect(() => {
+    setIsEditing(false);
+  }, [trade?.id]);
+
+  // Sync state with trade details whenever they refresh/mount (skip when actively editing)
+  useEffect(() => {
+    if (trade && !isEditing) {
+      if (justSavedConfig.current) {
+        // Skip overwriting local state because we just saved these exact values!
+        justSavedConfig.current = false;
+        return;
+      }
+      setFormSl(trade.sl_price || trade.current_sl || 0)
+      setFormForceRiskRelease(trade.strategy_config?.force_risk_release === true)
+
+      const triggers = trade.live_rr_sequence || []
+      const exits = trade.exit_rr_sequence || []
+      const ladderPairs = triggers.map((trigger, idx) => ({
+        id: `ladder-${trigger}-${idx}-${Math.random()}`,
+        trigger,
+        exit: exits[idx] !== undefined ? exits[idx] : 0,
+      }))
+      setFormLadder(ladderPairs)
+
+      const sc = trade.strategy_config?.signal_params || trade.strategy_config || {}
+      setFormOverrides({
+        exit_ema_period: sc.exit_ema_period ?? sc.ema_period ?? '',
+        supertrend_period: sc.supertrend_period ?? '',
+        supertrend_multiplier: sc.supertrend_multiplier ?? '',
+        macd_fast: sc.macd_fast ?? '',
+        macd_slow: sc.macd_slow ?? '',
+        macd_signal: sc.macd_signal ?? '',
+      })
+
+      // Initialize delay values for each active signal
+      const localDelays = trade.strategy_config?.exit_signal_delays || {}
+      const globalDelays = activeSessionConfig?.exit_signal_delays || {}
+      const delaysObj = {}
+      activeSignalKeys.forEach(key => {
+        delaysObj[key] = localDelays[key] !== undefined ? localDelays[key] : (globalDelays[key] ?? 0);
+      })
+      setFormDelays(delaysObj)
+    }
+  }, [trade, activeSessionConfig, activeSignalKeys, isEditing])
+
+  const ladderValidationError = useMemo(() => {
+    if (formLadder.length === 0) return null;
+    for (let i = 0; i < formLadder.length; i++) {
+      const row = formLadder[i];
+      if (isNaN(row.trigger) || isNaN(row.exit)) {
+        return "All triggers and exits must be valid numbers.";
+      }
+      if (i > 0) {
+        if (Number(row.trigger) <= Number(formLadder[i-1].trigger)) {
+          return "Guard Ladder triggers must be in strictly ascending order.";
+        }
+      }
+    }
+    return null;
+  }, [formLadder])
+
+  const handleSortLadder = () => {
+    setFormLadder((prev) => {
+      return [...prev].sort((a, b) => Number(a.trigger || 0) - Number(b.trigger || 0));
+    });
+  }
+
+  const handleAddLadderRow = () => {
+    const lastRow = formLadder[formLadder.length - 1]
+    const nextTrigger = lastRow ? Number(lastRow.trigger) + 1.0 : 1.0
+    const nextExit = lastRow ? Number(lastRow.exit) + 0.5 : 0.5
+    const newRow = { id: `ladder-add-${Date.now()}-${Math.random()}`, trigger: nextTrigger, exit: nextExit }
+    setFormLadder([...formLadder, newRow].sort((a, b) => Number(a.trigger || 0) - Number(b.trigger || 0)))
+  }
+
+  const handleRemoveLadderRow = (idx) => {
+    setFormLadder(formLadder.filter((_, i) => i !== idx))
+  }
+
+  const handleUpdateLadderRow = (idx, field, value) => {
+    setFormLadder(formLadder.map((row, i) =>
+      i === idx ? { ...row, [field]: Number(value) } : row
+    ))
+  }
+
+  const handleSaveTradeConfig = async () => {
+    if (ladderValidationError) return;
+    setSavingConfig(true)
+    try {
+      const sortedLadder = [...formLadder].sort((a, b) => Number(a.trigger || 0) - Number(b.trigger || 0))
+      const live_rr_sequence = sortedLadder.map(r => Number(r.trigger))
+      const exit_rr_sequence = sortedLadder.map(r => Number(r.exit))
+
+      const signal_params = {}
+      if (formOverrides.exit_ema_period !== '') signal_params.exit_ema_period = Number(formOverrides.exit_ema_period);
+      if (formOverrides.supertrend_period !== '') signal_params.supertrend_period = Number(formOverrides.supertrend_period);
+      if (formOverrides.supertrend_multiplier !== '') signal_params.supertrend_multiplier = Number(formOverrides.supertrend_multiplier);
+      if (formOverrides.macd_fast !== '') signal_params.macd_fast = Number(formOverrides.macd_fast);
+      if (formOverrides.macd_slow !== '') signal_params.macd_slow = Number(formOverrides.macd_slow);
+      if (formOverrides.macd_signal !== '') signal_params.macd_signal = Number(formOverrides.macd_signal);
+
+      const exit_signal_delays = {}
+      Object.entries(formDelays).forEach(([k, v]) => {
+        if (v !== '' && v !== null && v !== undefined) {
+          const num = Number(v);
+          if (!isNaN(num) && num >= 0 && num <= 86400) {
+            exit_signal_delays[k] = num;
+          }
+        }
+      })
+
+      const payload = {
+        current_sl: Number(formSl),
+        live_rr_sequence,
+        exit_rr_sequence,
+        strategy_config: {
+          signal_params,
+          exit_signal_delays,
+          force_risk_release: formForceRiskRelease
+        }
+      }
+
+      const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload)
+      if (success) {
+        justSavedConfig.current = true
+        setIsEditing(false)
+      }
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setSavingConfig(false)
+    }
+  }
+
+  const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals, estPnlToRealize } = useMemo(() => {
+    if (!trade) return {
+      isLong: true, pnlPct: 0, progress: 50, entry: 0, mark: 0, sl: 0, initialSl: 0, tp: 0, qty: 0,
+      qtyFormatted: '0.0000', riskFormatted: '$0.00', slDistPct: 0, slInitialDistPct: 0, enhancedExitSignals: {}, estPnlToRealize: 0
+    }
     const isLong = trade.direction === 'LONG'
     const entry = Number(trade.entry_price || 0)
     const mark = Number(trade.current_price || trade.mark_price || 0)
@@ -306,7 +629,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const initialSl = Number(trade.initial_sl || trade.sl_price || 0)
     const tp = Number(trade.tp_price || trade.tp || 0)
 
-    const pnlPct = trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)
+    const pnlPct = mark > 0 ? (trade.pnl_pct ?? (entry ? ((mark - entry) / entry) * 100 * (isLong ? 1 : -1) : 0)) : 0
 
     let progress = 50
     if (entry && mark && sl) {
@@ -326,7 +649,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       }
     }
 
-    const qtyVal = Number(trade.qty)
+    const qtyVal = Number(trade.qty || 0)
     const qtyFormatted = Number.isFinite(qtyVal) ? qtyVal.toFixed(4) : '0.0000'
     const riskFormatted = fmtUSD(trade.risk_usdt || 0)
 
@@ -336,14 +659,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     // Enhanced Exit Signals with proximity
     const exitSignals = trade.exit_signals_status || {}
     const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
-      const value = Number(s.value) || 0
-      const threshold = Number(s.threshold) || 1
-
-      // Proximity should represent how "filled" the condition is.
-      // If value is 0 and threshold is 10, distPct should be 0.
-      // If value is 10 and threshold is 10, distPct should be 100.
-      const rawDistPct = threshold !== 0 ? (Math.abs(value) / Math.abs(threshold)) * 100 : 0
-      const distPct = s.insufficientData ? 0 : Math.min(100, Math.max(0, rawDistPct))
+      const distPct = calculateProximity(s, mark, entry, isLong, true);
 
       acc[key] = {
         ...s,
@@ -354,88 +670,86 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       return acc
     }, {})
 
-    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals }
+    const estPnlToRealize = Number(trade.est_pnl_to_realize || 0)
+
+    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty: qtyVal, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals, estPnlToRealize }
   }, [trade])
 
   if (!trade) return null
 
   return (
-    <div className="flex flex-col gap-3 md:gap-6">
+    <div className="flex flex-col gap-4 md:gap-6">
       {/* PnL Hero Section */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 md:gap-6">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 md:gap-6">
         <div className="relative group flex-1">
-          <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple/20 rounded-xl md:rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000" />
-          <div className="relative bg-white/[0.03] border border-white/[0.05] rounded-xl md:rounded-[2rem] p-3 md:p-8 flex flex-col items-center text-center shadow-inner overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-              <Activity size={32} className="md:w-20 md:h-20" />
+          <div className={cn(
+            "absolute -inset-1 rounded-xl md:rounded-[2rem] blur opacity-25 group-hover:opacity-40 transition duration-1000",
+            trade.pnl >= 0 ? "bg-gradient-to-r from-green/30 to-accent/30" : "bg-gradient-to-r from-red/30 to-purple/30"
+          )} />
+          <div className={cn(
+            "relative border rounded-2xl py-5 md:py-6 px-4 md:px-6 flex flex-col items-center text-center shadow-[0_4px_30px_rgba(0,0,0,0.1)] backdrop-blur-md overflow-hidden",
+            trade.pnl >= 0
+              ? "bg-green/5 border-green/20 shadow-[inset_0_0_24px_rgba(0,229,160,0.05)]"
+              : "bg-red/5 border-red/20 shadow-[inset_0_0_24px_rgba(255,68,102,0.05)]"
+          )}>
+            <div className="absolute top-0 right-0 p-3 opacity-5">
+              <Activity size={32} className="md:w-16 md:h-12" />
             </div>
-            <div className="flex items-center justify-center gap-4 md:gap-8 mb-2 md:mb-4">
-              <div className="flex flex-col items-center px-4 py-2 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
-                <span className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-[0.3em] mb-2 opacity-60">
-                  {trade.exit_ts ? 'Final Net' : 'Net Position'}
-                </span>
-                <div className={cn("text-xl md:text-6xl font-black font-mono tracking-tighter leading-none mb-1", pnlClass(trade.net_pnl))}>
-                  {fmtUSD(trade.net_pnl)}
-                </div>
-              </div>
-              <div className="flex flex-col items-center opacity-40">
-                <span className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-[0.3em] mb-2">Market Delta</span>
-                <div className={cn("text-sm md:text-3xl font-black font-mono tracking-tighter leading-none", pnlClass(trade.market_pnl))}>
-                  {fmtUSD(trade.market_pnl)}
-                </div>
+            <div className="flex flex-col items-center gap-1 mb-2">
+              <span className="text-[9px] md:text-[10px] font-black text-dim uppercase tracking-[0.2em]">
+                {trade.exit_ts ? 'Realized P&L' : 'Live Return'}
+              </span>
+              <div className={cn("text-3xl md:text-4xl lg:text-5xl font-black font-mono tracking-tighter filter drop-shadow-[0_2px_10px_rgba(0,0,0,0.3)]", pnlClass(trade.pnl))}>
+                {fmtUSD(trade.pnl)}
               </div>
             </div>
-            <div className={cn("px-2 py-0.5 md:px-4 md:py-1.5 rounded-full text-[8px] md:text-xs font-black font-mono shadow-sm", trade.pnl >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red")}>
-              ROI: {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+            <div className="flex items-center gap-2">
+              <div className={cn(
+                "px-3.5 py-1.5 rounded-full text-xs font-black font-mono shadow-md border",
+                trade.pnl >= 0
+                  ? "bg-green/10 border-green/20 text-green"
+                  : "bg-red/10 border-red/20 text-red"
+              )}>
+                ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
+              </div>
+              {trade.is_reconciliation && (
+                <div className="bg-amber/10 text-amber border border-amber/20 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5">
+                  <Activity size={12} /> Reconciled
+                </div>
+              )}
             </div>
           </div>
-        </div>
-
-        <div className="flex flex-col gap-4 min-w-[200px]">
-          <button
-            onClick={() => confirmClose ? onTradeClose(trade.symbol) : setConfirmClose(true)}
-            disabled={isClosing}
-            aria-label={isClosing ? "Closing position" : confirmClose ? "Confirm close position" : "Close position"}
-            className={cn(
-              "h-12 md:h-16 px-6 rounded-xl md:rounded-2xl font-bold uppercase text-[10px] md:text-[11px] tracking-[0.2em] transition-all flex items-center justify-center gap-3 relative overflow-hidden",
-              confirmClose ? "bg-red text-white animate-pulse" : "bg-red/10 text-red border border-red/20 hover:bg-red/20"
-            )}
-          >
-            <motion.div
-              initial={false}
-              animate={{
-                y: (confirmClose && !isClosing) ? -20 : 0,
-                opacity: (confirmClose && !isClosing) ? 0 : 1
-              }}
-              className="flex items-center"
-            >
-              {isClosing ? <Loader2 className="animate-spin" size={16} /> : <XCircle size={16} />}
-            </motion.div>
-            <span aria-live="polite" className="font-black">
-              {isClosing ? 'Closing...' : confirmClose ? 'Confirm Close?' : 'Force Liquidation'}
-            </span>
-          </button>
         </div>
       </div>
 
       {/* Price Runway */}
-      <div className="space-y-2 md:space-y-4">
+      <div className="space-y-1.5 md:space-y-2">
         <div className="flex justify-between items-end">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-              <ShieldAlert size={8} /> SL
+            <span className={cn(
+              "text-[8px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
+              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 animate-pulse font-extrabold" : "text-red"
+            )}>
+              <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
             </span>
-            <span className="font-mono text-[10px] font-bold text-dim">{price(sl)}</span>
+            <span className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none">{price(sl)}</span>
           </div>
           <div className="flex flex-col items-end gap-0.5">
-            <span className="text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">
+            <span className="text-[8px] md:text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">
               TP <Zap size={8} fill="currentColor" />
             </span>
-            <span className="font-mono text-[10px] font-bold text-dim">{tp ? price(tp) : 'TRAILED'}</span>
+            <span className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none">{tp ? price(tp) : 'TRAILED'}</span>
           </div>
         </div>
 
-        <div className="h-4 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)]">
+        <div
+          role="progressbar"
+          aria-valuenow={Math.round(progress)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuetext={`Active trade price runway at ${Math.round(progress)}% of exit targets`}
+          className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]"
+        >
           <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
           <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
           <div
@@ -446,130 +760,596 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             style={{ width: `${progress}%` }}
           >
              <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[move-stripe_1s_linear_infinite]" />
+             {/* Beautiful custom tick marker with pulse dot at current leading price edge */}
+             <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20">
+               <PulseDot color={trade.pnl >= 0 ? "bg-green" : "bg-red"} />
+             </div>
           </div>
         </div>
 
-        <div className="flex justify-center">
-          <div className="bg-surface border border-border/50 px-2 py-0.5 rounded-lg">
-            <span className="text-[9px] font-black text-dim uppercase tracking-widest">Entry: </span>
-            <span className="font-mono text-[10px] font-bold text-text/80">{price(entry)}</span>
+        <div className="flex justify-center scale-90">
+          <div className="bg-surface border border-border/50 px-1.5 py-0.2 rounded-md">
+            <span className="text-[8px] font-black text-dim uppercase tracking-widest">Entry: </span>
+            <span className="font-mono text-[9px] font-bold text-text/80">{price(entry)}</span>
           </div>
         </div>
       </div>
 
       {/* Primary Metrics Grid */}
-       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} />
-         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" />
-         <StatCard label="Risk" value={riskFormatted} color="text-red" />
-         <StatCard label="Entry" value={price(entry)} color="text-dim" />
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
+         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} compact />
+         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" compact />
+         <StatCard label="Risk" value={riskFormatted} color="text-red" compact />
+         <StatCard label="Entry" value={price(entry)} color="text-dim" compact />
       </div>
 
-      <div className={cn("grid gap-4 md:gap-8", layout === "grid" ? "grid-cols-1 lg:grid-cols-3" : "grid-cols-1")}>
-         <div className={cn(layout === "grid" ? "lg:col-span-2 space-y-4 md:space-y-8" : "space-y-4 md:space-y-8")}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
+         <div className="lg:col-span-2 space-y-3 md:space-y-4">
             <RRLadder trade={trade} />
          </div>
 
-         <div className="space-y-4 md:space-y-8">
+         <div className="space-y-3 md:space-y-4">
             <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
 
-            <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-              <SectionLabel className="mb-6">
+            <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+              <SectionLabel className="mb-3 md:mb-5">
                  <Info size={14} className="text-accent" /> Technical Meta
               </SectionLabel>
-              <div className="space-y-4">
-                 {[
-                   { label: 'TP Mode', value: trade.tp_mode === 'exp_rr_seq' ? 'Expansion RR' : 'Fixed Ratio' },
-                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70' },
-                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70' },
-                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Current price percentage change relative to entry' },
-                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Current percentage distance from market price to stop loss' },
-                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Percentage distance from entry price to initial stop loss' },
-                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Fixed initial dollar risk calculated at time of entry' },
-                   {
-                     label: 'Daily Δ at Entry',
-                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Math.abs(trade.entry_daily_change_pct || 0).toFixed(2)}%`,
-                     color: pnlClass(trade.entry_daily_change_pct),
-                     tooltip: '24h price change percentage at the exact moment of entry'
-                   },
-                   trade.exit_ts && {
-                     label: 'Exit Signal',
-                     value: (() => {
-                        const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
-                        const reason = trade.exit_signal_reason || '';
-                        if (type === 'STOP LOSS' || type === 'SL HIT') {
-                          if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
-                          if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
-                          if (reason.includes('RR_sequence_milestone')) {
-                            const match = reason.match(/milestone_(\d+)/);
-                            return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
-                          }
-                          return 'Stop Loss';
-                        }
-                        return type;
-                     })(),
-                     tooltip: trade.exit_signal_reason || trade.exit_reason || 'No detailed reason provided',
-                     color: 'text-accent'
-                   }
-                 ].filter(Boolean).map(item => (
-                   <div key={item.label} className="flex justify-between items-center py-3 border-b border-border/40 last:border-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
-                        {item.tooltip && (
-                          <Tooltip content={item.tooltip} className="z-[102]">
-                          <button
-                            type="button"
-                            aria-label={`More information about ${item.label}`}
-                            className="p-1 -m-1 cursor-help text-dim/40 hover:text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent rounded-sm"
-                          >
-                            <Info size={12} className="md:size-[10px]" />
-                          </button>
-                          </Tooltip>
+              {(() => {
+                const sessionReturnBlock = (() => {
+                  if (trade.exit_ts || !sessionActive) return null;
+                  const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
+                  const startingBalance = tradingMode === 'paper'
+                    ? (activeSessionConfig.paper_starting_balance || 10000)
+                    : (tradingMode === 'testnet'
+                        ? (activeSessionConfig.testnet_starting_balance || 10000)
+                        : (activeSessionConfig.live_starting_balance || activeSessionBalance || 10000));
+                  const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
+                  const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
+                  return {
+                    label: `Session Return (${modeLabel})`,
+                    value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%)`,
+                    color: pnlClass(activeSessionPnl)
+                  };
+                })();
+
+                return (
+                  <div className="space-y-1 md:space-y-3.5">
+                     {[
+                       sessionReturnBlock && {
+                         label: sessionReturnBlock.label,
+                         value: sessionReturnBlock.value,
+                         color: sessionReturnBlock.color
+                       },
+                       {
+                         label: 'Est. P&L at Target',
+                         value: `${fmtUSD(estPnlToRealize)} (${fmt(trade.tp_ratio || 0, 2)}R)`,
+                         color: estPnlToRealize >= 0 ? 'text-green' : 'text-red',
+                         tooltip: 'Estimated Projected profit and loss if exited at target Reward-to-Risk ratio.'
+                       },
+                       {
+                         label: 'Min RR (Drawdown)',
+                         value: `${(() => {
+                           const v = trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? trade.min_rr_achieved : 0;
+                           return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
+                         })()} R`,
+                         color: (trade.min_rr_achieved || 0) < 0 ? 'text-red' : 'text-dim',
+                         tooltip: 'The lowest RR (deepest drawdown) reached during this trade.'
+                       },
+                        { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70', tooltip: 'Realized trading fees.' },
+                        { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70', tooltip: 'Funding fees paid/received.' },
+                       { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Percentage return on investment from entry price.' },
+                       { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
+                       trade.strategy_config?.trailing_stop_enabled && {
+                         label: 'Trailing Stop',
+                         value: `${trade.strategy_config.trailing_stop_distance_pct}%`,
+                         color: 'text-purple-400',
+                         tooltip: 'Trailing stop-loss distance percentage.'
+                       },
+                       { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
+                           { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },
+                           {
+                             label: 'Daily Δ at Entry',
+                             value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
+                             color: pnlClass(trade.entry_daily_change_pct),
+                             tooltip: 'Market price change % at trade entry.'
+                           },
+                           trade.exit_ts && {
+                             label: 'Exit Signal',
+                             value: (() => {
+                                const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
+                                const reason = trade.exit_signal_reason || '';
+                                if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
+                                  if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
+                                  if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
+                                  if (reason.includes('RR_sequence_milestone')) {
+                                    const match = reason.match(/milestone_(\d+)/);
+                                    return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
+                                  }
+                                  if (type === 'TRAILING STOP') return 'Trailing Stop';
+                                  return 'Stop Loss';
+                                }
+                                if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
+                                if (type === 'EXCHANGE FILL') return 'Exchange Fill';
+                                if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
+                                return type;
+                             })(),
+                             color: 'text-accent',
+                             tooltip: trade.exit_signal_reason || 'Exit signal details.'
+                           }
+                         ].filter(Boolean).map(item => (
+                           <div key={item.label} className="flex justify-between items-center py-1 md:py-2.5 border-b border-border/40 last:border-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
+                                <Tooltip content={item.tooltip || 'No info'}>
+                                  <Info size={10} className="text-dim/50 hover:text-accent cursor-help" />
+                                </Tooltip>
+                              </div>
+                              <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
+                           </div>
+                         ))}
+                      </div>
+                    );
+                })()}
+             </div>
+
+             {/* Risk Mitigation Log section */}
+             {(trade.sl_adjustments || []).length > 0 && (
+                <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
+                  <SectionLabel className="mb-3 md:mb-5">
+                    <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
+                  </SectionLabel>
+                  <div className="space-y-2">
+                    {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
+                      <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
+                            <span className="text-dim/30">→</span>
+                            <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                             <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
+                             {adj.adaptive && (
+                                <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
+                                   <Activity size={8} /> Adaptive
+                                </span>
+                             )}
+                          </div>
+                        </div>
+                        {i === 0 && (
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
+                          </div>
                         )}
                       </div>
-                      <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
-                   </div>
-                 ))}
-              </div>
-            </div>
-
-            {trade.sl_adjustments?.length > 0 && (
-              <div className="bg-surface border border-border rounded-2xl p-6 shadow-sm">
-                <SectionLabel className="mb-6">
-                  <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
-                </SectionLabel>
-                <div className="space-y-2">
-                  {trade.sl_adjustments.slice(-3).reverse().map((adj, i) => (
-                    <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
-                          <span className="text-dim/30">→</span>
-                          <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                           <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
-                           {adj.adaptive && (
-                              <Tooltip content="Adaptive Guard: This adjustment was automatically widened to prevent exchange rejection or instant fill due to high volatility.">
-                                 <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
-                                    <Activity size={8} /> Adaptive
-                                 </span>
-                              </Tooltip>
-                           )}
-                        </div>
-                      </div>
-                      {i === 0 && (
-                        <div className="flex flex-col items-end gap-1">
-                          <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
          </div>
       </div>
+
+      {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}
+      {trade.status === 'OPEN' && (() => {
+        const isTestnet = (activeSessionConfig?.trading_mode === 'testnet');
+        const ringColorClass = isTestnet
+          ? "focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none"
+          : "focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none";
+
+        return (
+          <div className="mt-4 md:mt-6 pt-5 border-t border-border/40">
+            <div className="flex justify-between items-center mb-4">
+              <SectionLabel className="mb-0 flex items-center gap-1.5">
+                <Sliders size={14} className="text-accent" /> Active Exit Guard Configuration
+              </SectionLabel>
+              <Btn
+                variant={isEditing ? "ghost" : "primary"}
+                onClick={() => setIsEditing(!isEditing)}
+                className={cn(
+                  "px-3.5 py-1.5 h-8 text-[10px] uppercase tracking-wider font-black rounded-lg transition-all duration-300",
+                  isEditing
+                    ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 hover:text-accent shadow-[0_0_15px_rgba(91,111,255,0.15)]"
+                    : "bg-surface hover:bg-accent hover:text-white text-text border border-border/60 hover:border-accent hover:shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+                )}
+              >
+                {isEditing ? (
+                  <>
+                    <Sliders size={11} className="animate-pulse" />
+                    <span>Collapse Editor</span>
+                  </>
+                ) : (
+                  <>
+                    <Sliders size={11} />
+                    <span>Edit Config</span>
+                  </>
+                )}
+              </Btn>
+            </div>
+
+            <AnimatePresence initial={false}>
+              {isEditing && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                  className="overflow-hidden"
+                >
+                  <div className="bg-surface/60 border border-border/50 rounded-2xl p-4 md:p-6 shadow-lg backdrop-blur-md space-y-5 md:space-y-7 mt-3">
+
+                    {/* Part 1: Stop-Loss Override */}
+                    <div className="space-y-2">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
+                        Stop-Loss Override
+                      </SectionLabel>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                          <input
+                            type="number"
+                            step="any"
+                            value={formSl}
+                            onChange={(e) => setFormSl(e.target.value)}
+                            className={cn(
+                              "pl-7 pr-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                            aria-label="Edit stop loss price"
+                          />
+                        </div>
+                        <div className="text-[10px] md:text-xs font-mono text-dim/80 space-y-0.5">
+                          <div className="flex justify-between">
+                            <span>Risk Distance:</span>
+                            <span className="font-bold text-red">
+                              {Number(entry) > 0 ? `${Number(Math.abs(entry - Number(formSl)) / entry * 100).toFixed(2)}%` : '0.00%'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Projected Risk:</span>
+                            <span className="font-bold text-red">
+                              {fmtUSD(Math.abs(entry - Number(formSl)) * Number(qty))}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Part 1.5: Force Risk Release Toggle */}
+                    <div className="flex items-center justify-between p-3.5 bg-background/30 border border-border/40 rounded-xl">
+                      <div className="flex flex-col gap-0.5 min-w-0 pr-4">
+                        <span className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
+                          Force Risk Release
+                        </span>
+                        <span className="text-[9px] text-dim/60 leading-tight">
+                          Locks trade risk value to $0.00. Use this if the trade has reached a safe breakeven state or you want to free up active risk allocation.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setFormForceRiskRelease(prev => !prev)}
+                        className={cn(
+                          "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                          formForceRiskRelease ? "bg-accent" : "bg-surface-light border border-border/40"
+                        )}
+                        aria-pressed={formForceRiskRelease}
+                        aria-label="Toggle Force Risk Release"
+                      >
+                        <span
+                          className={cn(
+                            "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                            formForceRiskRelease ? "translate-x-4" : "translate-x-0"
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Part 2: Exponential RR Guard Ladder */}
+                    <div className="space-y-3 pt-4 border-t border-border/10">
+                      <div className="flex justify-between items-center">
+                        <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0">
+                          Profit-Locking Guard Ladder Milestones
+                        </SectionLabel>
+                        <Btn
+                          variant="ghost"
+                          onClick={handleAddLadderRow}
+                          className="px-2.5 py-1 h-7 text-[9px] uppercase tracking-wider font-black rounded-lg border border-border/40 hover:border-accent/40 text-accent/80 hover:text-accent hover:bg-accent/5 transition-all duration-300 active:scale-95"
+                          icon={Plus}
+                        >
+                          Add Milestone
+                        </Btn>
+                      </div>
+
+                      {ladderValidationError && (
+                        <div className="bg-red/10 border border-red/20 rounded-xl p-3 text-[10px] text-red uppercase tracking-wider font-black animate-pulse">
+                          ⚠ {ladderValidationError}
+                        </div>
+                      )}
+
+                      <div className="space-y-1.5 max-h-[240px] overflow-y-auto no-scrollbar pr-1">
+                        <AnimatePresence initial={false} mode="popLayout">
+                          {formLadder.map((row, idx) => (
+                            <motion.div
+                              key={row.id || `row-${idx}`}
+                              initial={{ opacity: 0, y: -10, height: 0 }}
+                              animate={{ opacity: 1, y: 0, height: "auto" }}
+                              exit={{ opacity: 0, y: 10, height: 0 }}
+                              transition={{ type: "spring", stiffness: 350, damping: 26 }}
+                              className="grid grid-cols-[1fr_1fr_40px] gap-2 items-center overflow-hidden py-0.5"
+                            >
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={row.trigger}
+                                  onChange={(e) => handleUpdateLadderRow(idx, "trigger", e.target.value)}
+                                  onBlur={handleSortLadder}
+                                  placeholder="Trigger RR"
+                                  className={cn(
+                                    "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    ringColorClass
+                                  )}
+                                  aria-label={`Milestone trigger ${idx + 1}`}
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Trigger R</span>
+                              </div>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={row.exit}
+                                  onChange={(e) => handleUpdateLadderRow(idx, "exit", e.target.value)}
+                                  onBlur={handleSortLadder}
+                                  placeholder="Exit SL RR"
+                                  className={cn(
+                                    "px-3 py-1.5 w-full font-mono text-sm bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    ringColorClass
+                                  )}
+                                  aria-label={`Milestone exit stop loss ${idx + 1}`}
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">Lock R</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLadderRow(idx)}
+                                className="p-2 h-9 w-10 flex items-center justify-center rounded-lg hover:bg-red/10 text-dim/60 hover:text-red border border-border/40 hover:border-red/20 shrink-0 transition-all duration-200 active:scale-90"
+                                aria-label={`Delete milestone row ${idx + 1}`}
+                              >
+                                <Trash size={13} />
+                              </button>
+                            </motion.div>
+                          ))}
+                        </AnimatePresence>
+
+                        {formLadder.length === 0 && (
+                          <div className="text-center py-4 text-xs text-dim italic">
+                            No guard ladder milestones configured. Add a milestone to enable live ratcheting.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Part 3: Exit Monitors indicator parameter overrides */}
+                    <div className="space-y-3 pt-4 border-t border-border/10">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
+                        Technical Indicator Overrides
+                      </SectionLabel>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Exit EMA Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 12"
+                            value={formOverrides.exit_ema_period}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, exit_ema_period: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 10"
+                            value={formOverrides.supertrend_period}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_period: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Multiplier</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 3"
+                            value={formOverrides.supertrend_multiplier}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_multiplier: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Fast Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 12"
+                            value={formOverrides.macd_fast}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_fast: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Slow Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 26"
+                            value={formOverrides.macd_slow}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_slow: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Signal Period</label>
+                          <input
+                            type="number"
+                            placeholder="e.g. 9"
+                            value={formOverrides.macd_signal}
+                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_signal: e.target.value })}
+                            className={cn(
+                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                              ringColorClass
+                            )}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Part 4: Exit Signal Delay Overrides */}
+                    <div className="space-y-3 pt-4 border-t border-border/10">
+                      <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
+                        Exit Signal Delay Overrides
+                      </SectionLabel>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {activeSignalKeys.map((key) => {
+                          const val = formDelays[key] ?? 0;
+                          const label = FRIENDLY_SIGNAL_NAMES[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          return (
+                            <div key={key} className="flex flex-col gap-1">
+                              <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
+                                {label} Delay
+                              </label>
+                              <div className="relative">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max="86400"
+                                  placeholder="0"
+                                  value={val === '' ? '' : val}
+                                  onChange={(e) => {
+                                    const v = e.target.value === '' ? '' : Math.max(0, Math.min(86400, parseInt(e.target.value) || 0));
+                                    setFormDelays(prev => ({ ...prev, [key]: v }));
+                                  }}
+                                  className={cn(
+                                    "px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                    ringColorClass
+                                  )}
+                                  aria-label={`Exit delay for ${label} in seconds`}
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
+                              </div>
+                              <span className="text-[8px] text-dim/70 font-mono mt-0.5">
+                                {val ? formatDuration(val * 1000) : 'Instant (no delay)'}
+                              </span>
+                            </div>
+                          );
+                        })}
+                        {activeSignalKeys.length === 0 && (
+                          <div className="col-span-full text-center py-2 text-xs text-dim italic">
+                            No active exit signals configured for this trade.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Saving Actions */}
+                    <div className="flex justify-end gap-3 pt-4 border-t border-border/10">
+                      <Btn
+                        variant="ghost"
+                        onClick={() => setIsEditing(false)}
+                        disabled={savingConfig}
+                        className="px-4 py-1.5 h-9 text-[10px] uppercase tracking-wider font-black rounded-lg hover:bg-white/5 hover:text-text hover:border-border transition-all"
+                      >
+                        Cancel
+                      </Btn>
+                      <Btn
+                        variant="primary"
+                        onClick={handleSaveTradeConfig}
+                        disabled={savingConfig || !!ladderValidationError}
+                        loading={savingConfig}
+                        className="px-5 py-1.5 h-9 text-[10px] uppercase tracking-wider font-black rounded-lg bg-gradient-to-r from-accent to-indigo-600 hover:from-accent/95 hover:to-indigo-500 shadow-md shadow-accent/20 hover:shadow-lg hover:shadow-accent/30 transition-all duration-300"
+                      >
+                        Apply Changes
+                      </Btn>
+                    </div>
+
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })()}
+
+      <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
+        <SectionLabel className="mb-2.5 text-red">Danger Zone</SectionLabel>
+        <div className="bg-red/5 border border-red/10 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 transition-all hover:bg-red/10">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
+              <ShieldAlert size={20} />
+            </div>
+            <div className="flex flex-col">
+              <h3 className="text-xs font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
+              <p className="text-[9px] text-dim font-medium uppercase mt-0.5">Immediately close this position at current market price. This ignores all strategy logic.</p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5 w-full md:w-auto min-w-[180px]">
+            {trade.close_blocked && (
+               <div className="bg-red/10 border border-red/20 rounded-xl p-2.5 flex flex-col gap-0.5 items-center text-center animate-pulse mb-1.5">
+                  <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                     <ShieldAlert size={10} /> Liquidation Blocked
+                  </span>
+                  <span className="text-[7.5px] text-red/60 font-bold uppercase leading-tight">
+                     Max retries exceeded. Manual intervention on Binance is required.
+                  </span>
+               </div>
+            )}
+            {!trade.close_blocked && trade.close_attempts > 0 && (
+               <div className="bg-amber/10 border border-amber/20 rounded-xl p-1.5 flex items-center justify-center gap-1.5 mb-1.5">
+                  <Loader2 className="animate-spin text-amber" size={9} />
+                  <span className="text-[7.5px] font-black text-amber uppercase tracking-widest">
+                     Closure Retry {trade.close_attempts}/5
+                  </span>
+               </div>
+            )}
+            <Btn
+              variant="danger"
+              onClick={() => setConfirmClose(true)}
+              disabled={isClosing}
+              loading={isClosing}
+              className="w-full h-10 py-1 text-[11px] uppercase tracking-widest font-black"
+            >
+              <Trash2 size={14} /> Force Close
+            </Btn>
+          </div>
+        </div>
+      </div>
+
+      <ConfirmationModal
+        isOpen={confirmClose}
+        onClose={() => setConfirmClose(false)}
+        onConfirm={() => {
+          setConfirmClose(false);
+          onTradeClose(trade.symbol);
+        }}
+        title="Force Liquidation?"
+        message={`Are you sure you want to immediately close your ${trade.symbol} ${trade.direction} position at market price? This bypasses all exit signals and risk guards.`}
+        confirmText="Confirm Liquidation"
+        variant="danger"
+        loading={isClosing}
+      />
     </div>
   )
 })

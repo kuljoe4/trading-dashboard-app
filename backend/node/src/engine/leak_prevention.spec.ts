@@ -5,33 +5,60 @@ import { KlineStoreService } from './kline_store.service';
 import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { ENGINE_CONSTANTS } from '../models/constants';
-import WebSocket from 'ws';
+import { BinanceSubscriptionManager } from '../lib/binanceSubscriptionManager';
 
-// Jest mock for WebSocket
-jest.mock('ws', () => {
-  return jest.fn().mockImplementation(() => ({
-    on: jest.fn(),
-    terminate: jest.fn(),
-    close: jest.fn(),
-    readyState: 1, // OPEN
-  }));
+// Jest mock for BinanceSubscriptionManager
+jest.mock('../lib/binanceSubscriptionManager', () => {
+  return {
+    BinanceSubscriptionManager: jest.fn().mockImplementation((wsUrl, options) => {
+      const mockWs = {
+        terminate: jest.fn(),
+        close: jest.fn(),
+      };
+      const manager = {
+        ws: mockWs,
+        connect: jest.fn().mockResolvedValue(undefined),
+        subscribe: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockImplementation(async () => {
+          (mockWs as any)._isExplicitClose = true;
+        }),
+      };
+      return manager;
+    })
+  };
 });
 
 describe('MarketFeedService Leak Fixes', () => {
   let service: MarketFeedService;
   let tickerCache: TickerCacheService;
   let klineStore: KlineStoreService;
+  let fetchSpy: jest.SpyInstance;
 
   beforeEach(async () => {
+    // Correctly spy on global fetch to prevent actual network requests during tests
+    fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve([])
+    } as any));
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MarketFeedService,
-        { provide: TickerCacheService, useValue: { bulkUpdate: jest.fn(), updateTicker: jest.fn(), getCacheSize: jest.fn().mockReturnValue(1), topByVolume: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT' }]), prune: jest.fn() } },
-        { provide: KlineStoreService, useValue: { upsertCandle: jest.fn(), getRecentCandles: jest.fn().mockReturnValue([]), getMaxCandles: jest.fn().mockReturnValue(100), seedFromRest: jest.fn(), prune: jest.fn() } },
-        { provide: SessionStateService, useValue: { updateRateLimit: jest.fn(), binanceRateLimit: { used_1m: 0 }, isEcoMode: jest.fn().mockReturnValue(false), activeTrades: [], isGated: jest.fn().mockReturnValue(false), config: {}, getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 0, limit: 2400 }) } },
+        { provide: TickerCacheService, useValue: { bulkUpdate: jest.fn(), updateTicker: jest.fn(), getCacheSize: jest.fn().mockReturnValue(1), topByVolume: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT' }]), prune: jest.fn() } }, { provide: "SettingsRepository", useValue: { findOne: jest.fn().mockResolvedValue({}), update: jest.fn().mockResolvedValue({}) } },
+        { provide: KlineStoreService, useValue: { upsertCandle: jest.fn(), getRecentCandles: jest.fn().mockReturnValue([]), getMaxCandles: jest.fn().mockReturnValue(100), seedFromRest: jest.fn(), prune: jest.fn(), loadFromDb: jest.fn().mockResolvedValue(0) } },
+        { provide: SessionStateService, useValue: { isBanned: jest.fn().mockReturnValue(false), updateRateLimit: jest.fn(), binanceRateLimit: { used_1m: 0 }, isEcoMode: jest.fn().mockReturnValue(false), activeTrades: [], isGated: jest.fn().mockReturnValue(false), config: {}, getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 0, limit: 2400 }) } },
         { provide: SignalEngineService, useValue: { getRequiredWarmup: jest.fn().mockReturnValue(100) } },
         { provide: MonitoringService, useValue: { incrementApiRequests: jest.fn() } },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
+        {
+          provide: BinanceClientFactory,
+          useValue: {
+            genericRequest: jest.fn().mockImplementation((fn) => fn())
+          }
+        },
       ],
     }).compile();
 
@@ -44,6 +71,7 @@ describe('MarketFeedService Leak Fixes', () => {
   });
 
   afterEach(() => {
+    fetchSpy.mockRestore();
     jest.clearAllMocks();
   });
 
@@ -54,10 +82,10 @@ describe('MarketFeedService Leak Fixes', () => {
 
     await (service as any).rebuildCombinedKlineStream();
 
-    const wsList = (service as any).combinedKlineWsList as Set<WebSocket>;
-    expect(wsList.size).toBe(1);
+    expect((service as any).klineManagers.length).toBe(1);
 
-    const ws = Array.from(wsList)[0];
+    const manager = (service as any).klineManagers[0];
+    const ws = (manager as any).ws;
 
     // Trigger another rebuild
     await (service as any).rebuildCombinedKlineStream();
@@ -65,26 +93,11 @@ describe('MarketFeedService Leak Fixes', () => {
     expect((ws as any)._isExplicitClose).toBe(true);
   });
 
-  it('should remove timeout from subscriptionTasks after execution', async () => {
-    jest.useFakeTimers();
-    (service as any).running = true;
-
-    // Trigger a mini-ticker reconnect
-    (service as any).startMiniTickerStream();
-    const ws = (service as any).miniTickerWs;
-
-    // Simulate close
-    const closeHandler = (ws.on as any).mock.calls.find((call: any) => call[0] === 'close')[1];
-    closeHandler();
-
+  it('should remove timeout from subscriptionTasks on stop', async () => {
+    (service as any).subscriptionTasks = [setTimeout(() => {}, 1000)];
     expect((service as any).subscriptionTasks.length).toBe(1);
-
-    // Fast-forward time
-    jest.runAllTimers();
-
-    // Task should be removed after execution
+    await service.stop();
     expect((service as any).subscriptionTasks.length).toBe(0);
-    jest.useRealTimers();
   });
 
   it('should correctly check freshness using the last candle in backfillKlines', async () => {
@@ -92,11 +105,10 @@ describe('MarketFeedService Leak Fixes', () => {
     const interval = '1m';
     const intervalMs = 60000;
 
-    // Mock existing candles where the MOST RECENT (at index 0) is fresh
-    // The check is: lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)
+    // BOLT OPTIMIZATION: Mock existing candles where the MOST RECENT (at index length - 1) is fresh, matching chronological order
     (klineStore.getRecentCandles as any).mockReturnValue([
-      { time: now },
-      { time: now - intervalMs * 100 }
+      { time: now - intervalMs * 100 },
+      { time: now }
     ]);
 
     (service as any).running = true;
@@ -116,23 +128,17 @@ describe('MarketFeedService Leak Fixes', () => {
     const interval = '1m';
     const intervalMs = 60000;
 
-    // Mock existing candles where the MOST RECENT (at index 0) is stale
+    // BOLT OPTIMIZATION: Mock existing candles where the MOST RECENT (at index length - 1) is stale, matching chronological order
     (klineStore.getRecentCandles as any).mockReturnValue([
-      { time: now - intervalMs * 10 }, // Stale: (now - 10m) + 1m = now - 9m, which is < now - 2m
-      { time: now - intervalMs * 100 }
+      { time: now - intervalMs * 100 },
+      { time: now - intervalMs * 10 } // Stale: (now - 10m) + 1m = now - 9m, which is < now - 2m
     ]);
-
-    // Mock fetch for backfill
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: jest.fn().mockResolvedValue([])
-    });
 
     (service as any).running = true;
     (service as any).sessionState.config = { watchlist_size: 10 };
 
     await (service as any).backfillKlines('BTCUSDT', interval);
 
-    expect(global.fetch).toHaveBeenCalled();
+    expect(fetchSpy).toHaveBeenCalled();
   });
 });

@@ -1,12 +1,62 @@
-import React, { useEffect, useMemo, useState } from 'react'
-import { motion } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight } from 'lucide-react'
-import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge } from './ui/primitives'
+import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle } from 'lucide-react'
+import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
+import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
-import { settingsAPI } from '../api/client'
+import { settingsAPI, presetsAPI } from '../api/client'
+import { useTradingStore } from '../store/trading'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const CollapsibleSection = ({ id, icon, title, subtitle, children, isOpen, onToggle }) => {
+  return (
+    <section className="bg-background/40 rounded-xl border border-border/40 overflow-hidden transition-all">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.02] transition-colors group"
+      >
+        <SectionHeader icon={icon} title={title} subtitle={subtitle} className="mb-0" />
+        <div className={cn(
+          "w-6 h-6 rounded-md border border-border/40 flex items-center justify-center text-dim transition-all group-hover:border-accent/40 group-hover:text-accent",
+          isOpen && "rotate-180 bg-accent/5 border-accent/20 text-accent"
+        )}>
+          <ChevronDown size={14} />
+        </div>
+      </button>
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3, ease: "easeInOut" }}
+          >
+            <div className="p-3 pt-0 border-t border-border/5">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+};
+
+const TAB_ERROR_MAP = {
+  scan_interval: 'scan',
+  scan_lookback: 'scan',
+  scan_mode: 'scan',
+  trading_mode: 'env',
+  risk_pct_per_trade: 'risk',
+  max_open_trades: 'risk',
+  sl_distance_pct: 'risk',
+  scanner_weights_momentum: 'scan',
+  scanner_weights_volatility: 'scan',
+  scanner_weights_trend: 'scan',
+};
 
 const SIGNALS = [
   ['momentum_pct', '% Momentum', 'Entry when momentum exceeds threshold.'],
@@ -17,38 +67,787 @@ const SIGNALS = [
   ['ema_dual_close', 'EMA Dual Close', 'Entry when candle closes above both EMAs.'],
   ['ma', 'MA Cross', 'Entry when price crosses simple Moving Average.'],
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
+  ['macd_impulse', 'MACD Impulse', 'Phase 4 momentum pullback entry.'],
+  ['macd_fade', 'MACD Fade', 'Phase 5 momentum exit when histogram weakens.'],
+  ['macd_pbc', 'MACD PBC', 'Premium Pullback-to-Continuation pullback entry.'],
+  ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
 ]
 
-const SectionHeader = ({ icon: Icon, title, subtitle }) => (
-  <div className="flex items-center gap-3 mb-4">
-    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
-      <Icon size={18} />
+const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
+  <div className={cn("flex items-center gap-2 mb-2", className)}>
+    <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center text-accent">
+      <Icon size={14} />
     </div>
-    <div>
-      <h3 className="text-sm font-bold uppercase tracking-tight">{title}</h3>
-      {subtitle && <p className="text-[10px] text-dim font-medium uppercase">{subtitle}</p>}
+    <div className="text-left">
+      <h3 className="text-xs font-bold uppercase tracking-tight">{title}</h3>
+      {subtitle && <p className="text-[9px] text-dim font-medium uppercase">{subtitle}</p>}
     </div>
   </div>
-)
+))
+SectionHeader.displayName = 'SectionHeader'
 
-const Toggle = ({ value, onChange, label, color = "bg-accent" }) => (
+const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
   <label className="flex items-center gap-3 cursor-pointer group">
-    <Switch.Root checked={value} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent", value ? color : "bg-border")}>
+    <Switch.Root checked={value} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-offset-1 focus-visible:ring-offset-surface", value ? color : "bg-border")}>
       <Switch.Thumb className={cn("pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform", value ? "translate-x-5" : "translate-x-0")} />
     </Switch.Root>
     {label && <span className={cn("text-sm font-bold transition-colors", value ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
   </label>
-)
+))
+Toggle.displayName = 'Toggle'
 
 const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
-  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
+  <button ref={ref} type="button" onClick={onClick} aria-pressed={active} className={cn("px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", active ? activeClass : "border-border text-dim hover:border-dim/50")} {...props}>{children}</button>
 ))
 Chip.displayName = 'Chip'
+
+const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs }) => {
+  // BOLT-PERF: Local-Sync pattern. Maintains local state for rapid typing to avoid
+  // expensive full-modal re-renders on every keystroke. Syncs to parent on blur or enter.
+  const [localValue, setLocalValue] = useState(value ?? '');
+
+  useEffect(() => {
+    setLocalValue(value ?? '');
+  }, [value]);
+
+  const commit = () => {
+    const val = type === 'number' ? Number(localValue) : localValue;
+    if (val !== value) {
+      onChange(name, val);
+    }
+  };
+
+  const handleChange = (e) => {
+    setLocalValue(e.target.value);
+  };
+
+  const handleSelectChange = (e) => {
+    const val = type === 'number' ? Number(e.target.value) : e.target.value;
+    onChange(name, val);
+  };
+
+  return (
+    <div className="flex flex-col gap-1 group/field">
+      <div className="flex justify-between items-center">
+        <label htmlFor={id} className="text-[9px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors">{label}</label>
+        {error && <span role="alert" className="text-[9px] text-red font-bold uppercase">{error}</span>}
+        {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warning}</span>}
+      </div>
+      {opts ? (
+        <select
+          id={id}
+          value={localValue ?? ''}
+          onChange={handleSelectChange}
+          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+        >
+          {opts.map((o) => {
+            const val = typeof o === 'string' ? o : o.value;
+            const lbl = typeof o === 'string' ? o : o.label;
+            return <option key={val} value={val}>{lbl}</option>;
+          })}
+        </select>
+      ) : (
+        <input
+          id={id}
+          type={type}
+          value={localValue ?? ''}
+          {...attrs}
+          onChange={handleChange}
+          onBlur={(e) => { commit(); attrs.onBlur?.(e); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
+          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+        />
+      )}
+    </div>
+  );
+})
+ConfigField.displayName = 'ConfigField'
+
+const SignalChip = React.memo(({ signal, active, onClick }) => {
+  const [key, label] = signal;
+  return (
+    <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
+  );
+})
+SignalChip.displayName = 'SignalChip'
+
+const ExitSignalCard = React.memo(({
+  signal,
+  active,
+  layers,
+  delays,
+  actions,
+  timeframes,
+  onToggle,
+  onAddLayer,
+  onRemoveLayer,
+  onUpdateLayer,
+  engulfingMode
+}) => {
+  const [key, label, desc] = signal;
+
+  return (
+    <div className={cn("flex flex-col gap-2.5 p-3.5 bg-surface/50 border rounded-2xl hover:border-border-hover transition-all", active ? "border-red/30 bg-red/[0.01]" : "border-border")}>
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col text-left">
+          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
+          <span className="text-[9px] text-dim font-medium uppercase mt-0.5">{desc}</span>
+        </div>
+        <Switch.Root
+          checked={active}
+          onCheckedChange={() => onToggle(key, active)}
+          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
+          aria-label={`Toggle ${label} exit signal`}
+        >
+          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+        </Switch.Root>
+      </div>
+
+      {active && (
+        <div className="space-y-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          {key === 'engulfing' && (engulfingMode === 'soft_range' || engulfingMode === 'soft_body') && (
+            <div className="text-[9.5px] font-semibold text-amber bg-amber/10 border border-amber/20 rounded-xl p-2.5 flex items-start gap-2 leading-snug text-left">
+              <AlertTriangle className="shrink-0 text-amber mt-0.5 animate-pulse" size={13} />
+              <span>
+                <strong>Whipsaw Risk:</strong> Soft engulfing modes evaluate off live candles. Without an exit delay, tick-by-tick fluctuations can cause rapid enter/exit oscillation. Suggest adding a delay (e.g. 15-30s).
+              </span>
+            </div>
+          )}
+          {layers.map((layerKey, idx) => {
+            const isBase = layerKey === key;
+            const delayValue = delays[layerKey] || 0;
+            const actionValue = actions[layerKey] || 'close';
+            const tfValue = timeframes[layerKey] || 'default';
+
+            return (
+              <div key={layerKey} className="p-3 bg-background/50 border border-border/30 rounded-xl space-y-2.5 relative group/layer">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-red">
+                    Layer {idx + 1} {isBase ? "(Base)" : `(Chain: _${layerKey.split('_').pop()})`}
+                  </span>
+                  {!isBase && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveLayer(layerKey)}
+                      aria-label={`Remove Layer ${idx + 1}`}
+                      className="p-1 text-dim hover:text-red transition-colors opacity-0 group-hover/layer:opacity-100 focus-visible:opacity-100"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  {/* Timeframe Selection */}
+                  <div className="flex flex-col gap-1 text-left">
+                    <label htmlFor={`tf-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Timeframe</label>
+                    <select
+                      id={`tf-${layerKey}`}
+                      value={tfValue}
+                      onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
+                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                    >
+                      <option value="default">Default</option>
+                      <option value="1m">1m</option>
+                      <option value="3m">3m</option>
+                      <option value="5m">5m</option>
+                      <option value="15m">15m</option>
+                      <option value="30m">30m</option>
+                      <option value="1h">1h</option>
+                      <option value="4h">4h</option>
+                      <option value="1d">1d</option>
+                    </select>
+                  </div>
+
+                  {/* Delay Input (Hours:Minutes) */}
+                  <div className="flex flex-col gap-1 text-left">
+                    <label className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay (h:m)</label>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="0h"
+                        value={Math.floor((delayValue || 0) / 3600) || ''}
+                        onChange={(e) => {
+                          const h = parseInt(e.target.value) || 0;
+                          const m = Math.floor(((delayValue || 0) % 3600) / 60);
+                          onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
+                        }}
+                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                      />
+                      <span className="text-dim font-bold">:</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max="59"
+                        placeholder="0m"
+                        value={Math.floor(((delayValue || 0) % 3600) / 60) || ''}
+                        onChange={(e) => {
+                          const h = Math.floor((delayValue || 0) / 3600);
+                          const m = parseInt(e.target.value) || 0;
+                          onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
+                        }}
+                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Action Selection */}
+                  <div className="flex flex-col gap-1 text-left">
+                    <label htmlFor={`action-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Action</label>
+                    <select
+                      id={`action-${layerKey}`}
+                      value={actionValue}
+                      onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
+                      className={cn(
+                        "border rounded-lg px-1.5 py-1 text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-7 text-center focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        actionValue === 'lock_sl'
+                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple"
+                          : "bg-red/10 border-red/30 text-red focus:border-red"
+                      )}
+                    >
+                      <option value="close">🛑 Close</option>
+                      <option value="lock_sl">🔒 Lock SL</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => onAddLayer(key)}
+            className="w-full py-1.5 border border-dashed border-border rounded-xl text-[9px] font-black uppercase tracking-wider text-dim hover:text-red hover:border-red/40 hover:bg-red/5 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Plus size={11} /> Add Chained Layer
+          </button>
+        </div>
+      )}
+    </div>
+  );
+})
+ExitSignalCard.displayName = 'ExitSignalCard'
+
+const ManualMonitorInput = React.memo(({ onAdd }) => {
+  const [value, setValue] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const scannerResults = useTradingStore(state => state.scannerResults || []);
+  const inputRef = useRef(null);
+
+  const options = useMemo(() => {
+    const safeResults = Array.isArray(scannerResults) ? scannerResults : [];
+    if (!value) return safeResults.slice(0, 5);
+    return safeResults
+      .filter(r => r && r.symbol && r.symbol.toLowerCase().includes(value.toLowerCase()))
+      .slice(0, 5);
+  }, [value, scannerResults]);
+
+  const handleAdd = (symbol) => {
+    const val = symbol || value;
+    if (val.trim()) {
+      onAdd(val.trim().toUpperCase());
+      setValue('');
+      setIsOpen(false);
+    }
+  };
+
+  return (
+    <div className="flex gap-2 relative">
+      <div className="relative flex-1">
+        <input
+          ref={inputRef}
+          type="text"
+          placeholder="BTCUSDT"
+          value={value}
+          onFocus={() => setIsOpen(true)}
+          onChange={(e) => { setValue(e.target.value.toUpperCase()); setIsOpen(true); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleAdd();
+            }
+            if (e.key === 'Escape') {
+              setValue('');
+              setIsOpen(false);
+            }
+          }}
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+        />
+        {value && (
+          <Tooltip content="Clear Input">
+            <button
+              type="button"
+              onClick={() => { setValue(''); setIsOpen(false); inputRef.current?.focus(); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+              aria-label="Clear Input"
+            >
+              <X size={16} />
+            </button>
+          </Tooltip>
+        )}
+
+        <AnimatePresence>
+          {isOpen && options.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-xl shadow-xl z-50 overflow-hidden"
+            >
+              {options.map(o => (
+                <button
+                  key={o.symbol}
+                  type="button"
+                  onClick={() => handleAdd(o.symbol)}
+                  className="w-full px-4 py-2.5 text-left text-sm font-mono hover:bg-white/5 transition-colors border-b border-border/50 last:border-0"
+                >
+                  {o.symbol}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      <Btn variant="primary" onClick={() => handleAdd()} className="aspect-square p-0 w-12 h-12 flex items-center justify-center shrink-0"><Plus size={20} /></Btn>
+      {isOpen && <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />}
+    </div>
+  );
+})
+ManualMonitorInput.displayName = 'ManualMonitorInput'
+
+const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) => {
+  const [name, setName] = useState(defaultName || '');
+  const inputId = useId();
+
+  useEffect(() => {
+    if (defaultName) setName(defaultName);
+  }, [defaultName]);
+
+  return (
+    <div className="flex gap-2">
+      <VisuallyHidden>
+        <label htmlFor={inputId}>Preset Name</label>
+      </VisuallyHidden>
+      <input
+        id={inputId}
+        type="text"
+        placeholder="Preset name (e.g. Scalp High Vol)"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      />
+      <Btn
+        variant="primary"
+        onClick={() => { if (name.trim()) { onSave(name); } }}
+        loading={isSaving}
+        className="aspect-square p-0 w-12 h-12 flex items-center justify-center"
+        aria-label={success ? "Preset saved successfully" : "Save current configuration as preset"}
+      >
+        {success ? <CheckCircle2 size={20} /> : <Save size={20} />}
+      </Btn>
+    </div>
+  );
+})
+SavePresetInput.displayName = 'SavePresetInput'
+
+const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isOpen, setIsOpen] = useState(false);
+  const [rangeFilter, setRangeFilter] = useState('all'); // 'all' | 'pos' | 'neg' | 'high_mover' | 'extreme'
+  const scannerResults = useTradingStore(state => state.scannerResults || []);
+  const watchlistSearchInputRef = useRef(null);
+
+  const filteredOptions = useMemo(() => {
+    const safeResults = Array.isArray(scannerResults) ? scannerResults : [];
+
+    // Sort all opportunities by 24h change pct descending
+    const sorted = [...safeResults].sort((a, b) => (b.pct || 0) - (a.pct || 0));
+
+    return sorted.filter(opp => {
+      if (!opp || !opp.symbol) return false;
+
+      const matchesSearch = opp.symbol.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!matchesSearch) return false;
+
+      if (rangeFilter === 'pos') {
+        return (opp.pct || 0) > 0;
+      }
+      if (rangeFilter === 'neg') {
+        return (opp.pct || 0) < 0;
+      }
+      if (rangeFilter === 'high_mover') {
+        return Math.abs(opp.pct || 0) >= 2.0;
+      }
+      if (rangeFilter === 'extreme') {
+        return Math.abs(opp.pct || 0) >= 5.0;
+      }
+
+      return true;
+    });
+  }, [scannerResults, searchTerm, rangeFilter]);
+
+  const handleSelect = (symbol) => {
+    if (symbol && !value.includes(symbol)) {
+      onChange([...value, symbol]);
+    }
+    setSearchTerm('');
+    setIsOpen(false);
+  };
+
+  const handleRemove = (symbol) => {
+    onChange(value.filter(s => s !== symbol));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40" />
+          <input
+            ref={watchlistSearchInputRef}
+            type="text"
+            placeholder="Search symbol to add... (e.g. BTCUSDT)"
+            value={searchTerm}
+            onFocus={() => setIsOpen(true)}
+            onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+          />
+          {searchTerm && (
+            <Tooltip content="Clear Search">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  watchlistSearchInputRef.current?.focus();
+                }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                aria-label="Clear Search symbol"
+              >
+                <X size={16} />
+              </button>
+            </Tooltip>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-1.5 items-center bg-background/40 p-1.5 rounded-xl border border-border/40">
+          <span className="text-[9px] font-black text-dim uppercase tracking-wider px-1.5">Filters:</span>
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'pos', label: 'Positive' },
+            { id: 'neg', label: 'Negative' },
+            { id: 'high_mover', label: 'Movers >2%' },
+            { id: 'extreme', label: 'Extreme >5%' }
+          ].map(f => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => { setRangeFilter(f.id); setIsOpen(true); }}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                rangeFilter === f.id
+                  ? "bg-accent/15 border border-accent/30 text-accent font-black"
+                  : "bg-surface/50 border border-border/30 text-dim hover:text-text"
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            className="relative bg-surface border border-border rounded-xl shadow-xl z-50 max-h-60 overflow-y-auto no-scrollbar"
+          >
+            {filteredOptions.length === 0 ? (
+              <div className="p-4 text-center text-xs text-dim">No matching symbols found</div>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-1 p-2">
+                {filteredOptions.map(opp => {
+                  const isSelected = value.includes(opp.symbol);
+                  const isPos = opp.pct >= 0;
+                  return (
+                    <button
+                      key={opp.symbol}
+                      type="button"
+                      disabled={isSelected}
+                      onClick={() => handleSelect(opp.symbol)}
+                      className={cn(
+                        "flex justify-between items-center px-3 py-2 rounded-lg text-xs font-mono border transition-all text-left focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                        isSelected
+                          ? "bg-white/5 border-border/30 text-dim/40 cursor-not-allowed"
+                          : "bg-background/20 border-border/30 hover:border-accent/40 hover:bg-white/5 text-text"
+                      )}
+                    >
+                      <span className="font-bold">{opp.symbol}</span>
+                      <span className={cn(
+                        "text-[10px] font-bold",
+                        isSelected ? "text-dim/30" : isPos ? "text-green" : "text-red"
+                      )}>
+                        {isPos ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex flex-wrap gap-2 mt-4">
+        {value.length === 0 ? (
+          <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">
+            No symbols in Static Watchlist (Global discovery will be used)
+          </p>
+        ) : (
+          value.map((sym, i) => {
+            const opp = scannerResults.find(r => r?.symbol === sym);
+            const pctText = opp ? ` (${(opp.pct >= 0 ? '+' : '') + Number(opp.pct).toFixed(2)}%)` : '';
+            return (
+              <Chip
+                key={sym}
+                active
+                activeClass="bg-accent/10 border-accent/40 text-accent font-bold"
+                aria-label={`Remove ${sym}`}
+                onClick={() => handleRemove(sym)}
+              >
+                {sym}{pctText} <X size={10} className="inline ml-1" />
+              </Chip>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+});
+WatchlistDropdownInput.displayName = 'WatchlistDropdownInput';
+
+const ListInput = React.memo(({ value, onChange, placeholder }) => {
+  const [localValue, setLocalValue] = useState(() => value?.join(', ') || '');
+
+  // Update local value when external value changes (e.g. on preset load)
+  useEffect(() => {
+    setLocalValue(value?.join(', ') || '');
+  }, [value]);
+
+  const handleBlur = () => {
+    const list = localValue.split(',').map(s => s.trim()).filter(Boolean);
+    onChange(list);
+  };
+
+  return (
+    <input
+      type="text"
+      placeholder={placeholder}
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={handleBlur}
+      onKeyDown={(e) => { if (e.key === 'Enter') handleBlur(); }}
+      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+    />
+  );
+})
+ListInput.displayName = 'ListInput'
+
+const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasError }) => (
+  <Chip
+    active={active}
+    onClick={() => onClick(id)}
+    className={cn("flex items-center gap-2 relative", hasError && !active && "border-red/40")}
+    role="tab"
+    aria-selected={active}
+    aria-invalid={hasError}
+    aria-controls={`config-panel-${id}`}
+    id={`config-tab-${id}`}
+    tabIndex={active ? 0 : -1}
+  >
+    <Icon size={12} className={cn(active ? "text-accent" : "text-dim", hasError && !active && "text-red")} />
+    {label}
+    {hasError && !active && (
+      <span className="absolute -top-1 -right-1 flex h-2 w-2">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-red"></span>
+      </span>
+    )}
+  </Chip>
+))
+SectionTab.displayName = 'SectionTab'
+
+const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
+  const tabs = useMemo(() => [
+    { id: 'scan', label: 'Scanner', icon: Search },
+    { id: 'strategy', label: 'Strategy', icon: Zap },
+    { id: 'risk', label: 'Risk', icon: ShieldCheck },
+    { id: 'env', label: 'Env', icon: Briefcase },
+    { id: 'presets', label: 'Presets', icon: FolderOpen }
+  ], []);
+
+  const tabHasError = React.useCallback((tabId) => {
+    return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
+  }, [errors]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const currentIndex = tabs.findIndex(t => t.id === section);
+      let nextIndex;
+      if (e.key === 'ArrowRight') {
+        nextIndex = (currentIndex + 1) % tabs.length;
+      } else {
+        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+      }
+      onSectionChange(tabs[nextIndex].id);
+
+      // Focus the new tab
+      setTimeout(() => {
+        const nextTab = document.getElementById(`config-tab-${tabs[nextIndex].id}`);
+        nextTab?.focus();
+      }, 0);
+    }
+  };
+
+  return (
+    <div
+      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x outline-none"
+      data-vaul-no-drag
+      role="tablist"
+      aria-label="Configuration sections"
+      onKeyDown={handleKeyDown}
+      tabIndex={-1}
+    >
+      {tabs.map((tab) => (
+        <SectionTab
+          key={tab.id}
+          {...tab}
+          active={section === tab.id}
+          onClick={onSectionChange}
+          hasError={tabHasError(tab.id)}
+        />
+      ))}
+    </div>
+  );
+})
+SectionTabs.displayName = 'SectionTabs'
+
+const EnvironmentButton = React.memo(({ mode, isSelected, onClick }) => (
+  <button
+    type="button"
+    onClick={() => onClick(mode)}
+    className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover")}
+  >
+    <div className="flex items-center justify-between mb-1">
+      <span className="text-xs font-black uppercase tracking-tighter capitalize">{mode}</span>
+      {isSelected && <CheckCircle2 size={16} className="text-accent" />}
+    </div>
+    <p className="text-[9px] text-dim font-bold uppercase tracking-widest">
+      {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : 'Real Capital'}
+    </p>
+  </button>
+))
+EnvironmentButton.displayName = 'EnvironmentButton'
+
+const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant }, ref) => {
+  const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
+  return (
+    <motion.div
+      ref={ref}
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.2, ease: "easeInOut" }}
+      className={cn(
+        "flex items-center justify-between p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer",
+        isLoaded
+          ? "border-accent/40 shadow-[0_0_12px_rgba(var(--accent-rgb),0.06)] bg-accent/[0.01]"
+          : isVariant
+          ? "border-purple/40 shadow-[0_0_12px_rgba(168,85,247,0.06)] bg-purple/[0.01]"
+          : "border-border hover:border-border-hover hover:bg-white/[0.01]"
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onLoad(preset)}
+        className="flex-1 flex items-center gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-1 transition-all"
+        aria-label={`Load preset ${preset.name}`}
+      >
+        <div className={cn(
+          "w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
+          isLoaded
+            ? "bg-accent/15 border-accent/30 text-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.15)]"
+            : isVariant
+            ? "bg-purple/15 border-purple/30 text-purple shadow-[0_0_8px_rgba(168,85,247,0.15)]"
+            : "bg-surface border-border text-dim group-hover/preset:border-accent/20 group-hover/preset:text-accent group-hover/preset:scale-105"
+        )}>
+          {isLoaded ? <CheckCircle2 size={18} /> : isVariant ? <ShieldCheck size={18} /> : <Zap size={18} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
+             <span className="truncate">{preset.name}</span>
+             <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
+               {pMode === 'paper' && <PaperBadge />}
+               {pMode === 'testnet' && <DemoBadge />}
+               {pMode === 'live' && <LiveBadge />}
+             </div>
+             {isLoaded && (
+               <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
+                 {isDirty ? "Modified" : "Active"}
+               </span>
+             )}
+             {isVariant && !isLoaded && (
+               <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase bg-purple/10 text-purple">
+                 Variant
+               </span>
+             )}
+          </div>
+          <div className="text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5">
+            {preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk
+          </div>
+        </div>
+      </button>
+
+      <div className="flex items-center gap-2">
+        <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
+          <button
+            type="button"
+            onClick={(e) => onToggleVariant(e, preset)}
+            aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
+            className={cn(
+              "p-2 rounded-lg transition-all active:scale-95 border focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              isVariant
+                ? "bg-purple/10 text-purple border-purple/20 hover:bg-purple/20"
+                : "bg-surface border-border text-dim hover:text-accent hover:border-accent/20"
+            )}
+          >
+            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+          </button>
+        </Tooltip>
+        <Tooltip content="Delete Preset">
+          <button
+            type="button"
+            onClick={(e) => onDelete(e, preset.name)}
+            aria-label={`Delete preset ${preset.name}`}
+            className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5 focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none"
+          >
+            <Trash2 size={16} />
+          </button>
+        </Tooltip>
+      </div>
+    </motion.div>
+  );
+}))
+PresetItem.displayName = 'PresetItem'
 
 const flattenConfig = (config) => {
   if (!config) return {};
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
+    const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
     return {
       ...config,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
@@ -60,50 +859,278 @@ const flattenConfig = (config) => {
       signal_params_entry_ema_slow: params.entry_ema_slow,
       signal_params_exit_ema_fast: params.exit_ema_fast,
       signal_params_exit_ema_slow: params.exit_ema_slow,
+      signal_params_macd_fast: params.macd_fast || 12,
+      signal_params_macd_slow: params.macd_slow || 26,
+      signal_params_macd_signal: params.macd_signal || 9,
+      signal_params_macd_strict_expansion: params.macd_strict_expansion !== undefined ? params.macd_strict_expansion : true,
+      signal_params_macd_pbc_trend_ema: params.macd_pbc_trend_ema || 50,
+      signal_params_macd_pbc_lookback: params.macd_pbc_lookback || 10,
+      signal_params_supertrend_period: params.supertrend_period || 10,
+      signal_params_supertrend_multiplier: params.supertrend_multiplier || 3,
+      signal_params_supertrend_mode: params.supertrend_mode || 'trend',
+      scanner_weights_momentum: weights.momentum * 100,
+      scanner_weights_volatility: weights.volatility * 100,
+      scanner_weights_trend: weights.trend * 100,
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
       // UI Conversion: backend decimal to UI percentage
       slippage_warning_threshold: config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1),
+      leverage: config.leverage !== undefined ? Number(config.leverage) : CONFIG_LIMITS.LEVERAGE_DEFAULT,
+      slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
+      hibernation_mode: config.hibernation_mode || 'adaptive',
+      hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
+      sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
+  trailing_stop_enabled: !!config.trailing_stop_enabled,
+  trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+  smart_watchlist_enabled: !!config.smart_watchlist_enabled,
+  smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
+      scanner_signal_depth: config.scanner_signal_depth || 10,
+      auto_scale_min_notional: config.auto_scale_min_notional !== undefined ? config.auto_scale_min_notional : true,
+      risk_hardening_enabled: !!config.risk_hardening_enabled,
+      max_single_trade_risk_pct: config.max_single_trade_risk_pct !== undefined ? config.max_single_trade_risk_pct : 20.0,
+      engulfing_mode: config.engulfing_mode || 'range',
+      engulfing_timing: config.engulfing_timing || 'is_opportunity',
+      engulfing_volume_confirm: !!config.engulfing_volume_confirm,
+      engulfing_lookback: config.engulfing_lookback || 1,
+      engulfing_streak: config.engulfing_streak || 1,
+      engulfing_sequential: config.engulfing_sequential !== false,
     };
   } catch (e) { return { ...config }; }
 };
-export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) => {
+
+const coerceAndSanitizeConfig = (rawConfig) => {
+  if (!rawConfig) return {};
+  try {
+    const flat = flattenConfig(rawConfig);
+    const c = { ...flat, strategy_label: (flat.strategy_label || '').trim() };
+
+    // Explicitly sanitize inputs for security and data integrity
+    const sp = { ...(typeof flat.signal_params === 'string' ? JSON.parse(flat.signal_params || '{}') : flat.signal_params || {}) };
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
+      const val = flat[`signal_params_${k}`];
+      if (val !== undefined && val !== null) {
+        sp[k] = Number(val);
+      }
+    });
+    if (flat.signal_params_macd_strict_expansion !== undefined) {
+      sp.macd_strict_expansion = flat.signal_params_macd_strict_expansion === true || flat.signal_params_macd_strict_expansion === 'true';
+    }
+    if (flat.signal_params_supertrend_mode !== undefined) {
+      sp.supertrend_mode = flat.signal_params_supertrend_mode;
+    }
+    c.signal_params = sp;
+
+    // Ensure numeric values where expected
+    const numericFields = [
+      'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
+      'max_single_trade_risk_pct',
+      'smart_watchlist_sensitivity',
+      'trailing_stop_distance_pct',
+      'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
+      'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
+      'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
+      'scanner_signal_depth',
+      'engulfing_lookback', 'engulfing_streak',
+      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
+      'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
+      'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
+      'slippage_abort_threshold'
+    ];
+
+    numericFields.forEach(f => {
+      if (c[f] !== undefined && c[f] !== null) {
+        c[f] = Number(c[f]);
+      }
+    });
+
+    c.scanner_weights = {
+      momentum: Number(flat.scanner_weights_momentum || 0) / 100,
+      volatility: Number(flat.scanner_weights_volatility || 0) / 100,
+      trend: Number(flat.scanner_weights_trend || 0) / 100
+    };
+
+    // Remove flattened UI fields after bundling into scanner_weights object
+    delete c.scanner_weights_momentum;
+    delete c.scanner_weights_volatility;
+    delete c.scanner_weights_trend;
+
+    if (c.hibernation_grace_period_sec !== undefined) {
+      c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
+    }
+
+    // UI Conversion: UI percentage back to backend decimal
+    if (c.slippage_warning_threshold !== undefined) {
+      c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
+    }
+
+    // Zero out nested variants to prevent runaway nesting
+    c.strategy_variants = [];
+
+    // Clean up temporary UI fields
+    Object.keys(c).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        delete c[k];
+      }
+    });
+
+    return c;
+  } catch (e) {
+    return { ...rawConfig };
+  }
+};
+export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
+    addAlert: state.addAlert,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus,
+    isSyncingOnResume: state.isSyncingOnResume,
+    sessionActive: state.sessionActive,
+    lifetimeAnalytics: state.lifetimeAnalytics,
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics
+  }));
+
+  const presetSearchInputRef = useRef(null);
+
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
+  const showResumingFeedback = sessionActive && isResuming;
+  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
+  const handleInputFocus = React.useCallback((e) => {
+    requestAnimationFrame(() => {
+      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }, []);
+
   const [cfg, setCfg] = useState(() => {
     const savedDraft = sessionStorage.getItem('config_draft');
-    if (savedDraft) return JSON.parse(savedDraft);
+    if (savedDraft) {
+      try {
+        return JSON.parse(savedDraft);
+      } catch (e) {
+        console.error('[ConfigModal] Failed to parse draft:', e);
+      }
+    }
     return flattenConfig(initialConfig);
   });
+
+  useEffect(() => {
+    fetchLifetimeAnalytics(cfg?.paper_mode ? 'paper' : 'live');
+  }, [fetchLifetimeAnalytics, cfg?.paper_mode]);
   const [isDirty, setIsDirty] = useState(() => {
     const savedDraft = sessionStorage.getItem('config_draft');
     return !!savedDraft;
   });
 
-  const [section, setSection] = useState('scan')
+  const [section, setSection] = useState(isEdit ? 'presets' : 'scan')
+  const [presetLoaded, setPresetLoaded] = useState(false)
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
   const [errors, setErrors] = useState({})
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const [symbolSearch, setSymbolSearch] = useState('')
   const [testnetConfigured, setTestnetConfigured] = useState(false)
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
+  const [presetToDelete, setPresetToDelete] = useState(null);
+  const [presetSearch, setPresetSearch] = useState('');
+  const [libraryExpanded, setLibraryExpanded] = useState(false);
+  const [showPasteOverlay, setShowPasteOverlay] = useState(false);
+  const [pasteValue, setPasteValue] = useState('');
+  const [pasteError, setPasteError] = useState(null);
+  const [openSectionId, setOpenSectionId] = useState('scan_general');
 
+  // Accordion behavior: auto-expand the first section of the selected tab on tab change
   useEffect(() => {
-    sessionStorage.setItem('config_draft', JSON.stringify(cfg));
-    if (loadedPresetName) sessionStorage.setItem('loaded_preset_name', loadedPresetName);
-    else sessionStorage.removeItem('loaded_preset_name');
+    const defaults = {
+      scan: 'scan_general',
+      strategy: 'strategy_entry',
+      risk: 'risk_guards',
+      env: 'adv_env',
+    };
+    if (defaults[section]) {
+      setOpenSectionId(defaults[section]);
+    }
+  }, [section]);
+
+  const modalRef = React.useRef(null);
+
+  // Auto-focus container on mount for accessible keyboard navigation
+  useEffect(() => {
+    modalRef.current?.focus();
+  }, []);
+
+  // Dismiss modal on Escape key globally, avoiding conflicts with active inputs
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        const activeTag = document.activeElement?.tagName;
+        if (activeTag !== 'INPUT' && activeTag !== 'TEXTAREA') {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [onClose]);
+
+  const partitionedPresets = useMemo(() => {
+    const searchLower = presetSearch.toLowerCase().trim();
+    const filtered = presets.filter(p =>
+      !searchLower || p.name.toLowerCase().includes(searchLower)
+    );
+
+    const active = [];
+    const available = [];
+
+    filtered.forEach(p => {
+      const isLoaded = loadedPresetName === p.name;
+      const isVar = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
+      if (isLoaded || isVar) {
+        active.push(p);
+      } else {
+        available.push(p);
+      }
+    });
+
+    return { active, available };
+  }, [presets, presetSearch, loadedPresetName, cfg.strategy_variants]);
+
+  // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      sessionStorage.setItem('config_draft', JSON.stringify(cfg));
+      if (loadedPresetName) sessionStorage.setItem('loaded_preset_name', loadedPresetName);
+      else sessionStorage.removeItem('loaded_preset_name');
+    }, 1000);
+    return () => clearTimeout(timer);
   }, [cfg, loadedPresetName]);
 
-  const validate = (c) => {
-    // ... (rest of the component logic)
-
+  const validate = React.useCallback((c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
-    
+
+    // DEPLOY-05: Harden validation against missing API keys for chosen trading mode
+    const mode = c.trading_mode || (c.paper_mode ? 'paper' : 'live');
+    if (mode === 'testnet' && !testnetConfigured) {
+      errs.trading_mode = 'Testnet API keys required';
+    } else if (mode === 'live' && !liveConfigured) {
+      errs.trading_mode = 'Live API keys required';
+    }
+
     if (c.risk_pct_per_trade > c.max_total_risk_pct) {
       errs.risk_pct_per_trade = 'Exceeds max total risk'
+    }
+
+    if (!c.max_open_trades || c.max_open_trades < 1) {
+      errs.max_open_trades = 'Min 1';
+    }
+
+    if (c.sl_distance_pct <= 0) {
+      errs.sl_distance_pct = 'Must be > 0';
     }
 
     if (c.risk_pct_per_trade > 2) {
@@ -114,31 +1141,52 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
       errs.sl_distance_pct_warn = 'Aggressive (>5%)'
     }
 
+    const totalWeight = Number(c.scanner_weights_momentum || 0) + Number(c.scanner_weights_volatility || 0) + Number(c.scanner_weights_trend || 0);
+    if (Math.abs(totalWeight - 100) > 0.1) {
+       errs.scanner_weights_momentum = 'Sum must be 100%';
+    }
+    if (c.scanner_signal_depth < 1) errs.scanner_signal_depth = 'Min 1';
+
     setErrors(errs); return Object.keys(errs).length === 0;
-  }
+  }, [testnetConfigured, liveConfigured]);
 
   const generatedPresetName = useMemo(() => {
     const i = cfg.scan_interval || 'Custom'; const r = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : '';
     const parts = [i, r].filter(Boolean); return parts.join(' · ') || 'New session preset';
   }, [cfg.scan_interval, cfg.risk_pct_per_trade])
 
-  useEffect(() => { const saved = localStorage.getItem('strategy_presets'); if (saved) setPresets(JSON.parse(saved)); }, [])
+  useEffect(() => {
+    const loadPresets = async () => {
+      try {
+        console.log('[ConfigModal] Loading presets...');
+        const res = await presetsAPI.list();
+        if (res && res.data) {
+          setPresets(res.data);
+          console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
+        } else {
+          console.warn('[ConfigModal] No presets data returned from API.');
+        }
+      } catch (e) {
+        console.error('[ConfigModal] Error loading presets:', e);
+        if (addAlert) {
+          addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
+        }
+      }
+    };
+    loadPresets();
+  }, [addAlert])
 
   // Check API key configuration for testnet and live modes
   useEffect(() => {
     const checkConfig = async () => {
       try {
         const res = await settingsAPI.getKeys()
-        console.log('[ConfigModal] API keys response:', res)
-        console.log('[ConfigModal] Keys data:', res.data)
         const tn = !!res.data.testnet_api_key
         const ln = !!res.data.api_key
-        console.log('[ConfigModal] Testnet configured:', tn, 'Live configured:', ln)
         setTestnetConfigured(tn)
         setLiveConfigured(ln)
       } catch (e) {
         console.log('[ConfigModal] Error checking keys:', e.message)
-        // If we can't check, assume not configured
         setTestnetConfigured(false)
         setLiveConfigured(false)
       }
@@ -146,82 +1194,483 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     checkConfig()
   }, [])
 
-  const setField = (key, value) => { 
-    console.log('[ConfigModal] setField called:', key, '=', value)
-    setIsDirty(true); // Mark as dirty on any change
+  // Fetch lifetime analytics for the current mode
+  useEffect(() => {
+    if (fetchLifetimeAnalytics) {
+      const mode = cfg.trading_mode || (cfg.paper_mode ? 'paper' : 'live');
+      fetchLifetimeAnalytics(mode);
+    }
+  }, [fetchLifetimeAnalytics, cfg.trading_mode, cfg.paper_mode]);
+
+  const setField = React.useCallback((key, value) => {
+    setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev, [key]: value };
-      console.log('[ConfigModal] New config state:', next)
-      if (Object.keys(errors).length > 0) validate(next);
+      // BOLT: Floating-point precision guard for weights to prevent intermittent sum warnings
+      if (key.startsWith('scanner_weights_')) {
+        const w1 = Number(next.scanner_weights_momentum || 0);
+        const w2 = Number(next.scanner_weights_volatility || 0);
+        const w3 = Number(next.scanner_weights_trend || 0);
+        const total = w1 + w2 + w3;
+        if (Math.abs(total - 100) < 0.01 && total !== 100) {
+           // Auto-adjust trend weight to hit exactly 100 if we are within 0.01 tolerance
+           next.scanner_weights_trend = Number((100 - w1 - w2).toFixed(2));
+        }
+      }
       return next;
     });
-  }
+  }, []);
+
+  const handleToggleExitSignal = React.useCallback((baseKey, active) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const next = { ...prev };
+      const currentExitSignals = prev.exit_signals || [];
+
+      if (active) {
+        // Toggling OFF: remove base signal AND all its chained layers
+        next.exit_signals = currentExitSignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
+
+        // Clean up delays, actions, and timeframes
+        const nextDelays = { ...(prev.exit_signal_delays || {}) };
+        const nextActions = { ...(prev.exit_signal_actions || {}) };
+        const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+
+        delete nextDelays[baseKey];
+        delete nextActions[baseKey];
+        delete nextTimeframes[baseKey];
+
+        Object.keys(nextDelays).forEach(k => {
+          if (k.startsWith(`${baseKey}_`)) delete nextDelays[k];
+        });
+        Object.keys(nextActions).forEach(k => {
+          if (k.startsWith(`${baseKey}_`)) delete nextActions[k];
+        });
+        Object.keys(nextTimeframes).forEach(k => {
+          if (k.startsWith(`${baseKey}_`)) delete nextTimeframes[k];
+        });
+
+        next.exit_signal_delays = nextDelays;
+        next.exit_signal_actions = nextActions;
+        next.signal_timeframes = nextTimeframes;
+      } else {
+        // Toggling ON: add base signal
+        next.exit_signals = [...currentExitSignals, baseKey];
+
+        // Initialize base signal delay, action, timeframe
+        next.exit_signal_delays = { ...(prev.exit_signal_delays || {}), [baseKey]: 0 };
+        next.exit_signal_actions = { ...(prev.exit_signal_actions || {}), [baseKey]: 'close' };
+        next.signal_timeframes = { ...(prev.signal_timeframes || {}), [baseKey]: 'default' };
+      }
+      return next;
+    });
+  }, []);
+
+  const handleAddLayer = React.useCallback((baseKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const currentExitSignals = prev.exit_signals || [];
+      let suffixNum = 2;
+      while (currentExitSignals.includes(`${baseKey}_${suffixNum}`)) {
+        suffixNum++;
+      }
+      const newLayerKey = `${baseKey}_${suffixNum}`;
+
+      return {
+        ...prev,
+        exit_signals: [...currentExitSignals, newLayerKey],
+        exit_signal_delays: { ...(prev.exit_signal_delays || {}), [newLayerKey]: 0 },
+        exit_signal_actions: { ...(prev.exit_signal_actions || {}), [newLayerKey]: 'close' },
+        signal_timeframes: { ...(prev.signal_timeframes || {}), [newLayerKey]: 'default' }
+      };
+    });
+  }, []);
+
+  const handleRemoveLayer = React.useCallback((layerKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const nextDelays = { ...(prev.exit_signal_delays || {}) };
+      delete nextDelays[layerKey];
+
+      const nextActions = { ...(prev.exit_signal_actions || {}) };
+      delete nextActions[layerKey];
+
+      const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+      delete nextTimeframes[layerKey];
+
+      return {
+        ...prev,
+        exit_signals: (prev.exit_signals || []).filter(sig => sig !== layerKey),
+        exit_signal_delays: nextDelays,
+        exit_signal_actions: nextActions,
+        signal_timeframes: nextTimeframes
+      };
+    });
+  }, []);
+
+  const handleUpdateLayer = React.useCallback((layerKey, field, value) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const next = { ...prev };
+      if (field === 'timeframe') {
+        const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+        if (value === 'default') {
+          delete nextTimeframes[layerKey];
+        } else {
+          nextTimeframes[layerKey] = value;
+        }
+        next.signal_timeframes = nextTimeframes;
+      } else if (field === 'delay') {
+        next.exit_signal_delays = { ...(prev.exit_signal_delays || {}), [layerKey]: value };
+      } else if (field === 'action') {
+        next.exit_signal_actions = { ...(prev.exit_signal_actions || {}), [layerKey]: value };
+      }
+      return next;
+    });
+  }, []);
   
-  const resetToLastSaved = () => {
+  const resetToLastSaved = React.useCallback(() => {
     sessionStorage.removeItem('config_draft');
     setCfg(flattenConfig(initialConfig));
     setIsDirty(false);
     setErrors({});
-  };
+  }, [initialConfig]);
   
-  const handleModeSelect = (mode) => {
-    console.log('[ConfigModal] Mode selected:', mode, 'testnetConfigured:', testnetConfigured, 'liveConfigured:', liveConfigured)
+  const handleModeSelect = React.useCallback((mode) => {
     setModeWarning(null)
     if (mode === 'testnet' && !testnetConfigured) {
-      console.log('[ConfigModal] Blocking testnet - not configured')
       setModeWarning('Testnet API keys not configured. Please add them in Settings first.')
       return
     }
     if (mode === 'live' && !liveConfigured) {
-      console.log('[ConfigModal] Blocking live - not configured')
       setModeWarning('Live API keys not configured. Please add them in Settings first.')
       return
     }
-    console.log('[ConfigModal] Proceeding with mode selection:', mode)
-    setCfg(prev => ({
-      ...prev,
-      trading_mode: mode,
-      paper_mode: mode === 'paper'
-    }))
-  }
+    setCfg(prev => {
+      const next = {
+        ...prev,
+        trading_mode: mode,
+        paper_mode: mode === 'paper'
+      }
+      validate(next)
+      return next
+    })
+  }, [testnetConfigured, liveConfigured, validate]);
 
-  const savePreset = () => { if (!validate(cfg)) return; const name = (presetName || generatedPresetName).trim(); if (!name) return; const { strategy_variants, ...pc } = cfg; const next = [...presets.filter(p => p.name !== name), { name, config: { ...pc, strategy_label: name } }]; setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); setPresetName(''); setSaveSuccess(true); setTimeout(() => setSaveSuccess(false), 2000); }
-  const loadPreset = (p) => { 
-    setCfg({ ...p.config }); 
+  const buildConfigToSave = React.useCallback(() => {
+    const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
+
+    // Explicitly sanitize inputs for security and data integrity
+    const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
+    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
+      const val = cfg[`signal_params_${k}`];
+      if (val !== undefined && val !== null) {
+        sp[k] = Number(val);
+      }
+    });
+    if (cfg.signal_params_macd_strict_expansion !== undefined) {
+      sp.macd_strict_expansion = cfg.signal_params_macd_strict_expansion === true || cfg.signal_params_macd_strict_expansion === 'true';
+    }
+    if (cfg.signal_params_supertrend_mode !== undefined) {
+      sp.supertrend_mode = cfg.signal_params_supertrend_mode;
+    }
+    c.signal_params = sp;
+
+    // Ensure numeric values where expected
+    const numericFields = [
+      'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
+      'max_single_trade_risk_pct',
+      'smart_watchlist_sensitivity',
+      'trailing_stop_distance_pct',
+      'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
+      'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
+      'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
+      'scanner_signal_depth',
+      'engulfing_lookback', 'engulfing_streak',
+      'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
+      'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
+      'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
+      'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
+      'slippage_abort_threshold'
+    ];
+
+    numericFields.forEach(f => {
+      if (c[f] !== undefined && c[f] !== null) {
+        c[f] = Number(c[f]);
+      }
+    });
+
+    c.scanner_weights = {
+      momentum: Number(cfg.scanner_weights_momentum || 0) / 100,
+      volatility: Number(cfg.scanner_weights_volatility || 0) / 100,
+      trend: Number(cfg.scanner_weights_trend || 0) / 100
+    };
+
+    // Remove flattened UI fields after bundling into scanner_weights object
+    delete c.scanner_weights_momentum;
+    delete c.scanner_weights_volatility;
+    delete c.scanner_weights_trend;
+
+    if (c.hibernation_grace_period_sec !== undefined) {
+      c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
+    }
+
+    // UI Conversion: UI percentage back to backend decimal
+    if (c.slippage_warning_threshold !== undefined) {
+      c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
+    }
+    c.strategy_variants = (cfg.strategy_variants || []).map((v) => {
+      return coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' });
+    });
+
+    // Clean up temporary UI fields
+    Object.keys(c).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        delete c[k];
+      }
+    });
+
+    return c;
+  }, [cfg, presetName, generatedPresetName]);
+
+  const savePreset = React.useCallback(async (explicitName) => {
+    // SRE name-resolution helper: cleanly resolves the preset name with strict precedence.
+    // 1. explicitName: provided when user specifies a name in the Save dialog (e.g., Save As).
+    // 2. presetName: the state field from the preset input box.
+    // 3. loadedPresetName: the active preset if explicitName is not explicitly skipped (undefined).
+    // 4. generatedPresetName: fallback auto-generated label based on scan interval & risk distance.
+    const resolvePresetName = () => {
+      if (explicitName) return explicitName;
+      if (presetName) return presetName;
+      if (explicitName === undefined && loadedPresetName) return loadedPresetName;
+      return generatedPresetName || '';
+    };
+
+    const name = resolvePresetName().trim();
+    console.log(`[ConfigModal] Attempting to save preset: "${name}"`);
+
+    try {
+      if (!validate(cfg)) {
+        console.warn('[ConfigModal] Validation failed for preset save. Check other tabs for errors.');
+        addAlert({
+          level: 'error',
+          title: 'Validation Failed',
+          message: 'The strategy configuration has errors. Please check the Scanner, Strategy, and Risk tabs before saving.'
+        });
+        return;
+      }
+
+      if (!name) {
+        addAlert({ level: 'warn', title: 'Missing Name', message: 'Please provide a name for this strategy preset.' });
+        return;
+      }
+
+      setIsSaving(true);
+      let pc;
+      try {
+        pc = buildConfigToSave();
+      } catch (buildErr) {
+        console.error('[ConfigModal] Critical error building config:', buildErr);
+        addAlert({ level: 'error', title: 'Internal Error', message: 'Failed to construct configuration object. Check console for details.' });
+        setIsSaving(false);
+        return;
+      }
+
+      console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
+
+      const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
+
+      if (res && res.data) {
+        console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
+        setPresets(prev => {
+          const nextPresets = [...prev.filter(p => p.name !== name), res.data];
+          return nextPresets.sort((a, b) => a.name.localeCompare(b.name));
+        });
+        setPresetName('');
+        setLoadedPresetName(name);
+        sessionStorage.removeItem('config_draft');
+        setIsDirty(false);
+        setSaveSuccess(true);
+        addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
+        setTimeout(() => setSaveSuccess(false), 2000);
+      }
+    } catch (e) {
+      console.error('[ConfigModal] Error saving preset:', e);
+
+      let errMsg = 'Could not store strategy preset in the database.';
+      if (e.response?.data?.detail && Array.isArray(e.response.data.detail)) {
+        // Format class-validator errors for better readability
+        const extractConstraints = (errs) => {
+          return errs.flatMap(err => {
+            const current = err.constraints ? [`${err.property}: ${Object.values(err.constraints).join(', ')}`] : [];
+            const nested = err.children ? extractConstraints(err.children) : [];
+            return [...current, ...nested];
+          });
+        };
+        errMsg = extractConstraints(e.response.data.detail).join('; ');
+      } else {
+        errMsg = e.response?.data?.message || e.message || errMsg;
+      }
+
+      addAlert({
+        level: 'error',
+        title: 'Save Failed',
+        message: errMsg
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert]);
+
+  const loadPreset = React.useCallback((p) => {
+    const next = flattenConfig(p.config);
+    setCfg(next);
     setLoadedPresetName(p.name);
-    setSection('scan'); 
-    setErrors({}); 
+    setPresetName(p.name);
+    setPresetLoaded(true);
+    validate(next);
     setIsDirty(false);
-  }
-  const deletePreset = (e, name) => { e.stopPropagation(); const next = presets.filter(p => p.name !== name); setPresets(next); localStorage.setItem('strategy_presets', JSON.stringify(next)); }
-  const toggleVariant = (e, p) => {
+    addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
+  }, [validate, addAlert]);
+
+  const deletePreset = React.useCallback(async (name) => {
+    try {
+      setIsDeleting(true);
+      await presetsAPI.delete(name);
+      setPresets(prev => prev.filter(p => p.name !== name));
+      addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
+    } catch (e) {
+      console.error('[ConfigModal] Error deleting preset:', e);
+      addAlert({ level: 'error', title: 'Delete Failed', message: `Could not remove preset "${name}".` });
+    } finally {
+      setIsDeleting(false);
+      setPresetToDelete(null);
+    }
+  }, [addAlert]);
+
+  const handleExportToFile = React.useCallback(() => {
+    try {
+      const configToSave = buildConfigToSave();
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(configToSave, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      const filename = `${(configToSave.strategy_label || 'momentum_strategy').replace(/\s+/g, '_').toLowerCase()}_config.json`;
+      downloadAnchor.setAttribute("download", filename);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      addAlert({ level: 'success', title: 'Export Successful', message: `Configuration exported as ${filename}.` });
+    } catch (e) {
+      console.error('[ConfigModal] Export failed:', e);
+      addAlert({ level: 'error', title: 'Export Failed', message: 'Could not export configuration.' });
+    }
+  }, [buildConfigToSave, addAlert]);
+
+  const handleFileImport = React.useCallback((e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target.result);
+        const flattened = flattenConfig(parsed);
+        setCfg(flattened);
+        setIsDirty(true);
+        validate(flattened);
+        addAlert({ level: 'success', title: 'Import Successful', message: 'Configuration imported from file.' });
+      } catch (err) {
+        console.error('[ConfigModal] File import failed:', err);
+        addAlert({ level: 'error', title: 'Import Failed', message: 'Invalid JSON configuration file.' });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }, [validate, addAlert]);
+
+  const handlePasteConfig = React.useCallback(async () => {
+    let text = '';
+    let isPermissionError = false;
+
+    try {
+      if (!navigator.clipboard || !navigator.clipboard.readText) {
+        throw new Error('Clipboard API is not supported in this browser environment.');
+      }
+      text = await navigator.clipboard.readText();
+    } catch (err) {
+      console.warn('[ConfigModal] Direct clipboard reading blocked by browser permissions or context:', err);
+      isPermissionError = true;
+    }
+
+    if (isPermissionError) {
+      setPasteValue('');
+      setPasteError(null);
+      setShowPasteOverlay(true);
+      addAlert({
+        level: 'info',
+        title: 'Clipboard Action',
+        message: 'Browser security requires manual paste. Fallback editor opened.'
+      });
+      return;
+    }
+
+    if (!text || !text.trim()) {
+      addAlert({ level: 'warn', title: 'Paste Failed', message: 'Clipboard is empty.' });
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(text);
+      const flattened = flattenConfig(parsed);
+      setCfg(flattened);
+      setIsDirty(true);
+      validate(flattened);
+      addAlert({ level: 'success', title: 'Paste Successful', message: 'Configuration pasted from clipboard.' });
+    } catch (err) {
+      console.error('[ConfigModal] Direct paste JSON parse failed, opening fallback editor:', err);
+      setPasteValue(text);
+      setPasteError(err.message);
+      setShowPasteOverlay(true);
+      addAlert({
+        level: 'warn',
+        title: 'Parse Failed',
+        message: 'Content is not valid JSON. Opening fallback editor to inspect.'
+      });
+    }
+  }, [validate, addAlert]);
+
+  const handlePasteAreaChange = React.useCallback((val) => {
+    setPasteValue(val);
+    if (!val.trim()) {
+      setPasteError(null);
+      return;
+    }
+    try {
+      JSON.parse(val);
+      setPasteError(null);
+    } catch (err) {
+      setPasteError(err.message);
+    }
+  }, []);
+
+  const toggleVariant = React.useCallback((e, p) => {
     e.stopPropagation()
     const variants = cfg.strategy_variants || []
     const exists = variants.some((v) => v.strategy_label === p.name)
 
     if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
-      alert(`Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`);
+      addAlert({
+        level: 'warn',
+        title: 'Limit Reached',
+        message: `Maximum of ${CONFIG_LIMITS.MAX_VARIANTS} strategy variants allowed.`
+      });
       return;
     }
 
     setField('strategy_variants', exists
       ? variants.filter((v) => v.strategy_label !== p.name)
-      : [...variants, { ...p.config, strategy_label: p.name }])
-  }
-
-  const buildConfigToSave = () => {
-    const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
-    const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
-    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow'].forEach(k => { if (cfg[`signal_params_${k}`]) sp[k] = cfg[`signal_params_${k}`]; });
-    c.signal_params = sp;
-    c.trailing_guard_buffer_pct = cfg.trailing_guard_buffer_pct;
-    // UI Conversion: UI percentage back to backend decimal
-    if (c.slippage_warning_threshold !== undefined) {
-      c.slippage_warning_threshold = c.slippage_warning_threshold / 100;
-    }
-    c.strategy_variants = (cfg.strategy_variants || []).map((v) => ({ ...v, strategy_label: v.strategy_label || 'Variant', strategy_variants: [] }));
-    return c;
-  }
+      : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name })])
+  }, [cfg.strategy_variants, setField]);
 
   const currentModeBalance = cfg.trading_mode === 'paper' ? (cfg.paper_starting_balance || 10000) : cfg.trading_mode === 'testnet' ? (cfg.testnet_starting_balance || 0) : (cfg.live_starting_balance || 0);
   const riskAmount = (currentModeBalance * ((cfg.risk_pct_per_trade || 0) / 100))
@@ -231,128 +1680,254 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
     return l.map((t, i) => [t, ex[i] ?? 0]);
   }, [cfg.live_rr_sequence, cfg.exit_rr_sequence])
 
-  function field(label, key, type = 'number', opts = null, attrs = {}, cp = null) {
-    const id = `config-${key}`; const v = cp ? cp[key] : cfg[key]; const err = errors[key]; const warn = errors[`${key}_warn`];
-    const onChange = (val) => { if (cp) attrs.onCustomChange(key, val); else setField(key, val); }
-    return (
-      <div className="flex flex-col gap-1.5 group/field">
-        <div className="flex justify-between items-center"><label htmlFor={id} className="text-[10px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors">{label}</label>
-          {err && <span role="alert" className="text-[9px] text-red font-bold uppercase">{err}</span>}
-          {warn && !err && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warn}</span>}
-        </div>
-        {opts ? (
-          <select id={id} value={v ?? ''} onChange={(e) => onChange(e.target.value)} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover">
-            {opts.map((o) => {
-              const val = typeof o === 'string' ? o : o.value;
-              const lbl = typeof o === 'string' ? o : o.label;
-              return <option key={val} value={val}>{lbl}</option>;
-            })}
-          </select>
-        ) : (
-          <input id={id} type={type} value={v ?? ''} {...attrs} onChange={(e) => onChange(type === 'number' ? Number(e.target.value) : e.target.value)} className="bg-surface border border-border rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover" />
-        )}
-      </div>
-    )
-  }
+  const handleSortMilestones = React.useCallback(() => {
+    const l = Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [];
+    const ex = Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [];
+
+    // Pair them up, sort by trigger ascending, then unpack
+    const pairs = l.map((trigger, idx) => ({
+      trigger: Number(trigger || 0),
+      exit: Number(ex[idx] || 0)
+    }));
+
+    pairs.sort((a, b) => a.trigger - b.trigger);
+
+    const sortedLive = pairs.map(p => p.trigger);
+    const sortedExit = pairs.map(p => p.exit);
+
+    setCfg(prev => ({
+      ...prev,
+      live_rr_sequence: sortedLive,
+      exit_rr_sequence: sortedExit
+    }));
+  }, [cfg.live_rr_sequence, cfg.exit_rr_sequence, setCfg]);
+
+  const renderField = React.useCallback((label, key, type = 'number', opts = null, attrs = {}) => (
+    <ConfigField
+      label={label}
+      id={`config-${key}`}
+      name={key}
+      key={key}
+      type={type}
+      value={cfg[key]}
+      onChange={setField}
+      error={errors[key]}
+      warning={errors[`${key}_warn`]}
+      opts={opts}
+      attrs={{ ...attrs, onFocus: handleInputFocus }}
+    />
+  ), [cfg, errors, setField, handleInputFocus]);
 
   return (
-    <div className="flex flex-col h-full bg-surface text-text overflow-hidden relative">
+    <div ref={modalRef} tabIndex={-1} className="flex flex-col h-full bg-surface text-text overflow-hidden relative outline-none">
       <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
-        <div className="p-5 flex justify-between items-center">
+        <div className="py-3 px-4 flex justify-between items-center">
           <div className="min-w-0 flex-1 mr-4">
-             <div className="text-lg font-black tracking-tight truncate uppercase flex items-center gap-2">
+             <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">
                {cfg.strategy_label || 'Configure Engine'}
-               {isDirty && <span className="w-2 h-2 rounded-full bg-accent animate-pulse shrink-0" />}
+               {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
-             <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 truncate">
-               {isDirty ? (
-                 <span className="text-accent flex items-center gap-1.5 shrink-0">
-                   <Activity size={10} className="animate-pulse" /> Unsaved Changes
+             <div className="text-[9px] text-dim font-bold uppercase tracking-widest flex items-center gap-1.5 truncate">
+               {showResumingFeedback ? (
+                 <span className="text-accent flex items-center gap-1 shrink-0">
+                   <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
+                 </span>
+               ) : isDirty ? (
+                 <span className="text-accent flex items-center gap-1 shrink-0">
+                   <Activity size={9} className="animate-pulse" /> Unsaved Changes
                  </span>
                ) : (
-                 <span className="flex items-center gap-1.5 shrink-0">
-                   <ShieldCheck size={10} className="text-green/60" /> Strategy Synced
+                 <span className="flex items-center gap-1 shrink-0">
+                   <ShieldCheck size={9} className="text-green/60" /> Strategy Synced
                  </span>
                )}
                <span className="opacity-40">/</span>
                <span className="truncate">Orchestration Center</span>
              </div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close configuration" className="p-2 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={18} className="text-dim" /></button>
+          <Tooltip content="Close Configuration">
+            <button type="button" onClick={onClose} aria-label="Close Configuration" className="p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={16} className="text-dim" /></button>
+          </Tooltip>
         </div>
-        <div className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x" data-vaul-no-drag>
-          {[
-            ['scan', 'Scanner', Search],
-            ['strategy', 'Strategy', Zap],
-            ['risk', 'Risk', ShieldCheck],
-            ['advanced', 'Advanced', Settings2],
-            ['presets', 'Presets', FolderOpen]
-          ].map(([id, label, Icon]) => (
-            <Chip key={id} active={section === id} onClick={() => setSection(id)} className="flex items-center gap-2">
-              <Icon size={12} className={cn(section === id ? "text-accent" : "text-dim")} />
-              {label}
-            </Chip>
-          ))}
-        </div>
+        <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
       </div>
+      <ModalAlertTicker />
 
-      <div className="flex-1 overflow-y-auto no-scrollbar p-4 md:p-6 pb-32 overscroll-contain" data-vaul-no-drag>
+      <div className="flex-1 overflow-y-auto no-scrollbar p-3 md:p-4 pb-24 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={Settings2} title="General" subtitle="Basic strategy identification" />
-              {field('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
-            </section>
+          <div
+            id="config-panel-scan"
+            role="tabpanel"
+            aria-labelledby="config-tab-scan"
+            className="space-y-3 animate-in fade-in duration-300"
+          >
+            <CollapsibleSection
+              id="scan_general"
+              icon={Settings2}
+              title="General"
+              subtitle="Basic strategy identification"
+              isOpen={openSectionId === 'scan_general'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_general' ? null : 'scan_general')}
+            >
+              {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
+            </CollapsibleSection>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
+            <CollapsibleSection
+              id="scan_global"
+              icon={Search}
+              title="Global Scanner"
+              subtitle="Automatic discovery settings"
+              isOpen={openSectionId === 'scan_global'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_global' ? null : 'scan_global')}
+            >
               <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Search size={20} /></div><div><div className="text-sm font-bold">Global Scanner</div><div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div></div></div>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                    <Search size={20} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold">Global Scanner</div>
+                    <div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div>
+                  </div>
+                </div>
                 <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
               </div>
 
               <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
-                {field('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h'])}
-                {field('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
-                {field('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
-                {field('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
-                {field('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
-                {field('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
-                {field('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
-                {field('Scan Mode', 'scan_mode', 'text', [
+                {renderField('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
+                {renderField('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
+                {renderField('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
+                {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
+                {renderField('Discovery Mode', 'discovery_mode', 'text', ['volume', 'change_pct'])}
+                {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
+                {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
+                  {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
+                </Tooltip>
+
+                <div className="md:col-span-2 mt-4 space-y-4">
+                  <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Zap size={20} /></div>
+                      <div>
+                        <div className="text-sm font-bold flex items-center gap-2">
+                          Smart Watchlist
+                          <Tooltip content="Event-driven discovery: Monitors the real-time !miniTicker stream to catch symbols with high momentum BEFORE they enter the top volume lists. Increases discovery range without extra API weight.">
+                            <Info size={12} className="text-dim/60" />
+                          </Tooltip>
+                        </div>
+                        <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Event-driven discovery via !miniTicker</div>
+                      </div>
+                    </div>
+                    <Toggle value={cfg.smart_watchlist_enabled === true} onChange={(v) => setField('smart_watchlist_enabled', v)} />
+                  </div>
+
+                  {cfg.smart_watchlist_enabled && (
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-accent/5 rounded-2xl border border-accent/20 space-y-4 shadow-sm">
+                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent mb-2">
+                        <TrendingUp size={12} /> Predictive Discovery
+                      </div>
+                      {renderField('Discovery Sensitivity', 'smart_watchlist_sensitivity', 'number', null, { min: 0.1, max: 1.0, step: 0.1 })}
+                      <p className="text-[9px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
+                        Expands the candidate pool by identifying movers in the real-time mini-ticker stream before they enter the top volume lists. Lower values are more inclusive.
+                      </p>
+                    </motion.div>
+                  )}
+                </div>
+                {renderField('Min Volume (USDT)', 'scan_min_volume_usdt', 'number', null, { min: 0, step: 100000 })}
+                {renderField('Scan Mode', 'scan_mode', 'text', [
                   { value: 'interval', label: 'Fixed Interval' },
                   { value: 'active_window', label: 'Momentum Window' }
                 ])}
                 {cfg.scan_mode === 'active_window' && (
                   <>
-                    {field('Window Duration (s)', 'scan_window_duration_sec', 'number', null, { min: 1 })}
-                    {field('Check Interval (s)', 'scan_check_interval_sec', 'number', null, { min: 1 })}
+                    {renderField('Window Duration (s)', 'scan_window_duration_sec', 'number', null, { min: 1 })}
+                    {renderField('Check Interval (s)', 'scan_check_interval_sec', 'number', null, { min: 1 })}
                   </>
                 )}
               </div>
-            </section>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={Plus} title="Static Watchlist" subtitle="Rank only these symbols (comma separated)" />
-              <input type="text" placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols?.join(', ') || ''} onChange={(e) => setField('symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
-            </section>
+              <div className="mt-8 pt-6 border-t border-border/40">
+                <div className="flex justify-between items-start mb-4">
+                  <SectionHeader icon={LayoutGrid} title="Scoring Weights" subtitle="Contribution to opportunity score (Sum: 100%)" />
+                  <div className="flex flex-wrap gap-2 justify-end">
+                    {[
+                      { label: 'Balanced', w: [50, 30, 20] },
+                      { label: 'Aggressive', w: [80, 10, 10] },
+                      { label: 'Trend-Focused', w: [20, 20, 60] }
+                    ].map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => {
+                          setField('scanner_weights_momentum', p.w[0]);
+                          setField('scanner_weights_volatility', p.w[1]);
+                          setField('scanner_weights_trend', p.w[2]);
+                        }}
+                        className="px-2 py-1 rounded bg-accent/5 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 transition-colors"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {renderField('Momentum %', 'scanner_weights_momentum', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Volatility %', 'scanner_weights_volatility', 'number', null, { min: 0, max: 100 })}
+                  {renderField('Trend %', 'scanner_weights_trend', 'number', null, { min: 0, max: 100 })}
+                </div>
+                <div className="mt-4 p-4 bg-background/40 rounded-xl border border-border/40">
+                   <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest mb-2">
+                      <span className="text-dim">Weight Distribution</span>
+                      <span className={cn(Math.abs((Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)) - 100) > 0.1 ? "text-red" : "text-green")}>
+                         Sum: {Number(cfg.scanner_weights_momentum || 0) + Number(cfg.scanner_weights_volatility || 0) + Number(cfg.scanner_weights_trend || 0)}%
+                      </span>
+                   </div>
+                   <div className="h-2 bg-white/5 rounded-full overflow-hidden flex border border-white/5">
+                      <div className="h-full bg-accent transition-all duration-500" style={{ width: `${cfg.scanner_weights_momentum}%` }} />
+                      <div className="h-full bg-amber transition-all duration-500" style={{ width: `${cfg.scanner_weights_volatility}%` }} />
+                      <div className="h-full bg-purple transition-all duration-500" style={{ width: `${cfg.scanner_weights_trend}%` }} />
+                   </div>
+                </div>
+              </div>
+            </CollapsibleSection>
 
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <SectionHeader icon={XCircle} title="Exclusion List" subtitle="Symbols to never trade" />
-              <input type="text" placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols?.join(', ') || ''} onChange={(e) => setField('excluded_symbols', e.target.value.split(',').map(s => s.trim()).filter(Boolean))} className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none hover:border-border-hover transition-colors" />
-            </section>
+            <CollapsibleSection
+              id="scan_watchlist"
+              icon={Plus}
+              title="Static Watchlist"
+              subtitle="Rank only these symbols"
+              isOpen={openSectionId === 'scan_watchlist'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_watchlist' ? null : 'scan_watchlist')}
+            >
+              <div className="space-y-4">
+                <WatchlistDropdownInput value={cfg.symbols || []} onChange={(val) => setField('symbols', val)} />
+                <div className="pt-4 border-t border-border/40">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-wider mb-2 block">Edit Comma-Separated List (Advanced)</span>
+                  <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="scan_exclusion"
+              icon={XCircle}
+              title="Exclusion List"
+              subtitle="Symbols to never trade"
+              isOpen={openSectionId === 'scan_exclusion'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_exclusion' ? null : 'scan_exclusion')}
+            >
+              <ListInput placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols} onChange={(val) => setField('excluded_symbols', val)} />
+            </CollapsibleSection>
 
             <section className="pt-6 border-t border-border/40">
                <div className="flex justify-between items-center mb-4">
                  <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
                  {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
                </div>
-               <div className="flex gap-2">
-                 <div className="relative flex-1">
-                   <input type="text" placeholder="BTCUSDT" value={symbolSearch} onChange={(e) => setSymbolSearch(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (symbolSearch) { setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); } } if (e.key === 'Escape') setSymbolSearch(''); }} className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent outline-none hover:border-border-hover transition-colors" />
-                   {symbolSearch && <button type="button" onClick={() => setSymbolSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-text transition-colors" aria-label="Clear input"><X size={16} /></button>}
-                 </div>
-                 <Btn variant="primary" onClick={() => { if (symbolSearch) { setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: symbolSearch, enabled: true, follow_schedule: true }]); setSymbolSearch(''); } }} className="aspect-square p-0 w-12 h-12 flex items-center justify-center"><Plus size={20} /></Btn>
-               </div>
+               <ManualMonitorInput
+                 onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])}
+               />
                <div className="flex flex-wrap gap-2 mt-4">
                  {(cfg.single_symbol_configs || []).length === 0 ? (
                    <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">No symbols tracked manually</p>
@@ -365,55 +1940,164 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
         )}
 
         {section === 'strategy' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
-            <section className="bg-background/40 p-5 rounded-2xl border border-border/40">
-              <div className="flex justify-between items-center mb-4">
-                <SectionHeader icon={Zap} title="Entry Signals" subtitle="Triggers for opening positions" />
+          <div
+            id="config-panel-strategy"
+            role="tabpanel"
+            aria-labelledby="config-tab-strategy"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+          >
+            <CollapsibleSection
+              id="strategy_entry"
+              icon={Zap}
+              title="Entry Signals"
+              subtitle="Triggers for opening positions"
+              isOpen={openSectionId === 'strategy_entry'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_entry' ? null : 'strategy_entry')}
+            >
+              <div className="flex justify-end mb-4">
                 <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
                  </div>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {SIGNALS.map(([key, label, desc]) => {
-                  const active = (cfg.enabled_signals || []).includes(key);
-                  return (
-                    <Tooltip key={key} content={desc} side="bottom">
-                      <Chip active={active} onClick={() => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}>{label}</Chip>
-                    </Tooltip>
-                  )
-                })}
+                {SIGNALS.map((signal) => (
+                  <SignalChip
+                    key={signal[0]}
+                    signal={signal}
+                    active={(cfg.enabled_signals || []).includes(signal[0])}
+                    onClick={(key, active) => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}
+                  />
+                ))}
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Activity} title="Signal Parameters" subtitle="Technical indicator periods" />
-
+            <CollapsibleSection
+              id="strategy_params"
+              icon={Activity}
+              title="Signal Parameters"
+              subtitle="Technical indicator periods"
+              isOpen={openSectionId === 'strategy_params'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_params' ? null : 'strategy_params')}
+            >
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-                {field('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
+                {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
                 <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
-                  {field('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
+                  {renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
                 </Tooltip>
               </div>
 
               <div className="space-y-6">
+                {(cfg.enabled_signals || []).includes('engulfing') && (
+                  <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <Tooltip content="Body: Open/Close must engulf. Range: High/Low must engulf. Strict: Both must engulf. Close > H/L (Closed) waits for a closed confirmation candle. Partial Range/Body (Soft modes) evaluate off the live candle, which trades whipsaw protection for earlier execution.">
+                        {renderField('Engulfing Mode', 'engulfing_mode', 'text', [
+                          { value: 'range', label: 'Range (H/L)' },
+                          { value: 'body', label: 'Body (O/C)' },
+                          { value: 'strict', label: 'Strict (Both)' },
+                          { value: 'close_range', label: 'Close > H/L (Closed)' },
+                          { value: 'close_body', label: 'Close > Body (Closed)' },
+                          { value: 'soft_range', label: 'Partial Range (Close > H/L)' },
+                          { value: 'soft_body', label: 'Partial Body (Close > Body)' }
+                        ])}
+                      </Tooltip>
+                      <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
+                        {renderField('Timing', 'engulfing_timing', 'text', [
+                          { value: 'is_opportunity', label: 'Is Opportunity' },
+                          { value: 'after_opportunity', label: 'After Opportunity' }
+                        ])}
+                      </Tooltip>
+                      <Tooltip content="Maximum search window: Number of previous candles to scan for a reversal streak.">
+                        {renderField('Search Window', 'engulfing_lookback', 'number', null, { min: 1, max: 20 })}
+                      </Tooltip>
+                      <Tooltip content="Required streak: Number of consecutive reversal candles to find within the window.">
+                        {renderField('Required Streak', 'engulfing_streak', 'number', null, { min: 1, max: 10 })}
+                      </Tooltip>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Sequential</label>
+                          <Tooltip content="If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.">
+                            <Toggle value={cfg.engulfing_sequential !== false} onChange={(v) => setField('engulfing_sequential', v)} />
+                          </Tooltip>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
+                          <Tooltip content="When enabled, the engulfing candle MUST have higher volume than the engulfed candle.">
+                            <Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} />
+                          </Tooltip>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    {field('Entry Period', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
-                    {field('Entry Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
-                    {field('Entry Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
+                    {renderField('Entry Period', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
+                    {renderField('Entry Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
+                    {renderField('Entry Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
                   </div>
                 </div>
 
                 <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                   <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Exit Specific EMAs</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    {field('Exit Period', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
-                    {field('Exit Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
-                    {field('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
+                    {renderField('Exit Period', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
+                    {renderField('Exit Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
+                    {renderField('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
                   </div>
                 </div>
+
+                {(
+                  (cfg.enabled_signals || []).includes('macd_impulse') ||
+                  (cfg.enabled_signals || []).includes('macd_pbc') ||
+                  (cfg.enabled_signals || []).includes('macd_fade') ||
+                  (cfg.exit_signals || []).includes('macd_impulse') ||
+                  (cfg.exit_signals || []).includes('macd_pbc') ||
+                  (cfg.exit_signals || []).includes('macd_fade')
+                ) && (
+                  <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">MACD Momentum Parameters</div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                      {renderField('MACD Fast', 'signal_params_macd_fast', 'number', null, { min: 1 })}
+                      {renderField('MACD Slow', 'signal_params_macd_slow', 'number', null, { min: 1 })}
+                      {renderField('MACD Signal', 'signal_params_macd_signal', 'number', null, { min: 1 })}
+                      {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.exit_signals || []).includes('macd_impulse')) && (
+                        <div className="flex flex-col gap-1.5 justify-center">
+                          <div className="flex justify-between items-center">
+                            <label className="text-[10px] text-dim font-black tracking-widest uppercase">Strict Expanding</label>
+                            <Toggle value={cfg.signal_params_macd_strict_expansion !== false} onChange={(v) => setField('signal_params_macd_strict_expansion', v)} />
+                          </div>
+                        </div>
+                      )}
+                      {((cfg.enabled_signals || []).includes('macd_pbc') || (cfg.exit_signals || []).includes('macd_pbc')) && (
+                        <>
+                          {renderField('PBC Trend EMA', 'signal_params_macd_pbc_trend_ema', 'number', null, { min: 1 })}
+                          {renderField('PBC Lookback', 'signal_params_macd_pbc_lookback', 'number', null, { min: 1 })}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {((cfg.enabled_signals || []).includes('supertrend') || (cfg.exit_signals || []).includes('supertrend')) && (
+                  <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">Supertrend Parameters</div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                      {renderField('ATR Period', 'signal_params_supertrend_period', 'number', null, { min: 1, max: 39 })}
+                      {renderField('Multiplier', 'signal_params_supertrend_multiplier', 'number', null, { min: 0.1, step: 0.1 })}
+                      {renderField('Supertrend Mode', 'signal_params_supertrend_mode', 'text', [
+                        { value: 'trend', label: 'Trend State' },
+                        { value: 'crossover', label: 'Crossover Trigger' }
+                      ])}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {(cfg.enabled_signals || []).includes('ema_dual_close') && (
@@ -444,66 +2128,215 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                    </div>
                 </div>
               )}
-            </section>
 
-            <section className="pt-6 border-t border-border/40">
-               <div className="flex justify-between items-center mb-4">
-                 <SectionHeader icon={XCircle} title="Exit Signals" subtitle="Automated early closures" />
+              {lifetimeAnalytics?.rrOptimization?.recommendedExitSignals && lifetimeAnalytics.rrOptimization.recommendedExitSignals.length > 0 && (
+                <div className="mt-8 p-5 bg-background/20 border border-border/50 rounded-2xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
+                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
+                    <Target size={14} className="text-accent" />
+                    Optimal Exit Parameters (Statistical Recommendation)
+                  </div>
+                  <p className="text-[11px] text-dim leading-relaxed font-medium">
+                    Based on your actual history of <span className="text-text font-bold">{lifetimeAnalytics.rrOptimization.sampleSize}</span> closed trades, the statistical model recommends the following optimized parameter settings:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {lifetimeAnalytics.rrOptimization.recommendedExitSignals.map((rec) => (
+                      <div key={rec.signalType} className="p-3 bg-surface/30 border border-border/40 rounded-xl flex flex-col gap-1.5 hover:border-accent/20 transition-all relative group/rec">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-text font-black uppercase tracking-wider">{rec.signalType.replace(/_/g, ' ')}</span>
+                          <span className="text-[8px] text-dim font-black uppercase bg-accent/5 border border-accent/20 px-1.5 py-0.5 rounded">Conf: {rec.confidence}%</span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <span className="text-xs font-bold text-accent font-mono">{rec.recommendedValue}</span>
+                          <span className="text-[8.5px] text-dim font-medium uppercase font-mono">({rec.parameterName})</span>
+                        </div>
+                        <p className="text-[8.5px] text-dim/70 leading-normal font-medium">{rec.reasoning}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (rec.signalType === 'ema_close') {
+                              setField('signal_params_exit_ema_period', rec.recommendedValue);
+                              addAlert({ level: 'success', title: 'Applied EMA Period', message: `Set exit EMA period to ${rec.recommendedValue}.` });
+                            } else if (rec.signalType === 'ema_dual_close') {
+                              const [fast, slow] = rec.recommendedValue.split(' / ').map(Number);
+                              setField('signal_params_exit_ema_fast', fast);
+                              setField('signal_params_exit_ema_slow', slow);
+                              addAlert({ level: 'success', title: 'Applied Dual EMAs', message: `Set exit fast/slow EMAs to ${fast}/${slow}.` });
+                            } else if (rec.signalType === 'supertrend') {
+                              const [period, mult] = rec.recommendedValue.split(' / ').map(Number);
+                              setField('signal_params_supertrend_period', period);
+                              setField('signal_params_supertrend_multiplier', mult);
+                              addAlert({ level: 'success', title: 'Applied Supertrend', message: `Set ATR Period/Multiplier to ${period}/${mult}.` });
+                            } else if (rec.signalType === 'macd_fade') {
+                              const [fast, slow, signal] = rec.recommendedValue.split(' / ').map(Number);
+                              setField('signal_params_macd_fast', fast);
+                              setField('signal_params_macd_slow', slow);
+                              setField('signal_params_macd_signal', signal);
+                              addAlert({ level: 'success', title: 'Applied MACD Parameters', message: `Set MACD to ${fast}/${slow}/${signal}.` });
+                            }
+                          }}
+                          className="absolute bottom-2 right-2 opacity-0 group-hover/rec:opacity-100 transition-opacity bg-accent text-white px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider hover:bg-accent/80 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
+                        >
+                          Apply
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="strategy_exit"
+              icon={XCircle}
+              title="Exit Signals"
+              subtitle="Automated early closures"
+              isOpen={openSectionId === 'strategy_exit'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_exit' ? null : 'strategy_exit')}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 mb-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                <div className="flex flex-col text-left">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Logic Override</span>
+                  <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Bypass ratcheting/trailing, immediately cancel SL, and drop exit signal delays to 0 when trade profit exceeds exit targets.</p>
+                </div>
+                <Toggle
+                  value={cfg.exit_signals_override_ratchet || false}
+                  onChange={(v) => setField('exit_signals_override_ratchet', v)}
+                />
+              </div>
+              <div className="flex justify-end mb-4">
                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL</button>
                  </div>
-               </div>
-               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                 {SIGNALS.map(([key, label, desc]) => {
-                   const active = (cfg.exit_signals || []).includes(key);
-                   return (
-                    <div key={key} className="flex flex-col gap-2">
-                      <Tooltip content={desc}>
-                        <button
-                          type="button"
-                          onClick={() => setField('exit_signals', active ? cfg.exit_signals.filter(s => s !== key) : [...(cfg.exit_signals || []), key])}
-                          className={cn("w-full flex items-center justify-between px-4 py-3 rounded-xl border transition-all text-left", active ? "border-red/40 bg-red/5" : "border-border hover:border-border-hover bg-surface/50")}
-                        >
-                          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-                          <Switch.Root checked={active} className={cn("h-5 w-9 rounded-full transition-colors relative pointer-events-none", active ? "bg-red" : "bg-border")}>
-                            <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
-                          </Switch.Root>
-                        </button>
-                      </Tooltip>
-                      {active && (
-                        <div className="px-1 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                          <label className="text-[9px] font-bold text-dim uppercase tracking-wider">Delay Trigger (s)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            placeholder="0s"
-                            value={(cfg.exit_signal_delays || {})[key] || ''}
-                            onChange={(e) => {
-                              const val = Math.max(0, parseInt(e.target.value) || 0);
-                              setField('exit_signal_delays', { ...(cfg.exit_signal_delays || {}), [key]: val });
-                            }}
-                            className="w-20 bg-background border border-border rounded-lg px-2 py-1 text-[10px] font-mono font-bold text-right focus:border-red outline-none"
-                          />
-                        </div>
-                      )}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {SIGNALS.map((signal) => (
+                  <ExitSignalCard
+                    key={signal[0]}
+                    signal={signal}
+                    active={(cfg.exit_signals || []).includes(signal[0])}
+                    layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
+                    delays={cfg.exit_signal_delays || {}}
+                    actions={cfg.exit_signal_actions || {}}
+                    timeframes={cfg.signal_timeframes || {}}
+                    onToggle={handleToggleExitSignal}
+                    onAddLayer={handleAddLayer}
+                    onRemoveLayer={handleRemoveLayer}
+                    onUpdateLayer={handleUpdateLayer}
+                    engulfingMode={cfg.engulfing_mode}
+                  />
+                ))}
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="strategy_timeframes"
+              icon={Clock}
+              title="Multi-Timeframe Overrides"
+              subtitle="Signal-specific timeframe overlays"
+              isOpen={openSectionId === 'strategy_timeframes'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_timeframes' ? null : 'strategy_timeframes')}
+            >
+              {(() => {
+                const activeEntrySignals = cfg.enabled_signals || [];
+                const activeExitSignals = cfg.exit_signals || [];
+                const allActiveSignals = Array.from(new Set([...activeEntrySignals, ...activeExitSignals]));
+
+                if (allActiveSignals.length === 0) {
+                  return (
+                    <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-border rounded-2xl bg-surface/30">
+                      <Clock className="text-dim mb-2 opacity-50" size={20} />
+                      <span className="text-[10px] text-dim font-bold uppercase tracking-wider">No Active Signals</span>
+                      <p className="text-[9px] text-dim/80 mt-1 max-w-xs">
+                        Enable Entry or Exit signals above to configure custom timeframe overrides for them.
+                      </p>
                     </div>
-                   )
-                 })}
-               </div>
-            </section>
+                  );
+                }
+
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {allActiveSignals.map((signalKey) => {
+                      const sigInfo = SIGNALS.find(s => s[0] === signalKey);
+                      const label = sigInfo ? sigInfo[1] : signalKey;
+
+                      const isEntry = activeEntrySignals.includes(signalKey);
+                      const isExit = activeExitSignals.includes(signalKey);
+
+                      let usage = '';
+                      if (isEntry && isExit) usage = 'Entry & Exit';
+                      else if (isEntry) usage = 'Entry Only';
+                      else if (isExit) usage = 'Exit Only';
+
+                      const value = (cfg.signal_timeframes || {})[signalKey];
+
+                      return (
+                        <div key={signalKey} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-surface border border-border rounded-xl hover:border-border-hover transition-all">
+                          <div className="flex flex-col items-start text-left">
+                            <span className="text-xs font-bold text-text">{label}</span>
+                            <span className="text-[9px] text-accent font-black tracking-wider uppercase mt-0.5">{usage}</span>
+                          </div>
+                          <div className="relative flex items-center">
+                            <select
+                              value={value || 'default'}
+                              aria-label={`Timeframe override for ${label}`}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                const current = cfg.signal_timeframes || {};
+                                const updated = { ...current };
+                                if (val === 'default') {
+                                  delete updated[signalKey];
+                                } else {
+                                  updated[signalKey] = val;
+                                }
+                                setField('signal_timeframes', updated);
+                              }}
+                              className="bg-background border border-border rounded-lg pl-3 pr-8 py-1 text-[11px] font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover h-8 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                            >
+                              <option value="default">Default ({cfg.scan_interval || 'Default'})</option>
+                              <option value="1m">1m</option>
+                              <option value="3m">3m</option>
+                              <option value="5m">5m</option>
+                              <option value="15m">15m</option>
+                              <option value="30m">30m</option>
+                              <option value="1h">1h</option>
+                              <option value="4h">4h</option>
+                              <option value="1d">1d</option>
+                            </select>
+                            <div className="absolute right-2.5 pointer-events-none text-dim">
+                              <ChevronDown size={12} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </CollapsibleSection>
           </div>
         )}
 
         {section === 'risk' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
-            <section>
-              <SectionHeader icon={ShieldCheck} title="Capital Guards" subtitle="Global safety limits" />
+          <div
+            id="config-panel-risk"
+            role="tabpanel"
+            aria-labelledby="config-tab-risk"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+          >
+            <CollapsibleSection
+              id="risk_guards"
+              icon={ShieldCheck}
+              title="Capital Guards"
+              subtitle="Global safety limits"
+              isOpen={openSectionId === 'risk_guards'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_guards' ? null : 'risk_guards')}
+            >
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                {field('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
-                {field('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
-                {field('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
-                {field('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
+                {renderField('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
+                {renderField('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
+                {renderField('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
+                {renderField('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
               </div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -533,7 +2366,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     <div className="flex items-center gap-2">
                       <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
                       <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
-                         <Activity size={10} className="text-dim cursor-help" />
+                        <Activity size={10} className="text-dim cursor-help" />
                       </Tooltip>
                     </div>
                   </div>
@@ -552,7 +2385,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     </div>
                     <div className="flex flex-col gap-1 border-l border-border/50 pl-2 py-0.5">
                       <p className="text-[8px] text-dim/60 font-mono leading-tight">
-                        Math: {fmtUSD(riskAmount)} Target Risk / {(cfg.sl_distance_pct || 0.8).toFixed(1)}% SL = {fmtUSD(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100))} Notional
+                        Math: {fmtUSD(riskAmount)} Target Risk / {Number(cfg.sl_distance_pct || 0.8).toFixed(1)}% SL = {fmtUSD(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100))} Notional
                       </p>
                       <p className="text-[7px] text-dim/40 font-bold uppercase tracking-tighter">
                         Exchange Rule: $5.00 (Min) + $0.05 (Buffer) = $5.05 Requirement
@@ -561,6 +2394,44 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                         Status: {cfg.auto_scale_min_notional === false ? "❌ Scaling disabled, risk of rejection" : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "⚠️ Scaling up to meet exchange minimum" : "✅ Threshold met, using precise sizing"}
                       </p>
                     </div>
+                  </div>
+                </div>
+
+                <div className={cn(
+                  "p-4 border rounded-2xl flex flex-col justify-center gap-1",
+                  cfg.auto_scale_min_notional === false && cfg.risk_hardening_enabled
+                    ? "bg-red/5 border-red/20 shadow-[0_0_20px_rgba(239,68,68,0.05)]"
+                    : "bg-background/40 border-border/40",
+                  cfg.auto_scale_min_notional !== false && "opacity-40 grayscale grayscale-[50%]"
+                )}>
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest">Risk Hardening</span>
+                      <div className="w-1 h-1 rounded-full bg-dim/30" />
+                      <span className="text-[8px] text-red font-bold uppercase tracking-tight">Small Account Guard</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Toggle
+                        value={cfg.risk_hardening_enabled === true}
+                        onChange={(v) => setField('risk_hardening_enabled', v)}
+                        color="bg-red"
+                      />
+                      <Tooltip content="When Auto-Scaling is DISABLED, risk hardening protects small accounts from entering positions where the exchange's $5.00 minimum forces risk to exceed a safe percentage of your balance.">
+                        <ShieldCheck size={10} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 mt-1">
+                    <div className={cn(cfg.risk_hardening_enabled ? "block" : "hidden")}>
+                      {renderField('Max Single Trade Risk (%)', 'max_single_trade_risk_pct', 'number', null, { min: 0.1, max: 100, step: 0.5 })}
+                    </div>
+                    <p className="text-[8px] text-dim/60 italic leading-tight">
+                      {cfg.auto_scale_min_notional !== false
+                        ? "Only available when Auto-Scale is OFF."
+                        : cfg.risk_hardening_enabled
+                        ? `Trades will be REJECTED if they force > ${cfg.max_single_trade_risk_pct}% account risk.`
+                        : "Account at risk of oversized exposure on small balances."}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -590,31 +2461,96 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     </p>
                  </div>
               </div>
-            </section>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={ShieldCheck} title="Stop Loss Strategy" subtitle="Risk truncation parameters" />
+              {cfg.tp_mode === 'exp_rr_seq' && (
+                <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
+                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
+                    <span>RR Milestone (Target)</span>
+                    <span>Adjust SL to (R)</span>
+                  </div>
+                  {sequence.map(([live, exit], i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className="relative flex-1">
+                        <input type="number" step="0.1" value={live} onChange={(e) => {
+                          const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
+                          next[i] = Number(e.target.value);
+                          setField('live_rr_sequence', next);
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                      </div>
+                      <ArrowRight size={14} className="text-dim/20 shrink-0" />
+                      <div className="relative flex-1">
+                        <input type="number" step="0.1" value={exit} onChange={(e) => {
+                          const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
+                          next[i] = Number(e.target.value);
+                          setField('exit_rr_sequence', next);
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                      </div>
+                      <Tooltip content="Remove Milestone">
+                        <button type="button" onClick={() => {
+                          const nextL = [...(cfg.live_rr_sequence || [])];
+                          const nextE = [...(cfg.exit_rr_sequence || [])];
+                          nextL.splice(i, 1);
+                          nextE.splice(i, 1);
+                          setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
+                        }} aria-label="Remove Milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                      </Tooltip>
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => {
+                    const nextL = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0]), 5.0];
+                    const nextE = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0]), 3.0];
+                    const pairs = nextL.map((trigger, idx) => ({
+                      trigger: Number(trigger || 0),
+                      exit: Number(nextE[idx] || 0)
+                    }));
+                    pairs.sort((a, b) => a.trigger - b.trigger);
+                    setCfg(prev => ({
+                      ...prev,
+                      live_rr_sequence: pairs.map(p => p.trigger),
+                      exit_rr_sequence: pairs.map(p => p.exit)
+                    }));
+                  }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
+                </div>
+              )}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="risk_sl"
+              icon={ShieldCheck}
+              title="Stop Loss Strategy"
+              subtitle="Risk truncation parameters"
+              isOpen={openSectionId === 'risk_sl'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_sl' ? null : 'risk_sl')}
+            >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                {field('Strategy Type', 'sl_type', 'text', [
+                {renderField('Strategy Type', 'sl_type', 'text', [
                   { value: 'pct', label: 'Fixed Percentage' },
-                  {value: 'lookback_low/high', label: 'High/Low Stop' }
+                  { value: 'lookback_low/high', label: 'High/Low Stop' },
+                  { value: 'streak_extreme', label: 'Streak Extreme' },
+                  { value: 'supertrend', label: 'Supertrend Line' }
+                ])}
+                {renderField('Out of Bounds', 'sl_out_of_bounds_action', 'text', [
+                  { value: 'clamp', label: 'Clamp to Limits' },
+                  { value: 'reject', label: 'Reject Entry' }
                 ])}
                 {cfg.sl_type === 'pct' ? (
-                  field('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
+                  renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
                 ) : (
                   <div className="grid grid-cols-2 gap-4">
-                    {field('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
-                    {field('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h'])}
+                    {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
+                    {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
                   </div>
                 )}
-                {cfg.sl_type !== 'pct' && field('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
+                {cfg.sl_type !== 'pct' && renderField('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}
                 <div className="grid grid-cols-2 gap-4">
-                  {field('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
-                  {field('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                  {renderField('Floor Min %', 'sl_min_pct', 'number', null, { min: 0.1, step: 0.1 })}
+                  {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
                 </div>
                 <div className="md:col-span-2">
                   <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
-                    {field('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
+                    {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
                   </Tooltip>
                 </div>
               </div>
@@ -652,85 +2588,91 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                     </p>
                  </div>
               </div>
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Target} title="Profit Realization" subtitle="Locking gains and scaling exits" />
+            <CollapsibleSection
+              id="risk_tp"
+              icon={Target}
+              title="Profit Realization"
+              subtitle="Locking gains and scaling exits"
+              isOpen={openSectionId === 'risk_tp'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_tp' ? null : 'risk_tp')}
+            >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
-                {field('Exit Strategy', 'tp_mode', 'text', [
+                {renderField('Exit Strategy', 'tp_mode', 'text', [
                   { value: 'fixed', label: 'Fixed Ratio (TP)' },
                   { value: 'exp_rr_seq', label: 'Dynamic RR Milestone' }
                 ])}
-                {cfg.tp_mode === 'fixed' ? field('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
+                {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
               </div>
-              {cfg.tp_mode === 'exp_rr_seq' && (
-                <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
-                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
-                    <span>Live RR Milestone</span>
-                    <span>Adjust SL to (R)</span>
-                  </div>
-                  {sequence.map(([live, exit], i) => (
-                    <div key={i} className="flex items-center gap-3">
-                      <div className="relative flex-1">
-                        <input type="number" step="0.1" value={live} onChange={(e) => {
-                          const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
-                          next[i] = Number(e.target.value);
-                          setField('live_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
-                      </div>
-                      <ArrowRight size={14} className="text-dim/20 shrink-0" />
-                      <div className="relative flex-1">
-                        <input type="number" step="0.1" value={exit} onChange={(e) => {
-                          const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
-                          next[i] = Number(e.target.value);
-                          setField('exit_rr_sequence', next);
-                        }} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus:border-accent outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
-                      </div>
-                      <button type="button" onClick={() => {
-                        const nextL = [...(cfg.live_rr_sequence || [])];
-                        const nextE = [...(cfg.exit_rr_sequence || [])];
-                        nextL.splice(i, 1);
-                        nextE.splice(i, 1);
-                        setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                      }} aria-label="Remove milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
-                    </div>
-                  ))}
-                  <button type="button" onClick={() => {
-                    const nextL = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0]), 5.0];
-                    const nextE = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0]), 3.0];
-                    setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                  }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
-                </div>
-              )}
-            </section>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Clock} title="Frequency & Temporal Risk" subtitle="Execution windows & frequency shaping" />
+              <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="rr" />
+
+              <div className="mt-8 pt-6 border-t border-border/40 space-y-6">
+                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
+                      <div>
+                        <div className="text-sm font-bold">Dynamic Trailing Stop</div>
+                        <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Active price chasing to protect unrealized PnL</div>
+                      </div>
+                    </div>
+                    <Toggle value={cfg.trailing_stop_enabled === true} onChange={(v) => setField('trailing_stop_enabled', v)} />
+                 </div>
+
+                 {cfg.trailing_stop_enabled && (
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                       </div>
+                       <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="trailing" />
+                    </motion.div>
+                 )}
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="risk_temporal"
+              icon={Clock}
+              title="Frequency & Temporal Risk"
+              subtitle="Execution windows & frequency shaping"
+              isOpen={openSectionId === 'risk_temporal'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_temporal' ? null : 'risk_temporal')}
+            >
 
               <div className="space-y-4 mb-8">
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-2">
-                  {field('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
-                  {field('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
-                  {field('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
-                </div>
-
                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
                     <div>
                       <div className="text-sm font-bold">Frequency Shaping</div>
-                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Control trade distribution and interval jitter</div>
+                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Control trade distribution and rolling limits</div>
                     </div>
                   </div>
                   <Toggle value={cfg.frequency_shaping_enabled === true} onChange={(v) => setField('frequency_shaping_enabled', v)} />
                 </div>
 
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                  {renderField('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
+                  {renderField('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
+                  {renderField('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
+                </div>
+
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-2 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
-                    {field('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
-                    {field('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                    <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
+                      {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
+                      {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
+                    </div>
+                    <div className={cn("flex items-center justify-between pt-4 border-t border-border/40 transition-opacity duration-300", cfg.trades_jitter_pct <= 0 && "opacity-40 pointer-events-none")}>
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
+                          <Target size={12} className="text-accent" /> Market-Aware Jitter
+                        </span>
+                        <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
+                      </div>
+                      <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
+                    </div>
                   </motion.div>
                 )}
 
@@ -747,7 +2689,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
 
                 {cfg.risk_use_tod_stats && (
                   <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-surface/30 rounded-2xl border border-border/40 space-y-4">
-                    {field('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
+                    {renderField('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
 
                     {cfg.frequency_shaping_enabled && (
                       <div className="flex items-center justify-between pt-4 border-t border-border/40">
@@ -762,7 +2704,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                 )}
 
                 <div className="grid grid-cols-2 gap-6 pt-4">
-                  {field('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
+                  {renderField('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
                 </div>
               </div>
 
@@ -774,32 +2716,42 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                        <input type="text" value={w.start} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].start = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
                        <span className="text-dim/40 font-mono text-[10px]">to</span>
                        <input type="text" value={w.end} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].end = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
-                       <button type="button" onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} aria-label="Remove window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                       <Tooltip content="Remove Window">
+                        <button type="button" onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                       </Tooltip>
                      </div>
                    ))}
                    <button type="button" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
                  </div>
                </div>
-            </section>
+            </CollapsibleSection>
           </div>
         )}
 
-        {section === 'advanced' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
-            <section>
-              <SectionHeader icon={Briefcase} title="Execution Environment" subtitle="Target exchange and mode" />
+        {section === 'env' && (
+          <div
+            id="config-panel-env"
+            role="tabpanel"
+            aria-labelledby="config-tab-env"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+          >
+            <CollapsibleSection
+              id="adv_env"
+              icon={Briefcase}
+              title="Execution Environment"
+              subtitle="Target exchange and mode"
+              isOpen={openSectionId === 'adv_env'}
+              onToggle={() => setOpenSectionId(openSectionId === 'adv_env' ? null : 'adv_env')}
+            >
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {console.log('[ConfigModal] Rendering mode buttons, cfg.trading_mode:', cfg.trading_mode, 'cfg.paper_mode:', cfg.paper_mode)}
-                {['paper', 'testnet', 'live'].map(m => {
-                  const isSelected = cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)
-                  console.log(`[ConfigModal] Button ${m}: isSelected=${isSelected}, trading_mode=${cfg.trading_mode}`)
-                  return (
-                    <button key={m} type="button" onClick={() => handleModeSelect(m)} className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover")}>
-                      <div className="flex items-center justify-between mb-1"><span className="text-xs font-black uppercase tracking-tighter capitalize">{m}</span>{isSelected && <CheckCircle2 size={16} className="text-accent" />}</div>
-                      <p className="text-[9px] text-dim font-bold uppercase tracking-widest">{m === 'paper' ? 'Simulated' : m === 'testnet' ? 'Demo API' : 'Real Capital'}</p>
-                    </button>
-                  )
-                })}
+                {['paper', 'testnet', 'live'].map(m => (
+                  <EnvironmentButton
+                    key={m}
+                    mode={m}
+                    isSelected={cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)}
+                    onClick={handleModeSelect}
+                  />
+                ))}
               </div>
               {modeWarning && (
                 <div className="mt-4 p-3 bg-orange/10 border border-orange/30 rounded-lg flex items-start gap-3 animate-in slide-in-from-top">
@@ -807,138 +2759,434 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false }) 
                   <div className="text-xs text-orange">{modeWarning}</div>
                 </div>
               )}
-            </section>
+            </CollapsibleSection>
 
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={TrendingUp} title="Initial Capital" subtitle="Starting balance for sessions" />
+            <CollapsibleSection
+              id="adv_capital"
+              icon={TrendingUp}
+              title="Initial Capital"
+              subtitle="Starting balance for sessions"
+              isOpen={openSectionId === 'adv_capital'}
+              onToggle={() => setOpenSectionId(openSectionId === 'adv_capital' ? null : 'adv_capital')}
+            >
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                {field('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
-                {field('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
-                {field('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
+                {renderField('Paper Balance ($)', 'paper_starting_balance', 'number', null, { min: 0 })}
+                {renderField('Demo Balance ($)', 'testnet_starting_balance', 'number', null, { min: 0, placeholder: '10000' })}
+                {renderField('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
-            </section>
-
-            <section className="pt-6 border-t border-border/40">
-              <SectionHeader icon={Activity} title="Engine Performance" subtitle="Hot and main loop cadences" />
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                {field('Hot Loop (ms)', 'hot_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.HOT_LOOP_MIN })}
-                {field('Main Loop (ms)', 'main_loop_interval_ms', 'number', null, { min: CONFIG_LIMITS.MAIN_LOOP_MIN })}
-                {field('Slippage Limit (%)', 'slippage_warning_threshold', 'number', null, { min: 0, step: 0.1 })}
-              </div>
-
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
-                  <div><div className="text-sm font-bold">Track Rate Limits</div><div className="text-[10px] text-dim font-medium uppercase tracking-tight">Monitor Binance API weights</div></div>
-                  <Toggle value={cfg.track_binance_rate_limits !== false} onChange={(v) => setField('track_binance_rate_limits', v)} />
-                </div>
-                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-amber/30 transition-colors">
-                  <div><div className="text-sm font-bold">Debug Mode</div><div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose server-side logs</div></div>
-                  <Toggle value={cfg.debug_mode === true} onChange={(v) => setField('debug_mode', v)} color="bg-amber" />
-                </div>
-              </div>
-            </section>
+            </CollapsibleSection>
           </div>
         )}
 
+
         {section === 'presets' && (
-          <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-300">
-            <section>
-              <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
-              <div className="flex gap-2">
-                <input type="text" placeholder="Preset name (e.g. Scalp High Vol)" value={presetName} onChange={(e) => setPresetName(e.target.value)} className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent outline-none" />
-                <Btn variant="primary" onClick={savePreset} className="aspect-square p-0 w-12 h-12 flex items-center justify-center">
-                  {saveSuccess ? <CheckCircle2 size={20} /> : <Save size={20} />}
-                </Btn>
+          <div
+            id="config-panel-presets"
+            role="tabpanel"
+            aria-labelledby="config-tab-presets"
+            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+          >
+            <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
+                <SavePresetInput defaultName={loadedPresetName} onSave={(name) => { savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
+              </div>
+              <div className="space-y-4">
+                <SectionHeader icon={RefreshCw} title="Transfer Config" subtitle="Portable strategy definitions" />
+                <div className="grid grid-cols-2 gap-3">
+                  <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-3 border-border hover:bg-accent/5 hover:border-accent/40">
+                    <Download size={16} /> Export JSON
+                  </Btn>
+                  <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
+                    <input type="file" accept=".json" aria-label="Import JSON config file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
+                    <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer">
+                      <Upload size={16} /> Import JSON
+                    </div>
+                  </label>
+                </div>
               </div>
             </section>
 
-            <section className="pt-6 border-t border-border/40">
-              <div className="flex justify-between items-center mb-4">
-                <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
-                <div className="text-[9px] text-dim font-black uppercase bg-background px-2 py-1 rounded border border-border">
-                  {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
+            <section className="pt-6 border-t border-border/40 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex justify-between items-center w-full sm:w-auto">
+                  <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1 sm:w-64 group">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50" />
+                    <input
+                      ref={presetSearchInputRef}
+                      type="text"
+                      placeholder="Search preset by name..."
+                      value={presetSearch}
+                      onChange={(e) => setPresetSearch(e.target.value)}
+                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-10 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+                    />
+                    {presetSearch ? (
+                      <Tooltip content="Clear Preset Search">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPresetSearch('');
+                            presetSearchInputRef.current?.focus();
+                          }}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                          aria-label="Clear Preset Search"
+                        >
+                          <X size={12} />
+                        </button>
+                      </Tooltip>
+                    ) : (
+                      <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+                        /
+                      </kbd>
+                    )}
+                  </div>
+                  <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border shrink-0">
+                    {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
+                  </div>
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {presets.length === 0 ? (
-                  <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
-                    <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
-                    <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
-                  </div>
-                ) : presets.map(p => {
-                  const isVariant = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
-                  const pMode = p.config.trading_mode || (p.config.paper_mode ? 'paper' : 'live');
-                  return (
-                    <div key={p.name} className="flex items-center justify-between p-4 bg-background border border-border rounded-2xl transition-all group/preset">
-                      <button type="button" onClick={() => loadPreset(p)} className="flex-1 flex items-center gap-4 text-left">
-                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center border transition-colors", isVariant ? "bg-accent border-accent text-white" : "bg-surface border-border text-dim group-hover/preset:border-accent/20")}>
-                        {isVariant ? <ShieldCheck size={20} /> : <Zap size={20} />}
+              {presets.length === 0 ? (
+                <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
+                  <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
+                  <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
+                </div>
+              ) : partitionedPresets.active.length === 0 && partitionedPresets.available.length === 0 ? (
+                <div className="p-10 border border-dashed border-border rounded-2xl text-center space-y-3">
+                  <Search size={28} className="mx-auto text-dim/30" />
+                  <div className="text-xs font-bold text-dim uppercase">No matching presets found</div>
+                  <Btn variant="ghost" onClick={() => setPresetSearch('')} className="text-accent hover:bg-accent/5 py-1 px-3 text-[10px] uppercase font-black tracking-widest">
+                    Clear Filter
+                  </Btn>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {/* Active Orchestration Section */}
+                  {partitionedPresets.active.length > 0 && (
+                    <div className="space-y-2.5 animate-in fade-in duration-300">
+                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-accent">
+                        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                        Active Strategy & Enabled Variants
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
-                           <span className="truncate">{p.name}</span>
-                           <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
-                             {pMode === 'paper' && <PaperBadge />}
-                             {pMode === 'testnet' && <DemoBadge />}
-                             {pMode === 'live' && <LiveBadge />}
-                           </div>
-                           {loadedPresetName === p.name && (
-                             <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
-                               {isDirty ? "Modified" : "Current"}
-                             </span>
-                           )}
-                        </div>
-                        <div className="text-[10px] text-dim font-bold uppercase tracking-tight">{p.config.scan_interval} · {p.config.scan_pct_threshold}% · {p.config.risk_pct_per_trade}% Risk</div>
-                      </div>
-                      </button>
+                      <motion.div layout className="space-y-2.5">
+                        <AnimatePresence mode="popLayout">
+                          {partitionedPresets.active.map(p => (
+                            <PresetItem
+                              key={p.name}
+                              preset={p}
+                              isLoaded={loadedPresetName === p.name}
+                              isDirty={isDirty}
+                              onLoad={loadPreset}
+                              onToggleVariant={toggleVariant}
+                              onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                              isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </motion.div>
+                    </div>
+                  )}
 
-                      <div className="flex items-center gap-2">
-                        <Tooltip content={isVariant ? "Remove from variants" : "Add as strategy variant"}>
-                          <button
-                            type="button"
-                            onClick={(e) => toggleVariant(e, p)}
-                            aria-label={isVariant ? `Remove ${p.name} from variants` : `Add ${p.name} as variant`}
-                            className={cn("p-2 rounded-lg transition-all active:scale-95", isVariant ? "bg-accent/10 text-accent border border-accent/20" : "bg-surface border border-border text-dim hover:text-accent hover:border-accent/20")}
-                          >
-                            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-                          </button>
-                        </Tooltip>
+                  {/* Preset Library Section */}
+                  {partitionedPresets.available.length > 0 && (() => {
+                    const isLibraryOpen = libraryExpanded || !!presetSearch;
+                    return (
+                      <div className="space-y-2.5">
                         <button
                           type="button"
-                          onClick={(e) => deletePreset(e, p.name)}
-                          aria-label={`Delete preset ${p.name}`}
-                          className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"
+                          onClick={() => setLibraryExpanded(!libraryExpanded)}
+                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-dim hover:text-text transition-colors group/lib-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1"
+                          aria-expanded={isLibraryOpen}
+                          aria-controls="presets-library-content"
                         >
-                          <Trash2 size={16} />
+                          <span className="flex items-center gap-1.5">
+                            Preset Library ({partitionedPresets.available.length})
+                          </span>
+                          <div className={cn(
+                            "w-4 h-4 rounded border border-border/60 flex items-center justify-center text-dim group-hover/lib-btn:text-text transition-all",
+                            isLibraryOpen && "rotate-180 text-accent border-accent/30"
+                          )}>
+                            <ChevronDown size={10} />
+                          </div>
                         </button>
+
+                        <AnimatePresence initial={false}>
+                          {isLibraryOpen && (
+                            <motion.div
+                              id="presets-library-content"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: "easeInOut" }}
+                              className="overflow-hidden"
+                            >
+                              <motion.div layout className="space-y-2.5 pt-1">
+                                <AnimatePresence mode="popLayout">
+                                  {partitionedPresets.available.map(p => (
+                                    <PresetItem
+                                      key={p.name}
+                                      preset={p}
+                                      isLoaded={loadedPresetName === p.name}
+                                      isDirty={isDirty}
+                                      onLoad={loadPreset}
+                                      onToggleVariant={toggleVariant}
+                                      onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                                      isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                                    />
+                                  ))}
+                                </AnimatePresence>
+                              </motion.div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
-                    </div>
-                  )
-                })}
-              </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              <ConfirmationModal
+                isOpen={!!presetToDelete}
+                onClose={() => setPresetToDelete(null)}
+                onConfirm={() => deletePreset(presetToDelete)}
+                title="Delete Strategy Preset?"
+                message={`Are you sure you want to permanently remove "${presetToDelete}"? This will delete the configuration from the database and cannot be undone.`}
+                confirmText="Delete Preset"
+                variant="danger"
+                loading={isDeleting}
+              />
             </section>
           </div>
         )}
       </div>
 
-      <div className="p-5 border-t border-border bg-surface flex gap-3 sticky bottom-0">
-        <div className="flex-1 flex gap-2">
-           <Btn variant="ghost" onClick={onClose} className="flex-1">Cancel</Btn>
-           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5">Reset</Btn>}
+      <div className="p-3 border-t border-border bg-surface flex flex-col sm:flex-row gap-3 sticky bottom-0 items-stretch sm:items-center">
+        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+           <Btn variant="ghost" onClick={onClose} className="flex-1 sm:flex-initial min-w-[70px] h-9 py-1.5 px-3 text-xs">Cancel</Btn>
+           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5 flex-1 sm:flex-initial h-9 py-1.5 px-3 text-xs">Reset</Btn>}
+           <div className="flex gap-1.5 items-center">
+             <Tooltip content="Copy Configuration to Clipboard">
+               <CopyButton
+                  getValue={() => JSON.stringify(buildConfigToSave(), null, 2)}
+                  className="w-9 h-9 flex items-center justify-center border border-border rounded-lg hover:bg-white/5 transition-all"
+               />
+             </Tooltip>
+             <Tooltip content="Paste Configuration from Clipboard">
+                <Btn
+                  variant="ghost"
+                  onClick={handlePasteConfig}
+                  aria-label="Paste Configuration from Clipboard"
+                  className="w-9 h-9 p-0 flex items-center justify-center border border-border rounded-lg hover:bg-accent/5 hover:border-accent/40 transition-all"
+                >
+                  <ClipboardPaste size={14} className="text-dim group-hover:text-accent" />
+                </Btn>
+             </Tooltip>
+           </div>
         </div>
-        <Btn variant="primary" onClick={() => { 
+        <Btn variant="primary" loading={loading} onClick={() => {
           if (validate(cfg)) {
-             onSave(buildConfigToSave());
+             onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
              sessionStorage.removeItem('config_draft');
              setIsDirty(false);
           }
-        }} className="flex-[2] flex items-center justify-center gap-2">
+        }} className="w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs">
           {isEdit ? 'Apply Changes' : 'Start Session'}
-          {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />}
+          {isDirty && <span className="w-1 h-1 rounded-full bg-accent animate-pulse" />}
         </Btn>
       </div>
+
+      <AnimatePresence>
+        {showPasteOverlay && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-background/80 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 10 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 10 }}
+              className="w-full max-w-lg bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden p-5 space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+                    <ClipboardPaste size={16} />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="text-sm font-black uppercase tracking-tight">Paste Configuration</h3>
+                    <p className="text-[9px] text-dim font-medium uppercase">Direct clipboard fallback editor</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowPasteOverlay(false); setPasteValue(''); setPasteError(null); }}
+                  className="p-1 hover:bg-white/5 rounded-full transition-colors"
+                >
+                  <X size={16} className="text-dim" />
+                </button>
+              </div>
+
+              <div className="space-y-2 text-left">
+                <p className="text-xs text-dim leading-relaxed">
+                  Paste your strategy configuration JSON below. The engine will instantly parse, validate, and hot-reload your active fields.
+                </p>
+                <div className="relative">
+                  <textarea
+                    value={pasteValue}
+                    onChange={(e) => handlePasteAreaChange(e.target.value)}
+                    placeholder='{ "strategy_label": "Scalp Momentum", ... }'
+                    className={cn(
+                      "w-full h-48 bg-background border rounded-xl p-3 text-xs font-mono focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all resize-none",
+                      pasteError ? "border-red/40 focus:border-red focus-visible:ring-red" : pasteValue.trim() ? "border-green/40 focus:border-green focus-visible:ring-green" : "border-border focus:border-accent focus-visible:ring-accent"
+                    )}
+                    autoFocus
+                  />
+                </div>
+                <div className="flex items-center justify-between min-h-[20px]">
+                  {pasteError ? (
+                    <span className="text-[10px] text-red font-bold flex items-center gap-1 uppercase">
+                      <AlertTriangle size={12} /> {pasteError}
+                    </span>
+                  ) : pasteValue.trim() ? (
+                    <span className="text-[10px] text-green font-bold flex items-center gap-1 uppercase">
+                      <CheckCircle2 size={12} /> Valid JSON Configuration
+                    </span>
+                  ) : (
+                    <span className="text-[9px] text-dim font-bold uppercase tracking-wider">
+                      Awaiting clipboard input
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <Btn
+                  variant="ghost"
+                  onClick={() => { setShowPasteOverlay(false); setPasteValue(''); setPasteError(null); }}
+                  className="px-4 py-2 text-xs"
+                >
+                  Cancel
+                </Btn>
+                <Btn
+                  variant="primary"
+                  disabled={!!pasteError || !pasteValue.trim()}
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(pasteValue);
+                      const flattened = flattenConfig(parsed);
+                      setCfg(flattened);
+                      setIsDirty(true);
+                      validate(flattened);
+                      addAlert({ level: 'success', title: 'Paste Successful', message: 'Configuration pasted and loaded.' });
+                      setShowPasteOverlay(false);
+                      setPasteValue('');
+                      setPasteError(null);
+                    } catch (err) {
+                      setPasteError(err.message);
+                    }
+                  }}
+                  className="px-4 py-2 text-xs bg-accent text-white"
+                >
+                  Apply Pasted Configuration
+                </Btn>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
+
+const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
+  if (!analytics?.rrOptimization) return null;
+  const opt = analytics.rrOptimization;
+  const sampleSize = opt.sampleSize || 0;
+  const needed = Math.max(0, 20 - sampleSize);
+  const isOptimal = opt.status === 'OPTIMAL';
+
+  if (type === 'rr') {
+    return (
+      <div className="mt-4 p-4 bg-accent/5 border border-accent/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent">
+            <Target size={12} /> Statistical RR Model
+          </div>
+          <div className={cn("text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter border", isOptimal ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber")}>
+            {opt.status} MODEL
+          </div>
+        </div>
+
+        {needed > 0 && (
+          <div className="flex items-center gap-2 p-2 bg-background/40 rounded-lg border border-border/30">
+            <div className="h-1 flex-1 bg-border rounded-full overflow-hidden">
+               <div className="h-full bg-accent transition-all duration-1000" style={{ width: `${(sampleSize / 20) * 100}%` }} />
+            </div>
+            <span className="text-[9px] font-bold text-dim uppercase tracking-tight">{needed} more trades for optimal accuracy</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: 'Conservative', rr: opt.conservativeRr, color: 'text-green', bg: 'bg-green/10' },
+            { label: 'Balanced', rr: opt.balancedRr, color: 'text-accent', bg: 'bg-accent/10' },
+            { label: 'Aggressive', rr: opt.aggressiveRr, color: 'text-purple', bg: 'bg-purple/10' }
+          ].map(t => (
+            <button
+              key={t.label}
+              type="button"
+              onClick={() => {
+                if (cfg.tp_mode === 'fixed') setField('tp_ratio', t.rr);
+                else {
+                  const next = [...(cfg.exit_rr_sequence || [0, 1, 2])];
+                  next[next.length - 1] = t.rr;
+                  setField('exit_rr_sequence', next);
+                }
+              }}
+              className={cn("p-2 rounded-xl border border-border/40 hover:border-accent/40 transition-all text-left bg-background/40 group", t.bg)}
+            >
+              <div className="text-[7px] font-black uppercase tracking-tighter text-dim/60 mb-0.5">{t.label}</div>
+              <div className={cn("text-sm font-black font-mono tracking-tighter", t.color)}>{t.rr.toFixed(1)}R</div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'trailing') {
+     return (
+       <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-400">
+              <Activity size={12} /> Volatility Recommendation
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-4">
+             <div className="flex flex-col">
+                <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5">Statistical Distance</span>
+                <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{opt.recommendedTrailingDistance.toFixed(2)}%</span>
+             </div>
+             <Btn
+               variant="ghost"
+               onClick={() => setField('trailing_stop_distance_pct', opt.recommendedTrailingDistance)}
+               className="px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-purple/10 text-purple-400 border-purple/20 hover:bg-purple/20"
+             >
+               Use Recommended
+             </Btn>
+          </div>
+          <p className="text-[8px] text-dim/60 italic leading-snug border-l-2 border-purple/20 pl-3">
+             Based on historical Maximum Adverse Excursion (MAE). Designed to survive normal volatility while locking gains.
+          </p>
+       </div>
+     );
+  }
+
+  return null;
+};

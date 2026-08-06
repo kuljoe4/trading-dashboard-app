@@ -9,13 +9,27 @@ export class Trade {
 
   qty: number = 0;
 
+  /** @deprecated Use qty */
+  quantity?: number;
+
+  /** @deprecated Legacy funding tracking */
+  _last_funding_delta?: number;
+
   initial_sl: number = 0;
 
   current_sl: number = 0;
 
+  sl_price?: number;
+
+  est_pnl_to_realize?: number;
+
   max_rr_achieved: number = 0;
 
-  rr_sequence_index: number = 0;
+  min_rr_achieved?: number = 0;
+
+  exit_rr?: number = 0;
+
+  rr_sequence_index: number = -1;
 
   entry_ts?: Date;
 
@@ -29,7 +43,7 @@ export class Trade {
 
   risk_usdt: number = 0;
 
-  initial_risk_usdt?: number;
+  initial_risk_usdt?: number | null;
 
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';
 
@@ -57,6 +71,7 @@ export class Trade {
     unit: string;
     description?: string;
     insufficientData?: boolean;
+    threshold_is_price?: boolean;
   }>;
 
   entry_signal_type?: string;
@@ -76,8 +91,6 @@ export class Trade {
   pnl_pct?: number;
 
   entry_daily_change_pct?: number;
-
-  quantity?: number;
 
   binance_order_id?: string;
 
@@ -99,11 +112,15 @@ export class Trade {
 
   strategy_config?: Partial<import('./SessionConfig').SessionConfig>;
 
+  live_rr_sequence?: number[];
+
+  exit_rr_sequence?: number[];
+
   is_reconciliation?: boolean;
 
-  _sig_json?: string;
+  illiquid_blocked?: boolean;
 
-  _last_funding_delta?: number;
+  _sig_json?: string;
 
   updated_at?: Date;
 }

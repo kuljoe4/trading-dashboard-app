@@ -10,6 +10,7 @@ import { OrderManagerService } from './orderManager';
 import { SessionStateService } from './session_state.service';
 import { GatingService } from './gating.service';
 import { BroadcastService } from './broadcast.service';
+import { MonitoringService } from './monitoring.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ENGINE_EVENTS } from './events';
@@ -21,6 +22,7 @@ import { ExecutionStatus } from '../models/ExecutionResult';
 @Injectable()
 export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
+  // BOLT: Mode-aware cooldowns to ensure Live mode failures don't block Paper mode testing
   private entryCooldowns: Map<string, number> = new Map();
 
   constructor(
@@ -35,25 +37,40 @@ export class ExecutionService {
     private readonly sessionState: SessionStateService,
     private readonly gatingService: GatingService,
     private readonly broadcastService: BroadcastService,
+    private readonly monitoringService: MonitoringService,
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly eventEmitter: EventEmitter2,
     private readonly analyticsService: AnalyticsService,
   ) {}
 
+  public setCooldown(symbol: string, mode: string, minutes: number) {
+    this.entryCooldowns.set(`${mode}:${symbol}`, Date.now() + minutes * 60 * 1000);
+  }
+
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
+
+    // BOLT: Global Ban Guard. If the system is banned, skip processing exits
+    // to avoid potential API ban exacerbation.
+    if (!config.paper_mode && this.sessionState.isBanned()) {
+      return;
+    }
+
     const activeTrades = this.positionTracker.activeList();
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
-    // BOLT: Parallelize exit checks to minimize Hot Loop latency.
-    // Exit checks are predominantly local/read-only (except for SL/TP hits which trigger orders).
-    const exitPromises = activeTrades.map(async (trade) => {
+    for (const trade of activeTrades) {
       try {
+        // SRE-01: Skip blocked trades in the normal exit loop to save CPU and avoid alert spam.
+        // Blocked trades require manual intervention on the exchange.
+        if (trade.close_blocked) continue;
+
         const currentPrice = this.tickerCache.getPrice(trade.symbol);
-        if (!currentPrice) return;
+        if (!currentPrice) continue;
 
         const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
+        await this.positionTracker.checkTrailingStop(trade.symbol, currentPrice, tradeConfig);
 
         const exitInterval = tradeConfig.scan_interval || '1m';
         const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
@@ -70,14 +87,19 @@ export class ExecutionService {
           }
           if (result.exitOccurred && result.trade) {
             const closedTrade = result.trade;
-            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation);
+            this.sessionState.updateStatsOnClose((closedTrade.pnl || 0) > 0, closedTrade.pnl || 0, closedTrade.is_reconciliation, closedTrade.id, closedTrade.strategy_label);
 
             this.sessionState.addClosedTrade(closedTrade);
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
 
+            // SRE: Immediate cooldown on exit (Issue 3). Uses config.min_trade_interval_min || 2m.
+            const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+            const cooldownMin = config.min_trade_interval_min || 2;
+            this.setCooldown(trade.symbol, mode, cooldownMin);
+
             const analytics = this.analyticsService.calculateAnalytics(
-              this.sessionState.closedTrades as any,
+              this.sessionState.closedTrades as any[],
               config.paper_mode ? config.paper_starting_balance : config.live_starting_balance
             );
 
@@ -103,38 +125,89 @@ export class ExecutionService {
       } catch (err) {
         this.logger.error(`[${(trade.id || 'N/A').substring(0, 8)}] Critical Error in checkExits for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
       }
-    });
-
-    await Promise.all(exitPromises);
+    }
   }
 
-  async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
+  private lastBanLogTs = 0;
+  async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>, globalSlGuardOverride?: number) {
     const symbolConfigs = config.single_symbol_configs;
     const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
 
     const now = Date.now();
+
+    // BOLT: Global Ban Guard. If the system is banned, skip processing all entries
+    // to save CPU and avoid redundant signal/risk evaluations.
+    if (!config.paper_mode && this.sessionState.isBanned()) {
+      if (now - this.lastBanLogTs > 60000) {
+        this.logger.warn(`Execution pipeline gated: Active IP ban detected. Resuming in ${Math.ceil((this.sessionState.apiStatus.banUntil! - now) / 1000)}s.`);
+        this.lastBanLogTs = now;
+      }
+      return;
+    }
+
+    const maxOpportunities = Math.min(opportunities.length, config.scanner_signal_depth || 10);
+
     // BOLT: Sequential processing of opportunities ensures that RiskEngine spacing
     // and frequency limits are correctly enforced between each entry.
+    let count = 0;
     for (const opp of opportunities) {
+      count++;
+      this.monitoringService.setLoopStage('EVALUATING', opp.symbol, (count / opportunities.length) * 100);
+
+      // SRE: Global Entry Lock check. If an entry is already in flight, defer all other evaluations
+      // until the current one confirms and risk gating state is updated.
+      if (this.sessionState.entryInProgress) {
+        this.logger.debug(`Entry pipeline locked. Deferring evaluation for ${opp.symbol}.`);
+        break; // Exit loop to avoid rapid-fire evaluation spam while locked
+      }
+
       try {
-        if (this.positionTracker.hasSymbol(opp.symbol)) {
-          this.logger.debug(`${opp.symbol}: Entry skipped - already in position or entering.`);
+        const rtPos = this.sessionState.realTimePositions.get(opp.symbol);
+        const hasExchangePos = rtPos && Math.abs(rtPos.amount) > 0;
+
+        if (this.positionTracker.hasSymbol(opp.symbol) || hasExchangePos) {
+          this.logger.debug(`${opp.symbol}: Entry skipped - already in position (Local: ${this.positionTracker.hasSymbol(opp.symbol)}, Exchange: ${!!hasExchangePos}) or entering.`);
           continue;
         }
 
-        const cooldownExpiry = this.entryCooldowns.get(opp.symbol);
+        const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+        const cooldownKey = `${mode}:${opp.symbol}`;
+        const cooldownExpiry = this.entryCooldowns.get(cooldownKey);
         if (cooldownExpiry && now < cooldownExpiry) {
-          this.logger.debug(`${opp.symbol}: Entry skipped - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
+          this.logger.debug(`${opp.symbol}: Entry skipped (${mode}) - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
           continue;
         } else if (cooldownExpiry) {
-          this.entryCooldowns.delete(opp.symbol);
+          this.entryCooldowns.delete(cooldownKey);
         }
 
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
-        const signalResult = this.signalEngine.checkEntry(opp.symbol, config, config.scan_interval || '1m', opp.direction.toUpperCase() as any, 'entry', true);
+        // "After Opportunity" timing check:
+        // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
+        // GATED: Only apply if engulfing is actually enabled.
+        if (symbolConfig.engulfing_timing === 'after_opportunity' && symbolConfig.enabled_signals?.includes('engulfing')) {
+           const candles = this.klineStore.getRawCandles(opp.symbol, symbolConfig.scan_interval || '1m');
+           if (candles.length < 2) continue;
+
+           const prevCandle = candles[candles.length - 2];
+           const prevPrevCandle = candles[candles.length - 3];
+           if (!prevPrevCandle) continue;
+
+           const prevMomentum = ((prevCandle.close - prevPrevCandle.close) / prevPrevCandle.close) * 100;
+           const threshold = symbolConfig.scan_pct_threshold ?? 0;
+           const momentumMatched = opp.direction === 'LONG' ? prevMomentum >= threshold : prevMomentum <= -threshold;
+
+           if (!momentumMatched) {
+             this.logger.debug(`${opp.symbol}: After-Opp Timing failed. Previous candle did not match momentum threshold.`);
+             continue;
+           }
+        }
+
+        // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
+        // This avoids expensive metadata/description construction during the high-frequency entry scan.
+        let signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
@@ -142,27 +215,54 @@ export class ExecutionService {
           continue;
         }
 
-        const activeTrades = this.positionTracker.activeList();
-        const enteringCount = this.positionTracker.enteringCount();
-        const riskResult = this.riskEngine.canEnter(activeTrades, this.sessionState.closedTrades, balance, opp.symbol, symbolConfig, this.positionTracker.totalRisk(), enteringCount);
-
-        if (!riskResult.canEnter) {
-          if (!riskResult.reason.includes('Max open trades for')) {
-            this.sessionState.gateState = this.gatingService.mapGateState(riskResult.reason);
-            this.broadcastService.broadcast('gate', {
-              gateState: this.sessionState.gateState,
-              reason: riskResult.reason,
-              scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused
-            });
-          }
-          continue;
-        }
+        // If signal fired, re-check with minimal=false to get technical details (e.g. engulfing boundaries)
+        // required for structural Stop Loss calculations and full telemetry.
+        signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
 
         const price = this.tickerCache.getPrice(opp.symbol);
         if (!price) continue;
 
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
-        let slPrice = this.riskEngine.computeSl(price, opp.direction.toUpperCase() as any, symbolConfig, lookback.minLow, lookback.maxHigh, opp.symbol);
+
+        // Extract engulfing pattern details if available
+        const engulfingDetail = signalResult.details?.engulfing;
+        const patternLow = engulfingDetail?.pattern_low;
+        const patternHigh = engulfingDetail?.pattern_high;
+        const bodyLow = engulfingDetail?.body_low;
+        const bodyHigh = engulfingDetail?.body_high;
+
+        const supertrendDetail = signalResult.details?.supertrend || signalResult.details?.['exit_supertrend'];
+        const supertrendSlPrice = supertrendDetail?.slPrice;
+
+        const slResult = this.riskEngine.computeSl(
+          price,
+          opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+          symbolConfig,
+          lookback.minLow,
+          lookback.maxHigh,
+          opp.symbol,
+          patternLow,
+          patternHigh,
+          bodyLow,
+          bodyHigh,
+          supertrendSlPrice
+        );
+
+        if (slResult.rejected) {
+           this.logger.log(`${opp.symbol}: Entry skipped - ${slResult.reason}`);
+           this.broadcastService.broadcast('gate', {
+             gateState: 'sl_out_of_bounds',
+             reason: slResult.reason,
+             scannerPaused: false
+           });
+           continue;
+        }
+
+        let slPrice = slResult.slPrice;
+        if (slPrice <= 0) {
+           this.logger.warn(`${opp.symbol}: Skip entry opportunity - computed SL price ${slPrice} is non-positive.`);
+           continue;
+        }
 
         const slFiltered = this.orderManager.applyFilters(opp.symbol, slPrice, 1, {
           priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
@@ -170,13 +270,63 @@ export class ExecutionService {
         });
         slPrice = slFiltered.price;
 
-        const qty = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
 
-        if (qty <= 0) {
-          this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+        if (sizeResult.qty <= 0) {
+          if (sizeResult.rejected) {
+             this.logger.log(`${opp.symbol}: Entry skipped - ${sizeResult.reason}`);
+             this.broadcastService.broadcast('gate', {
+               gateState: 'risk_rejected',
+               reason: sizeResult.reason,
+               scannerPaused: false
+             });
+
+             // Telemetry for oversized risk rejections
+             this.broadcastService.broadcast('trade_event', {
+                event: 'entry_rejected',
+                symbol: opp.symbol,
+                reason: sizeResult.reason,
+                details: { balance, price, sl: slPrice }
+             });
+          } else {
+             this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+          }
           continue;
         }
-        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as any, symbolConfig);
+        const qty = sizeResult.qty;
+        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
+
+        if (tpPrice !== null && tpPrice <= 0) {
+           this.logger.warn(`${opp.symbol}: Skip entry opportunity - computed TP price ${tpPrice} is non-positive.`);
+           continue;
+        }
+
+        const prospectiveRiskUsdt = Math.abs(price - slPrice) * qty;
+        const prospectiveRiskPct = balance > 0 ? (prospectiveRiskUsdt / balance) * 100 : 0;
+
+        this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
+        const activeTrades = this.positionTracker.activeList();
+        const enteringCount = this.positionTracker.enteringCount();
+        const riskResult = this.riskEngine.canEnter(
+          activeTrades,
+          this.sessionState.closedTrades,
+          balance,
+          opp.symbol,
+          symbolConfig,
+          this.positionTracker.totalRisk(),
+          enteringCount,
+          opp.score,
+          prospectiveRiskPct,
+          globalSlGuardOverride
+        );
+
+        if (!riskResult.canEnter) {
+          // BOLT: Only log symbol-specific rejections as debug.
+          // Do NOT update global sessionState.gateState here as it causes log/UI flapping.
+          // Global gating is handled by TradingSessionService.refreshRiskGating().
+          this.logger.debug(`${opp.symbol}: Entry skipped - ${riskResult.reason}`);
+          continue;
+        }
 
         const reservedRisk = roundEight(Math.abs(price - slPrice) * qty);
 
@@ -184,14 +334,18 @@ export class ExecutionService {
         const openPrice = ticker?.open_24h || price;
         const dailyChangeAtEntry = ((price - openPrice) / openPrice) * 100 * (opp.direction.toUpperCase() === 'LONG' ? 1 : -1);
 
-        this.logger.log(`[Risk Integrity] Reserving ${reservedRisk.toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+        this.monitoringService.setLoopStage('EXECUTING', opp.symbol);
+        this.logger.log(`[Risk Integrity] Reserving ${Number(reservedRisk || 0).toFixed(2)} USDT risk for ${opp.symbol} entry attempt.`);
+
+        // SRE: Lock the entry pipeline before dispatching to Binance
+        this.sessionState.entryInProgress = true;
         this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
 
         try {
           const result = await this.orderManager.enter(
-            (this.sessionState.config as any)?.sessionId || uuid().substring(0, 8),
+            this.sessionState.currentSessionId || uuid().substring(0, 8),
             opp.symbol,
-            opp.direction.toUpperCase() as any,
+            opp.direction.toUpperCase() as 'LONG' | 'SHORT',
             price,
             qty,
             slPrice,
@@ -206,7 +360,7 @@ export class ExecutionService {
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
             this.positionTracker.addTrade(trade);
-            this.sessionState.updateStatsOnEntry();
+            this.sessionState.updateStatsOnEntry(trade.id, trade.strategy_label);
 
             if (onTradeUpdate) {
               await onTradeUpdate(trade, balance);
@@ -224,16 +378,25 @@ export class ExecutionService {
             });
           } else {
             // Entry failed but didn't throw (e.g. ORDER_REJECTED)
-            const cooldownMinutes = 5;
-            this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
-            this.logger.warn(`${opp.symbol}: Entry failed with status ${result.status}. Cooling down symbol for ${cooldownMinutes}m. Error: ${result.error}`);
+            const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
-            this.broadcastService.broadcast('alert', {
-              level: 'warn',
-              title: 'Entry Failed',
-              message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
-              symbol: opp.symbol
-            });
+            // BOLT: Only apply symbol-specific cooldown if it wasn't a global circuit breaker trip (e.g. ban/weight)
+            const isCircuitOpen = result.status === ExecutionStatus.CIRCUIT_OPEN;
+            const cooldownMinutes = isCircuitOpen ? 0 : 5;
+
+            if (cooldownMinutes > 0) {
+              this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
+              this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
+
+              this.broadcastService.broadcast('alert', {
+                level: 'warn',
+                title: 'Entry Failed',
+                message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
+                symbol: opp.symbol
+              });
+            } else {
+              this.logger.warn(`${opp.symbol}: Entry blocked (${mode}) due to global circuit breaker (${result.status}). Error: ${result.error}`);
+            }
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -241,9 +404,12 @@ export class ExecutionService {
 
           // Also cooldown on exceptions to avoid tight-looping on unexpected errors
           const cooldownMinutes = 2;
-          this.entryCooldowns.set(opp.symbol, Date.now() + cooldownMinutes * 60 * 1000);
+          const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+          this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
         } finally {
           this.positionTracker.setEntering(opp.symbol, false);
+          // SRE: Release the entry pipeline lock
+          this.sessionState.entryInProgress = false;
         }
       } catch (oppErr) {
         this.logger.error(`Critical Error processing opportunity for ${opp.symbol}: ${oppErr instanceof Error ? oppErr.message : String(oppErr)}`);

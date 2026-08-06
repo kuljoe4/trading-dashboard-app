@@ -23,6 +23,7 @@ describe('SessionService Validation', () => {
     updateConfig: jest.fn(),
     setBinanceClient: jest.fn(),
     fetchPosition: jest.fn(),
+    getTrade: jest.fn(),
     getStatus: jest.fn().mockReturnValue({ running: false, activeTrades: [] }),
   } as any;
 
@@ -44,6 +45,7 @@ describe('SessionService Validation', () => {
 
   const mockTradeRepository = {
     find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn(),
     create: jest.fn(),
     save: jest.fn(),
     update: jest.fn(),
@@ -67,10 +69,13 @@ describe('SessionService Validation', () => {
       mockRepository, // BalanceHistory
       mockTradingSessionService,
       mockOrderManagerService,
+      { fetchExchangeInfo: jest.fn().mockResolvedValue({}) } as any, // marketFeed
       { emit: jest.fn() } as any, // EventEmitter2
       mockAnalyticsService,
+      { calculateRrOptimization: jest.fn() } as any,
       mockBinanceClientFactory,
-      mockAuditLogService
+      mockAuditLogService,
+      { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // ConfigService
     );
   });
 
@@ -129,6 +134,73 @@ describe('SessionService Validation', () => {
       const config = new SessionConfig();
       config.slippage_abort_threshold = 0.5; // Max is 0.15
       expect(() => (service as any).validateConfig(config)).toThrow('Slippage abort threshold cannot exceed 15%');
+    });
+
+    it('throws error if dynamic records contain too many keys', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = {};
+      for (let i = 0; i < 51; i++) {
+        config.exit_signal_delays[`sig_${i}`] = 10;
+      }
+      expect(() => (service as any).validateConfig(config)).toThrow('exit_signal_delays cannot exceed 50 entries');
+    });
+
+    it('throws error for invalid key names or HTML tags in records', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = { 'invalid<tag>': 10 };
+      expect(() => (service as any).validateConfig(config)).toThrow('Invalid key format in exit_signal_delays');
+
+      const config2 = new SessionConfig();
+      config2.signal_timeframes = { ['too_long_key_'.repeat(10)]: '1m' };
+      expect(() => (service as any).validateConfig(config2)).toThrow('Invalid key format in signal_timeframes');
+    });
+
+    it('throws error for invalid types or values in exit_signal_delays', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = { ema_cross: -10 };
+      expect(() => (service as any).validateConfig(config)).toThrow('exit_signal_delays values must be numbers between 0 and 86400');
+
+      const config2 = new SessionConfig();
+      config2.exit_signal_delays = { ema_cross: '10' as any };
+      expect(() => (service as any).validateConfig(config2)).toThrow('exit_signal_delays values must be numbers between 0 and 86400');
+    });
+
+    it('throws error for invalid exit_signal_actions values', () => {
+      const config = new SessionConfig();
+      config.exit_signal_actions = { ema_cross: 'invalid_action' as any };
+      expect(() => (service as any).validateConfig(config)).toThrow("exit_signal_actions values must be 'close' or 'lock_sl'");
+    });
+
+    it('throws error for invalid signal_timeframes values', () => {
+      const config = new SessionConfig();
+      config.signal_timeframes = { ema_cross: '10m' }; // '10m' is not a valid Binance interval
+      expect(() => (service as any).validateConfig(config)).toThrow('signal_timeframes values must be valid Binance kline intervals');
+    });
+
+    it('throws error for nested objects or arrays of non-primitives in signal_params', () => {
+      const config = new SessionConfig();
+      config.signal_params = { nested: { some: 'object' } };
+      expect(() => (service as any).validateConfig(config)).toThrow('Nested objects in signal_params are not allowed for key "nested"');
+    });
+
+    it('throws error for HTML strings or too long strings in signal_params values', () => {
+      const config = new SessionConfig();
+      config.signal_params = { custom_string: '<script>alert(1)</script>' };
+      expect(() => (service as any).validateConfig(config)).toThrow('Invalid value in signal_params for key "custom_string"');
+
+      const config2 = new SessionConfig();
+      config2.signal_params = { custom_string: 'a'.repeat(101) };
+      expect(() => (service as any).validateConfig(config2)).toThrow('Invalid value in signal_params for key "custom_string"');
+    });
+
+    it('allows valid dynamic configurations', () => {
+      const config = new SessionConfig();
+      config.exit_signal_delays = { ema_cross: 30 };
+      config.exit_signal_actions = { ema_cross: 'close' };
+      config.signal_timeframes = { ema_cross: 'default' };
+      config.scanner_weights = { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+      config.signal_params = { my_param: 'valid_string', my_num: 123, my_bool: true, arr: [1, 'ok'] };
+      expect(() => (service as any).validateConfig(config)).not.toThrow();
     });
   });
 
@@ -211,11 +283,14 @@ describe('SessionService Validation', () => {
         mockRepository, // Settings
         mockRepository, // BalanceHistory
         mockTradingSessionService,
-      mockOrderManagerService,
+        mockOrderManagerService,
+        {} as any, // marketFeed
         { emit: jest.fn() } as any, // EventEmitter2
         mockAnalyticsService,
+        { calculateRrOptimization: jest.fn() } as any,
         mockBinanceClientFactory,
-        mockAuditLogService
+        mockAuditLogService,
+        { get: jest.fn().mockReturnValue('postgres://user:pass@localhost:5432/db') } as any // ConfigService
       );
       
       (service as any).currentSessionId = 'test-id';
@@ -259,6 +334,30 @@ describe('SessionService Validation', () => {
 
       const startCall = mockTradingSessionService.start.mock.calls[mockTradingSessionService.start.mock.calls.length - 1];
       expect(startCall[0].paper_starting_balance).toBe(10000);
+    });
+
+    it('retains the paused and paused_strategies config settings on resume', async () => {
+      const config = new SessionConfig();
+      config.paused = true;
+      config.paused_strategies = ['Base Strategy', 'Variant Strategy'];
+
+      const existingSession = {
+        id: 'test-resume-pause',
+        balance: 10000,
+        totalPnl: 0,
+        paperMode: true,
+        config,
+        running: false
+      };
+      mockRepository.findOne.mockResolvedValue(existingSession);
+      mockRepository.save.mockResolvedValue({ ...existingSession, running: true });
+
+      await service.startSession(config, true, 'test-resume-pause');
+
+      const restartCall = mockTradingSessionService.start.mock.calls[mockTradingSessionService.start.mock.calls.length - 1];
+      expect(restartCall[0].paused).toBe(true);
+      expect(restartCall[0].paused_strategies).toContain('Base Strategy');
+      expect(restartCall[0].paused_strategies).toContain('Variant Strategy');
     });
   });
 
@@ -307,6 +406,7 @@ describe('SessionService Validation', () => {
       const mockQueryBuilder = {
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
@@ -328,6 +428,7 @@ describe('SessionService Validation', () => {
       const mockQueryBuilder = {
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
@@ -361,6 +462,7 @@ describe('SessionService Validation', () => {
       const mockQueryBuilder = {
         select: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         getRawOne: jest.fn().mockResolvedValue({ sum: '100' }),
       };
       mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
@@ -373,6 +475,46 @@ describe('SessionService Validation', () => {
         exit_signal_reason: 'Fast EMA crossed below slow EMA'
       }));
     });
+
+    it('should persist new debugging fields (signal confidence, prices, status)', async () => {
+      const trade = {
+        symbol: 'BTCUSDT',
+        status: 'OPEN',
+        entry_price: 50000,
+        qty: 1,
+        entry_signal_type: 'breakout',
+        entry_signal_confidence: 0.85,
+        mark_price: 50100,
+        last_price: 50050,
+        exit_signals_status: { 'EMA_CROSS': { fired: false, active: true } },
+        last_close_attempt_ts: 1624250300000,
+        _sig_json: '{"EMA_CROSS":{"fired":false,"active":true}}'
+      } as any;
+      (service as any).currentSessionId = 'session-123';
+
+      mockTradeRepository.create.mockImplementation((d: any) => d);
+
+      const mockQueryBuilder = {
+        select: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getRawOne: jest.fn().mockResolvedValue({ sum: '0' }),
+      };
+      mockQueryRunner.manager.createQueryBuilder = jest.fn().mockReturnValue(mockQueryBuilder);
+      mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
+
+      await service.saveTradeAtomic(trade, 10000);
+
+      expect(mockQueryRunner.manager.save).toHaveBeenCalledWith(TradeEntity, expect.objectContaining({
+        entry_signal_type: 'breakout',
+        entry_signal_confidence: 0.85,
+        mark_price: 50100,
+        last_price: 50050,
+        exit_signals_status: { 'EMA_CROSS': { fired: false, active: true } },
+        last_close_attempt_ts: 1624250300000,
+        _sig_json: '{"EMA_CROSS":{"fired":false,"active":true}}'
+      }));
+    });
   });
 
   describe('logMessage rate limiting', () => {
@@ -382,12 +524,12 @@ describe('SessionService Validation', () => {
 
       // Send 60 logs
       for (let i = 0; i < 60; i++) {
-        await service.logMessage(`log ${i}`);
+        await (service as any).logMessage(`log ${i}`);
       }
       expect(insertSpy).toHaveBeenCalledTimes(60);
 
       // Send 61st log - should be rate limited
-      await service.logMessage('log 61');
+      await (service as any).logMessage('log 61');
       expect(insertSpy).toHaveBeenCalledTimes(60);
     });
 
@@ -398,13 +540,13 @@ describe('SessionService Validation', () => {
       mockLogRepository.count.mockResolvedValue(1999);
 
       // 1st log - should pass and increment to 2000
-      await service.logMessage('log 1');
+      await (service as any).logMessage('log 1');
       expect(mockLogRepository.insert).toHaveBeenCalled();
       expect(mockLogRepository.count).toHaveBeenCalledTimes(1);
 
       // 2nd log (info) - should be blocked by cap
       jest.clearAllMocks();
-      await service.logMessage('log 2', 'info');
+      await (service as any).logMessage('log 2', 'info');
       expect(mockLogRepository.insert).not.toHaveBeenCalled();
       // Should NOT call count() again
       expect(mockLogRepository.count).not.toHaveBeenCalled();
@@ -412,7 +554,7 @@ describe('SessionService Validation', () => {
       // 3rd log (error) - should trigger deletion and insertion
       jest.clearAllMocks();
       mockLogRepository.findOne.mockResolvedValue({ id: 'old-log' });
-      await service.logMessage('log 3', 'error');
+      await (service as any).logMessage('log 3', 'error');
       expect(mockLogRepository.delete).toHaveBeenCalledWith('old-log');
       expect(mockLogRepository.insert).toHaveBeenCalled();
       expect(mockLogRepository.count).not.toHaveBeenCalled();
@@ -458,7 +600,7 @@ describe('SessionService Validation', () => {
       mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
 
       const partialConfig = { max_trades_24h: 100, trading_mode: 'paper' } as any;
-      await service.updateSession(sessionId, partialConfig);
+      await (service as any).updateSession(sessionId, partialConfig);
 
       expect(mockQueryRunner.manager.update).toHaveBeenCalledWith(SessionEntity, sessionId, {
         config: expect.objectContaining({
@@ -468,6 +610,132 @@ describe('SessionService Validation', () => {
           paper_mode: false
         })
       });
+    });
+
+    it('should block modification of immutable fields while session is running', async () => {
+      const sessionId = 'active-session-id';
+      const existingSession = {
+        id: sessionId,
+        tradingMode: 'paper',
+        paperMode: true,
+        config: {
+          trading_mode: 'paper',
+          paper_mode: true,
+          paper_starting_balance: 10000
+        }
+      };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
+      (service as any).sessionRunning = true;
+      (service as any).currentSessionId = sessionId;
+
+      const partialConfig = { paper_starting_balance: 20000 } as any;
+      await expect(service.updateSession(sessionId, partialConfig)).rejects.toThrow('Cannot modify paper_starting_balance while session is running');
+    });
+
+    it('should reject updates with extraneous, un-decorated keys inside config', async () => {
+      const sessionId = 'session-id';
+      const existingSession = {
+        id: sessionId,
+        tradingMode: 'live',
+        paperMode: false,
+        config: {
+          strategy_label: 'Original',
+          max_trades_24h: 50,
+          trading_mode: 'live',
+          paper_mode: false
+        }
+      };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
+
+      const partialConfig = {
+        max_trades_24h: 100,
+        malicious_extraneous_key: 'hacked_payload_or_sql_injection'
+      } as any;
+
+      await expect(service.updateSession(sessionId, partialConfig)).rejects.toThrow();
+    });
+  });
+
+  describe('updateTradeConfig Validation', () => {
+    const mockTrade = {
+      id: 'trade-id-123',
+      symbol: 'BTCUSDT',
+      status: 'OPEN',
+      current_sl: 50000,
+      sessionId: 'session-id-123',
+      strategy_config: {
+        strategy_label: 'Original Label',
+        max_trades_24h: 10,
+      },
+    } as any;
+
+    const mockSession = {
+      id: 'session-id-123',
+      tradingMode: 'paper',
+      paperMode: true,
+      config: {
+        strategy_label: 'Original Label',
+        max_trades_24h: 10,
+      },
+    };
+
+    beforeEach(() => {
+      mockTradeRepository.findOne.mockResolvedValue(mockTrade);
+      mockRepository.findOne.mockResolvedValue(mockSession);
+    });
+
+    it('should successfully update strategy_config with valid overrides', async () => {
+      const dto = {
+        strategy_config: {
+          strategy_label: 'New Valid Label',
+          max_trades_24h: 20,
+        },
+      };
+
+      const result = await service.updateTradeConfig('trade-id-123', dto);
+      expect(result.status).toBe('updated');
+      expect(result.trade.strategy_config).toEqual(expect.objectContaining({
+        strategy_label: 'New Valid Label',
+        max_trades_24h: 20,
+      }));
+    });
+
+    it('should reject updates if strategy_config contains extraneous/un-decorated keys', async () => {
+      const dto = {
+        strategy_config: {
+          strategy_label: 'New Label',
+          malicious_key: 'malicious_content',
+        },
+      };
+
+      await expect(service.updateTradeConfig('trade-id-123', dto as any)).rejects.toThrow();
+    });
+
+    it('should reject updates if strategy_config contains invalid parameter formats/constraints', async () => {
+      const dto = {
+        strategy_config: {
+          strategy_label: '<script>alert("xss")</script>', // XSS payload rejected by regex
+        },
+      };
+
+      await expect(service.updateTradeConfig('trade-id-123', dto as any)).rejects.toThrow();
+    });
+
+    it('should reject updates if sequences exceed 10 elements', async () => {
+      const dto = {
+        live_rr_sequence: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      };
+      await expect(service.updateTradeConfig('trade-id-123', dto)).rejects.toThrow();
+    });
+
+    it('should reject updates if sequences have mismatching lengths', async () => {
+      const dto = {
+        live_rr_sequence: [1, 2],
+        exit_rr_sequence: [1],
+      };
+      await expect(service.updateTradeConfig('trade-id-123', dto)).rejects.toThrow();
     });
   });
 });

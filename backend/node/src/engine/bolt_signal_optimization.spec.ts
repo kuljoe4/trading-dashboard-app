@@ -5,9 +5,11 @@ import { SessionConfig } from '../models/SessionConfig';
 describe('SignalEngineService Optimization Benchmark', () => {
   let signalEngine: SignalEngineService;
   let klineStore: KlineStoreService;
+  let mockKlineRepo: any;
 
   beforeEach(() => {
-    klineStore = new KlineStoreService();
+    mockKlineRepo = { find: jest.fn(), upsert: jest.fn() };
+    klineStore = new KlineStoreService(mockKlineRepo);
     signalEngine = new SignalEngineService(klineStore);
   });
 
@@ -133,6 +135,69 @@ describe('SignalEngineService Optimization Benchmark', () => {
 
     expect(res1).toEqual(res2);
     expect(res1.details?.ema.value).toBeGreaterThan(0);
+  });
+
+  it('correctness: emaCache and emaDualCache eviction logic', () => {
+    const symbol = 'BTCUSDT';
+    const interval = '1m';
+    const period = 20;
+
+    // 1. Test emaCache
+    // Fill the cache up to 1000 entries with unique keys (different times)
+    for (let i = 0; i < 1000; i++) {
+      const candles = [{ time: i, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 }];
+      // @ts-ignore - calculateEMAAt populates emaCache
+      signalEngine.calculateEMAAt(candles, 0, period, interval, symbol);
+    }
+
+    // @ts-ignore
+    expect(signalEngine.emaCache.size).toBe(1000);
+
+    // Trigger one more entry to cause eviction of 100
+    const nextCandle = [{ time: 1000, open: 100, high: 105, low: 95, close: 1100, volume: 1000 }];
+    // @ts-ignore
+    signalEngine.calculateEMAAt(nextCandle, 0, period, interval, symbol);
+
+    // Should be 1000 - 100 + 1 = 901
+    // @ts-ignore
+    expect(signalEngine.emaCache.size).toBe(901);
+
+    // 2. Test emaDualCache
+    // Fill the dual cache up to 1000 entries
+    // Needs at least period + 1 candles
+    const dualCandles = Array.from({ length: 25 }, (_, j) => ({ time: j * 60000, open: 100, high: 105, low: 95, close: 100 + j, volume: 1000 }));
+    for (let i = 0; i < 1000; i++) {
+        // Change the last candle to create unique cache keys
+        dualCandles[dualCandles.length - 1] = { time: 1000000 + i, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 };
+        // @ts-ignore - calculateEMALastTwoAt populates emaDualCache
+        signalEngine.calculateEMALastTwoAt(dualCandles, dualCandles.length - 1, period, interval, symbol);
+    }
+
+    // @ts-ignore
+    expect(signalEngine.emaDualCache.size).toBe(1000);
+
+    // Trigger eviction
+    dualCandles[dualCandles.length - 1] = { time: 2000000, open: 100, high: 105, low: 95, close: 1100, volume: 1000 };
+    // @ts-ignore
+    signalEngine.calculateEMALastTwoAt(dualCandles, dualCandles.length - 1, period, interval, symbol);
+
+    // @ts-ignore
+    expect(signalEngine.emaDualCache.size).toBe(901);
+  });
+
+  it('correctness: multiplierCache is used', () => {
+    const period = 12;
+    // @ts-ignore
+    expect(signalEngine.multiplierCache.has(period)).toBe(false);
+
+    const candles = Array.from({ length: 30 }, (_, i) => ({ time: i, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 }));
+    // @ts-ignore
+    signalEngine.calculateEMA(candles, period, '1m', 'BTCUSDT');
+
+    // @ts-ignore
+    expect(signalEngine.multiplierCache.has(period)).toBe(true);
+    // @ts-ignore
+    expect(signalEngine.multiplierCache.get(period)).toBe(2 / (period + 1));
   });
 
   it('correctness: EMA cache handles timeframe separation', () => {

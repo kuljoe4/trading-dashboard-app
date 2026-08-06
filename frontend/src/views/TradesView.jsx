@@ -1,31 +1,42 @@
-import React, { useState, lazy, Suspense } from 'react'
+import React, { useState, lazy, Suspense, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
-import { SectionLabel, StatCard, cn, ViewHeader } from '../components/ui/primitives'
-import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
+import { SectionLabel, StatCard, cn, ViewHeader, Btn } from '../components/ui/primitives'
+import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
 import { Sidebar, BottomNav } from '../components/Navigation'
+import { lazyWithRetry } from '../lib/lazy'
 
-const TradeDetailModal = lazy(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
+const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
+const preloadTradeDetailModal = () => {
+  import('../components/TradeDetailModal');
+};
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
-  const selectedTrade = activeTrades.find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
+  const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
+  const showResumingFeedback = sessionActive && isResuming
+
+  const peakRr = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+
+  const selectedTrade = (activeTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('global_trades');
 
+  const addAlert = useTradingStore(state => state.addAlert);
   const handleCloseTrade = async (symbol) => {
     try {
       await sessionAPI.closeTrade(symbol)
       setSelectedTradeId(null)
+      addAlert({ level: 'success', title: 'Liquidation Started', message: `Manual closure request for ${symbol} sent to exchange.` });
     } catch (e) {
-      alert('Failed to close trade: ' + (e?.response?.data?.message || e.message))
+      addAlert({ level: 'error', title: 'Closure Failed', message: e?.response?.data?.message || e.message || 'Could not close position.' });
     }
   }
 
@@ -46,39 +57,64 @@ const TradesView = () => {
           backAction={() => window.location.hash = '#/'}
         />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 lg:mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
         {(() => {
-          const activeNetPnl = activeTrades.reduce((acc, t) => acc + safeNum(t.net_pnl), 0);
-          const activeMarketPnl = activeTrades.reduce((acc, t) => acc + safeNum(t.market_pnl), 0);
+          const activePnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.pnl), 0);
+          const activeEstPnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.est_pnl_to_realize), 0);
+          const trueProjectedPnl = (totalPnl - activePnl) + activeEstPnl;
           return (
             <StatCard
-              label="Net Open Return"
-              value={fmtUSD(activeNetPnl)}
-              color={pnlClass(activeNetPnl)}
-              subValue={`Market Δ: ${fmtUSD(activeMarketPnl)}`}
+              label="Active P&L"
+              value={fmtUSD(activePnl)}
+              color={pnlClass(activePnl)}
+              subValue={
+                <div className="flex flex-col gap-0.5 mt-1 min-w-[130px]">
+                  <div className="flex items-center justify-between text-[10px] text-dim/60">
+                    <span>Session Return:</span>
+                    <span className="font-bold font-mono" style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-dim/60">
+                    <span>Est. Target:</span>
+                    <span className="font-bold font-mono" style={{ color: pnlColor(activeEstPnl) }}>≈ {fmtUSD(activeEstPnl)}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-dim/80 pt-0.5 border-t border-border/20">
+                    <span>Projected:</span>
+                    <span className="font-bold font-mono" style={{ color: pnlColor(trueProjectedPnl) }}>≈ {fmtUSD(trueProjectedPnl)}</span>
+                  </div>
+                </div>
+              }
             />
           );
         })()}
-        <StatCard label="Active Risk" value={`${totalRiskPct.toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+        <StatCard label="Active Risk" value={`${Number(totalRiskPct || 0).toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+        <StatCard label="Peak RR" value={`+${Number(peakRr || 0).toFixed(2)}`} color="text-accent" />
         <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />
       </div>
 
       <div className="space-y-6">
         <SectionLabel>Live Tactical Map</SectionLabel>
 
-        {activeTrades.length === 0 ? (
+        {(!activeTrades || activeTrades.length === 0) ? (
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-20 flex flex-col items-center justify-center text-center">
             <div className="w-16 h-16 rounded-full bg-surface border border-border flex items-center justify-center mb-6 text-dim/20">
               <Zap size={32} />
             </div>
             <h3 className="text-lg font-bold mb-2">No Active Trades</h3>
-            <p className="text-dim text-sm max-w-xs mx-auto">
+            <p className="text-dim text-sm max-w-xs mx-auto mb-8">
               The engine is currently scanning for opportunities. New positions will appear here in real-time.
             </p>
+            <Btn
+              variant="primary"
+              onClick={() => window.dispatchEvent(new Event('toggle-scanner'))}
+              icon={Zap}
+              className="px-8"
+            >
+              Open Live Scanner
+            </Btn>
           </div>
         ) : (
           <AnimatePresence mode="popLayout">
-            {activeTrades.map((trade, idx) => (
+            {(activeTrades || []).map((trade, idx) => (
               <motion.div
                 key={trade.id || trade.symbol}
                 initial={{ opacity: 0, y: 20 }}
@@ -86,7 +122,7 @@ const TradesView = () => {
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: idx * 0.05 }}
               >
-                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} />
+                <ActiveTradeCard trade={trade} config={config} onClick={() => setSelectedTradeId(trade.id || trade.symbol)} onMouseEnter={preloadTradeDetailModal} isResuming={isResuming} showResumingFeedback={showResumingFeedback} />
               </motion.div>
             ))}
           </AnimatePresence>

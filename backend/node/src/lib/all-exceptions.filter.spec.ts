@@ -104,4 +104,19 @@ describe('AllExceptionsFilter', () => {
       HttpStatus.BAD_REQUEST
     );
   });
+
+  it('should sanitize non-500 HttpException string messages containing sensitive info before warning logging', () => {
+    const exception = new HttpException(
+      'Validation failed for api_key=superSecret123&other=val',
+      HttpStatus.BAD_REQUEST,
+    );
+    const loggerSpy = jest.spyOn((filter as any).logger, 'warn').mockImplementation(() => {});
+
+    filter.catch(exception, mockArgumentsHost);
+
+    expect(loggerSpy).toHaveBeenCalled();
+    const loggedMessage = loggerSpy.mock.calls[0][0];
+    expect(loggedMessage).toContain('api_key=[MASKED]');
+    expect(loggedMessage).not.toContain('superSecret123');
+  });
 });

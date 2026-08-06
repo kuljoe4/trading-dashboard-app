@@ -1,5 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import WebSocket from 'ws';
 import { SessionConfig } from '../models/SessionConfig';
 import { ENGINE_CONSTANTS } from '../models/constants';
@@ -9,6 +12,9 @@ import { SessionStateService } from './session_state.service';
 import { SignalEngineService } from './signalEngine';
 import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
+import { BinanceExchangeInfo } from '../models/binance.types';
+import { BinanceRequestQueue, BinanceClientFactory } from '../lib/binanceClientFactory';
+import { BinanceSubscriptionManager } from '../lib/binanceSubscriptionManager';
 
 interface BinanceKline {
   stream?: string;
@@ -21,23 +27,68 @@ interface BinanceKline {
 
 @Injectable()
 export class MarketFeedService {
+  private static readonly STARTUP_SELFTEST_MS = 15000;
+
+  async onModuleInit() {
+    // Proactively load from DB on module init to seed the static cache
+    // SRE: On boot, we don't have a session config yet. We load Production metadata
+    // from the DB into the static cache if available. Testnet will be loaded on-demand
+    // when a session starts to avoid dual-burst on boot.
+    await this.fetchExchangeInfo(ENGINE_CONSTANTS.BINANCE_REST_BASE);
+  }
   private readonly logger = new Logger(MarketFeedService.name);
   private running = false;
-  private miniTickerWs: WebSocket | null = null;
-  private miniTickerReconnecting = false;
-  private markTickerWs: WebSocket | null = null;
-  private combinedKlineWsList: Set<WebSocket> = new Set();
-  private exchangeInfo: Map<string, any> = new Map();
-  private lastExchangeInfoFetch = 0;
-  private lastExchangeInfoBase = '';
+  private static cachedExchangeInfo: Map<string, any> = new Map();
+  private static cachedRateLimit = 0;
+  private static lastExchangeInfoFetch = 0;
+  private static lastExchangeInfoBase = '';
+  private exchangeInfo: Map<string, any> = MarketFeedService.cachedExchangeInfo;
   private activeWatchlist: Map<string, Set<string>> = new Map();
   private subscriptionTasks: any[] = [];
   private onCandleClose: ((symbol: string) => Promise<void>) | null = null;
   private watchlistInterval: NodeJS.Timeout | null = null;
   private watchlistUpdatePending = false;
   private watchlistUpdateTimeout: NodeJS.Timeout | null = null;
+  private zeroWatchlistCycles = 0;
+  private hasSuccessfullyBuiltWatchlist = false;
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
+  private binanceClient: any = null;
+
+  private currentConfig: SessionConfig | null = null;
+  private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
+  private currentIsTestnet = false;
+  private restSeedInFlight = false;
+  private lastRestSeedTs = 0;
+
+  private lastMiniTickerMsgTs = 0;
+  private lastMarkTickerMsgTs = 0;
+  private globalDiscoveryOpenedAt = 0;
+  private hasEverReceivedData = false;
+  private _globalDiscoveryConfirmed = false;
+  private forceRawDiscovery = false;
+  private consecutiveDiscoveryFailures = 0;
+
+  private discoveryManagers: Map<string, BinanceSubscriptionManager> = new Map();
+  private klineManagers: BinanceSubscriptionManager[] = [];
+
+  private discoveredSymbolsCache: {
+    symbols: string[];
+    timestamp: number;
+    signature: string;
+  } | null = null;
+
+  private getWatchlistConfigSignature(config: SessionConfig): string {
+    return JSON.stringify({
+      smart: config.smart_watchlist_enabled,
+      size: config.watchlist_size,
+      offset: config.watchlist_offset,
+      mode: config.discovery_mode,
+      threshold: config.scan_pct_threshold,
+      sensitivity: config.smart_watchlist_sensitivity,
+      excluded: config.excluded_symbols || [],
+    });
+  }
 
   constructor(
     private tickerCache: TickerCacheService,
@@ -45,35 +96,88 @@ export class MarketFeedService {
     private sessionState: SessionStateService,
     private signalEngine: SignalEngineService,
     private monitoringService: MonitoringService,
+    private eventEmitter: EventEmitter2,
+    private binanceClientFactory: BinanceClientFactory,
+    @InjectRepository(SettingsEntity)
+    private readonly settingsRepository: Repository<SettingsEntity>,
   ) {}
 
   setCandleCloseCallback(cb: (symbol: string) => Promise<void>) {
     this.onCandleClose = cb;
   }
 
-  async start(config: SessionConfig) {
+  private startMiniTickerStream() { /* Rebuild handled by watchlist manager */ }
+  private startMarkTickerStream() { /* Rebuild handled by watchlist manager */ }
+
+  private lastWatchlistLogTs = 0;
+
+  async start(config: SessionConfig, bc?: any) {
+    if (bc) this.binanceClient = bc;
     if (this.running) await this.stop();
     this.running = true;
+    this.forceRawDiscovery = false;
+    this.consecutiveDiscoveryFailures = 0;
+    this.currentConfig = config;
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-    const restBase = mode === 'testnet'
-        ? 'https://demo-fapi.binance.com'
+    const isTestnet = mode === 'testnet';
+    const restBase = isTestnet
+        ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
 
-    await this.fetchExchangeInfo(restBase);
-    this.startMiniTickerStream();
-    this.startMarkTickerStream();
+    this.currentRestBase = restBase;
+    this.currentIsTestnet = isTestnet;
 
-    const waitForWs = new Promise<void>((resolve) => {
-      const check = setInterval(() => {
-        if (this.tickerCache.getCacheSize() > 0) { clearInterval(check); resolve(); }
-      }, 100);
-      setTimeout(() => { clearInterval(check); resolve(); }, 5000);
-    });
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
-    await waitForWs;
-    if (this.tickerCache.getCacheSize() === 0) await this.fetchInitialTickers();
-    this.startWatchlistManager(config);
+    // Discovery Managers initialization is now deferred to startGlobalDiscovery
+
+    // CITADEL PROTOCOL: Sequential, jittered startup warmup
+    const warmupSteps = [
+      () => this.fetchExchangeInfo(restBase),
+      () => this.startGlobalDiscovery(),
+      () => this.startWatchlistManager(config),
+      () => this.seedMarketDataFromRest()
+    ];
+
+    for (const step of warmupSteps) {
+      await step().catch(err => {
+        this.logger.warn(`Startup step failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
+      // Add jittered delay (150-300ms)
+      await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 150));
+    }
+
+    // SRE: Startup Self-Test (Citadel Protocol 2026)
+    // Assert TickerCache is seeded within 15s or alert loudly.
+    const runMode = mode;
+    if (runMode !== 'paper') {
+       setTimeout(() => {
+          if (this.running && this.tickerCache.getCacheSize() === 0) {
+             const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after ${MarketFeedService.STARTUP_SELFTEST_MS / 1000}s. Activating raw WebSocket fallback and REST seed. Mode=${runMode}`;
+             this.logger.error(alertMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });
+             this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+                level: 'error',
+                title: 'Market Feed Failure',
+                message: 'No ticker data received from Binance WebSocket. Using REST fallback.',
+             });
+
+             // Fast self-healing: set raw fallback and restart global discovery
+             this.forceRawDiscovery = true;
+             this.startGlobalDiscovery().catch(err => {
+                this.logger.error(`Failed to start raw global discovery: ${err.message}`);
+             });
+
+             // SRE: Guarantee the cache is populated even if the WS is starved.
+             this.seedMarketDataFromRest().catch(() => {});
+          } else if (this.running) {
+             this.logger.log(`[MarketFeed] Startup Self-Test passed: ${this.tickerCache.getCacheSize()} symbols seeded.`);
+          }
+       }, MarketFeedService.STARTUP_SELFTEST_MS);
+    }
   }
 
   public updateWeight(headers: any) {
@@ -81,32 +185,106 @@ export class MarketFeedService {
     const weight = typeof headers.get === 'function' ? headers.get('X-MBX-USED-WEIGHT-1M') : (headers['x-mbx-used-weight-1m'] || headers['X-MBX-USED-WEIGHT-1M']);
     if (weight) {
       const currentWeight = parseInt(weight, 10);
-      this.logger.debug(`Binance Weight Update: ${currentWeight}`);
+      // REDUCE LOG NOISE: No need to log weight for every market feed update
+      // this.logger.debug(`Binance Weight Update: ${currentWeight}`);
       this.sessionState.updateRateLimit(currentWeight);
     }
   }
 
-  private async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+  public async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
     const now = Date.now();
-    if (this.exchangeInfo.size > 0 && this.lastExchangeInfoBase === restBase && now - this.lastExchangeInfoFetch < 3600000) return;
+    // BOLT: Static caching of exchange info for 1 hour to prevent redundant heavy calls (Weight 40) across session restarts
+    // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.
+    const CACHE_TTL = 12 * 60 * 60 * 1000;
+
+    // RESEARCH-02: DB-First Metadata Loading
+    if (MarketFeedService.cachedExchangeInfo.size === 0) {
+      try {
+        const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+        if (settings && settings.exchange_info_cache && settings.exchange_info_ts) {
+          const age = now - Number(settings.exchange_info_ts);
+          if (age < CACHE_TTL) {
+            this.logger.log(`Loading exchange info from DB cache (Age: ${Math.round(age / 3600000)}h)...`);
+            const cache = settings.exchange_info_cache;
+            MarketFeedService.cachedExchangeInfo.clear();
+            Object.keys(cache).forEach(symbol => {
+              MarketFeedService.cachedExchangeInfo.set(symbol, cache[symbol]);
+            });
+
+            const storedLimit = settings.exchange_rate_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
+            MarketFeedService.cachedRateLimit = storedLimit;
+            this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, storedLimit);
+            BinanceRequestQueue.setWeightLimit(storedLimit);
+
+            MarketFeedService.lastExchangeInfoFetch = Number(settings.exchange_info_ts);
+            MarketFeedService.lastExchangeInfoBase = restBase;
+            this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+          }
+        }
+      } catch (dbErr) {
+        this.logger.debug(`Failed to load exchange info from DB: ${dbErr}`);
+      }
+    }
+
+    if (MarketFeedService.cachedExchangeInfo.size > 0 && MarketFeedService.lastExchangeInfoBase === restBase && now - MarketFeedService.lastExchangeInfoFetch < CACHE_TTL) {
+      this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+      if (MarketFeedService.cachedRateLimit > 0) {
+        this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, MarketFeedService.cachedRateLimit);
+        BinanceRequestQueue.setWeightLimit(MarketFeedService.cachedRateLimit);
+      }
+      return;
+    }
+
     try {
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${restBase}/fapi/v1/exchangeInfo`);
-      this.updateWeight(response.headers);
-      if (response.ok) {
-        const data: any = await response.json();
+
+      let data: BinanceExchangeInfo | null = null;
+      if (this.binanceClient) {
+        this.logger.debug(`[MarketFeed] Fetching fresh exchange information from SDK...`);
+        const response = await this.binanceClient.restAPI.exchangeInformation();
+        this.updateWeight(response.headers);
+        data = (await response.data()) as BinanceExchangeInfo;
+      } else {
+        this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) }),
+          'exchangeInformation',
+          true // Metadata is critical for boot
+        );
+        if (!response.ok) return;
+        data = (await response.json()) as BinanceExchangeInfo;
+      }
+
+      if (data) {
 
         // Dynamic Rate Limit Detection
         if (data && Array.isArray(data.rateLimits)) {
-           const requestWeightLimit = data.rateLimits.find((l: any) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
+           const requestWeightLimit = data.rateLimits.find((l) => l.rateLimitType === 'REQUEST_WEIGHT' && l.interval === 'MINUTE');
            if (requestWeightLimit) {
-              this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, parseInt(requestWeightLimit.limit, 10));
-              this.logger.log(`Dynamic Binance Rate Limit detected: ${requestWeightLimit.limit}/min`);
+              const limit = parseInt(String(requestWeightLimit.limit), 10);
+              this.sessionState.updateRateLimit(this.sessionState.binanceRateLimit.used_1m, limit);
+              // SRE Overwatch: Synchronize dynamic limit to the centralized gateway queue
+              BinanceRequestQueue.setWeightLimit(limit);
+              this.logger.log(`Dynamic Binance Rate Limit detected: ${limit}/min`);
+           }
+
+           const orderLimit10s = data.rateLimits.find((l) => l.rateLimitType === 'ORDERS' && l.interval === 'SECOND' && l.intervalNum === 10);
+           const orderLimit1m = data.rateLimits.find((l) => l.rateLimitType === 'ORDERS' && l.interval === 'MINUTE');
+
+           if (orderLimit10s || orderLimit1m) {
+              this.sessionState.updateOrderRateLimits(null, {
+                limit10s: orderLimit10s ? parseInt(String(orderLimit10s.limit), 10) : undefined,
+                limit1m: orderLimit1m ? parseInt(String(orderLimit1m.limit), 10) : undefined
+              });
+              this.logger.log(`Dynamic Binance Order Limits: 10s=${orderLimit10s?.limit}, 1m=${orderLimit1m?.limit}`);
            }
         }
 
         if (data && Array.isArray(data.symbols)) {
-          this.exchangeInfo.clear();
+          MarketFeedService.cachedExchangeInfo.clear();
+          let filteredCryptoCount = 0;
+          let filteredOtherCount = 0;
+
           for (const s of data.symbols) {
             // BOLT: Only include symbols that are actively trading in the target environment
             if (s.status === 'TRADING' || s.status === 'SETTLING') {
@@ -116,14 +294,52 @@ export class MarketFeedService {
               const isTradFi = s.underlyingType === 'COMMODITY' || s.underlyingType === 'EQUITY' || s.underlyingType === 'INDEX';
 
               if (isCrypto && !isTradFi) {
-                this.exchangeInfo.set(s.symbol, s);
+                // BOLT OPTIMIZATION: Pre-parse critical filter values to avoid O(N) find() and parseFloat() in the hot-path
+                const parsed: any = { ...s };
+                if (s.filters && Array.isArray(s.filters)) {
+                  for (const f of s.filters) {
+                    if (f.filterType === 'PRICE_FILTER') {
+                      parsed.tickSize = parseFloat(String(f.tickSize));
+                      parsed.pricePrecision = Math.max(0, Math.round(-Math.log10(parsed.tickSize)));
+                    } else if (f.filterType === 'LOT_SIZE') {
+                      parsed.stepSize = parseFloat(String(f.stepSize));
+                      parsed.qtyPrecision = Math.max(0, Math.round(-Math.log10(parsed.stepSize)));
+                    } else if (f.filterType === 'MARKET_LOT_SIZE') {
+                      parsed.marketMaxQty = parseFloat(String(f.maxQty));
+                      parsed.marketMinQty = parseFloat(String(f.minQty));
+                    } else if (f.filterType === 'PERCENT_PRICE') {
+                      parsed.multiplierUp = parseFloat(String(f.multiplierUp || '1.1'));
+                      parsed.multiplierDown = parseFloat(String(f.multiplierDown || '0.9'));
+                    } else if (f.filterType === 'MIN_NOTIONAL' || f.filterType === 'NOTIONAL') {
+                      parsed.minNotional = parseFloat(String(f.notional || f.minNotional || '0'));
+                    }
+                  }
+                }
+                MarketFeedService.cachedExchangeInfo.set(s.symbol, parsed);
               } else {
-                this.logger.debug(`Filtering out non-crypto symbol: ${s.symbol} (Type: ${s.underlyingType})`);
+                filteredOtherCount++;
               }
+            } else {
+              filteredCryptoCount++;
             }
           }
-          this.lastExchangeInfoFetch = now;
-          this.lastExchangeInfoBase = restBase;
+          MarketFeedService.lastExchangeInfoFetch = now;
+          MarketFeedService.lastExchangeInfoBase = restBase;
+          this.exchangeInfo = MarketFeedService.cachedExchangeInfo;
+          this.logger.log(`[MarketFeed] Exchange info: ${this.exchangeInfo.size} symbols cached. (Filtered: ${filteredCryptoCount} inactive, ${filteredOtherCount} non-crypto)`);
+
+          // RESEARCH-02: Persist to DB
+          const cacheObj: any = {};
+          MarketFeedService.cachedExchangeInfo.forEach((val, key) => { cacheObj[key] = val; });
+
+          const limit = this.sessionState.binanceRateLimit.limit;
+          MarketFeedService.cachedRateLimit = limit;
+
+          await this.settingsRepository.update('default', {
+            exchange_info_cache: cacheObj,
+            exchange_info_ts: now,
+            exchange_rate_limit: limit
+          });
         }
       }
     } catch (error) {
@@ -133,135 +349,214 @@ export class MarketFeedService {
 
   getSymbolFilters(symbol: string) { return this.exchangeInfo.get(symbol); }
 
-  private async fetchInitialTickers() {
+  /**
+   * SRE/Resilience: Seed the TickerCache from REST market data when the
+   * public market WebSocket is starved or banned in a live deployment.
+   *
+   * Symptom this addresses: the discovery socket connects and receives a
+   * successful SUBSCRIBE ACK, yet delivers zero data frames for minutes
+   * (recurring "live mode doesn't work" deadlock). By seeding from REST we
+   * guarantee the momentum scanner always has candidates and the watchlist
+   * can be built, instead of stalling at "0 symbols monitored".
+   *
+   * Throttled/guarded: single in-flight request, minimum 5-minute re-seed
+   * cadence once populated, and routed through the centralized Binance queue.
+   */
+  private async seedMarketDataFromRest(): Promise<void> {
+    // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
+    if (this.sessionState.isBanned()) {
+      this.logger.debug(`[MarketFeed] REST seed skipped: IP is currently banned.`);
+      return;
+    }
+    if (this.restSeedInFlight) return;
+    const now = Date.now();
+    const cacheSize = this.tickerCache.getCacheSize();
+    // Once seeded, only re-seed every 5 minutes to keep prices reasonably
+    // fresh without hammering the 40-weight endpoint.
+    if (cacheSize > 0 && (now - this.lastRestSeedTs) < 5 * 60 * 1000) return;
+
+    this.restSeedInFlight = true;
     try {
-      this.monitoringService.incrementApiRequests();
-      const response = await fetch(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ticker/24hr`);
-      this.updateWeight(response.headers);
-      if (response.ok) {
-        const tickers = await response.json();
-        if (Array.isArray(tickers)) {
-          const usdtTickers = tickers.filter(t => t.symbol.endsWith('USDT'));
-          this.tickerCache.bulkUpdate(usdtTickers);
+      const restBase = this.currentRestBase;
+      const url = `${restBase}/fapi/v1/ticker/24hr`;
+      this.logger.log(`[MarketFeed] Seeding TickerCache from REST market data (${url})...`);
+      const response = await this.binanceClientFactory.genericRequest(
+        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        'ticker24hrPriceChangeStatistics',
+        false // Throttled, one-time critical seed
+      );
+      if (!response.ok) {
+        this.logger.warn(`[MarketFeed] REST market seed returned HTTP ${response.status}. Will retry on next cycle.`);
+        return;
+      }
+      const data = (await response.json()) as any[];
+      if (Array.isArray(data) && data.length > 0) {
+        this.tickerCache.bulkUpdate(data);
+        this.lastRestSeedTs = Date.now();
+        this.logger.log(`[MarketFeed] REST seed complete: ${data.length} symbols loaded into TickerCache.`);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+          msg: `[MarketFeed] Market data restored via REST fallback (${data.length} symbols).`,
+          level: 'info'
+        });
+        // Refresh the watchlist now that the cache has candidates.
+        if (this.currentConfig) {
+          this.updateWatchlist(this.currentConfig).catch(() => {});
         }
       }
-    } catch (error) {}
-  }
-
-  private safeClose(ws: WebSocket | null) {
-    if (!ws) return;
-    try {
-      // Only terminate if it's OPEN or CLOSING. 
-      // If it's CONNECTING, 'close()' is safer to avoid "WebSocket closed before connection established" error.
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CLOSING) {
-        ws.terminate();
-      } else if (ws.readyState === WebSocket.CONNECTING) {
-        ws.close();
-      }
     } catch (err) {
-      this.logger.debug(`Error during safeClose: ${err}`);
+      this.logger.warn(`[MarketFeed] REST market data seed failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.restSeedInFlight = false;
     }
   }
 
   async stop() {
     this.running = false;
+    this.discoveredSymbolsCache = null;
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
 
-    this.miniTickerReconnecting = true; // Block reconnection during stop
-    if (this.miniTickerWs) {
-      this.safeClose(this.miniTickerWs);
-      this.miniTickerWs = null;
-    }
-    if (this.markTickerWs) {
-      this.safeClose(this.markTickerWs);
-      this.markTickerWs = null;
-    }
+    await this.stopGlobalDiscovery();
 
-    for (const ws of this.combinedKlineWsList) {
-      (ws as any)._isExplicitClose = true;
-      this.safeClose(ws);
+    for (const manager of this.klineManagers) {
+        await manager.stop();
     }
-    this.combinedKlineWsList.clear();
+    this.klineManagers = [];
 
     for (const task of this.subscriptionTasks) clearTimeout(task);
     this.subscriptionTasks = [];
-    this.exchangeInfo.clear();
+    // BOLT: Do not clear the static exchangeInfo cache on stop.
+    // It should persist for resumption or other sessions.
     this.activeWatchlist.clear();
-    this.logger.verbose('MarketFeedService: Resources cleared');
+    this.logger.verbose('MarketFeedService: Resources cleared (Static exchangeInfo preserved)');
   }
 
-  private startMiniTickerStream() {
-    const connect = () => {
-      if (!this.running) return;
-      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!miniTicker@arr`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-      ws.on('message', (data: Buffer) => {
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
-        try {
-          const msg = JSON.parse(data as any);
-          let tickers: any[] = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          if (tickers.length > 0) this.tickerCache.bulkUpdate(tickers);
-        } catch (err) {
-          this.logger.error(`Error processing mini-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
-      ws.on('close', () => {
-        this.miniTickerWs = null;
-        if (this.running && !this.miniTickerReconnecting) {
-          this.logger.debug('Mini-ticker stream closed. Reconnecting...');
-          const timeout = setTimeout(() => {
-            this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
-            connect();
-          }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
-          this.subscriptionTasks.push(timeout);
-        }
-      });
-      this.miniTickerWs = ws;
-    };
-    connect();
-  }
-
-  private startMarkTickerStream() {
-    const connect = () => {
-      if (!this.running) return;
-      const ws = new WebSocket(`${ENGINE_CONSTANTS.BINANCE_WS_BASE}/ws/!markTicker@arr@1s`, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-      ws.on('message', (data: Buffer) => {
-        if (this.sessionState.isEcoMode(this.running) && this.sessionState.activeTrades.length === 0) return;
-        try {
-          const msg = JSON.parse(data as any);
-          const updates = Array.isArray(msg) ? msg : (msg.data && Array.isArray(msg.data) ? msg.data : []);
-          for (const u of updates) {
-            // Field 'p' is Mark Price in !markTicker@arr
-            this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
-          }
-        } catch (err) {
-          this.logger.error(`Error processing mark-ticker stream: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      });
-      ws.on('close', () => {
-        this.markTickerWs = null;
-        if (this.running) this.subscriptionTasks.push(setTimeout(() => connect(), ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS));
-      });
-      this.markTickerWs = ws;
-    };
-    connect();
-  }
-
-  private startWatchlistManager(config: SessionConfig) {
+  private lastStreamHealthCheck = 0;
+  private async startWatchlistManager(config: SessionConfig) {
     if (this.watchlistInterval) clearInterval(this.watchlistInterval);
+    this.zeroWatchlistCycles = 0;
     this.updateWatchlist(config);
-    this.watchlistInterval = setInterval(() => this.updateWatchlist(config), ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
+    this.watchlistInterval = setInterval(() => {
+      this.updateWatchlist(config);
+
+      if (this.activeWatchlist.size === 0) {
+        this.zeroWatchlistCycles++;
+        if (this.zeroWatchlistCycles >= 2) {
+          this.logger.warn(`[MarketFeed] Scanner has 0 symbols after ${this.zeroWatchlistCycles * 2} minutes. Check config.symbols or global_scanner_enabled.`);
+        }
+      } else {
+        this.zeroWatchlistCycles = 0;
+      }
+
+      // BOLT: Optimize health check frequency.
+      // Although this loop fires every 2 minutes (watchlist refresh), we only
+      // evaluate stream health every 2 minutes to avoid excessive reconnection churn
+      // during transient exchange instability.
+      const now = Date.now();
+      if (now - this.lastStreamHealthCheck >= 2 * 60 * 1000) {
+         this.lastStreamHealthCheck = now;
+         this.checkStreamHealth();
+      }
+    }, ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
     this.watchlistInterval.unref?.();
+  }
+
+  /**
+   * SRE: Background Stream Health Monitor.
+   * If the combined market stream has not received data for an extended period,
+   * force a reconnection.
+   */
+  private checkStreamHealth() {
+    if (!this.running) return;
+
+    // SRE: Immunity check. If we are currently banned, don't try to reconnect
+    if (this.sessionState.isBanned()) return;
+
+    const now = Date.now();
+
+    // FAIL-FAST: Detect if global discovery socket is open but never received any data
+    if (!this._globalDiscoveryConfirmed && this.globalDiscoveryOpenedAt > 0 && (now - this.globalDiscoveryOpenedAt > 60000)) {
+      const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
+      this.consecutiveDiscoveryFailures++;
+
+      // SRE: Decide severity from whether the scanner is actually starved.
+      // If the REST fallback has already seeded the TickerCache, the scanner
+      // still has candidates and trading proceeds - the WS is merely silent.
+      // Downgrade the alert so operators aren't misled into thinking the system
+      // is dead, and avoid pointless reconnect churn.
+      const cacheSize = this.tickerCache.getCacheSize();
+      const scannerAlive = cacheSize > 0;
+
+      if (scannerAlive) {
+        this.logger.warn(`[MarketFeed] Live market WebSocket silent (no frames in 60s); REST fallback active with ${cacheSize} symbols. Scanner operational. Mode=${mode}. Failure #${this.consecutiveDiscoveryFailures}`);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+          msg: `[MarketFeed] Market WS silent; operating on REST fallback (${cacheSize} symbols). Scanner operational. Mode=${mode}`,
+          level: 'warn'
+        });
+        // No reconnect churn: rely on the periodic REST seed to keep the cache fresh.
+        return;
+      }
+
+      // Cache empty -> scanner genuinely offline. Escalate and force recovery.
+      // CIRCUIT BREAKER: After 1 consecutive silent failure, immediately switch
+      // to the raw WebSocket path.
+      if (this.consecutiveDiscoveryFailures >= 1) {
+        this.logger.fatal(`[MarketFeed] CIRCUIT BREAKER: Discovery has failed via primary method. Forcing raw WebSocket fallback immediately.`);
+        this.forceRawDiscovery = true;
+      }
+
+      this.logger.error(`[MarketFeed] CRITICAL: Global discovery socket open but zero messages received in 60s. Mode=${mode}. Failure #${this.consecutiveDiscoveryFailures}`);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+        msg: `[MarketFeed] CRITICAL: No market data received after 60s. Scanner is offline. Mode=${mode}`,
+        level: 'error'
+      });
+      // Force reconnect
+      this.startGlobalDiscovery();
+      // SRE: If the public WS is starved, seed from REST so the scanner survives.
+      this.seedMarketDataFromRest().catch(() => {});
+      return;
+    }
+
+    // BOLT: Widened health check threshold for combined stream
+    const MAX_SILENCE_MS = 7 * 60 * 1000; // 7 minutes
+
+    const lastMsg = Math.max(this.lastMiniTickerMsgTs, this.lastMarkTickerMsgTs);
+    const silence = lastMsg > 0 ? now - lastMsg : 0;
+
+    if (silence > MAX_SILENCE_MS) {
+       this.logger.warn(`[MarketFeed] Market stream silence detected (${Math.round(silence/1000)}s). Force reconnecting...`);
+
+       // SRE: Global discovery health check
+       if (now - this.lastMiniTickerMsgTs > MAX_SILENCE_MS) {
+          this.logger.warn('[MarketFeed] Global discovery stream stalled. Reconnecting...');
+          this.startGlobalDiscovery();
+       }
+
+       // SRE: Watchlist stream health check
+       if (this.activeWatchlist.size > 0) {
+          this.rebuildCombinedKlineStream();
+       }
+    }
   }
 
   @OnEvent(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE)
   async updateWatchlist(config: SessionConfig = this.sessionState.config!) {
     if (!this.running || !config) return;
+
+    // BOLT: In light sleep, always allow watchlist updates to ensure scanner has candidates
+    const isHibernating = this.sessionState.hibernating;
+    const hibMode = config.hibernation_mode || 'adaptive';
+    const isLight = isHibernating && hibMode === 'light';
+
     if (this.watchlistUpdatePending) return;
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
     this.watchlistUpdateTimeout = setTimeout(async () => {
-      this.watchlistUpdatePending = true;
-      try { await this.executeWatchlistUpdate(config); } finally {
+      try {
+        this.watchlistUpdatePending = true;
+        await this.executeWatchlistUpdate(config);
+      } catch (err) {
+        this.logger.error(`Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
         this.watchlistUpdatePending = false;
         this.watchlistUpdateTimeout = null;
       }
@@ -274,41 +569,183 @@ export class MarketFeedService {
       const isGated = this.sessionState.isGated();
       const activeTrades = this.sessionState.activeTrades;
 
-      if (config.global_scanner_enabled !== false && !(isGated && activeTrades.length === 0)) {
+      // SRE: Optimization. In 'light' hibernation mode, we keep monitoring symbols even when gated
+      // to avoid the 250+ weight REST backfill burst on resumption.
+      const isHibernating = this.sessionState.hibernating;
+      const hibMode = config.hibernation_mode || 'adaptive';
+      const suppressScanner = isGated && activeTrades.length === 0 && hibMode !== 'light';
+
+      if (config.global_scanner_enabled !== false && !suppressScanner) {
         let symbols: string[];
         if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
         else {
-          const top = this.tickerCache.topByVolume((config.watchlist_size || 50) + (config.watchlist_offset || 0), config.excluded_symbols || []);
-          const slicedTop = top.slice(config.watchlist_offset || 0);
-          symbols = slicedTop.map((t: any) => t.symbol);
+          const signature = this.getWatchlistConfigSignature(config);
+          const now = Date.now();
+          const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+          if (
+            this.discoveredSymbolsCache &&
+            now - this.discoveredSymbolsCache.timestamp < CACHE_TTL_MS &&
+            this.discoveredSymbolsCache.signature === signature
+          ) {
+            symbols = this.discoveredSymbolsCache.symbols;
+          } else {
+            // BOLT: Smart Watchlist Logic - Event driven discovery without extra REST calls.
+            // If enabled, we expand the candidate pool from !miniTicker updates.
+            const watchlistSize = config.watchlist_size || 50;
+            const offset = config.watchlist_offset || 0;
+
+            if (config.smart_watchlist_enabled) {
+              // Smart Watchlist: Filter all tickers by momentum volatility from the cache (seeded by !miniTicker)
+              // to find candidates that are moving fast even if they are not in the top 50 by volume.
+              const sensitivity = config.smart_watchlist_sensitivity || 0.7;
+              const threshold = (config.scan_pct_threshold || 2.0) * sensitivity;
+
+              const tickers = this.tickerCache.getLatestTickers();
+              const smartCandidates = tickers
+                .filter(t => {
+                  if (config.excluded_symbols?.includes(t.symbol)) return false;
+                  if (this.getSymbolFilters(t.symbol) === undefined) return false;
+
+                  // Estimate momentum if open_24h is available
+                  if (t.open_24h && t.open_24h > 0) {
+                    const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
+                    return momentum >= threshold;
+                  }
+                  return false;
+                })
+                .sort((a, b) => b.volume_24h - a.volume_24h)
+                .slice(0, watchlistSize);
+
+              symbols = smartCandidates.map(t => t.symbol);
+
+              // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
+              const discoveryMode = config.discovery_mode || 'volume';
+              const topSymbols = discoveryMode === 'change_pct'
+                ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
+                : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+              const volumeSymbols = topSymbols.map(t => t.symbol);
+
+              symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
+            } else {
+              const discoveryMode = config.discovery_mode || 'volume';
+              const top = discoveryMode === 'change_pct'
+                ? await this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
+                : await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+              const slicedTop = top.slice(offset);
+
+              // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
+              // that appear in miniTicker stream but are not tradable by the bot.
+              symbols = slicedTop
+                .map((t: any) => t.symbol)
+                .filter(s => this.getSymbolFilters(s) !== undefined);
+            }
+
+            // Save to cache
+            this.discoveredSymbolsCache = {
+              symbols,
+              timestamp: now,
+              signature,
+            };
+          }
         }
-        const globalInterval = config.scan_interval || '1m';
-        for (const s of symbols) {
-          if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
-          newWatchlist.get(s)!.add(globalInterval);
+        const strategyConfigs: SessionConfig[] = [config];
+        if (config.strategy_variants) {
+          for (const v of config.strategy_variants) {
+            if ((v as any).enabled !== false) {
+              strategyConfigs.push({
+                ...config,
+                ...v,
+                strategy_label: v.strategy_label,
+                strategy_variants: [], // prevent infinite recursion
+              });
+            }
+          }
+        }
+
+        for (const sc of strategyConfigs) {
+          const globalInterval = sc.scan_interval || '1m';
+          for (const s of symbols) {
+            if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
+            newWatchlist.get(s)!.add(globalInterval);
+          }
         }
       }
 
-      if (config.single_symbol_configs) {
-        for (const sc of config.single_symbol_configs) {
-          if (!sc.enabled) continue;
-          if (!newWatchlist.has(sc.symbol)) newWatchlist.set(sc.symbol, new Set());
-          const interval = sc.use_custom_config && sc.custom_config?.scan_interval ? sc.custom_config.scan_interval : config.scan_interval || '1m';
-          newWatchlist.get(sc.symbol)!.add(interval);
+      const strategyConfigs: SessionConfig[] = [config];
+      if (config.strategy_variants) {
+        for (const v of config.strategy_variants) {
+          if ((v as any).enabled !== false) {
+            strategyConfigs.push({
+              ...config,
+              ...v,
+              strategy_label: v.strategy_label,
+              strategy_variants: [],
+            });
+          }
+        }
+      }
+
+      for (const sc of strategyConfigs) {
+        if (sc.single_symbol_configs) {
+          for (const ssc of sc.single_symbol_configs) {
+            if (!ssc.enabled) continue;
+            // COMPLIANCE: Extend non-crypto filtering to manual monitors
+            if (this.getSymbolFilters(ssc.symbol) === undefined) {
+               this.logger.warn(`Filtering out non-crypto symbol from manual monitor: ${ssc.symbol}`);
+               continue;
+            }
+            if (!newWatchlist.has(ssc.symbol)) newWatchlist.set(ssc.symbol, new Set());
+            const interval = ssc.use_custom_config && ssc.custom_config?.scan_interval ? ssc.custom_config.scan_interval : sc.scan_interval || '1m';
+            newWatchlist.get(ssc.symbol)!.add(interval);
+          }
         }
       }
 
       for (const trade of activeTrades) {
-        const t = trade as any;
+        const t = trade;
         if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
         newWatchlist.get(t.symbol)!.add('1m');
-        if (config.scan_interval) newWatchlist.get(t.symbol)!.add(config.scan_interval);
-        if (t.strategy_config?.scan_interval) newWatchlist.get(t.symbol)!.add(t.strategy_config.scan_interval);
-        if (t.strategy_config?.sl_lookback_timeframe) newWatchlist.get(t.symbol)!.add(t.strategy_config.sl_lookback_timeframe);
+        for (const sc of strategyConfigs) {
+          const resolvedScanInterval = this.resolveInterval(sc.scan_interval || '5m', sc);
+          if (resolvedScanInterval) newWatchlist.get(t.symbol)!.add(resolvedScanInterval);
+        }
+        const resolvedTradeScan = this.resolveInterval(t.strategy_config?.scan_interval || 'default', config);
+        if (resolvedTradeScan) newWatchlist.get(t.symbol)!.add(resolvedTradeScan);
+        const resolvedTradeSl = this.resolveInterval(t.strategy_config?.sl_lookback_timeframe || 'default', config);
+        if (resolvedTradeSl) newWatchlist.get(t.symbol)!.add(resolvedTradeSl);
       }
 
-      if (config.sl_lookback_timeframe) {
-        for (const [symbol, intervals] of newWatchlist) intervals.add(config.sl_lookback_timeframe);
+      for (const sc of strategyConfigs) {
+        if (sc.sl_lookback_timeframe) {
+          const resolvedGlobalSl = this.resolveInterval(sc.sl_lookback_timeframe, sc);
+          if (resolvedGlobalSl) {
+            for (const [symbol, intervals] of newWatchlist) intervals.add(resolvedGlobalSl);
+          }
+        }
+      }
+
+      // MULTI-TIMEFRAME SIGNALS: Extract all unique timeframes from enabled entry & exit signals across all strategy configurations
+      const mtfIntervals = new Set<string>();
+      for (const sc of strategyConfigs) {
+        if (sc.signal_timeframes) {
+          const activeSignals = [
+            ...(sc.enabled_signals || []),
+            ...(sc.exit_signals || [])
+          ];
+          for (const sig of activeSignals) {
+            const tf = sc.signal_timeframes[sig];
+            const resolvedTf = this.resolveInterval(tf, sc);
+            if (resolvedTf) mtfIntervals.add(resolvedTf);
+          }
+        }
+      }
+      if (mtfIntervals.size > 0) {
+        for (const [symbol, intervals] of newWatchlist) {
+          for (const mtfTf of mtfIntervals) {
+            intervals.add(mtfTf);
+          }
+        }
       }
 
       let changed = newWatchlist.size !== this.activeWatchlist.size;
@@ -321,7 +758,13 @@ export class MarketFeedService {
         }
       }
 
-      if (changed) {
+      // BOLT: Force rebuild if we have never successfully built a non-empty watchlist
+      // to resolve the cold-start bootstrap deadlock where the first pass might fail
+      // due to transiently empty TickerCache.
+      const forceRebuild = !this.hasSuccessfullyBuiltWatchlist && newWatchlist.size > 0;
+
+      if (changed || forceRebuild) {
+        if (newWatchlist.size > 0) this.hasSuccessfullyBuiltWatchlist = true;
         const prevWatchlist = this.activeWatchlist;
         this.activeWatchlist = newWatchlist;
         await this.rebuildCombinedKlineStream();
@@ -335,65 +778,317 @@ export class MarketFeedService {
         }
         this.processBackfillQueue();
       }
-    } catch (err) {}
+
+      // BOLT: Throttled logging for watchlist updates to reduce noise during rapid config changes or trade entries
+      const now = Date.now();
+      if (now - this.lastWatchlistLogTs > 10000 || changed) {
+        this.logger.log(`[MarketFeed] Watchlist updated: ${this.activeWatchlist.size} symbols monitored.`);
+        this.lastWatchlistLogTs = now;
+      }
+    } catch (err) {
+      this.logger.error(`[MarketFeed] Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async startGlobalDiscovery() {
+    this.stopGlobalDiscovery();
+
+    // SRE: Critical guard - do not attempt to open new streams if the IP is currently banned
+    if (this.sessionState.isBanned()) {
+      this.logger.warn(`[MarketFeed] Global discovery start deferred: IP is currently banned.`);
+      return;
+    }
+
+    const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
+    const isTestnet = mode === 'testnet';
+    // Live uses the newer /market/stream endpoint with streams embedded in the URL.
+    // The classic /stream endpoint is starved by Binance from many IP ranges, and the
+    // SUBSCRIBE method is not served on /market/stream, so URL-param subscription is required.
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+
+    // RAW DISCOVERY FALLBACK (Citadel Protocol 2026): When the primary global aggregate streams
+    // (!miniTicker@arr / !markPrice@arr) are starved for this IP range, subscribe instead to
+    // individual symbol-scoped miniTicker/markPrice streams built from the candidate set we
+    // already know (config.symbols + active trades + the REST-seeded TickerCache top volume).
+    // This is a genuinely different subscription set (not the all-symbol broadcast) and avoids
+    // the starved aggregate path. The REST seed (seedMarketDataFromRest) still keeps the full
+    // candidate pool populated so the scanner can discover new symbols.
+    let topics: string[];
+    if (this.forceRawDiscovery && !isTestnet) {
+      topics = this.buildRawDiscoveryTopics();
+      this.logger.warn(`[MarketFeed] RAW discovery fallback active: subscribing to ${topics.length} symbol-scoped streams (aggregate stream starved).`);
+    } else {
+      topics = ['!miniTicker@arr', '!markPrice@arr@1s'];
+    }
+
+    // Testnet still serves the SUBSCRIBE method on /stream, so keep method-based there.
+    // Live must carry streams in the connection URL (?streams=...).
+    let wsUrl = wsBaseMarket;
+    if (!isTestnet) {
+      wsUrl = `${wsBaseMarket}?streams=${topics.join('/')}`;
+    }
+    this.logger.log(`[MarketFeed] Starting unified discovery manager for: ${topics.join(', ')}`);
+
+    const manager = new BinanceSubscriptionManager(
+        wsUrl,
+        {
+            isTestnet,
+            onMessage: (data) => this.processStreamMessage(data),
+            isBanned: () => this.sessionState.isBanned(),
+            onBan: (msg) => {
+               this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
+               const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+               BinanceRequestQueue.setCooldownUntil(until);
+               this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+               this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
+            }
+        }
+    );
+    this.discoveryManagers.set('unified', manager);
+    await manager.connect();
+    await manager.subscribe(topics);
+
+    this.globalDiscoveryOpenedAt = Date.now();
+    this._globalDiscoveryConfirmed = false;
+  }
+
+  /**
+   * Builds the symbol-scoped discovery topic list used by the RAW discovery fallback.
+   * Instead of the global `!miniTicker@arr` / `!markPrice@arr` broadcast (which can be starved
+   * for certain IP ranges), we subscribe to individual `<symbol>@miniTicker` and
+   * `<symbol>@markPrice@1s` streams for the symbols we already know about. The candidate pool is
+   * config.symbols + currently active trades + the top-volume symbols from the REST-seeded
+   * TickerCache, so real-time prices for the scanner's working set stay fresh even when the
+   * aggregate stream is dead. Falls back to the aggregate stream if we somehow know zero symbols.
+   */
+  private buildRawDiscoveryTopics(): string[] {
+    const symbols = new Set<string>();
+    const cfg = this.currentConfig;
+
+    if (cfg?.symbols && Array.isArray(cfg.symbols)) {
+      for (const s of cfg.symbols) symbols.add(String(s).toLowerCase());
+    }
+    for (const t of this.sessionState.activeTrades) {
+      if (t && t.symbol) symbols.add(t.symbol.toLowerCase());
+    }
+    try {
+      const top = this.tickerCache.topByVolume(200, (cfg?.excluded_symbols as string[]) || []);
+      for (const tk of top) {
+        if (tk && tk.symbol) symbols.add(tk.symbol.toLowerCase());
+      }
+    } catch {
+      // TickerCache may be empty during very early startup; rely on the REST seed instead.
+    }
+
+    if (symbols.size === 0) {
+      // Nothing known yet: fall back to the aggregate stream so we can still discover symbols.
+      return ['!miniTicker@arr', '!markPrice@arr@1s'];
+    }
+
+    const topics: string[] = [];
+    for (const s of symbols) {
+      topics.push(`${s}@miniTicker`);
+      topics.push(`${s}@markPrice@1s`);
+    }
+    return topics;
+  }
+
+  private async stopGlobalDiscovery() {
+    for (const manager of this.discoveryManagers.values()) {
+        await manager.stop();
+    }
+    this.discoveryManagers.clear();
+  }
+
+  private lastRawWsLogTs = 0;
+  private _firstMsgLogged = false;
+  private lastHeartbeatTs = 0;
+
+  private processStreamMessage(msg: any, defaultStream?: string) {
+    try {
+      // SRE: Handle both combined ({stream, data}) and single-stream (raw payload) formats.
+      const stream = msg.stream || defaultStream || '';
+      const payload = msg.data || msg;
+
+      // Health tracking for discovery streams (Aggregate streams start with '!' or contain '@arr'.
+      // Symbol-scoped raw-discovery streams (@miniTicker / @markPrice) are also treated as live.)
+      if (stream.startsWith('!') || stream.includes('@arr') || stream.includes('@miniTicker') || stream.includes('@markPrice')) {
+          this._globalDiscoveryConfirmed = true;
+          this.consecutiveDiscoveryFailures = 0;
+          if (!this.hasEverReceivedData) {
+              this.hasEverReceivedData = true;
+              this.logger.log(`[MarketFeed] First message received from stream: ${stream}. Connection healthy.`);
+          }
+
+          // Heartbeat Telemetry (Every 10s)
+          const now = Date.now();
+          if (now - this.lastHeartbeatTs > 10000) {
+              this.logger.log(`[MarketFeed] Heartbeat: Receiving discovery data (${stream}). Cache: ${this.tickerCache.getCacheSize()} symbols.`);
+              this.lastHeartbeatTs = now;
+          }
+      }
+
+      if (!this._firstMsgLogged) {
+        this._firstMsgLogged = true;
+        this.logger.debug(`[MarketFeed] First discovery message sample: ${JSON.stringify(msg).substring(0, 200)}`);
+      }
+
+      if (this.sessionState.config?.debug_mode) {
+         const now = Date.now();
+         if (now - this.lastRawWsLogTs > 2000) {
+            this.logger.debug(`[MarketFeed] Raw WS Frame: ${JSON.stringify(msg).substring(0, 100)}...`);
+            this.lastRawWsLogTs = now;
+         }
+      }
+
+      if (stream.includes('!miniTicker@arr')) {
+        this.lastMiniTickerMsgTs = Date.now();
+        const tickers: any[] = Array.isArray(payload) ? payload : [];
+        if (tickers.length > 0) {
+          this.tickerCache.bulkUpdate(tickers);
+        }
+      } else if (stream.includes('@miniTicker')) {
+        // Symbol-scoped miniTicker (RAW discovery fallback). Payload is a single ticker object.
+        this.lastMiniTickerMsgTs = Date.now();
+        if (payload && (payload.s || payload.symbol)) {
+          this.tickerCache.updateTicker(payload.s || payload.symbol, payload.c, payload.q, payload.o);
+        }
+      } else if (stream.includes('!markPrice@arr')) {
+        this.lastMarkTickerMsgTs = Date.now();
+        const updates: any[] = Array.isArray(payload) ? payload : [];
+        for (const u of updates) {
+          this.tickerCache.updateTicker(u.s, undefined, undefined, undefined, u.p);
+        }
+      } else if (stream.includes('@kline')) {
+        const kline = payload.k;
+        if (kline) {
+          this.klineStore.upsertCandle(kline.s, kline.i, kline);
+          this.tickerCache.updateTicker(kline.s, kline.c);
+          if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
+        }
+      } else if (stream.includes('@ticker')) {
+        // Seed ticker cache from symbol-specific ticker stream
+        this.tickerCache.updateTicker(payload.s, payload.c, payload.q, payload.o);
+      } else if (stream.includes('@markPrice')) {
+        // Authoritative real-time mark price for PnL
+        this.tickerCache.updateTicker(payload.s, undefined, undefined, undefined, payload.p);
+      }
+    } catch (err) {
+      this.logger.error(`Error processing stream message: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async rebuildCombinedKlineStream() {
-    for (const ws of this.combinedKlineWsList) {
-      (ws as any)._isExplicitClose = true;
-      this.safeClose(ws);
+    // SRE: Critical guard - do not attempt to open new streams if the IP is currently banned
+    if (this.sessionState.isBanned()) {
+      this.logger.warn(`[MarketFeed] Kline stream rebuild deferred: IP is currently banned.`);
+      return;
     }
-    this.combinedKlineWsList.clear();
-    if (this.activeWatchlist.size === 0) return;
+
+    const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
+    const isTestnet = mode === 'testnet';
+    const wsBaseMarket = isTestnet
+        ? 'wss://fstream.binancefuture.com/stream'
+        : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+
     const allStreams: string[] = [];
+
     for (const [symbol, intervals] of this.activeWatchlist) {
-      for (const interval of intervals) allStreams.push(`${symbol.toLowerCase()}@kline_${interval}`);
+      const s = symbol.toLowerCase();
+      allStreams.push(`${s}@ticker`);
+      const isActiveTrade = this.sessionState.activeTrades.some(t => t.symbol === symbol);
+      if (isActiveTrade) {
+        allStreams.push(`${s}@markPrice@1s`);
+      }
+      for (const interval of intervals) {
+        allStreams.push(`${s}@kline_${interval}`);
+      }
     }
-    const CHUNK_SIZE = 20;
-    const chunks = [];
-    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) chunks.push(allStreams.slice(i, i + CHUNK_SIZE));
-    for (const chunk of chunks) {
-      const streams = chunk.join('/');
-      const url = `${ENGINE_CONSTANTS.BINANCE_WS_BASE}/stream?streams=${streams}`;
-      const connect = () => {
-        if (!this.running) return;
-        const ws = new WebSocket(url, { handshakeTimeout: ENGINE_CONSTANTS.WS_HANDSHAKE_TIMEOUT_MS });
-        ws.on('message', (data: Buffer) => {
-          try {
-            const msg: BinanceKline = JSON.parse(data as any);
-            const kline = msg.data?.k;
-            if (kline) {
-              this.klineStore.upsertCandle(kline.s, kline.i, kline);
-              this.tickerCache.updateTicker(kline.s, kline.c);
-              if (kline.x && this.onCandleClose) this.onCandleClose(kline.s).catch(() => {});
+
+    // Stop all existing kline managers
+    for (const manager of this.klineManagers) {
+        await manager.stop();
+    }
+    this.klineManagers = [];
+
+    if (allStreams.length === 0) return;
+
+    // Industry 2026: Chunk into separate connections of max 200 streams each
+    const CHUNK_SIZE = 200;
+    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
+        const chunk = allStreams.slice(i, i + CHUNK_SIZE);
+        this.logger.debug(`[MarketFeed] Initializing kline manager for chunk of ${chunk.length} streams...`);
+        // Live: embed streams in the URL (?streams=) since /market/stream does not serve the
+        // SUBSCRIBE method. Testnet keeps method-based subscription on /stream.
+        const managerWsUrl = isTestnet ? wsBaseMarket : `${wsBaseMarket}?streams=${chunk.join('/')}`;
+        const manager = new BinanceSubscriptionManager(
+            managerWsUrl,
+            {
+                isTestnet,
+                onMessage: (data) => this.processStreamMessage(data),
+                isBanned: () => this.sessionState.isBanned(),
+                onBan: (msg) => {
+                   this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
+                   const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+                   BinanceRequestQueue.setCooldownUntil(until);
+                   this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+                   this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
+                }
             }
-          } catch (err) {
-            this.logger.error(`Error processing combined kline stream: ${err instanceof Error ? err.message : String(err)}`);
-          }
-        });
-        ws.on('close', () => {
-          if (this.running && !(ws as any)._isExplicitClose) {
-            this.logger.debug('Combined kline stream closed. Reconnecting...');
-            const timeout = setTimeout(() => {
-              this.subscriptionTasks = this.subscriptionTasks.filter(t => t !== timeout);
-              connect();
-            }, ENGINE_CONSTANTS.WS_RECONNECT_DELAY_MS);
-            this.subscriptionTasks.push(timeout);
-          }
-        });
-        this.combinedKlineWsList.add(ws);
-      };
-      connect();
+        );
+        this.klineManagers.push(manager);
+        await manager.connect();
+        await manager.subscribe(chunk);
     }
   }
 
+  /**
+   * Valid Binance Futures kline intervals
+   */
+  private static readonly VALID_INTERVALS = new Set([
+    '1m', '3m', '5m', '15m', '30m',
+    '1h', '2h', '4h', '6h', '8h', '12h',
+    '1d', '3d', '1w', '1M'
+  ]);
+
+  /**
+   * Resolve an interval string to a valid Binance interval.
+   * Replaces "default" with the configured scan_interval or "5m".
+   * Returns null if the interval is invalid and cannot be resolved.
+   */
+  private resolveInterval(interval: string, config?: SessionConfig | null): string | null {
+    if (!interval || typeof interval !== 'string') {
+      return config?.scan_interval || '5m';
+    }
+    const trimmed = interval.trim();
+    if (MarketFeedService.VALID_INTERVALS.has(trimmed)) {
+      return trimmed;
+    }
+    if (trimmed === 'default') {
+      return config?.scan_interval || '5m';
+    }
+    this.logger.warn(`[MarketFeed] Invalid interval "${interval}" for symbol, skipping. Valid intervals: ${Array.from(MarketFeedService.VALID_INTERVALS).join(', ')}`);
+    return null;
+  }
+
   private parseIntervalToMs(interval: string): number {
+    // Robust Defensive Guard: ensure interval is a valid, non-empty string before slicing or parsing
+    if (typeof interval !== 'string' || !interval) {
+      return 60 * 1000; // default to 1m
+    }
     const unit = interval.slice(-1);
     const value = parseInt(interval.slice(0, -1), 10);
+    if (isNaN(value) || value <= 0) {
+      return 60 * 1000; // default to 1m on NaN or invalid values
+    }
     switch (unit) {
       case 'm': return value * 60 * 1000;
       case 'h': return value * 60 * 60 * 1000;
       case 'd': return value * 24 * 60 * 60 * 1000;
+      case 'w': return value * 7 * 24 * 60 * 60 * 1000;
+      case 'M': return value * 30 * 24 * 60 * 60 * 1000;
       default: return 60 * 1000;
     }
   }
@@ -401,78 +1096,153 @@ export class MarketFeedService {
   private async processBackfillQueue() {
     if (this.backfillProcessing || this.backfillQueue.length === 0) return;
     this.backfillProcessing = true;
+
+    // SRE: Prioritize symbols with active positions in the backfill queue
+    const activeSymbols = new Set(this.sessionState.activeTrades.map(t => t.symbol));
+    this.backfillQueue.sort((a, b) => {
+      const aActive = activeSymbols.has(a.symbol) ? 1 : 0;
+      const bActive = activeSymbols.has(b.symbol) ? 1 : 0;
+      return bActive - aActive; // Active positions first
+    });
+
     const initialDepth = this.backfillQueue.length;
-    this.logger.log(`Starting concurrent kline backfill queue. Depth: ${initialDepth}`);
+    const startWeight = this.sessionState.binanceRateLimit.used_1m;
+    const startTime = Date.now();
+    this.logger.log(`Starting prioritized sequential kline backfill queue. Depth: ${initialDepth} | Current Weight: ${startWeight}`);
 
-    const CONCURRENCY = 5;
-    const processTask = async () => {
-      while (this.backfillQueue.length > 0 && this.running) {
-        // Stricter rate limit for background tasks (80% of limit threshold)
-        const rateLimit = this.sessionState.getBinanceRateLimit();
-        const usedWeight = rateLimit.used_weight_1m;
-        const limit = rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT;
-        const pauseThreshold = Math.floor(limit * 0.8);
-
-        if (usedWeight > pauseThreshold) {
-          this.logger.debug(`Backfill worker pausing (Weight: ${usedWeight}/${limit})...`);
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          continue;
-        }
-
-        const task = this.backfillQueue.shift();
-        if (task) {
-          try {
-            await this.backfillKlines(task.symbol, task.interval);
-          } catch (err) {
-            this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${err instanceof Error ? err.message : String(err)}`);
-          }
-          // Small delay between requests to smooth out weight consumption
-          await new Promise(resolve => setTimeout(resolve, 100));
-        }
+    // STRATEGY: Sequential backfill to avoid rate-limit bursts
+    while (this.backfillQueue.length > 0 && this.running) {
+      // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
+      if (this.sessionState.isBanned()) {
+        this.logger.warn(`Backfill queue paused: IP is currently banned. Waiting for cooldown...`);
+        await new Promise(resolve => setTimeout(resolve, 30000));
+        continue;
       }
-    };
 
-    const workers = [];
-    for (let i = 0; i < Math.min(CONCURRENCY, initialDepth); i++) {
-      // PERFORMANCE: Stagger worker start times to avoid instant peak load
-      workers.push((async () => {
-        await new Promise(r => setTimeout(r, i * 200));
-        return processTask();
-      })());
+      // SRE: Highly aggressive rate limit for background tasks (50% of limit threshold)
+      // This preserves weight for critical entry/exit operations.
+      const rateLimit = this.sessionState.getBinanceRateLimit();
+      const usedWeight = Number(rateLimit.used_weight_1m || 0);
+      const limit = Number(rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT);
+
+      // SRE: Defensive guard against NaN to prevent 0ms delay hammers
+      const usageRatio = (limit > 0) ? (usedWeight / limit) : 0;
+      const safeUsageRatio = Number.isFinite(usageRatio) ? usageRatio : 0;
+
+      const pauseThreshold = Math.floor(limit * 0.5);
+
+      if (usedWeight > pauseThreshold) {
+        // SRE: Window Awareness Fallback. If we are > 50% and near the end of the minute,
+        // wait for the rollover instead of a long fixed 10s sleep.
+        const secondsInMinute = new Date().getSeconds();
+        if (secondsInMinute > 45) {
+           const waitMs = (60 - secondsInMinute + 1) * 1000;
+           this.logger.warn(`Backfill pausing: High weight (${usedWeight}/${limit}) near window end. Waiting ${waitMs}ms for rollover...`);
+           await new Promise(resolve => setTimeout(resolve, waitMs));
+           continue;
+        }
+
+        this.logger.warn(`Backfill queue pausing to preserve IP reputation (Weight: ${usedWeight}/${limit})...`);
+        await new Promise(resolve => setTimeout(resolve, 10000)); // Normal backoff
+        continue;
+      }
+
+      const task = this.backfillQueue.shift();
+      if (task) {
+        try {
+          await this.backfillKlines(task.symbol, task.interval);
+        } catch (err: any) {
+          const msg = err.message || '';
+          const isBan = msg.includes('banned') || msg.includes('418');
+          const isRateLimit = msg.includes('429');
+
+          if (isBan || isRateLimit) {
+             this.logger.warn(`Critical API issue detected during backfill: ${msg}. Purging ${this.backfillQueue.length} items from backfill queue.`);
+             this.backfillQueue = [];
+             break; // Exit the while loop immediately
+          }
+          this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${msg}`);
+        }
+
+        // SRE: Adaptive gap between sequential requests to smooth out weight consumption.
+        // Scaled by current usage ratio to proactively slow down background load.
+        // BOLT: Increased base delay to 500ms and max scale to +3s for safer IP reputation.
+        const baseDelay = 500;
+        const adaptiveDelay = baseDelay + (safeUsageRatio * 3000);
+        const finalDelay = Number.isFinite(adaptiveDelay) ? adaptiveDelay : baseDelay;
+
+        await new Promise(resolve => setTimeout(resolve, finalDelay + Math.random() * 500));
+      }
     }
-
-    await Promise.all(workers);
     this.backfillProcessing = false;
-    this.logger.log(`Concurrent kline backfill complete.`);
+    const endWeight = this.sessionState.binanceRateLimit.used_1m;
+    const duration = (Date.now() - startTime) / 1000;
+    // SRE: Weight Used is an approximation. If duration > 60s, the used_1m window has rolled over.
+    const weightUsed = duration > 60 ? 'Window Rolled' : (endWeight - startWeight);
+    this.logger.log(`Sequential kline backfill complete. Duration: ${duration.toFixed(1)}s | Weight Used: ${weightUsed} (Total: ${endWeight})`);
   }
 
   private async backfillKlines(symbol: string, interval: string) {
+    const resolvedInterval = this.resolveInterval(interval, this.sessionState.config);
+    if (!resolvedInterval) {
+      this.logger.error(`[MarketFeed] Skipping backfill for ${symbol} ${interval}: Invalid interval that cannot be resolved.`);
+      return;
+    }
+
     const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
-    const existingCandles = await this.klineStore.getRecentCandles(symbol, interval, requiredWarmup);
+
+    // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
+    let existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
+
+    if (existingCandles.length < requiredWarmup) {
+       this.logger.debug(`[MarketFeed] Low local memory cache for ${symbol} ${resolvedInterval}. Checking database...`);
+       const loadedCount = await this.klineStore.loadFromDb(symbol, resolvedInterval, requiredWarmup);
+       if (loadedCount > 0) {
+          this.logger.log(`[MarketFeed] Successfully restored ${loadedCount} candles from local DB for ${symbol} ${resolvedInterval}.`);
+          existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
+       }
+    }
 
     if (existingCandles.length >= requiredWarmup) {
-      const lastCandle = existingCandles[0];
-      const intervalMs = this.parseIntervalToMs(interval);
+      // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order, not the oldest one at index 0.
+      // This prevents the system from misinterpreting valid, fresh local caches as stale, avoiding thousands of redundant REST backfills.
+      const lastCandle = existingCandles[existingCandles.length - 1];
+      const intervalMs = this.parseIntervalToMs(resolvedInterval);
       // If the most recent candle is still fresh enough, skip backfill
       if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {
-        this.logger.debug(`Skipping kline backfill for ${symbol} ${interval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
+        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
         return;
       }
     } else {
-      this.logger.log(`Backfilling klines for ${symbol} ${interval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
+      this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
     }
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
-      const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${this.klineStore.getMaxCandles()}`;
       this.monitoringService.incrementApiRequests();
-      const response = await fetch(url);
-      if (response.ok) {
-        const klines = await response.json();
-        if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, interval, klines);
+      let klines: any[][];
+
+      if (this.binanceClient) {
+        const response = await this.binanceClient.restAPI.klineCandlestickData({
+          symbol,
+          interval: resolvedInterval as any,
+          limit: this.klineStore.getMaxCandles()
+        });
+        this.updateWeight(response.headers);
+        klines = (await response.data()) as any[][];
+      } else {
+        const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
+        const response = await this.binanceClientFactory.genericRequest(
+          () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+          'klineCandlestickData'
+        );
+        if (!response.ok) return;
+        klines = (await response.json()) as any[][];
       }
+
+      if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
     } catch (err) {
-      this.logger.error(`Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.error(`Kline backfill failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 }

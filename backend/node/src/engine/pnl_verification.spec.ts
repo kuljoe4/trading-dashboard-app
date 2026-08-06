@@ -9,7 +9,7 @@ describe('TradingSession Mock', () => {
       {} as any, // klineStore
       {} as any, // signalEngine
       {} as any, // riskEngine
-      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn() } as any, // positionTracker
+      { activeList: () => [], activeCount: () => 0, totalRisk: () => 0, recalculateTotalRisk: jest.fn(), clear: jest.fn() } as any, // positionTracker
       {} as any, // orderManager
       {} as any, // marketFeed
       {} as any, // momentumScanner

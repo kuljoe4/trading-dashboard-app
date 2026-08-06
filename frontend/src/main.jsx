@@ -6,13 +6,16 @@ import { useTradingStore } from './store/trading';
 import api, { sessionAPI, setAdminApiKey, initializeAuth } from './api/client';
 import { useVisibility } from './hooks/useVisibility';
 import { AuthOverlay } from './components/AuthOverlay';
+import { ShortcutsModal } from './components/ShortcutsModal';
+import { GlobalToaster } from './components/ui/primitives';
+import { lazyWithRetry } from './lib/lazy';
 import './index.css';
 
-const DashboardView = lazy(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
-const SettingsView = lazy(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
-const HistoryView = lazy(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
-const TradesView = lazy(() => import('./views/TradesView'));
-const TradeDetailView = lazy(() => import('./views/TradeDetailView'));
+const DashboardView = lazyWithRetry(() => import('./views/DashboardView').then(m => ({ default: m.DashboardView })));
+const SettingsView = lazyWithRetry(() => import('./views/SettingsView').then(m => ({ default: m.SettingsView })));
+const HistoryView = lazyWithRetry(() => import('./views/HistoryView').then(m => ({ default: m.HistoryView })));
+const TradesView = lazyWithRetry(() => import('./views/TradesView'));
+const TradeDetailView = lazyWithRetry(() => import('./views/TradeDetailView'));
 
 const LoadingView = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
@@ -24,38 +27,115 @@ const LoadingView = () => (
 );
 
 const App = () => {
+  const store = useTradingStore();
   const { 
     setSessionActive, updateStats, setThrottled, sync, debugToolsEnabled
-  } = useTradingStore();
+  } = store;
+
+  const [hydrated, setHydrated] = useState(useTradingStore.persist.hasHydrated());
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.useTradingStore = useTradingStore;
+    }
+
+    // BOLT: Critical hydration guard to prevent 0-data flicker on cold starts
+    const unsub = useTradingStore.persist.onFinishHydration(() => {
+      console.log("[App] Hydration finished");
+      setHydrated(true);
+    });
+
+    // Safety check: if hydration finished before effect mounted
+    if (useTradingStore.persist.hasHydrated()) {
+      setHydrated(true);
+    }
+
+    return () => unsub();
+  }, []);
 
   const isHidden = useVisibility();
 
-  // Initialize Auth
+  // Global unhandled rejection handler for chunk load failures
   useEffect(() => {
-    async function initAuth() {
+    const handleRejection = (event) => {
+      const error = event.reason;
+      const isChunkError = error?.name === 'ChunkLoadError' ||
+                          /failed to fetch dynamically imported module/i.test(error?.message) ||
+                          /error loading dynamically imported module/i.test(error?.message);
+
+      if (isChunkError) {
+        console.error('Global chunk load error detected:', error);
+        const lastReload = Number(sessionStorage.getItem('last-chunk-error-reload') || 0);
+        if (Date.now() - lastReload > 10000) {
+          sessionStorage.setItem('last-chunk-error-reload', String(Date.now()));
+          window.location.reload();
+        }
+      }
+    };
+
+    window.addEventListener('unhandledrejection', handleRejection);
+    return () => window.removeEventListener('unhandledrejection', handleRejection);
+  }, []);
+
+  // Initialize Auth with robust retry and exponential backoff to handle cold starts resiliently
+  useEffect(() => {
+    let active = true;
+
+    async function initAuthWithRetry(attempt = 1, maxAttempts = 4, delay = 1000) {
+      if (!active) return;
+      console.log(`[Auth] Fetching auth config (Attempt ${attempt}/${maxAttempts})...`);
       try {
-        const res = await api.get('/auth/config');
+        // Enforce a hard 5-second timeout on each config check
+        const res = await api.get('/auth/config', { timeout: 5000 });
+        if (!active) return;
+
+        console.log(`[Auth] Auth config fetched successfully on attempt ${attempt}`);
         if (res.data.adminApiKey) {
           setAdminApiKey(res.data.adminApiKey);
         } else {
-          // Even if no key is returned, resolve auth to prevent deadlocks
           initializeAuth();
         }
       } catch (e) {
+        if (!active) return;
         if (e.code === 'ERR_CANCELED') return;
-        console.error("Failed to fetch auth config", e);
-        initializeAuth();
+
+        const isTimeout = e.code === 'ECONNABORTED' || e.message?.toLowerCase().includes('timeout');
+        console.warn(
+          `[Auth] Attempt ${attempt}/${maxAttempts} failed. ` +
+          `Error: ${e.message || String(e)}. ` +
+          `Type: ${isTimeout ? 'Timeout' : 'Network/Server Error'}.`
+        );
+
+        if (attempt < maxAttempts) {
+          console.log(`[Auth] Retrying in ${delay}ms...`);
+          setTimeout(() => {
+            initAuthWithRetry(attempt + 1, maxAttempts, delay * 2);
+          }, delay);
+        } else {
+          console.error(`[Auth] All ${maxAttempts} attempts exhausted. Proceeding with fallback resolution.`);
+          initializeAuth();
+        }
       }
     }
-    initAuth();
+
+    initAuthWithRetry();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
-    setThrottled(isHidden);
+    if (!hydrated) return;
+
+    console.log(`[App] Visibility changed: isHidden=${isHidden}`);
+    // Sync BEFORE setThrottled to ensure data is updated as soon as unthrottling starts
     if (!isHidden) {
+      console.log(`[App] Tab became visible. Triggering sync.`);
       sync();
     }
-  }, [isHidden, setThrottled, sync]);
+    setThrottled(isHidden);
+  }, [isHidden, hydrated, setThrottled, sync]);
 
   useEffect(() => {
     let script = null;
@@ -90,8 +170,21 @@ const App = () => {
     };
   }, [debugToolsEnabled]);
 
+  const [showShortcuts, setShowShortcuts] = useState(false);
+
+  useEffect(() => {
+    const toggleShortcuts = () => setShowShortcuts(prev => !prev);
+    window.addEventListener('toggle-shortcuts', toggleShortcuts);
+    return () => window.removeEventListener('toggle-shortcuts', toggleShortcuts);
+  }, []);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) {
+        e.target.blur();
+        return;
+      }
+
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 
       if (e.key === '1' || e.key.toLowerCase() === 'c') window.location.hash = '#/';
@@ -99,9 +192,18 @@ const App = () => {
       if (e.key === '3' || e.key.toLowerCase() === 'h') window.location.hash = '#/history';
       if (e.key === '4') window.location.hash = '#/settings';
       if (e.key.toLowerCase() === 's') window.dispatchEvent(new Event('toggle-scanner'));
+      if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts(prev => !prev);
+      }
       if (e.key === '/') {
         e.preventDefault();
-        const searchInput = document.querySelector('input[placeholder*="Search"]');
+        const searchInputs = Array.from(document.querySelectorAll('input[placeholder*="Search"]'));
+        // Prioritize the first visible search input on the screen
+        const visibleSearchInput = searchInputs.find(
+          (input) => input.offsetWidth > 0 || input.offsetHeight > 0 || input.offsetParent !== null
+        );
+        const searchInput = visibleSearchInput || searchInputs.pop();
         if (searchInput) {
           searchInput.focus();
           searchInput.select();
@@ -116,6 +218,8 @@ const App = () => {
   const [view, setView] = useState('cockpit');
 
   useEffect(() => {
+    if (!hydrated) return;
+
     const controller = new AbortController();
 
     async function checkStatus() {
@@ -124,20 +228,30 @@ const App = () => {
         if (controller.signal.aborted) return;
 
         const currentState = useTradingStore.getState();
-        if (res.data.running) {
+        const running = !!res.data.running;
+
+        if (running) {
           setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+        } else if (currentState.sessionActive) {
+          // BOLT: Defensive Termination Guard.
+          // Only force clear if the backend is DEFINITIVELY stopped.
+          // If the backend request failed or returned empty but we were running, we trust our persisted state
+          // until the next polling cycle or WebSocket heartbeat confirm otherwise.
+          if (res.data.status === 'stopped' || res.data.running === false) {
+             console.log("[App] Backend confirmed session stopped. Clearing local session state.");
+             setSessionActive(false, null);
+          }
         }
+
         updateStats({
-          balance: res.data.balance ?? currentState.balance,
-          totalPnl: res.data.totalPnl ?? currentState.totalPnl,
-          totalRiskPct: res.data.totalRiskPct ?? currentState.totalRiskPct,
-          totalSlUsed: res.data.totalSlUsed ?? 0,
-          activeTrades: res.data.activeTrades || [],
-          variantStats: res.data.variant_stats || {},
-          scannerResults: res.data.scannerResults || [],
-          activeWindows: res.data.activeWindows || [],
-          tradeHistory: res.data.history || [],
-          config: res.data.config ? { ...currentState.config, ...res.data.config } : currentState.config,
+          ...res.data,
+          sessionActive: running,
+          activeTrades: res.data.activeTrades,
+          variantStats: res.data.variant_stats,
+          scannerResults: res.data.scannerResults,
+          activeWindows: res.data.activeWindows,
+          tradeHistory: res.data.history,
+          config: res.data.config,
         });
       } catch (e) {
         if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
@@ -151,6 +265,7 @@ const App = () => {
       const fullHash = window.location.hash.replace('#/', '') || 'cockpit';
       const [path, query] = fullHash.split('?');
       setView(path === 'dashboard' ? 'cockpit' : path);
+      setShowShortcuts(false);
     };
     window.addEventListener('hashchange', handleHashChange);
     handleHashChange();
@@ -162,6 +277,8 @@ const App = () => {
   }, [setSessionActive, updateStats]);
 
   const renderView = () => {
+    if (!hydrated) return <LoadingView />;
+
     if (view.startsWith('trade/')) {
       const id = view.replace('trade/', '');
       return <TradeDetailView tradeId={id} />;
@@ -185,6 +302,8 @@ const App = () => {
   return (
     <TooltipProvider delayDuration={200} skipDelayDuration={0}>
       <AuthOverlay />
+      <ShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <GlobalToaster />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
         <Suspense fallback={<LoadingView />}>
           {renderView()}

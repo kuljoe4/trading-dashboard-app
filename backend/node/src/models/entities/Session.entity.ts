@@ -21,17 +21,17 @@ export class Session {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   totalPnl: number;
 
-  @Column({ nullable: true })
-  strategyLabel: string;
+  @Column({ type: 'varchar', nullable: true })
+  strategyLabel: string | null;
 
   @CreateDateColumn()
   startTime: Date;
 
-  @Column({ nullable: true })
-  endTime: Date;
+  @Column({ type: 'timestamp', nullable: true })
+  endTime: Date | null;
 
   @Column('jsonb', { nullable: true })
-  config: any;
+  config: any | null;
 
   @OneToMany(() => TradeEntity, (trade) => trade.session)
   trades: TradeEntity[];

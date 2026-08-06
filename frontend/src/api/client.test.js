@@ -1,6 +1,38 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { sanitizeSessionConfig, createSessionAPI } from './client.js'
+import { sanitizeSessionConfig, createSessionAPI, normalizeUrl } from './client.js'
+
+describe('normalizeUrl', () => {
+  it('passes through null/undefined', () => {
+    assert.strictEqual(normalizeUrl(null), null)
+    assert.strictEqual(normalizeUrl(undefined), undefined)
+  })
+
+  it('removes trailing slashes', () => {
+    assert.equal(normalizeUrl('https://api.example.com/'), 'https://api.example.com')
+    assert.equal(normalizeUrl('https://api.example.com///'), 'https://api.example.com')
+  })
+
+  it('fixes double protocols', () => {
+    assert.equal(normalizeUrl('https://https://api.example.com'), 'https://api.example.com')
+    assert.equal(normalizeUrl('http://http://api.example.com'), 'http://api.example.com')
+    assert.equal(normalizeUrl('https://https//api.example.com'), 'https://api.example.com')
+  })
+
+  it('fixes missing colons', () => {
+    assert.equal(normalizeUrl('https//api.example.com'), 'https://api.example.com')
+    assert.equal(normalizeUrl('http//api.example.com'), 'http://api.example.com')
+  })
+
+  it('handles user provided case from logs', () => {
+    assert.equal(normalizeUrl('https://https//backend-staging2-7ec5.up.railway.app'), 'https://backend-staging2-7ec5.up.railway.app')
+  })
+
+  it('enforces protocol if requested', () => {
+    assert.equal(normalizeUrl('http://api.example.com', 'https'), 'https://api.example.com')
+    assert.equal(normalizeUrl('https://https//api.example.com', 'wss'), 'wss://api.example.com')
+  })
+})
 
 describe('sanitizeSessionConfig', () => {
   it('keeps only allowed session config keys', () => {
@@ -200,5 +232,62 @@ describe('sanitizeSessionConfig', () => {
     }
     const sanitized = sanitizeSessionConfig(config)
     assert.strictEqual(sanitized.signal_params, undefined)
+  })
+
+  it('preserves smart watchlist and trailing stop fields', () => {
+    const config = {
+      smart_watchlist_enabled: true,
+      smart_watchlist_sensitivity: 0.8,
+      trailing_stop_enabled: true,
+      trailing_stop_distance_pct: 1.5,
+      signal_timeframes: { ema: '5m' }
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.strictEqual(sanitized.smart_watchlist_enabled, true)
+    assert.strictEqual(sanitized.smart_watchlist_sensitivity, 0.8)
+    assert.strictEqual(sanitized.trailing_stop_enabled, true)
+    assert.strictEqual(sanitized.trailing_stop_distance_pct, 1.5)
+    assert.deepEqual(sanitized.signal_timeframes, { ema: '5m' })
+  })
+})
+
+describe('presetsAPI', () => {
+  it('encodes special characters in preset names during delete requests', async () => {
+    const deleteCalls = []
+    const mockApi = {
+      get: () => Promise.resolve({}),
+      post: () => Promise.resolve({}),
+      patch: () => Promise.resolve({}),
+      delete: (url) => {
+        deleteCalls.push(url)
+        return Promise.resolve({ data: { success: true } })
+      }
+    }
+
+    // Import or mock the presetsAPI to use the custom api instance, or we can inspect presetsAPI directly from module
+    // Let's create presetsAPI wrapper or dynamically call client
+    const { presetsAPI } = await import('./client.js')
+
+    // We can also test by calling client's delete method. Since we exported presetsAPI, let's inject mock or intercept using axios mock, or test the function directly:
+    // To ensure zero side-effects, let's verify that deleting names with % and spaces are encoded.
+    // Instead of altering the global axios instance, we can verify presetsAPI.delete exists and constructs the URL correctly by mock-intercepting:
+    const originalDelete = presetsAPI.delete
+    try {
+      let requestedUrl = ''
+      // Mock the default exported axios/api client
+      const defaultClient = (await import('./client.js')).default
+      const originalAxiosDelete = defaultClient.delete
+      defaultClient.delete = (url) => {
+        requestedUrl = url
+        return Promise.resolve({ data: { success: true } })
+      }
+
+      await presetsAPI.delete('Scalp High Vol [9,21] > 2.5%')
+      assert.equal(requestedUrl, '/presets/Scalp%20High%20Vol%20%5B9%2C21%5D%20%3E%202.5%25')
+
+      defaultClient.delete = originalAxiosDelete
+    } finally {
+      presetsAPI.delete = originalDelete
+    }
   })
 })

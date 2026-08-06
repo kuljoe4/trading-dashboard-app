@@ -71,13 +71,40 @@ To avoid regressions and ensure compliance with exchange (Binance) behavior and 
 - **Discoverability**: All critical metrics must have helper tooltips (`<Tooltip content="..." />`) to align with the user's mental model.
 
 ### 5. Gapless Stop-Loss Updates (Ratcheting)
-- **Cancel-then-Replace**: The system primarily uses a Cancel-then-Replace strategy for Stop Loss updates to ensure broad compatibility across Binance symbol types.
-- **Audit-First**: `OrderManagerService.updateStopLoss` performs an audit of the exchange state before replacement to detect and adopt or clear untracked SL orders, preventing "Duplicate order" or "Existing order" rejections.
+- **Market Structure**: Per Binance API, `modifyOrder` is NOT supported for `STOP_MARKET`. All SL updates MUST use **Cancel-then-Replace**.
+- **Constraint**: Attempting to place a second `closePosition: true` order while one exists will be rejected by Binance.
+- **Rollback**: If the replacement SL fails, the system must attempt to re-place the OLD SL price (or the most conservative valid SL) to ensure the position remains protected.
 - **Audit**: Verified in `OrderManagerService.updateStopLoss`.
 
-### 7. Structural Trading Resilience (2026-06-15)
-- **Algo API**: The Algo Order API is used as the primary method for placing conditional Stop Loss orders (`CONDITIONAL` type) for improved trigger reliability. Standard `STOP_MARKET` orders are used as a fallback if the Algo API is unsupported.
+### 7. Structural Trading Resilience (2026-06-21 Update)
+- **Algo API**: The Algo Order API (CONDITIONAL) is the primary path for stop-loss protection. Standard `STOP_MARKET` with `closePosition: true` is used as a mandatory fallback if the Algo API is unsupported (-4120).
+- **Protection Gaps**: `closeTrade` must attempt to close the position *before* canceling stop-losses, and must implement a 're-arm SL' rollback if the close order fails (e.g., due to illiquidity/PERCENT_PRICE).
+- **Nuclear Bypass**: The Watchdog's 'Nuclear Option' must bypass the `close_blocked` attempt ceiling to ensure capital safety.
+- **Risk Integrity**: Position sizing via `auto_scale_min_notional` must not exceed 3x the intended dollar risk.
+- **SL Ratcheting**: Apply a minimum 0.01% price delta guard before replacing SL orders to minimize order-count rate limit pressure.
 - **Close Attempts**: Automated closes (e.g. for PERCENT_PRICE rejections) use exponential backoff and a hard ceiling of 5 attempts. After the ceiling, the trade is marked `close_blocked` and requires manual intervention.
 - **Stream Stability**: User Data Streams use a proactive 24-hour reconnect (at 23h 50m) to avoid silent disconnections and event loss.
 - **Fill Price**: Extract fill price primarily via `cumQuote / executedQty` as `avgPrice` is deprecated by Binance.
 - **Rate Limits**: The system tracks `X-MBX-ORDER-COUNT-10S/1M` headers. Entries and low-priority SL ratchets are throttled/blocked when approaching limits (80%/90%), while emergency closes always proceed.
+
+### 8. Rate Limit & IP Reputation Compliance (2026-06-22 Update)
+- **Centralized Throttling**: ALL Binance SDK `restAPI` calls must pass through the `BinanceRequestQueue` (Proxy-based). This enforces a mandatory 100ms inter-request delay and adaptive backoff starting at 70% weight usage.
+- **Fail-Fast Lifecycle**: REST polling fallbacks for account state (balance/positions) are FORBIDDEN. If the User Data Stream (UDS) fails to initialize, the session must halt immediately to preserve IP reputation and prevent cascading bans.
+- **WebSocket-First State**: Establish the account baseline (balance, active positions) EXACTLY ONCE via REST at session startup. All subsequent state tracking must rely on UDS `ACCOUNT_UPDATE` and `ORDER_TRADE_UPDATE` events.
+- **Sequential Warmup**: Kline backfills must be performed sequentially (concurrency=1) with jittered delays (150-300ms) to avoid startup bursts that trigger immediate IP bans.
+- **Ban Visibility**: Any IP ban (418) or severe rate limit (429) must be broadcast to the UI via `api_status` event and displayed with a high-visibility alert.
+
+### 9. Live Market Data WebSocket — Endpoint & Resilience (2026-07-17)
+- **Endpoint (LIVE)**: Market data MUST be subscribed via the newer `wss://fstream.binance.com/market/stream?streams=<s1>/<s2>/...` endpoint with streams embedded in the URL. The classic `wss://fstream.binance.com/stream` endpoint is **starved by Binance from many IP ranges** (handshake + `SUBSCRIBE` ACK succeed, but ZERO data frames arrive) and must NOT be used for live.
+- **Subscription method**: On `/market/stream` the `SUBSCRIBE`/`UNSUBSCRIBE` request method is **NOT served** — streams must be passed as the `?streams=` URL param. (`BinanceSubscriptionManager` already no-ops the method when the URL contains `?streams=`.)
+- **Testnet**: Keep `wss://fstream.binancefuture.com/stream` + `SUBSCRIBE` method (testnet serves the method and is not starved). Do NOT "align" testnet to live.
+- **Diagnostic discipline**: When live WS delivers 0 frames while testnet works with identical code, the variable is the **HOST**, not the code. Before adding app-level fallback logic, verify the actual endpoint from the deployment's network: test `/market/stream?streams=...`, `/stream`, `/public/stream` directly. Browser-like headers do **NOT** unblock a starved endpoint — do not churn headers as a fix.
+- **Reconnect storms**: Never reconnect a market WS in a tight loop. Use capped exponential backoff (5s -> 60s). A silent-stall reconnect every ~2 min reads as abusive to exchanges and risks IP bans. The stall watchdog / health-check must not force full session or manager restarts on every tick.
+- **REST seed is a safety net, not streaming**: `seedMarketDataFromRest()` populates the TickerCache once at startup (weight 40, `ticker/24hr`). Keep it one-time / cache-empty-only — never poll periodically (per §8 no-REST-polling and IP-ban avoidance).
+- **Batched `ACCOUNT_UPDATE` safety**: In any `for (const pos of data.a.P)` handler, use `continue` (not `return`) to skip a symbol mid-transition; a `return` drops every other symbol in the same batched event (can silently discard unrelated SL closures / quantity syncs).
+- **Alert visibility**: Capital-at-risk transitions (`close_blocked`, `illiquid_blocked`) must emit `ENGINE_EVENTS.ALERT` (not only `LOG_MESSAGE`) so they surface in the UI alert banner.
+
+### 10. Frontend Dev Connectivity & React Rules (2026-07-17)
+- **Dev WebSocket protocol**: Derive the WS protocol from the page protocol (`ws` on http, `wss` on https) rather than hardcoding `wss`. In dev, `VITE_WS_URL` typically points at `ws://localhost:3000`; forcing `wss://localhost:3000` makes the browser fail the connection. A Vite `server.proxy` forwards `/session`, `/settings`, `/monitoring`, `/presets`, `/auth`, `/healthz` to the backend so the SPA stays same-origin (no CORS) in dev. Railway (static `vite build`) is unaffected.
+- **Rules of Hooks**: Never call hooks (`useState`/`useEffect`/`useX`) after an early `return`. A component that returns `null` before its hooks run, then later renders with a different hook count, corrupts React's fiber and throws `Expected static flag was missing`. Move all hooks above any early return (see `DashboardView.GateBanner`).
+- **Radix Dialog a11y**: Every `<Dialog.Content>` requires a `<Dialog.Title>`; add `<Dialog.Description>` or `aria-describedby={undefined}` to avoid the `Missing Description` warning. Audited in `DecisionLog`, `TradeDetailModal`, `ConfirmationModal`.

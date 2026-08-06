@@ -5,4 +5,7 @@ export const ENGINE_EVENTS = {
   TRADE_UPDATED: 'trade.updated',
   LOG_MESSAGE: 'engine.log',
   FUNDING_APPLIED: 'engine.funding_applied',
+  QUANTITY_SYNC: 'trade.quantity_sync',
+  EXCHANGE_CLOSE: 'trade.exchange_close',
+  ALERT: 'engine.alert',
 };

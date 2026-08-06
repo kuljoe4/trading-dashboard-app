@@ -14,20 +14,20 @@ export class AuditLog {
   action: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  actor: string; // e.g., IP address or 'SYSTEM'
+  actor: string | null; // e.g., IP address or 'SYSTEM'
 
   @Column({ type: 'varchar', length: 45, nullable: true })
-  ip: string;
+  ip: string | null;
 
   @Column({ type: 'text', nullable: true })
-  userAgent: string;
+  userAgent: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   @Index()
-  resourceId: string; // e.g., Trade ID, Session ID
+  resourceId: string | null; // e.g., Trade ID, Session ID
 
   @Column({ type: 'jsonb', nullable: true })
-  details: any;
+  details: any | null;
 
   @Column({ type: 'varchar', length: 20, default: 'INFO' })
   level: string; // INFO, WARN, ERROR, CRITICAL

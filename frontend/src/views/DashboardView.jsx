@@ -964,10 +964,18 @@ export function DashboardView({ initialStrategy }) {
     try {
       await sessionAPI.stop()
       setSessionActive(false, null)
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('config_draft');
+        sessionStorage.removeItem('loaded_preset_name');
+      }
       addAlert({ level: 'info', title: 'Session Terminated', message: 'Engine stopped and all positions closed at market.' });
       await fetchSessions()
     } catch (e) {
       setSessionActive(false, null)
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('config_draft');
+        sessionStorage.removeItem('loaded_preset_name');
+      }
       addAlert({ level: 'warn', title: 'Session Stopped', message: 'Engine halted, but some cleanup tasks might have failed.' });
       await fetchSessions()
     } finally {

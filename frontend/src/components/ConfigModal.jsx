@@ -1538,6 +1538,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       setIsDeleting(true);
       await presetsAPI.delete(name);
       setPresets(prev => prev.filter(p => p.name !== name));
+
+      // Clear active preset/loaded references if the deleted preset was active/loaded
+      if (loadedPresetName === name) {
+        setLoadedPresetName(null);
+        if (typeof sessionStorage !== 'undefined') {
+          sessionStorage.removeItem('loaded_preset_name');
+        }
+      }
+      if (presetName === name) {
+        setPresetName('');
+      }
+
+      // Automatically prune this configuration from active variants to prevent it from bleeding into new sessions
+      setCfg(prev => {
+        const variants = (prev.strategy_variants || []).filter(v => v.strategy_label !== name);
+        return {
+          ...prev,
+          strategy_variants: variants
+        };
+      });
+
       addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
     } catch (e) {
       console.error('[ConfigModal] Error deleting preset:', e);
@@ -1546,7 +1567,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       setIsDeleting(false);
       setPresetToDelete(null);
     }
-  }, [addAlert]);
+  }, [addAlert, loadedPresetName, presetName, setCfg, setLoadedPresetName, setPresetName]);
 
   const handleExportToFile = React.useCallback(() => {
     try {
@@ -2806,6 +2827,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               </div>
             </section>
+
+            {/* Premium, glassmorphic UI/UX notice describing clean slate state management */}
+            <div className="flex items-start gap-3 p-4 rounded-2xl bg-accent/[0.02] border border-border/60 text-xs text-dim shadow-sm backdrop-blur-sm select-none animate-in fade-in duration-300">
+              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                <Info size={14} />
+              </div>
+              <div className="space-y-1">
+                <h4 className="font-bold text-text/90 flex items-center gap-1.5 leading-none">
+                  Intuitive Preset State Management
+                </h4>
+                <p className="leading-relaxed text-dim/90 font-medium">
+                  To ensure a completely clean slate and prevent configuration pollution, any active loaded preset name and temporary drafts are automatically cleared from memory when a session is closed. Starting a new session will always begin with a fresh configuration.
+                </p>
+              </div>
+            </div>
 
             <section className="pt-6 border-t border-border/40 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

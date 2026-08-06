@@ -422,7 +422,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().connectWS();
     }
   },
-  setFocusMode: (f, tid = null, s = null) => { const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s })); },
+  setFocusMode: (f, tid = null, s = null, scannerSymbol = null) => { const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s, scannerSymbol })); },
   setSessionActive: (a, id) => {
     const wasActive = get().sessionActive;
     set({ sessionActive: a, strategyId: id });
@@ -431,6 +431,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().connectWS();
     } else {
       get().disconnectWS();
+      // Clear active config drafts and loaded preset names from storage when deactivating/closing a session
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('config_draft');
+        sessionStorage.removeItem('loaded_preset_name');
+      }
       // Proactively clear ephemeral state on termination
       set({
         activeTrades: [],

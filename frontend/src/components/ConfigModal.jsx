@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -751,7 +751,7 @@ const EnvironmentButton = React.memo(({ mode, isSelected, onClick }) => (
 ))
 EnvironmentButton.displayName = 'EnvironmentButton'
 
-const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant }, ref) => {
+const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant, sessionActive }, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
   return (
     <motion.div
@@ -827,14 +827,23 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
             {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
           </button>
         </Tooltip>
-        <Tooltip content="Delete Preset">
+        <Tooltip content={sessionActive ? "Preset deletion is locked while a session is active. Disable or remove from active strategy variants instead." : "Delete Preset"}>
           <button
             type="button"
-            onClick={(e) => onDelete(e, preset.name)}
-            aria-label={`Delete preset ${preset.name}`}
-            className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5 focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none"
+            disabled={sessionActive}
+            onClick={(e) => {
+              if (sessionActive) return;
+              onDelete(e, preset.name);
+            }}
+            aria-label={sessionActive ? `Preset deletion is locked for ${preset.name}` : `Delete preset ${preset.name}`}
+            className={cn(
+              "p-2 transition-colors rounded-lg focus-visible:ring-2 focus-visible:outline-none",
+              sessionActive
+                ? "text-dim/30 bg-surface/5 border border-border/20 cursor-not-allowed"
+                : "text-dim hover:text-red hover:bg-red/5 focus-visible:ring-red"
+            )}
           >
-            <Trash2 size={16} />
+            {sessionActive ? <Lock size={16} className="opacity-60" /> : <Trash2 size={16} />}
           </button>
         </Tooltip>
       </div>
@@ -1534,6 +1543,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [validate, addAlert]);
 
   const deletePreset = React.useCallback(async (name) => {
+    if (sessionActive) {
+      addAlert({ level: 'error', title: 'Action Blocked', message: 'Cannot delete presets while a live session is active.' });
+      return;
+    }
     try {
       setIsDeleting(true);
       await presetsAPI.delete(name);
@@ -1567,7 +1580,71 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       setIsDeleting(false);
       setPresetToDelete(null);
     }
-  }, [addAlert, loadedPresetName, presetName, setCfg, setLoadedPresetName, setPresetName]);
+  }, [addAlert, loadedPresetName, presetName, setCfg, setLoadedPresetName, setPresetName, sessionActive]);
+
+  const handleClearActiveConfig = React.useCallback(() => {
+    let baseline;
+    if (isEdit) {
+      baseline = flattenConfig(initialConfig);
+    } else {
+      baseline = flattenConfig({
+        paper_mode: true,
+        strategy_label: 'Momentum Strategy',
+        strategy_variants: [],
+        max_total_risk_pct: CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT,
+        total_sl_guard_usdt: CONFIG_LIMITS.TOTAL_SL_GUARD_DEFAULT,
+        scan_interval: '5m',
+        scan_pct_threshold: 2.0,
+        scan_lookback: 3,
+        scan_min_volume_usdt: 500000,
+        scan_mode: 'interval',
+        scan_window_duration_sec: 90,
+        scan_check_interval_sec: 5,
+        entry_side: 'both',
+        watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
+        watchlist_offset: 0,
+        discovery_mode: 'volume',
+        enabled_signals: ['momentum_pct'],
+        signal_logic: 'all',
+        tp_mode: 'fixed',
+        tp_ratio: CONFIG_LIMITS.TP_RATIO_DEFAULT,
+        live_rr_sequence: [1, 2, 4],
+        exit_rr_sequence: [0, 1, 2],
+        sl_type: 'pct',
+        sl_distance_pct: CONFIG_LIMITS.SL_DISTANCE_DEFAULT,
+        sl_lookback_timeframe: '5m',
+        sl_lookback_period: 5,
+        sl_min_pct: 0.3,
+        sl_max_pct: 3,
+        trading_mode: 'paper',
+        risk_pct_per_trade: CONFIG_LIMITS.RISK_PER_TRADE_DEFAULT,
+        max_open_trades: CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT,
+        max_trades_per_period: 10,
+        trades_period_min: 60,
+        max_trades_24h: CONFIG_LIMITS.MAX_TRADES_24H_DEFAULT,
+        min_trade_interval_min: CONFIG_LIMITS.MIN_TRADE_INTERVAL_DEFAULT,
+        trades_jitter_pct: CONFIG_LIMITS.TRADES_JITTER_DEFAULT
+      });
+    }
+
+    setCfg(baseline);
+    setLoadedPresetName(null);
+    setPresetName('');
+    setPresetLoaded(false);
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('config_draft');
+      sessionStorage.removeItem('loaded_preset_name');
+    }
+    setIsDirty(false);
+    setErrors({});
+    addAlert({
+      level: 'info',
+      title: isEdit ? 'Config Reset' : 'Configuration Cleared',
+      message: isEdit
+        ? 'Active configuration parameters reset back to last saved session state.'
+        : 'All variants and customized strategy parameters have been cleared to default baseline.'
+    });
+  }, [addAlert, isEdit, initialConfig]);
 
   const handleExportToFile = React.useCallback(() => {
     try {
@@ -2807,7 +2884,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-presets"
             className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
           >
-            <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
                 <SavePresetInput defaultName={loadedPresetName} onSave={(name) => { savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
@@ -2825,6 +2902,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                   </label>
                 </div>
+              </div>
+              <div className="space-y-4">
+                <SectionHeader icon={XCircle} title="Reset Slate" subtitle={isEdit ? "Restore original session configuration" : "Prune active custom configurations"} />
+                <Btn
+                  variant="ghost"
+                  onClick={handleClearActiveConfig}
+                  className="w-full flex items-center justify-center gap-2 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-3 text-xs font-bold"
+                  aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
+                >
+                  <RefreshCw size={14} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset to Saved State" : "Clear Active Config"}
+                </Btn>
               </div>
             </section>
 
@@ -2919,6 +3007,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               onToggleVariant={toggleVariant}
                               onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                               isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                              sessionActive={sessionActive}
                             />
                           ))}
                         </AnimatePresence>
@@ -2971,6 +3060,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                       onToggleVariant={toggleVariant}
                                       onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                                       isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                                      sessionActive={sessionActive}
                                     />
                                   ))}
                                 </AnimatePresence>

@@ -436,8 +436,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         sessionStorage.removeItem('config_draft');
         sessionStorage.removeItem('loaded_preset_name');
       }
-      // Proactively clear ephemeral state on termination
+      // Proactively clear ephemeral state on termination and reset session config back to defaultConfig to prevent stale settings/variants bleeding
       set({
+        config: defaultConfig,
         activeTrades: [],
         scannerResults: [],
         variantScannerResults: {},

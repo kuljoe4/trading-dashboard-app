@@ -433,6 +433,7 @@ ExpandedScannerRowContent.displayName = 'ExpandedScannerRowContent';
 
 const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const setFocusMode = useTradingStore(state => state.setFocusMode);
 
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
@@ -449,6 +450,20 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 
   const status = getStatus();
   const proximity = Number(Math.min(100, (Math.abs(opp.pct || 0) / (threshold || 1)) * 100)).toFixed(0);
+
+  // Focus expanded symbol to request live telemetry/candle charts on demand
+  useEffect(() => {
+    if (isExpanded) {
+      setFocusMode(true, null, null, opp.symbol);
+    } else {
+      setFocusMode(false, null, null, null);
+    }
+    return () => {
+      if (isExpanded) {
+        setFocusMode(false, null, null, null);
+      }
+    };
+  }, [isExpanded, opp.symbol, setFocusMode]);
 
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {

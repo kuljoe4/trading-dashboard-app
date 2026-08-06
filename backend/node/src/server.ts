@@ -333,7 +333,7 @@ async function bootstrap() {
       }
 
       if (payload.type === "scanner") {
-        // Optimization: Prune sparkline history and ohlc_history to save bandwidth
+        // Optimization: Prune sparkline history and ohlc_history to save bandwidth (keep signalResult for visual check lists and auth status)
         const pruneOpp = (opp: any) => {
           const keepOhlc = client.focusScannerSymbol && opp.symbol === client.focusScannerSymbol;
           if (client.focusMode) {
@@ -341,7 +341,7 @@ async function bootstrap() {
             const { ohlc_history, ...rest } = opp;
             return rest;
           } else {
-            const { history, signalResult, ohlc_history, ...thin } = opp;
+            const { history, ohlc_history, ...thin } = opp;
             return {
               ...thin,
               ...(keepOhlc ? { ohlc_history } : {})

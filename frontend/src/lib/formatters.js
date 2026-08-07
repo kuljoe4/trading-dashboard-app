@@ -28,10 +28,13 @@ export const formatDuration = (ms) => {
   const h = Math.floor(m / 60);
   const d = Math.floor(h / 24);
 
-  if (d > 0) return `${d}d ${h % 24}h`;
-  if (h > 0) return `${h}h ${m % 60}min`;
-  if (m > 0) return `${m}min ${s % 60}s`;
-  return `${s}s`;
+  const parts = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h % 24 > 0 || d > 0) parts.push(`${h % 24}h`);
+  if (m % 60 > 0 || h > 0) parts.push(`${m % 60}m`);
+  if (s % 60 > 0 || m > 0 || parts.length === 0) parts.push(`${s % 60}s`);
+
+  return parts.join(' ');
 };
 
 /**

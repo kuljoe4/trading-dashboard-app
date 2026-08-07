@@ -247,7 +247,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
   const durationMs = trade.exit_ts_ms !== undefined && trade.entry_ts_ms !== undefined
     ? trade.exit_ts_ms - trade.entry_ts_ms
     : (trade.exit_ts && trade.entry_ts ? new Date(trade.exit_ts).getTime() - new Date(trade.entry_ts).getTime() : 0)
-  const durationStr = durationMs ? Number(durationMs / 60000).toFixed(1) + 'm' : 'N/A'
+  const durationStr = durationMs ? formatDuration(durationMs) : 'N/A'
   const isLong = trade.direction?.toLowerCase() === 'long'
 
   // Vertical outcome indicator strip style

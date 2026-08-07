@@ -65,6 +65,7 @@ export class Trade {
     fired: boolean;
     active: boolean;
     remaining_delay: number;
+    config_delay?: number | string;
     label: string;
     value: number;
     threshold: number;

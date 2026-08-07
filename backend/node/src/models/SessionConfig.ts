@@ -295,7 +295,7 @@ export class SessionConfig {
 
   @IsObject()
   @IsOptional()
-  exit_signal_delays?: Record<string, number> = {};
+  exit_signal_delays?: Record<string, number | string> = {};
 
   @IsObject()
   @IsOptional()

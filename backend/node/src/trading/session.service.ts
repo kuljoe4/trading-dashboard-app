@@ -650,8 +650,8 @@ export class SessionService implements OnModuleInit {
       "exit_signal_delays",
       config.exit_signal_delays,
       50,
-      (v) => typeof v === "number" && !isNaN(v) && v >= 0 && v <= 86400,
-      "exit_signal_delays values must be numbers between 0 and 86400"
+      (v) => (typeof v === "number" && !isNaN(v) && v >= 0 && v <= 86400) || (typeof v === "string" && /^\d+c$/.test(v)),
+      "exit_signal_delays values must be numbers between 0 and 86400 or a valid candle delay format like '3c'"
     );
 
     validateRecord(

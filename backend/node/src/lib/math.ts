@@ -77,3 +77,32 @@ export function formatSlType(slType: string): string {
   }
   return slType.replace(/_/g, ' ').toUpperCase();
 }
+
+const intervalMsCache = new Map<string, number>();
+
+/**
+ * Parses Binance kline interval string (e.g., '1m', '5m', '1d', '1w', '1M') to milliseconds.
+ */
+export function parseIntervalToMs(interval: string): number {
+  if (typeof interval !== 'string' || !interval) {
+    return 60 * 1000; // default to 1m
+  }
+
+  const cached = intervalMsCache.get(interval);
+  if (cached !== undefined) return cached;
+
+  const unit = interval.slice(-1);
+  const value = parseInt(interval.slice(0, -1), 10);
+  let ms = 60 * 1000; // default to 1m
+  if (!isNaN(value) && value > 0) {
+    switch (unit) {
+      case 'm': ms = value * 60 * 1000; break;
+      case 'h': ms = value * 60 * 60 * 1000; break;
+      case 'd': ms = value * 24 * 60 * 60 * 1000; break;
+      case 'w': ms = value * 7 * 24 * 60 * 60 * 1000; break;
+      case 'M': ms = value * 30 * 24 * 60 * 60 * 1000; break;
+    }
+  }
+  intervalMsCache.set(interval, ms);
+  return ms;
+}

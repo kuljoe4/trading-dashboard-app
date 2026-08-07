@@ -1375,6 +1375,160 @@ export class SessionService implements OnModuleInit {
     return { strategyId: this.currentSessionId, status: "started" };
   }
 
+  async getUntrackedPositions() {
+    if (!this.sessionRunning || !this.currentSessionId) {
+      return { positions: [] };
+    }
+
+    const session = await this.sessionRepository.findOne({
+      where: { id: this.currentSessionId },
+      select: ["id", "tradingMode", "paperMode", "config"],
+    });
+    if (!session) return { positions: [] };
+
+    const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+    if (mode === "paper") {
+      return { positions: [] }; // No exchange positions in paper mode
+    }
+
+    try {
+      const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
+      const activeExPositions = allExchangePositions.filter(
+        (p) => Math.abs(parseFloat(p.positionAmt)) > 0,
+      );
+
+      const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
+      const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
+
+      const untracked = [];
+      const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+      const ordersBySymbol = new Map<string, any[]>();
+      for (const o of allOpenOrders) {
+        const list = ordersBySymbol.get(o.symbol) || [];
+        list.push(o);
+        ordersBySymbol.set(o.symbol, list);
+      }
+
+      for (const p of activeExPositions) {
+        if (!localSymbols.has(p.symbol)) {
+          const qty = Math.abs(parseFloat(p.positionAmt));
+          if (qty < 0.1) continue; // Dust check
+
+          const symOrders = ordersBySymbol.get(p.symbol) || [];
+          const startedByUs = await this.isPositionStartedByUs(p.symbol, symOrders);
+
+          untracked.push({
+            symbol: p.symbol,
+            amount: parseFloat(p.positionAmt),
+            entryPrice: parseFloat(p.entryPrice),
+            markPrice: parseFloat(p.markPrice),
+            notional: qty * parseFloat(p.entryPrice),
+            startedByUs,
+          });
+        }
+      }
+
+      return { positions: untracked };
+    } catch (e: any) {
+      this.logger.error(`Failed to fetch untracked positions: ${e.message}`);
+      throw new BadRequestException(`Failed to fetch untracked positions: ${e.message}`);
+    }
+  }
+
+  async adoptPositionManually(
+    symbol: string,
+    strategyLabel: string,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    if (!this.sessionRunning || !this.currentSessionId) {
+      throw new BadRequestException("No active trading session running");
+    }
+
+    const session = await this.sessionRepository.findOne({
+      where: { id: this.currentSessionId },
+      select: ["id", "tradingMode", "paperMode", "config"],
+    });
+    if (!session) throw new NotFoundException("Active session not found");
+
+    const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+    if (mode === "paper") {
+      throw new BadRequestException("Cannot manually adopt exchange positions in Paper mode");
+    }
+
+    // Check if symbol is already tracked
+    const isTracked = this.tradingSessionService.getActiveTradesRaw().some(t => t.symbol === symbol);
+    if (isTracked) {
+      throw new ConflictException(`Symbol ${symbol} is already tracked by this session`);
+    }
+
+    // Resolve target strategy config
+    let targetConfig = session.config;
+    if (strategyLabel !== (session.config.strategy_label || "Momentum Strategy")) {
+      const variant = (session.config.strategy_variants || []).find(
+        (v: any) => v && (v.strategy_label === strategyLabel),
+      );
+      if (variant) {
+        targetConfig = {
+          ...session.config,
+          ...variant,
+        };
+      }
+    }
+
+    try {
+      // Fetch specific symbol position from exchange
+      const position = await this.orderManager.fetchPosition(symbol, { forceFresh: true });
+      if (!position || Math.abs(parseFloat(position.positionAmt)) === 0) {
+        throw new NotFoundException(`No active position found on exchange for symbol ${symbol}`);
+      }
+
+      const activeOrders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: true });
+
+      // Run adoption with bypassStartedByUsCheck = true
+      const imported = await this.adoptExchangePositions(
+        [position],
+        mode,
+        targetConfig,
+        activeOrders,
+        true, // bypassStartedByUsCheck
+      );
+
+      if (imported.length === 0) {
+        throw new BadRequestException(`Failed to adopt position for ${symbol}`);
+      }
+
+      const t = imported[0];
+      const tradeModel = plainToInstance(Trade, t);
+
+      // Hot-add adopted trade to the running engine
+      this.tradingSessionService.addTrade(tradeModel as any);
+      this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade: tradeModel });
+
+      // Seed and broadcast updates
+      this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
+      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+      this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+
+      await this.auditLog.log({
+        action: "MANUAL_POSITION_ADOPT",
+        resourceId: t.id,
+        actor: ip,
+        ip,
+        userAgent,
+        details: { symbol, direction: t.direction, qty: t.qty, entryPrice: t.entry_price, strategyLabel },
+      });
+
+      return { status: "adopted", trade: t };
+    } catch (e: any) {
+      this.logger.error(`Manual adoption failed for ${symbol}: ${e.message}`);
+      if (e instanceof ConflictException || e instanceof NotFoundException || e instanceof BadRequestException) {
+        throw e;
+      }
+      throw new BadRequestException(`Manual adoption failed for ${symbol}: ${e.message}`);
+    }
+  }
+
   @OnEvent("reconciliation.adopt_positions")
   async handleAdoptPositions(payload: { positions: any[]; orders: any[] }) {
     if (!this.sessionRunning || !this.currentSessionId) return;
@@ -1591,6 +1745,7 @@ export class SessionService implements OnModuleInit {
     mode: string,
     config: SessionConfig | null,
     preFetchedOrders?: any[],
+    bypassStartedByUsCheck = false,
   ): Promise<TradeEntity[]> {
     const imported: TradeEntity[] = [];
     if (ghostPositions.length === 0) return imported;
@@ -1668,7 +1823,7 @@ export class SessionService implements OnModuleInit {
         }
         exOrders = exOrders || [];
 
-        const startedByUs = await this.isPositionStartedByUs(exPos.symbol, exOrders);
+        const startedByUs = bypassStartedByUsCheck || await this.isPositionStartedByUs(exPos.symbol, exOrders);
         if (!startedByUs) {
           this.logger.warn(
             `[Reconciliation] Ghost position ${exPos.symbol} was NOT started by this app instance. Skipping adoption/reconciliation to prevent multi-user interference.`,

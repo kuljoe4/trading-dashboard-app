@@ -155,31 +155,40 @@ describe('RiskEngineService - Frequency Limits', () => {
   });
 
   describe('Prospective Post-Scaling Risk Validation', () => {
-    it('should block entry if prospective scaled risk exceeds max_total_risk_pct', () => {
+    it('should allow entry if nominal risk fits but scaled risk exceeds due to MIN_NOTIONAL (small balance exception)', () => {
       const activeTrades: any[] = [];
       const closedTrades: any[] = [];
       const balance = 1000;
       const config = {
         risk_pct_per_trade: 1.0, // nominal risk is 1.0%
-        max_total_risk_pct: 2.0 // limit is 2.0%
+        max_total_risk_pct: 2.0, // limit is 2.0%
+        auto_scale_min_notional: true
       } as any;
-      const totalSlUsed = 1.5 * 10; // currently using 1.5% risk (15 USDT on 1000 USDT balance)
-
-      // Nominal check would succeed: 1.5% + 1.0% = 2.5% > 2.0% (wait, 1.5 + 1.0 is already 2.5% which exceeds 2.0%)
-      // Let's adjust totalSlUsed to 0.5% (5 USDT). Total = 0.5% + 1.0% = 1.5% < 2.0% (Nominal succeeds)
       const currentSlUsed = 5; // 0.5% of 1000
 
-      // Case A: Nominal check: 0.5% + 1.0% = 1.5% < 2.0% (Should succeed)
-      const resultNominal = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, currentSlUsed);
-      expect(resultNominal.canEnter).toBe(true);
-
-      // Case B: Post-scaling check where scaled risk is 1.8% (due to min-notional scaling):
-      // Total risk would be 0.5% + 1.8% = 2.3% > 2.0% max limit. (Should be blocked!)
+      // Total nominal risk = 0.5% + 1.0% = 1.5% <= 2.0% (Nominal fits!)
+      // Scaled risk = 1.8% (total risk would be 2.3% > 2.0% limit)
+      // This should be ALLOWED because nominal fits and it is scaled up for MIN_NOTIONAL.
       const prospectiveScaledRiskPct = 1.8;
       const resultScaled = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, currentSlUsed, 0, undefined, prospectiveScaledRiskPct);
-      expect(resultScaled.canEnter).toBe(false);
-      expect(resultScaled.reason).toContain('Risk ceiling reached');
-      expect(resultScaled.reason).toContain('1.80% prospective');
+      expect(resultScaled.canEnter).toBe(true);
+    });
+
+    it('should block entry if nominal risk itself exceeds max_total_risk_pct', () => {
+      const activeTrades: any[] = [];
+      const closedTrades: any[] = [];
+      const balance = 1000;
+      const config = {
+        risk_pct_per_trade: 1.5, // nominal risk is 1.5%
+        max_total_risk_pct: 2.0 // limit is 2.0%
+      } as any;
+      const currentSlUsed = 10; // 1.0% of 1000 used
+
+      // Total nominal risk = 1.0% + 1.5% = 2.5% > 2.0% max limit. (Nominal itself exceeds limit)
+      // This should be BLOCKED because nominal exceeds.
+      const result = service.canEnter(activeTrades, closedTrades, balance, 'BTCUSDT', config, currentSlUsed);
+      expect(result.canEnter).toBe(false);
+      expect(result.reason).toContain('Risk ceiling reached');
     });
   });
 

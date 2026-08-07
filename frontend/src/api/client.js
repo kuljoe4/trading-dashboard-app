@@ -226,6 +226,8 @@ export const createSessionAPI = (apiInstance = api) => ({
   getLifetimeAnalytics: (mode) => apiInstance.get('/session/lifetime-analytics', { params: { mode } }),
   resetPaperBalance: () => apiInstance.post('/session/reset-paper-balance'),
   deleteOrphans: () => apiInstance.delete('/session/trades/orphans'),
+  getUntrackedPositions: () => apiInstance.get('/session/untracked-positions'),
+  adoptPosition: (symbol, strategyLabel) => apiInstance.post('/session/adopt-position', { symbol, strategyLabel }),
 })
 
 export const sessionAPI = createSessionAPI()

@@ -17,7 +17,7 @@ import { plainToInstance } from "class-transformer";
 import { SessionService } from "./session.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
 import { SessionConfig } from "../models/SessionConfig";
-import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto } from "./dto/session.dto";
+import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto } from "./dto/session.dto";
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
 
@@ -110,6 +110,24 @@ export class SessionController {
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
     return this.sessionService.deleteSession(id, clientIp, userAgent);
+  }
+
+  @Get("untracked-positions")
+  async getUntrackedPositions() {
+    return this.sessionService.getUntrackedPositions();
+  }
+
+  @Post("adopt-position")
+  async adoptPosition(@Body() body: AdoptPositionDto, @Req() req: Request) {
+    const clientIp =
+      req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
+    const userAgent = req.headers["user-agent"];
+    return this.sessionService.adoptPositionManually(
+      body.symbol,
+      body.strategyLabel,
+      clientIp,
+      userAgent,
+    );
   }
 
   @Get("status")

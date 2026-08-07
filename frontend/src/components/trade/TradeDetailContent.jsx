@@ -717,6 +717,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   <Activity size={12} /> Reconciled
                 </div>
               )}
+              {trade.strategy_config?.is_nominal_overshoot && (
+                <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. This forces a higher actual risk percentage than configured. Exercise caution.">
+                  <div className="bg-amber/15 text-amber border border-amber/35 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5 cursor-help">
+                    SCALED RISK
+                  </div>
+                </Tooltip>
+              )}
             </div>
           </div>
         </div>

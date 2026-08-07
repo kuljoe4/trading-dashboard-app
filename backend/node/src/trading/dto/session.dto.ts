@@ -33,6 +33,16 @@ export class UpdateSessionDto {
   config: Record<string, any>;
 }
 
+export class AdoptPositionDto {
+  @IsString()
+  @IsNotEmpty()
+  symbol: string;
+
+  @IsString()
+  @IsNotEmpty()
+  strategyLabel: string;
+}
+
 export class UpdateTradeConfigDto {
   @IsOptional()
   @IsNumber()

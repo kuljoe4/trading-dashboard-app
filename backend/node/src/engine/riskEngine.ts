@@ -91,10 +91,20 @@ export class RiskEngineService {
 
     // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.
     if (totalRiskPct + riskPerTrade > maxTotalRiskPct + 0.0001) {
-      return {
-        canEnter: false,
-        reason: `Risk ceiling reached for label "${strategyLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
-      };
+      const nominalRisk = config.risk_pct_per_trade ?? 1.0;
+      const isScaledUp = prospectiveRiskPct !== undefined && prospectiveRiskPct > nominalRisk;
+      // Small account exception: if we are scaling up to meet MIN_NOTIONAL, and the unscaled nominal risk would fit within limits,
+      // allow the trade so small balances (such as the $14.85 balance in the logs) are not locked out from executing.
+      const allowScaleException = isScaledUp && (config.auto_scale_min_notional ?? true) && (totalRiskPct + nominalRisk <= maxTotalRiskPct + 0.0001);
+
+      if (!allowScaleException) {
+        return {
+          canEnter: false,
+          reason: `Risk ceiling reached for label "${strategyLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
+        };
+      } else {
+        this.logger.log(`[Risk Engine] Allowing min_notional scaled risk overshoot exception for "${strategyLabel}": nominal ${nominalRisk.toFixed(2)}% fits, scaled is ${riskPerTrade.toFixed(2)}%`);
+      }
     }
 
     if (totalSlUsedForStrategy >= totalSlGuardUsdt) {
@@ -666,7 +676,7 @@ export class RiskEngineService {
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     symbol?: string
-  ): { qty: number; rejected?: boolean; reason?: string } {
+  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean } {
     this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
     if (balance <= 0 || entryPrice <= 0) return { qty: 0 };
 
@@ -686,6 +696,7 @@ export class RiskEngineService {
     const MIN_NOTIONAL_SCALED = 5.01;
 
     let currentNotional = qty * entryPrice;
+    let isNominalOvershoot = false;
 
     if (autoScale) {
       if (currentNotional < MIN_NOTIONAL_SCALED) {
@@ -705,6 +716,7 @@ export class RiskEngineService {
 
          this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${Number(currentNotional || 0).toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
          qty = scaledQty;
+         isNominalOvershoot = true;
       }
     } else {
        // SRE: Risk Hardening Logic (User Requirement 2)
@@ -728,7 +740,7 @@ export class RiskEngineService {
        }
     }
 
-    return { qty };
+    return { qty, isNominalOvershoot };
   }
 
   /**

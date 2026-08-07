@@ -24,6 +24,7 @@ describe('SessionService Validation', () => {
     setBinanceClient: jest.fn(),
     fetchPosition: jest.fn(),
     getTrade: jest.fn(),
+    reconcileMilestoneFromSl: jest.fn().mockReturnValue(0),
     getStatus: jest.fn().mockReturnValue({ running: false, activeTrades: [] }),
   } as any;
 
@@ -798,10 +799,10 @@ describe('SessionService Validation', () => {
         markPrice: '50100'
       });
       mockOrderManagerService.fetchOpenOrders = jest.fn().mockResolvedValue([]);
-      mockOrderManagerService.placeStopLoss = jest.fn().mockResolvedValue({
+      mockOrderManagerService.placeStopLoss = jest.fn().mockImplementation((trade: any, slPrice: number) => ({
         orderId: 'sl-order-123',
-        price: 49000
-      });
+        price: slPrice
+      }));
 
       // Mock save to return a TradeEntity
       mockTradeRepository.create.mockImplementation((dto: any) => dto);
@@ -815,6 +816,50 @@ describe('SessionService Validation', () => {
       expect(res.trade.symbol).toBe('BTCUSDT');
       expect(res.trade.strategy_label).toBe('Macd 1hr');
       expect(res.trade.strategy_config.scan_interval).toBe('1h'); // Successfully rehydrated target variant config!
+    });
+
+    it('adoptPositionManually should successfully adopt untracked positions with manual initial and current SL price overrides', async () => {
+      (service as any).sessionRunning = true;
+      (service as any).currentSessionId = 'session-123';
+
+      const mockConfig = new SessionConfig();
+      mockConfig.strategy_label = 'Momentum Strategy';
+
+      mockRepository.findOne.mockResolvedValue({
+        id: 'session-123',
+        tradingMode: 'live',
+        paperMode: false,
+        config: mockConfig
+      });
+
+      mockTradingSessionService.getActiveTradesRaw = jest.fn().mockReturnValue([]);
+      mockOrderManagerService.fetchPosition = jest.fn().mockResolvedValue({
+        symbol: 'BTCUSDT',
+        positionAmt: '1.5',
+        entryPrice: '50000',
+        markPrice: '50100'
+      });
+      mockOrderManagerService.fetchOpenOrders = jest.fn().mockResolvedValue([]);
+      mockOrderManagerService.placeStopLoss = jest.fn().mockImplementation((trade: any, slPrice: number) => ({
+        orderId: 'sl-order-123',
+        price: slPrice
+      }));
+
+      // Mock save to return a TradeEntity
+      mockTradeRepository.create.mockImplementation((dto: any) => dto);
+      mockTradeRepository.save.mockResolvedValue({});
+
+      mockTradingSessionService.addTrade = jest.fn();
+      mockTradingSessionService.seedActiveTrades = jest.fn();
+
+      const manualInitialSl = 48500;
+      const manualCurrentSl = 49500;
+
+      const res = await service.adoptPositionManually('BTCUSDT', 'Momentum Strategy', manualInitialSl, manualCurrentSl);
+      expect(res.status).toBe('adopted');
+      expect(res.trade.symbol).toBe('BTCUSDT');
+      expect(res.trade.initial_sl).toBe(manualInitialSl); // Manual initial SL is respected!
+      expect(res.trade.current_sl).toBe(manualCurrentSl); // Manual current SL is respected!
     });
   });
 });

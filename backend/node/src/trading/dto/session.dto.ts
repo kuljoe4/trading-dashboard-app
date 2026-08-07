@@ -41,6 +41,14 @@ export class AdoptPositionDto {
   @IsString()
   @IsNotEmpty()
   strategyLabel: string;
+
+  @IsOptional()
+  @IsNumber()
+  initialSl?: number;
+
+  @IsOptional()
+  @IsNumber()
+  currentSl?: number;
 }
 
 export class UpdateTradeConfigDto {

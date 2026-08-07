@@ -125,6 +125,8 @@ export class SessionController {
     return this.sessionService.adoptPositionManually(
       body.symbol,
       body.strategyLabel,
+      body.initialSl,
+      body.currentSl,
       clientIp,
       userAgent,
     );

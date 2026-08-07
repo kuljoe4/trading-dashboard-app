@@ -1419,6 +1419,19 @@ export class SessionService implements OnModuleInit {
           const symOrders = ordersBySymbol.get(p.symbol) || [];
           const discovery = await this.discoverPositionStrategy(p.symbol, symOrders);
 
+          const isSl = (o: any) => {
+            const type = ((o as any).type || (o as any).algoType || "").toUpperCase();
+            return type.includes("STOP");
+          };
+          const isReduce = (o: any) =>
+            o.reduceOnly === true ||
+            o.reduceOnly === "true" ||
+            o.closePosition === true ||
+            o.closePosition === "true";
+
+          const slOrder = symOrders.find((o) => isSl(o) && isReduce(o));
+          const currentSl = slOrder ? parseFloat(slOrder.stopPrice || slOrder.triggerPrice || "0") : null;
+
           untracked.push({
             symbol: p.symbol,
             amount: parseFloat(p.positionAmt),
@@ -1427,6 +1440,7 @@ export class SessionService implements OnModuleInit {
             notional,
             startedByUs: discovery.startedByUs,
             suggestedStrategyLabel: discovery.strategyLabel || null,
+            currentSl: currentSl && currentSl > 0 ? currentSl : null,
           });
         }
       }
@@ -1441,6 +1455,8 @@ export class SessionService implements OnModuleInit {
   async adoptPositionManually(
     symbol: string,
     strategyLabel: string,
+    initialSl?: number,
+    currentSl?: number,
     ip?: string,
     userAgent?: string,
   ) {
@@ -1488,13 +1504,15 @@ export class SessionService implements OnModuleInit {
 
       const activeOrders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: true });
 
-      // Run adoption with bypassStartedByUsCheck = true
+      // Run adoption with bypassStartedByUsCheck = true and overrides
       const imported = await this.adoptExchangePositions(
         [position],
         mode,
         targetConfig,
         activeOrders,
         true, // bypassStartedByUsCheck
+        initialSl,
+        currentSl,
       );
 
       if (imported.length === 0) {
@@ -1764,6 +1782,8 @@ export class SessionService implements OnModuleInit {
     config: SessionConfig | null,
     preFetchedOrders?: any[],
     bypassStartedByUsCheck = false,
+    manualInitialSl?: number,
+    manualCurrentSl?: number,
   ): Promise<TradeEntity[]> {
     const imported: TradeEntity[] = [];
     if (ghostPositions.length === 0) return imported;
@@ -1951,8 +1971,11 @@ export class SessionService implements OnModuleInit {
           (direction === "LONG" ? 1 - slDistPct / 100 : 1 + slDistPct / 100);
 
         // Intelligence: If the exchange SL is further away than our estimate, it's likely the true initial SL.
-        let initialSl = estimatedInitialSl;
-        if (slPrice > 0) {
+        let initialSl = manualInitialSl !== undefined && manualInitialSl !== null && manualInitialSl > 0
+          ? manualInitialSl
+          : estimatedInitialSl;
+
+        if (!(manualInitialSl !== undefined && manualInitialSl > 0) && slPrice > 0) {
           const isFurther =
             direction === "LONG"
               ? slPrice < estimatedInitialSl
@@ -1960,9 +1983,13 @@ export class SessionService implements OnModuleInit {
           if (isFurther) initialSl = slPrice;
         }
 
+        const activeSl = manualCurrentSl !== undefined && manualCurrentSl !== null && manualCurrentSl > 0
+          ? manualCurrentSl
+          : slPrice;
+
         let rrSequenceIndex = -1;
         let maxRrAchieved = 0;
-        if (slPrice > 0 && config) {
+        if (activeSl > 0 && config) {
           const tempTrade = {
             symbol: exPos.symbol,
             direction,
@@ -1973,7 +2000,7 @@ export class SessionService implements OnModuleInit {
           } as Trade;
           rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(
             tempTrade,
-            slPrice,
+            activeSl,
             config,
           );
           maxRrAchieved = tempTrade.max_rr_achieved;
@@ -1984,10 +2011,12 @@ export class SessionService implements OnModuleInit {
 
         let finalStopOrderId = slId;
         let finalStopOrderType = slType;
-        let finalSlPrice = slPrice || initialSl;
+        let finalSlPrice = manualCurrentSl !== undefined && manualCurrentSl !== null && manualCurrentSl > 0
+          ? manualCurrentSl
+          : (slPrice || initialSl);
 
         if (!slId && mode !== "paper") {
-          this.logger.log(`[Reconciliation] Proactively placing Stop Loss order on exchange for adopted ${exPos.symbol} @ ${initialSl}`);
+          this.logger.log(`[Reconciliation] Proactively placing Stop Loss order on exchange for adopted ${exPos.symbol} @ ${finalSlPrice}`);
           try {
             const tempTrade = {
               symbol: exPos.symbol,
@@ -1995,9 +2024,9 @@ export class SessionService implements OnModuleInit {
               entry_price: entryPrice,
               qty,
               initial_sl: initialSl,
-              current_sl: initialSl,
+              current_sl: finalSlPrice,
             } as any;
-            const slResult = await this.orderManager.placeStopLoss(tempTrade, initialSl, entryPrice);
+            const slResult = await this.orderManager.placeStopLoss(tempTrade, finalSlPrice, entryPrice);
             if (slResult && slResult.orderId) {
               finalStopOrderId = slResult.orderId;
               finalStopOrderType = "algo";

@@ -106,14 +106,20 @@ export class OrderFilterService {
     if (filters.stepSize > 0) {
       finalQty = floorStep(qty, filters.stepSize);
 
+      // SRE/LOT_SIZE correction: If the quantity was greater than 0, but flooring rounded it to 0
+      // (due to being below the stepSize), clamp it UP to the minimum stepSize so the order can execute.
+      if (finalQty <= 0 && qty > 0) {
+        finalQty = filters.stepSize;
+      }
+
       if (filters.marketMaxQty !== undefined) {
         if (finalQty > filters.marketMaxQty) {
           this.logger.warn(`${symbol}: Quantity ${finalQty} exceeds MARKET_LOT_SIZE maxQty ${filters.marketMaxQty}. Clamping.`);
           finalQty = filters.marketMaxQty;
         }
         if (finalQty < filters.marketMinQty && finalQty > 0) {
-          this.logger.warn(`${symbol}: Quantity ${finalQty} below MARKET_LOT_SIZE minQty ${filters.marketMinQty}.`);
-          finalQty = 0;
+          this.logger.warn(`${symbol}: Quantity ${finalQty} below MARKET_LOT_SIZE minQty ${filters.marketMinQty}. Clamping up to minQty.`);
+          finalQty = filters.marketMinQty;
         }
       }
     }

@@ -644,6 +644,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
   const [showReconciliation, setShowReconciliation] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState({});
   const [adoptingSymbols, setAdoptingSymbols] = useState(new Set());
+  const [manualInitialSl, setManualInitialSl] = useState({});
+  const [manualCurrentSl, setManualCurrentSl] = useState({});
 
   const strategyLabels = useMemo(() => {
     const baseLabel = config.strategy_label || 'Momentum Strategy';
@@ -659,6 +661,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
       const positions = res.data.positions || [];
       setUntrackedPositions(positions);
 
+      const slDistPct = config.sl_distance_pct || 2.0;
+
       // Pre-populate suggested strategy labels mapped from exchange orders history
       setSelectedStrategy(prev => {
         const next = { ...prev };
@@ -669,10 +673,37 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
         });
         return next;
       });
+
+      // Pre-populate Initial SL with smart estimations
+      setManualInitialSl(prev => {
+        const next = { ...prev };
+        positions.forEach(pos => {
+          if (next[pos.symbol] === undefined) {
+            const isLong = pos.amount > 0;
+            const fallbackSl = pos.entryPrice * (isLong ? (1 - slDistPct / 100) : (1 + slDistPct / 100));
+            next[pos.symbol] = Number(pos.currentSl || fallbackSl).toFixed(5);
+          }
+        });
+        return next;
+      });
+
+      // Pre-populate Current SL with smart estimations
+      setManualCurrentSl(prev => {
+        const next = { ...prev };
+        positions.forEach(pos => {
+          if (next[pos.symbol] === undefined) {
+            const isLong = pos.amount > 0;
+            const fallbackSl = pos.entryPrice * (isLong ? (1 - slDistPct / 100) : (1 + slDistPct / 100));
+            next[pos.symbol] = Number(pos.currentSl || fallbackSl).toFixed(5);
+          }
+        });
+        return next;
+      });
+
     } catch (e) {
       console.error("Failed to fetch untracked positions:", e);
     }
-  }, []);
+  }, [config]);
 
   useEffect(() => {
     if (!showReconciliation || !sessionActive || tradingMode === 'paper') return;
@@ -685,6 +716,9 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
 
   const handleAdopt = React.useCallback(async (symbol) => {
     const chosenStrategy = selectedStrategy[symbol] || strategyLabels[0];
+    const initialSl = Number(manualInitialSl[symbol]) || 0;
+    const currentSl = Number(manualCurrentSl[symbol]) || 0;
+
     setAdoptingSymbols(prev => {
       const next = new Set(prev);
       next.add(symbol);
@@ -692,7 +726,7 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
     });
 
     try {
-      await sessionAPI.adoptPosition(symbol, chosenStrategy);
+      await sessionAPI.adoptPosition(symbol, chosenStrategy, initialSl, currentSl);
       addAlert({
         level: 'success',
         title: 'Position Adopted',
@@ -715,7 +749,7 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
         return next;
       });
     }
-  }, [selectedStrategy, strategyLabels, addAlert, fetchUntracked]);
+  }, [selectedStrategy, strategyLabels, manualInitialSl, manualCurrentSl, addAlert, fetchUntracked]);
 
   if (!sessionActive || tradingMode === 'paper') return null;
 
@@ -779,91 +813,132 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
                     return (
                       <div
                         key={pos.symbol}
-                        className="bg-background/20 border border-border/30 hover:border-accent/30 rounded-xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 transition-all"
+                        className="bg-background/20 border border-border/30 hover:border-accent/30 rounded-xl p-4 flex flex-col gap-4 transition-all"
                       >
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-4 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className={cn(
-                              "text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-wider",
-                              isLong ? "bg-green/10 text-green border border-green/20" : "bg-red/10 text-red border border-red/20"
-                            )}>
-                              {directionText}
-                            </span>
-                            <strong className="text-sm font-black font-mono tracking-tight">{pos.symbol.replace('USDT', '')}</strong>
+                        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-4 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={cn(
+                                "text-[9px] font-black uppercase px-2 py-0.5 rounded tracking-wider",
+                                isLong ? "bg-green/10 text-green border border-green/20" : "bg-red/10 text-red border border-red/20"
+                              )}>
+                                {directionText}
+                              </span>
+                              <strong className="text-sm font-black font-mono tracking-tight">{pos.symbol.replace('USDT', '')}</strong>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-3 md:gap-4 sm:border-l sm:border-border/20 sm:pl-4">
+                              <div className="flex flex-col">
+                                <span className="text-[8px] text-dim font-black uppercase tracking-wider">Amount</span>
+                                <span className="text-xs font-bold font-mono">{Math.abs(pos.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[8px] text-dim font-black uppercase tracking-wider">Entry Price</span>
+                                <span className="text-xs font-bold font-mono">${pos.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 5 })}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-[8px] text-dim font-black uppercase tracking-wider">Notional</span>
+                                <span className="text-xs font-bold font-mono">${pos.notional.toFixed(2)}</span>
+                              </div>
+                            </div>
                           </div>
 
-                          <div className="grid grid-cols-3 gap-3 md:gap-4 sm:border-l sm:border-border/20 sm:pl-4">
-                            <div className="flex flex-col">
-                              <span className="text-[8px] text-dim font-black uppercase tracking-wider">Amount</span>
-                              <span className="text-xs font-bold font-mono">{Math.abs(pos.amount).toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+                            <div className="flex items-center justify-end sm:justify-start">
+                              {pos.startedByUs ? (
+                                <span className="bg-green/10 border border-green/30 text-green text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
+                                  <CheckCircle2 size={11} /> Our Instance
+                                </span>
+                              ) : (
+                                <span className="bg-amber/15 border border-amber/35 text-amber text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
+                                  <Info size={11} /> Other Instance
+                                </span>
+                              )}
                             </div>
-                            <div className="flex flex-col">
-                              <span className="text-[8px] text-dim font-black uppercase tracking-wider">Entry Price</span>
-                              <span className="text-xs font-bold font-mono">${pos.entryPrice.toLocaleString(undefined, { maximumFractionDigits: 5 })}</span>
+
+                            <div className="relative">
+                              <select
+                                aria-label={`Select strategy variant to adopt ${pos.symbol}`}
+                                value={chosenStrategy}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setSelectedStrategy(prev => ({
+                                    ...prev,
+                                    [pos.symbol]: val
+                                  }));
+                                }}
+                                disabled={isAdopting}
+                                className="w-full sm:w-44 px-3 py-2 bg-background border border-border/50 rounded-xl text-[11px] font-black uppercase tracking-wider text-text hover:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all cursor-pointer"
+                              >
+                                {strategyLabels.map((label) => (
+                                  <option key={label} value={label}>{label}</option>
+                                ))}
+                              </select>
                             </div>
-                            <div className="flex flex-col">
-                              <span className="text-[8px] text-dim font-black uppercase tracking-wider">Notional</span>
-                              <span className="text-xs font-bold font-mono">${pos.notional.toFixed(2)}</span>
-                            </div>
+
+                            <motion.button
+                              whileHover={{ scale: 1.01 }}
+                              whileTap={{ scale: 0.98 }}
+                              type="button"
+                              onClick={() => handleAdopt(pos.symbol)}
+                              disabled={isAdopting}
+                              className={cn(
+                                "px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all cursor-pointer flex items-center justify-center gap-2",
+                                pos.startedByUs
+                                  ? "bg-green/10 border-green/30 text-green hover:bg-green/20"
+                                  : "bg-accent/15 border-accent/35 text-accent hover:bg-accent/25"
+                              )}
+                            >
+                              {isAdopting ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" /> ADOPTING...
+                                </>
+                              ) : (
+                                <>
+                                  <ShieldCheck size={12} /> ADOPT & PROTECT
+                                </>
+                              )}
+                            </motion.button>
                           </div>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
-                          <div className="flex items-center justify-end sm:justify-start">
-                            {pos.startedByUs ? (
-                              <span className="bg-green/10 border border-green/30 text-green text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
-                                <CheckCircle2 size={11} /> Our Instance
-                              </span>
-                            ) : (
-                              <span className="bg-amber/15 border border-amber/35 text-amber text-[9px] font-black uppercase tracking-widest px-2 py-1 rounded-lg flex items-center gap-1.5 shadow-sm">
-                                <Info size={11} /> Other Instance
-                              </span>
-                            )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/20 pt-3">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[8px] font-black text-dim uppercase tracking-wider">Initial Stop Loss Price</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                              <input
+                                type="number"
+                                step="any"
+                                value={manualInitialSl[pos.symbol] || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setManualInitialSl(prev => ({ ...prev, [pos.symbol]: val }));
+                                }}
+                                disabled={isAdopting}
+                                className="pl-7 pr-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                                placeholder="Enter Initial SL"
+                              />
+                            </div>
                           </div>
-
-                          <div className="relative">
-                            <select
-                              aria-label={`Select strategy variant to adopt ${pos.symbol}`}
-                              value={chosenStrategy}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setSelectedStrategy(prev => ({
-                                  ...prev,
-                                  [pos.symbol]: val
-                                }));
-                              }}
-                              disabled={isAdopting}
-                              className="w-full sm:w-44 px-3 py-2 bg-background border border-border/50 rounded-xl text-[11px] font-black uppercase tracking-wider text-text hover:border-accent/40 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all cursor-pointer"
-                            >
-                              {strategyLabels.map((label) => (
-                                <option key={label} value={label}>{label}</option>
-                              ))}
-                            </select>
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-[8px] font-black text-dim uppercase tracking-wider">Current Stop Loss Price</label>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                              <input
+                                type="number"
+                                step="any"
+                                value={manualCurrentSl[pos.symbol] || ''}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setManualCurrentSl(prev => ({ ...prev, [pos.symbol]: val }));
+                                }}
+                                disabled={isAdopting}
+                                className="pl-7 pr-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                                placeholder="Enter Current SL"
+                              />
+                            </div>
                           </div>
-
-                          <motion.button
-                            whileHover={{ scale: 1.01 }}
-                            whileTap={{ scale: 0.98 }}
-                            type="button"
-                            onClick={() => handleAdopt(pos.symbol)}
-                            disabled={isAdopting}
-                            className={cn(
-                              "px-4 py-2 rounded-xl text-[11px] font-black uppercase tracking-widest border transition-all cursor-pointer flex items-center justify-center gap-2",
-                              pos.startedByUs
-                                ? "bg-green/10 border-green/30 text-green hover:bg-green/20"
-                                : "bg-accent/15 border-accent/35 text-accent hover:bg-accent/25"
-                            )}
-                          >
-                            {isAdopting ? (
-                              <>
-                                <Loader2 size={12} className="animate-spin" /> ADOPTING...
-                              </>
-                            ) : (
-                              <>
-                                <ShieldCheck size={12} /> ADOPT & PROTECT
-                              </>
-                            )}
-                          </motion.button>
                         </div>
                       </div>
                     );

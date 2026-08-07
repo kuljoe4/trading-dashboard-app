@@ -113,6 +113,7 @@ describe('Chronos: Position Adoption Multi-Tenant Safety Check', () => {
     expect(isStarted).toBe(true);
     expect(mockTradeRepository.findOne).toHaveBeenCalledWith({
       where: { symbol: 'BTCUSDT', status: 'OPEN' },
+      select: ['id', 'strategy_label'],
     });
   });
 

@@ -143,7 +143,7 @@ describe('Chronos Authoritative Synchronization', () => {
 
     // Mock exchange close event by calling orderManager.closeTrade directly
     // This simulates what handleExchangeClose would do
-    await orderManager.closeTrade('ETHUSDT', trade, 2100, EXIT_REASONS.SL_HIT, false, true, { feesAlreadyAccounted: true });
+    await orderManager.closeTrade('ETHUSDT', trade, 2100, EXIT_REASONS.SIGNAL, false, true, { feesAlreadyAccounted: true });
 
     // Expected PnL: 493 (already has all slices).
     // If closeTrade re-calculates, it might get (2100-2000)*10 - fees = 1000 - fees.

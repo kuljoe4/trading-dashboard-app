@@ -676,7 +676,7 @@ export class RiskEngineService {
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
     symbol?: string
-  ): { qty: number; rejected?: boolean; reason?: string } {
+  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean } {
     this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
     if (balance <= 0 || entryPrice <= 0) return { qty: 0 };
 
@@ -696,6 +696,7 @@ export class RiskEngineService {
     const MIN_NOTIONAL_SCALED = 5.01;
 
     let currentNotional = qty * entryPrice;
+    let isNominalOvershoot = false;
 
     if (autoScale) {
       if (currentNotional < MIN_NOTIONAL_SCALED) {
@@ -715,6 +716,7 @@ export class RiskEngineService {
 
          this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${Number(currentNotional || 0).toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
          qty = scaledQty;
+         isNominalOvershoot = true;
       }
     } else {
        // SRE: Risk Hardening Logic (User Requirement 2)
@@ -738,7 +740,7 @@ export class RiskEngineService {
        }
     }
 
-    return { qty };
+    return { qty, isNominalOvershoot };
   }
 
   /**

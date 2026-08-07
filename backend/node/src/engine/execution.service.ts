@@ -274,7 +274,16 @@ export class ExecutionService {
 
         if (sizeResult.qty <= 0) {
           if (sizeResult.rejected) {
-             this.logger.log(`${opp.symbol}: Entry skipped - ${sizeResult.reason}`);
+             const rejectMsg = `[Execution] Entry skipped for ${opp.symbol}: ${sizeResult.reason}`;
+             this.logger.warn(rejectMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: rejectMsg, level: 'warn' });
+             this.broadcastService.broadcast('alert', {
+                level: 'warn',
+                title: 'Entry Rejected',
+                message: rejectMsg,
+                symbol: opp.symbol
+             });
+
              this.broadcastService.broadcast('gate', {
                gateState: 'risk_rejected',
                reason: sizeResult.reason,
@@ -352,7 +361,7 @@ export class ExecutionService {
             tpPrice,
             {
               strategy_label: strategyLabel,
-              strategy_config: symbolConfig,
+              strategy_config: sizeResult.isNominalOvershoot ? { ...symbolConfig, is_nominal_overshoot: true } : symbolConfig,
               entry_daily_change_pct: dailyChangeAtEntry
             }
           );

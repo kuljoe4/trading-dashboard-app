@@ -252,8 +252,14 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
   
   // These hooks must be called unconditionally
   const handleUpdateDelay = async (key, val) => {
-    const newDelay = Number(val);
-    if (isNaN(newDelay) || newDelay < 0) return;
+    let newDelay;
+    if (typeof val === 'string' && /^\d+c$/.test(val)) {
+      newDelay = val;
+    } else {
+      const parsed = Number(val);
+      if (isNaN(parsed) || parsed < 0) return;
+      newDelay = parsed;
+    }
     
     const currentDelays = trade.strategy_config?.exit_signal_delays || {};
     const payload = {
@@ -336,13 +342,16 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                       <Clock size={8} /> 
                       {editingDelay === key ? (
                         <div className="flex items-center gap-1">
-                          <input type="number" className="w-10 bg-transparent text-amber font-mono outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1" value={tempDelay}
+                          <input type="text" className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1" value={tempDelay}
                                  onChange={(e) => setTempDelay(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)} autoFocus />
                           <button onClick={() => handleUpdateDelay(key, tempDelay)} className="text-green"><CheckCircle2 size={10} /></button>
                         </div>
                       ) : (
-                        <span className="cursor-pointer hover:underline" onClick={() => { setEditingDelay(key); setTempDelay(String(s.remaining_delay)); }}>
-                          {formatDuration(s.remaining_delay * 1000)}
+                        <span className="cursor-pointer hover:underline" onClick={() => { setEditingDelay(key); setTempDelay(String(s.config_delay || Math.round(s.remaining_delay))); }}>
+                          {s.config_delay && typeof s.config_delay === 'string' && s.config_delay.endsWith('c')
+                            ? `${s.config_delay} (${formatDuration(s.remaining_delay * 1000)})`
+                            : formatDuration(s.remaining_delay * 1000)
+                          }
                         </span>
                       )}
                       {editingDelay !== key && <button onClick={() => handleUpdateDelay(key, 0)} className="text-[7px] bg-red/20 px-1 rounded">SKIP</button>}
@@ -587,9 +596,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       const exit_signal_delays = {}
       Object.entries(formDelays).forEach(([k, v]) => {
         if (v !== '' && v !== null && v !== undefined) {
-          const num = Number(v);
-          if (!isNaN(num) && num >= 0 && num <= 86400) {
-            exit_signal_delays[k] = num;
+          if (typeof v === 'string' && /^\d+c$/.test(v)) {
+            exit_signal_delays[k] = v;
+          } else {
+            const num = Number(v);
+            if (!isNaN(num) && num >= 0 && num <= 86400) {
+              exit_signal_delays[k] = num;
+            }
           }
         }
       })
@@ -1232,32 +1245,94 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         {activeSignalKeys.map((key) => {
                           const val = formDelays[key] ?? 0;
                           const label = FRIENDLY_SIGNAL_NAMES[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          const isCandleType = typeof val === 'string' && /^\d+c$/.test(val);
+                          const candleCountValue = isCandleType ? parseInt(val.slice(0, -1), 10) : 1;
+
                           return (
-                            <div key={key} className="flex flex-col gap-1">
-                              <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
-                                {label} Delay
-                              </label>
-                              <div className="relative">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max="86400"
-                                  placeholder="0"
-                                  value={val === '' ? '' : val}
-                                  onChange={(e) => {
-                                    const v = e.target.value === '' ? '' : Math.max(0, Math.min(86400, parseInt(e.target.value) || 0));
-                                    setFormDelays(prev => ({ ...prev, [key]: v }));
-                                  }}
-                                  className={cn(
-                                    "px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
-                                    ringColorClass
-                                  )}
-                                  aria-label={`Exit delay for ${label} in seconds`}
-                                />
-                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
+                            <div key={key} className="flex flex-col gap-1.5 bg-white/[0.01] border border-white/[0.03] p-2.5 rounded-xl">
+                              <div className="flex items-center justify-between">
+                                <label className="text-[8px] font-black text-dim uppercase tracking-wider block">
+                                  {label} Delay
+                                </label>
+                                <div className="flex bg-background border border-border/40 rounded-md p-0.5" role="group" aria-label={`Delay mode for ${label}`}>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFormDelays(prev => ({ ...prev, [key]: 0 }));
+                                    }}
+                                    className={cn(
+                                      "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                      !isCandleType
+                                        ? "bg-accent/10 text-accent"
+                                        : "text-dim hover:text-text"
+                                    )}
+                                    aria-pressed={!isCandleType}
+                                  >
+                                    Time
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setFormDelays(prev => ({ ...prev, [key]: "1c" }));
+                                    }}
+                                    className={cn(
+                                      "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                      isCandleType
+                                        ? "bg-accent/10 text-accent"
+                                        : "text-dim hover:text-text"
+                                    )}
+                                    aria-pressed={isCandleType}
+                                  >
+                                    Candle
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="relative h-8">
+                                {!isCandleType ? (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="86400"
+                                      placeholder="0"
+                                      value={val === '' ? '' : val}
+                                      onChange={(e) => {
+                                        const v = e.target.value === '' ? '' : Math.max(0, Math.min(86400, parseInt(e.target.value) || 0));
+                                        setFormDelays(prev => ({ ...prev, [key]: v }));
+                                      }}
+                                      className={cn(
+                                        "px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all h-8",
+                                        ringColorClass
+                                      )}
+                                      aria-label={`Exit delay for ${label} in seconds`}
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      max="1000"
+                                      placeholder="1"
+                                      value={candleCountValue}
+                                      onChange={(e) => {
+                                        const v = Math.max(1, parseInt(e.target.value) || 1);
+                                        setFormDelays(prev => ({ ...prev, [key]: `${v}c` }));
+                                      }}
+                                      className={cn(
+                                        "px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all h-8",
+                                        ringColorClass
+                                      )}
+                                      aria-label={`Exit delay for ${label} in candles`}
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">candles</span>
+                                  </>
+                                )}
                               </div>
                               <span className="text-[8px] text-dim/70 font-mono mt-0.5">
-                                {val ? formatDuration(val * 1000) : 'Instant (no delay)'}
+                                {!isCandleType ? (val ? formatDuration(val * 1000) : 'Instant (no delay)') : `${candleCountValue} candle${candleCountValue > 1 ? 's' : ''}`}
                               </span>
                             </div>
                           );

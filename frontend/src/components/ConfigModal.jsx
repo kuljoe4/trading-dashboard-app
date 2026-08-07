@@ -218,6 +218,8 @@ const ExitSignalCard = React.memo(({
             const delayValue = delays[layerKey] || 0;
             const actionValue = actions[layerKey] || 'close';
             const tfValue = timeframes[layerKey] || 'default';
+            const isCandleType = typeof delayValue === 'string' && /^\d+c$/.test(delayValue);
+            const candleCountValue = isCandleType ? parseInt(delayValue.slice(0, -1), 10) : 1;
 
             return (
               <div key={layerKey} className="p-3 bg-background/50 border border-border/30 rounded-xl space-y-2.5 relative group/layer">
@@ -259,37 +261,91 @@ const ExitSignalCard = React.memo(({
                     </select>
                   </div>
 
-                  {/* Delay Input (Hours:Minutes) */}
+                  {/* Delay Input (Time or Candles) */}
                   <div className="flex flex-col gap-1 text-left">
-                    <label className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay (h:m)</label>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min="0"
-                        placeholder="0h"
-                        value={Math.floor((delayValue || 0) / 3600) || ''}
-                        onChange={(e) => {
-                          const h = parseInt(e.target.value) || 0;
-                          const m = Math.floor(((delayValue || 0) % 3600) / 60);
-                          onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
-                        }}
-                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                      />
-                      <span className="text-dim font-bold">:</span>
-                      <input
-                        type="number"
-                        min="0"
-                        max="59"
-                        placeholder="0m"
-                        value={Math.floor(((delayValue || 0) % 3600) / 60) || ''}
-                        onChange={(e) => {
-                          const h = Math.floor((delayValue || 0) / 3600);
-                          const m = parseInt(e.target.value) || 0;
-                          onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
-                        }}
-                        className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                      />
+                    <div className="flex items-center justify-between">
+                      <span className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay</span>
+                      <div className="flex bg-surface border border-border/40 rounded-md p-0.5" role="group" aria-label="Delay mode selection">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUpdateLayer(layerKey, 'delay', 0);
+                          }}
+                          className={cn(
+                            "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                            !isCandleType
+                              ? "bg-accent/10 text-accent"
+                              : "text-dim hover:text-text"
+                          )}
+                          aria-pressed={!isCandleType}
+                        >
+                          Time
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUpdateLayer(layerKey, 'delay', "1c");
+                          }}
+                          className={cn(
+                            "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                            isCandleType
+                              ? "bg-accent/10 text-accent"
+                              : "text-dim hover:text-text"
+                          )}
+                          aria-pressed={isCandleType}
+                        >
+                          Candle
+                        </button>
+                      </div>
                     </div>
+
+                    {!isCandleType ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="0h"
+                          value={Math.floor((Number(delayValue) || 0) / 3600) || ''}
+                          onChange={(e) => {
+                            const h = parseInt(e.target.value) || 0;
+                            const m = Math.floor(((Number(delayValue) || 0) % 3600) / 60);
+                            onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
+                          }}
+                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                        />
+                        <span className="text-dim font-bold">:</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="59"
+                          placeholder="0m"
+                          value={Math.floor(((Number(delayValue) || 0) % 3600) / 60) || ''}
+                          onChange={(e) => {
+                            const h = Math.floor((Number(delayValue) || 0) / 3600);
+                            const m = parseInt(e.target.value) || 0;
+                            onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
+                          }}
+                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative flex items-center h-7">
+                        <input
+                          type="number"
+                          min="1"
+                          max="1000"
+                          placeholder="1"
+                          value={candleCountValue}
+                          onChange={(e) => {
+                            const val = Math.max(1, parseInt(e.target.value) || 1);
+                            onUpdateLayer(layerKey, 'delay', `${val}c`);
+                          }}
+                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-full pr-6 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          aria-label="Number of candles delay"
+                        />
+                        <span className="absolute right-2 text-[8px] font-bold text-dim/60 font-mono pointer-events-none">c</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Action Selection */}

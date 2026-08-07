@@ -16,7 +16,7 @@ import { SessionStateService } from './session_state.service';
 import { BroadcastService } from './broadcast.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
-import { roundEight, floorStep, roundTo, formatSlType } from '../lib/math';
+import { roundEight, floorStep, roundTo, formatSlType, parseIntervalToMs } from '../lib/math';
 import {
   BinanceOrderUpdateEvent,
   BinanceUserCommissionRate,
@@ -1946,7 +1946,7 @@ export class OrderManagerService {
       : (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0);
     const tradeAgeSec = entryTs > 0 ? (Date.now() - entryTs) / 1000 : 0;
 
-    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean, threshold_is_price?: boolean }> = {};
+    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, config_delay?: number | string, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean, threshold_is_price?: boolean }> = {};
     const delays = config.exit_signal_delays || {};
     const logic = config.exit_signal_logic || 'any';
 
@@ -1966,7 +1966,32 @@ export class OrderManagerService {
     // Check each exit signal
     for (const exitSignal of config.exit_signals) {
       try {
-        let delay = delays[exitSignal] || 0;
+        const delay = delays[exitSignal] !== undefined ? delays[exitSignal] : 0;
+        let delaySec = 0;
+        let isCandleDelay = false;
+        let candleCount = 0;
+
+        if (typeof delay === 'string' && /^\d+c$/.test(delay)) {
+          isCandleDelay = true;
+          candleCount = parseInt(delay.slice(0, -1), 10);
+        } else if (typeof delay === 'number') {
+          delaySec = delay;
+        } else if (typeof delay === 'string') {
+          const parsed = parseFloat(delay);
+          if (!isNaN(parsed)) {
+            delaySec = parsed;
+          }
+        }
+
+        let requiredDelaySec = delaySec;
+        if (isCandleDelay) {
+          // Resolve timeframe: signal_timeframes or fallback to interval or scan_interval
+          const signalTf = (config.signal_timeframes?.[exitSignal] && config.signal_timeframes?.[exitSignal] !== 'default')
+            ? config.signal_timeframes[exitSignal]
+            : (interval || config.scan_interval || '5m');
+          const candleMs = parseIntervalToMs(signalTf);
+          requiredDelaySec = (candleCount * candleMs) / 1000;
+        }
 
         const detail = consolidatedResult.details ? consolidatedResult.details[exitSignal] : null;
         const isFired = !!(detail?.fired || (consolidatedResult.firedSignals.includes(exitSignal)));
@@ -1986,19 +2011,20 @@ export class OrderManagerService {
             }
 
             if (currentPnl > 0 && signalPnl > 0 && currentPnl > signalPnl) {
-              delay = 0;
+              requiredDelaySec = 0;
               this.logger.log(`[SL Override] Positive exit signal target P&L detected for ${symbol} on signal ${exitSignal}. Delay overridden to 0.`);
             }
           }
         }
 
-        const isActive = tradeAgeSec >= delay;
-        const remaining = Math.max(0, delay - tradeAgeSec);
+        const isActive = tradeAgeSec >= requiredDelaySec;
+        const remaining = Math.max(0, requiredDelaySec - tradeAgeSec);
 
         statuses[exitSignal] = {
           fired: isFired,
           active: isActive,
           remaining_delay: remaining,
+          config_delay: delay,
           label: detail?.metric || exitSignal,
           value: detail?.value ?? (isFired ? 1 : 0),
           threshold: detail?.threshold ?? 1,

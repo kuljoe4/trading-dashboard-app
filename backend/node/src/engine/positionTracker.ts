@@ -375,6 +375,18 @@ export class PositionTrackerService {
         } else {
            this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back due to exchange failure.`);
         }
+      } else {
+        // Active Trade Milestone State Committing & Synchronizing:
+        // Even if we skip the exchange SL adjustment because it's not deeper in profit,
+        // we must still advance and commit the local milestone sequence index and emit TRADE_UPDATED.
+        this.rrSequenceIndex.set(symbol, currentIndex);
+        trade.rr_sequence_index = currentIndex;
+        trade.updated_at = new Date();
+
+        // Recalculate locked P&L and risk release for the newly committed milestone
+        this.refreshTradeRisk(trade);
+
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
     }
   }

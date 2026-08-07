@@ -35,6 +35,7 @@ export interface TradeSerializationDto {
   est_pnl_source?: string;
   exit_rr?: number;
   min_rr_achieved?: number;
+  rr_sequence_index?: number;
   _delta?: boolean;
   _thin?: boolean;
   _sl_len?: number;
@@ -66,6 +67,7 @@ export interface TickTradeDto {
   est_pnl_source?: string;
   exit_rr?: number;
   min_rr_achieved?: number;
+  rr_sequence_index?: number;
   _thin: boolean;
   _sl_len: number;
   _sig_json: string;

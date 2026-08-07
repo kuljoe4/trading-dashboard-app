@@ -656,7 +656,19 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
   const fetchUntracked = React.useCallback(async () => {
     try {
       const res = await sessionAPI.getUntrackedPositions();
-      setUntrackedPositions(res.data.positions || []);
+      const positions = res.data.positions || [];
+      setUntrackedPositions(positions);
+
+      // Pre-populate suggested strategy labels mapped from exchange orders history
+      setSelectedStrategy(prev => {
+        const next = { ...prev };
+        positions.forEach(pos => {
+          if (!next[pos.symbol] && pos.suggestedStrategyLabel) {
+            next[pos.symbol] = pos.suggestedStrategyLabel;
+          }
+        });
+        return next;
+      });
     } catch (e) {
       console.error("Failed to fetch untracked positions:", e);
     }
@@ -666,7 +678,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
     if (!showReconciliation || !sessionActive || tradingMode === 'paper') return;
 
     fetchUntracked();
-    const interval = setInterval(fetchUntracked, 15000);
+    // Use conservative 30 seconds polling interval to protect exchange API rate weight
+    const interval = setInterval(fetchUntracked, 30000);
     return () => clearInterval(interval);
   }, [showReconciliation, sessionActive, tradingMode, fetchUntracked]);
 

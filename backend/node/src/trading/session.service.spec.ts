@@ -740,7 +740,7 @@ describe('SessionService Validation', () => {
   });
 
   describe('Manual Position Reconciliation & Adoption', () => {
-    it('getUntrackedPositions should return untracked positions', async () => {
+    it('getUntrackedPositions should return untracked positions with suggested strategy labels', async () => {
       // Set up in-service states
       (service as any).sessionRunning = true;
       (service as any).currentSessionId = 'session-123';
@@ -752,8 +752,11 @@ describe('SessionService Validation', () => {
         config: new SessionConfig()
       });
 
-      mockTradeRepository.findOne.mockResolvedValue(null);
-      mockTradeRepository.find.mockResolvedValue([]);
+      // Mock discoverPositionStrategy to simulate finding a historical strategy match
+      (service as any).discoverPositionStrategy = jest.fn().mockResolvedValue({
+        startedByUs: true,
+        strategyLabel: 'Macd 1hr'
+      });
 
       mockTradingSessionService.fetchAllPositions = jest.fn().mockResolvedValue([
         { symbol: 'BTCUSDT', positionAmt: '1.5', entryPrice: '50000', markPrice: '50100' }
@@ -766,7 +769,8 @@ describe('SessionService Validation', () => {
       expect(res.positions).toHaveLength(1);
       expect(res.positions[0].symbol).toBe('BTCUSDT');
       expect(res.positions[0].notional).toBe(75000);
-      expect(res.positions[0].startedByUs).toBe(false); // No trades exist in DB
+      expect(res.positions[0].startedByUs).toBe(true);
+      expect(res.positions[0].suggestedStrategyLabel).toBe('Macd 1hr');
     });
 
     it('adoptPositionManually should successfully adopt untracked positions with selected strategy config override', async () => {

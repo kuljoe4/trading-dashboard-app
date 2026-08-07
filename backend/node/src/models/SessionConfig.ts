@@ -47,6 +47,10 @@ export class SessionConfig {
   @IsOptional()
   paused_strategies?: string[];
 
+  @IsBoolean()
+  @IsOptional()
+  is_nominal_overshoot?: boolean;
+
   @IsString()
   @IsOptional()
   @MaxLength(100)

@@ -1412,18 +1412,21 @@ export class SessionService implements OnModuleInit {
       for (const p of activeExPositions) {
         if (!localSymbols.has(p.symbol)) {
           const qty = Math.abs(parseFloat(p.positionAmt));
-          if (qty < 0.1) continue; // Dust check
+          const entryPrice = parseFloat(p.entryPrice);
+          const notional = qty * entryPrice;
+          if (notional < 0.1) continue; // Dust check based on Notional Value instead of raw quantity
 
           const symOrders = ordersBySymbol.get(p.symbol) || [];
-          const startedByUs = await this.isPositionStartedByUs(p.symbol, symOrders);
+          const discovery = await this.discoverPositionStrategy(p.symbol, symOrders);
 
           untracked.push({
             symbol: p.symbol,
             amount: parseFloat(p.positionAmt),
-            entryPrice: parseFloat(p.entryPrice),
+            entryPrice: entryPrice,
             markPrice: parseFloat(p.markPrice),
-            notional: qty * parseFloat(p.entryPrice),
-            startedByUs,
+            notional,
+            startedByUs: discovery.startedByUs,
+            suggestedStrategyLabel: discovery.strategyLabel || null,
           });
         }
       }
@@ -1660,29 +1663,44 @@ export class SessionService implements OnModuleInit {
     symbol: string,
     openOrdersOfSymbol: any[],
   ): Promise<boolean> {
+    const res = await this.discoverPositionStrategy(symbol, openOrdersOfSymbol);
+    return res.startedByUs;
+  }
+
+  /**
+   * Discovers the strategy label and app instance ownership of a position based on exchange active order mappings.
+   */
+  private async discoverPositionStrategy(
+    symbol: string,
+    openOrdersOfSymbol: any[],
+  ): Promise<{ startedByUs: boolean; strategyLabel?: string | null }> {
     // 1. Is there an active open trade in our database for this symbol?
     const openTrade = await this.tradeRepository.findOne({
       where: { symbol, status: "OPEN" as any },
+      select: ["id", "strategy_label"],
     });
-    if (openTrade) return true;
+    if (openTrade) return { startedByUs: true, strategyLabel: openTrade.strategy_label };
 
     // 2. If no open trade, check if there are any open orders for this symbol.
     if (!openOrdersOfSymbol || openOrdersOfSymbol.length === 0) {
-      return false;
+      return { startedByUs: false };
     }
 
     // Load all trades for this symbol (both open and closed) to match clientOrderIds
     const allSymbolTrades = await this.tradeRepository.find({
       where: { symbol },
-      select: ["id"],
+      select: ["id", "strategy_label"],
     });
     if (allSymbolTrades.length === 0) {
-      return false;
+      return { startedByUs: false };
     }
 
-    // Build sets of possible identifiers from our trade records
+    // Build sets and maps of possible identifiers from our trade records
     const tradeIds = new Set(allSymbolTrades.map(t => t.id.toLowerCase()));
     const tradeIdsNoHyphens = new Set(allSymbolTrades.map(t => t.id.replace(/-/g, '').toLowerCase()));
+
+    const idToStrategyMap = new Map(allSymbolTrades.map(t => [t.id.toLowerCase(), t.strategy_label]));
+    const idNoHyphensToStrategyMap = new Map(allSymbolTrades.map(t => [t.id.replace(/-/g, '').toLowerCase(), t.strategy_label]));
 
     // Check if any open order's clientOrderId points to one of our trade IDs
     for (const order of openOrdersOfSymbol) {
@@ -1694,7 +1712,7 @@ export class SessionService implements OnModuleInit {
         const prefix = clientOrderId.substring(3, 11);
         for (const id of tradeIds) {
           if (id.startsWith(prefix)) {
-            return true;
+            return { startedByUs: true, strategyLabel: idToStrategyMap.get(id) };
           }
         }
       }
@@ -1704,7 +1722,7 @@ export class SessionService implements OnModuleInit {
         const prefix = clientOrderId.substring(4, 24);
         for (const idNoHyphen of tradeIdsNoHyphens) {
           if (idNoHyphen.startsWith(prefix)) {
-            return true;
+            return { startedByUs: true, strategyLabel: idNoHyphensToStrategyMap.get(idNoHyphen) };
           }
         }
       }
@@ -1714,7 +1732,7 @@ export class SessionService implements OnModuleInit {
         const prefix = clientOrderId.substring(8, 24);
         for (const idNoHyphen of tradeIdsNoHyphens) {
           if (idNoHyphen.startsWith(prefix)) {
-            return true;
+            return { startedByUs: true, strategyLabel: idNoHyphensToStrategyMap.get(idNoHyphen) };
           }
         }
       }
@@ -1726,14 +1744,14 @@ export class SessionService implements OnModuleInit {
           const prefix = clientOrderId.substring(p.length, p.length + 20);
           for (const idNoHyphen of tradeIdsNoHyphens) {
             if (idNoHyphen.startsWith(prefix)) {
-              return true;
+              return { startedByUs: true, strategyLabel: idNoHyphensToStrategyMap.get(idNoHyphen) };
             }
           }
         }
       }
     }
 
-    return false;
+    return { startedByUs: false };
   }
 
   /**

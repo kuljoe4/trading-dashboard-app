@@ -78,3 +78,167 @@ test('findLastSession performance comparison benchmark', () => {
   console.log(`  - Optimized Single-pass Lookup:   ${singleDuration.toFixed(4)} ms`);
   console.log(`  - Execution Speedup:             ${(sortDuration / Math.max(0.0001, singleDuration)).toFixed(1)}x faster`);
 });
+
+// Original Active Maps calculation inside DashboardView.jsx
+function originalActiveMaps(activeTrades, currentStrategyLabel, strategyVariants) {
+  const activePnlMap = (() => {
+    const map = { [currentStrategyLabel]: 0 };
+    (strategyVariants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    (activeTrades || []).forEach(t => {
+      if (t) {
+        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategyLabel;
+        map[label] += Number(t.pnl || 0);
+      }
+    });
+    return map;
+  })();
+
+  const activeEstPnlToRealizeMap = (() => {
+    const map = { [currentStrategyLabel]: 0 };
+    (strategyVariants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    (activeTrades || []).forEach(t => {
+      if (t) {
+        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategyLabel;
+        map[label] += Number(t.est_pnl_to_realize || 0);
+      }
+    });
+    return map;
+  })();
+
+  const activeTradeCountsMap = (() => {
+    const map = { [currentStrategyLabel]: 0 };
+    (strategyVariants || []).forEach(v => {
+      const label = v.strategy_label || 'Variant';
+      map[label] = 0;
+    });
+    (activeTrades || []).forEach(t => {
+      if (t) {
+        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategyLabel;
+        map[label]++;
+      }
+    });
+    return map;
+  })();
+
+  const totalActivePnl = Object.values(activePnlMap || {}).reduce((acc, val) => acc + val, 0);
+
+  return { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl };
+}
+
+// Optimized Active Maps calculation using Loop Fusion & Single-Pass traversal
+function optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariants) {
+  const pnlMap = { [currentStrategyLabel]: 0 };
+  const estPnlMap = { [currentStrategyLabel]: 0 };
+  const countMap = { [currentStrategyLabel]: 0 };
+
+  const variants = strategyVariants || [];
+  for (let i = 0; i < variants.length; i++) {
+    const label = variants[i].strategy_label || 'Variant';
+    pnlMap[label] = 0;
+    estPnlMap[label] = 0;
+    countMap[label] = 0;
+  }
+
+  const trades = activeTrades || [];
+  for (let i = 0; i < trades.length; i++) {
+    const t = trades[i];
+    if (t) {
+      const label = pnlMap[t.strategy_label] !== undefined ? t.strategy_label : currentStrategyLabel;
+      const pnlVal = Number(t.pnl || 0);
+      pnlMap[label] += pnlVal;
+      estPnlMap[label] += Number(t.est_pnl_to_realize || 0);
+      countMap[label]++;
+    }
+  }
+
+  const pnlValues = Object.values(pnlMap);
+  let totPnl = 0;
+  for (let i = 0; i < pnlValues.length; i++) {
+    totPnl += pnlValues[i];
+  }
+
+  return {
+    activePnlMap: pnlMap,
+    activeEstPnlToRealizeMap: estPnlMap,
+    activeTradeCountsMap: countMap,
+    totalActivePnl: totPnl
+  };
+}
+
+test('Active maps calculation: correctness of original and loop-fused optimized implementations', () => {
+  const currentStrategyLabel = 'Momentum Strategy';
+  const strategyVariants = [
+    { strategy_label: 'EMA Cross 1h' },
+    { strategy_label: 'Breakout 5m' }
+  ];
+  const activeTrades = [
+    { symbol: 'BTCUSDT', strategy_label: 'Momentum Strategy', pnl: 25.50, est_pnl_to_realize: 30.00 },
+    { symbol: 'ETHUSDT', strategy_label: 'EMA Cross 1h', pnl: -10.20, est_pnl_to_realize: -5.00 },
+    { symbol: 'SOLUSDT', strategy_label: 'Breakout 5m', pnl: 45.00, est_pnl_to_realize: 50.00 },
+    { symbol: 'ADAUSDT', strategy_label: 'Momentum Strategy', pnl: 5.00, est_pnl_to_realize: 5.00 },
+    { symbol: 'XRPUSDT', strategy_label: 'Unknown Strategy Override', pnl: 12.00, est_pnl_to_realize: 15.00 } // Should fall back to Momentum Strategy
+  ];
+
+  const originalResult = originalActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+  const optimizedResult = optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+
+  assert.deepStrictEqual(optimizedResult, originalResult, 'Both active map implementations must return identical values.');
+  assert.strictEqual(optimizedResult.totalActivePnl, 77.30);
+  assert.strictEqual(optimizedResult.activeTradeCountsMap['Momentum Strategy'], 3); // BTC + ADA + XRP fallback
+  assert.strictEqual(optimizedResult.activePnlMap['EMA Cross 1h'], -10.20);
+});
+
+test('Active maps calculation: performance benchmark', () => {
+  const currentStrategyLabel = 'Momentum Strategy';
+  const strategyVariants = Array.from({ length: 15 }, (_, i) => ({
+    strategy_label: `Variant-${i}`
+  }));
+
+  const activeTrades = Array.from({ length: 50 }, (_, i) => {
+    const r = Math.random();
+    const strategy_label = r < 0.2 ? 'Momentum Strategy' : `Variant-${Math.floor(Math.random() * 15)}`;
+    return {
+      symbol: `COIN-${i}USDT`,
+      strategy_label,
+      pnl: (Math.random() - 0.4) * 100,
+      est_pnl_to_realize: (Math.random() - 0.3) * 100
+    };
+  });
+
+  // Warmup
+  originalActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+  optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+
+  const iterations = 5000;
+
+  // Benchmark original approach
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  // Benchmark optimized approach
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  const resOriginal = originalActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+  const resOptimized = optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
+  assert.deepStrictEqual(resOptimized, resOriginal, 'Correctness validation inside benchmark check');
+
+  console.log(`\n⚡ Bolt Performance Benchmark (Active Trade Strategy Mapping, List size: ${activeTrades.length} trades, 15 variants, ${iterations} iterations):`);
+  console.log(`  - Original multiple-pass forEach maps: ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Loop-fused single-pass maps:  ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                      ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});

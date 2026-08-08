@@ -87,8 +87,21 @@ export const Tooltip = ({ children, content, side = "top", align = "center", cla
         onClick={(e) => {
           // On mobile/touch devices, toggle on click/tap
           if (window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(max-width: 768px)').matches) {
-            e.stopPropagation();
-            setOpen(!open);
+            // Do not hijack clicks on interactive elements (e.g. buttons, links, inputs)
+            const target = e.currentTarget;
+            const isInteractive = target && (
+              target.tagName === 'BUTTON' ||
+              target.tagName === 'INPUT' ||
+              target.tagName === 'A' ||
+              target.tagName === 'SELECT' ||
+              target.tagName === 'TEXTAREA' ||
+              target.getAttribute('role') === 'button' ||
+              target.classList.contains('cursor-pointer')
+            );
+            if (!isInteractive) {
+              e.stopPropagation();
+              setOpen(!open);
+            }
           }
         }}
       >
@@ -107,9 +120,7 @@ export const TooltipTrigger = TooltipPrimitive.Trigger
 
 export const TooltipContent = React.forwardRef(({ className, sideOffset = 8, ...props }, ref) => (
   <TooltipPrimitive.Portal>
-    <div>
-      {/* Context-aware backdrop: only active when a tooltip is open, non-blocking */}
-      <div className="fixed inset-0 z-[10015] pointer-events-none bg-black/5 animate-in fade-in duration-300" />
+    <div className="pointer-events-none">
       <TooltipPrimitive.Content
         ref={ref}
         sideOffset={sideOffset}

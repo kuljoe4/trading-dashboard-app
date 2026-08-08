@@ -163,13 +163,6 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
 })
 ConfigField.displayName = 'ConfigField'
 
-const SignalChip = React.memo(({ signal, active, onClick }) => {
-  const [key, label] = signal;
-  return (
-    <Chip active={active} onClick={() => onClick(key, active)}>{label}</Chip>
-  );
-})
-SignalChip.displayName = 'SignalChip'
 
 const ExitSignalCard = React.memo(({
   signal,
@@ -384,6 +377,99 @@ const ExitSignalCard = React.memo(({
   );
 })
 ExitSignalCard.displayName = 'ExitSignalCard'
+
+const EntrySignalCard = React.memo(({
+  signal,
+  active,
+  layers,
+  timeframes,
+  onToggle,
+  onAddLayer,
+  onRemoveLayer,
+  onUpdateLayer
+}) => {
+  const [key, label, desc] = signal;
+
+  return (
+    <div className={cn("flex flex-col gap-2.5 p-3.5 bg-surface/50 border rounded-2xl hover:border-border-hover transition-all", active ? "border-accent/30 bg-accent/[0.01]" : "border-border")}>
+      <div className="flex items-center justify-between">
+        <div className="flex flex-col text-left">
+          <span className={cn("text-xs font-bold", active ? "text-accent" : "text-text")}>{label}</span>
+          <span className="text-[9px] text-dim font-medium uppercase mt-0.5">{desc}</span>
+        </div>
+        <Switch.Root
+          checked={active}
+          onCheckedChange={() => onToggle(key, active)}
+          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
+          aria-label={`Toggle ${label} entry signal`}
+        >
+          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+        </Switch.Root>
+      </div>
+
+      {active && (
+        <div className="space-y-3 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+          {layers.map((layerKey, idx) => {
+            const isBase = layerKey === key;
+            const tfValue = timeframes[layerKey] || 'default';
+
+            return (
+              <div key={layerKey} className="p-2.5 bg-background/50 border border-border/30 rounded-xl space-y-2 relative group/layer flex items-center justify-between gap-3">
+                <div className="flex flex-col text-left">
+                  <span className="text-[9px] font-black uppercase tracking-wider text-accent">
+                    Layer {idx + 1} {isBase ? "(Base)" : `(Chain: _${layerKey.split('_').pop()})`}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 text-left">
+                    <label htmlFor={`tf-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Timeframe</label>
+                    <select
+                      id={`tf-${layerKey}`}
+                      value={tfValue}
+                      onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
+                      className="bg-surface border border-border/40 rounded-lg px-2 py-0.5 text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                    >
+                      <option value="default">Default</option>
+                      <option value="1m">1m</option>
+                      <option value="3m">3m</option>
+                      <option value="5m">5m</option>
+                      <option value="15m">15m</option>
+                      <option value="30m">30m</option>
+                      <option value="1h">1h</option>
+                      <option value="4h">4h</option>
+                      <option value="1d">1d</option>
+                    </select>
+                  </div>
+
+                  {!isBase && (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveLayer(layerKey)}
+                      aria-label={`Remove Layer ${idx + 1}`}
+                      className="p-1 text-dim hover:text-red transition-colors opacity-0 group-hover/layer:opacity-100 focus-visible:opacity-100 animate-in fade-in duration-200"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            type="button"
+            onClick={() => onAddLayer(key)}
+            className="w-full py-1 border border-dashed border-border rounded-xl text-[9px] font-black uppercase tracking-wider text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Plus size={11} /> Add Chained Layer
+          </button>
+        </div>
+      )}
+    </div>
+  );
+})
+EntrySignalCard.displayName = 'EntrySignalCard'
 
 const ManualMonitorInput = React.memo(({ onAdd }) => {
   const [value, setValue] = useState('');
@@ -1393,6 +1479,79 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       return next;
     });
   }, []);
+
+  const handleToggleEntrySignal = React.useCallback((baseKey, active) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const next = { ...prev };
+      const currentEntrySignals = prev.enabled_signals || [];
+
+      if (active) {
+        next.enabled_signals = currentEntrySignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
+
+        const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+        delete nextTimeframes[baseKey];
+        Object.keys(nextTimeframes).forEach(k => {
+          if (k.startsWith(`${baseKey}_`)) delete nextTimeframes[k];
+        });
+
+        next.signal_timeframes = nextTimeframes;
+      } else {
+        next.enabled_signals = [...currentEntrySignals, baseKey];
+        next.signal_timeframes = { ...(prev.signal_timeframes || {}), [baseKey]: 'default' };
+      }
+      return next;
+    });
+  }, []);
+
+  const handleAddEntryLayer = React.useCallback((baseKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const currentEntrySignals = prev.enabled_signals || [];
+      let suffixNum = 2;
+      while (currentEntrySignals.includes(`${baseKey}_${suffixNum}`)) {
+        suffixNum++;
+      }
+      const newLayerKey = `${baseKey}_${suffixNum}`;
+
+      return {
+        ...prev,
+        enabled_signals: [...currentEntrySignals, newLayerKey],
+        signal_timeframes: { ...(prev.signal_timeframes || {}), [newLayerKey]: 'default' }
+      };
+    });
+  }, []);
+
+  const handleRemoveEntryLayer = React.useCallback((layerKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+      delete nextTimeframes[layerKey];
+
+      return {
+        ...prev,
+        enabled_signals: (prev.enabled_signals || []).filter(sig => sig !== layerKey),
+        signal_timeframes: nextTimeframes
+      };
+    });
+  }, []);
+
+  const handleUpdateEntryLayer = React.useCallback((layerKey, field, value) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const next = { ...prev };
+      if (field === 'timeframe') {
+        const nextTimeframes = { ...(prev.signal_timeframes || {}) };
+        if (value === 'default') {
+          delete nextTimeframes[layerKey];
+        } else {
+          nextTimeframes[layerKey] = value;
+        }
+        next.signal_timeframes = nextTimeframes;
+      }
+      return next;
+    });
+  }, []);
   
   const resetToLastSaved = React.useCallback(() => {
     sessionStorage.removeItem('config_draft');
@@ -2119,13 +2278,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
                  </div>
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {SIGNALS.map((signal) => (
-                  <SignalChip
+                  <EntrySignalCard
                     key={signal[0]}
                     signal={signal}
                     active={(cfg.enabled_signals || []).includes(signal[0])}
-                    onClick={(key, active) => setField('enabled_signals', active ? cfg.enabled_signals.filter(s => s !== key) : [...(cfg.enabled_signals || []), key])}
+                    layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
+                    timeframes={cfg.signal_timeframes || {}}
+                    onToggle={handleToggleEntrySignal}
+                    onAddLayer={handleAddEntryLayer}
+                    onRemoveLayer={handleRemoveEntryLayer}
+                    onUpdateLayer={handleUpdateEntryLayer}
                   />
                 ))}
               </div>

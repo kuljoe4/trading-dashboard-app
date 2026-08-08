@@ -493,15 +493,30 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
         onChange={(e) => setName(e.target.value)}
         className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
       />
-      <Btn
-        variant="primary"
-        onClick={() => { if (name.trim()) { onSave(name); } }}
-        loading={isSaving}
-        className="aspect-square p-0 w-12 h-12 flex items-center justify-center"
-        aria-label={success ? "Preset saved successfully" : "Save current configuration as preset"}
+      <Tooltip
+        content={
+          isSaving
+            ? "Saving configuration as preset..."
+            : success
+            ? "Preset saved successfully!"
+            : !name.trim()
+            ? "Enter a name to save this configuration as a preset"
+            : `Save current configuration as preset: "${name.trim()}"`
+        }
       >
-        {success ? <CheckCircle2 size={20} /> : <Save size={20} />}
-      </Btn>
+        <div className="flex shrink-0">
+          <Btn
+            variant="primary"
+            onClick={() => { if (name.trim()) { onSave(name); } }}
+            disabled={isSaving || !name.trim()}
+            loading={isSaving}
+            className="aspect-square p-0 w-12 h-12 flex items-center justify-center"
+            aria-label={success ? "Preset saved successfully" : "Save current configuration as preset"}
+          >
+            {success ? <CheckCircle2 size={20} /> : <Save size={20} />}
+          </Btn>
+        </div>
+      </Tooltip>
     </div>
   );
 })

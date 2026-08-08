@@ -410,15 +410,27 @@ export function SettingsView() {
                       <h4 className="text-xs font-bold uppercase tracking-tight">Validate API Keys</h4>
                     </div>
                     <p className="text-[10px] text-dim font-medium uppercase">Test your Binance API keys before saving. This will attempt to authenticate with Binance without modifying anything.</p>
-                    <Btn
-                      onClick={handleValidate}
-                      disabled={validating || (!apiKey && !testnetApiKey)}
-                      loading={validating}
-                      className="w-full"
-                      variant="secondary"
+                    <Tooltip
+                      content={
+                        validating
+                          ? "Validating API keys with Binance..."
+                          : (!apiKey && !testnetApiKey)
+                          ? "Enter live or testnet API keys above to run the validation check"
+                          : "Test entered API keys on Binance without saving"
+                      }
                     >
-                      {validating ? 'Validating...' : 'Test API Keys'}
-                    </Btn>
+                      <div className="w-full">
+                        <Btn
+                          onClick={handleValidate}
+                          disabled={validating || (!apiKey && !testnetApiKey)}
+                          loading={validating}
+                          className="w-full"
+                          variant="secondary"
+                        >
+                          {validating ? 'Validating...' : 'Test API Keys'}
+                        </Btn>
+                      </div>
+                    </Tooltip>
                     
                     {validationResults && (
                       <motion.div
@@ -467,14 +479,26 @@ export function SettingsView() {
                       </motion.div>
                     )}
                   </div>
-                  <Btn
-                    onClick={handleSave}
-                    disabled={loading || (!apiKey && !apiSecret && !testnetApiKey && !testnetApiSecret && !adminApiKey)}
-                    loading={loading}
-                    className="w-full md:w-auto min-w-[160px]"
+                  <Tooltip
+                    content={
+                      loading
+                        ? "Applying credentials..."
+                        : (!apiKey && !apiSecret && !testnetApiKey && !testnetApiSecret && !adminApiKey)
+                        ? "Enter live, testnet, or admin keys to apply changes"
+                        : "Save and apply all configured credentials"
+                    }
                   >
-                    Apply All Credentials
-                  </Btn>
+                    <div className="w-full md:w-auto">
+                      <Btn
+                        onClick={handleSave}
+                        disabled={loading || (!apiKey && !apiSecret && !testnetApiKey && !testnetApiSecret && !adminApiKey)}
+                        loading={loading}
+                        className="w-full md:w-auto min-w-[160px]"
+                      >
+                        Apply All Credentials
+                      </Btn>
+                    </div>
+                  </Tooltip>
                 </div>
               </div>
             </div>

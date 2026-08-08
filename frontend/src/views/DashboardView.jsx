@@ -1064,54 +1064,49 @@ export function DashboardView({ initialStrategy }) {
     return { lastSession: ls, lastTrade: lt };
   }, [sessionList, tradeHistory]);
 
-  const activePnlMap = useMemo(() => {
-    const map = { [currentStrategy.strategy_label]: 0 };
-    (config.strategy_variants || []).forEach(v => {
-      const label = v.strategy_label || 'Variant';
-      map[label] = 0;
-    });
-    (activeTrades || []).forEach(t => {
-      if (t) {
-        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategy.strategy_label;
-        map[label] += safeNum(t.pnl);
-      }
-    });
-    return map;
-  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+  // BOLT OPTIMIZATION: Loop-fused single-pass traversal (no intermediate array allocations)
+  // Combines activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, and totalActivePnl
+  // to avoid redundant iterations and allocation of three separate map states.
+  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl } = useMemo(() => {
+    const strategyLabel = currentStrategy.strategy_label;
+    const pnlMap = { [strategyLabel]: 0 };
+    const estPnlMap = { [strategyLabel]: 0 };
+    const countMap = { [strategyLabel]: 0 };
 
-  const activeEstPnlToRealizeMap = useMemo(() => {
-    const map = { [currentStrategy.strategy_label]: 0 };
-    (config.strategy_variants || []).forEach(v => {
-      const label = v.strategy_label || 'Variant';
-      map[label] = 0;
-    });
-    (activeTrades || []).forEach(t => {
-      if (t) {
-        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategy.strategy_label;
-        map[label] += safeNum(t.est_pnl_to_realize);
-      }
-    });
-    return map;
-  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+    const variants = config.strategy_variants || [];
+    for (let i = 0; i < variants.length; i++) {
+      const label = variants[i].strategy_label || 'Variant';
+      pnlMap[label] = 0;
+      estPnlMap[label] = 0;
+      countMap[label] = 0;
+    }
 
-  const activeTradeCountsMap = useMemo(() => {
-    const map = { [currentStrategy.strategy_label]: 0 };
-    (config.strategy_variants || []).forEach(v => {
-      const label = v.strategy_label || 'Variant';
-      map[label] = 0;
-    });
-    (activeTrades || []).forEach(t => {
+    const trades = activeTrades || [];
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
       if (t) {
-        const label = map[t.strategy_label] !== undefined ? t.strategy_label : currentStrategy.strategy_label;
-        map[label]++;
+        const label = pnlMap[t.strategy_label] !== undefined ? t.strategy_label : strategyLabel;
+        const pnlVal = safeNum(t.pnl);
+        pnlMap[label] += pnlVal;
+        estPnlMap[label] += safeNum(t.est_pnl_to_realize);
+        countMap[label]++;
       }
-    });
-    return map;
-  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
+    }
 
-  const totalActivePnl = useMemo(() =>
-    Object.values(activePnlMap || {}).reduce((acc, val) => acc + val, 0)
-  , [activePnlMap]);
+    // Sum the group totals to match original addition sequence and avoid float precision drift
+    const pnlValues = Object.values(pnlMap);
+    let totPnl = 0;
+    for (let i = 0; i < pnlValues.length; i++) {
+      totPnl += pnlValues[i];
+    }
+
+    return {
+      activePnlMap: pnlMap,
+      activeEstPnlToRealizeMap: estPnlMap,
+      activeTradeCountsMap: countMap,
+      totalActivePnl: totPnl
+    };
+  }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
   const maxRR = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
 

@@ -73,6 +73,114 @@ const SIGNALS = [
   ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
 ]
 
+const getBaseSignalType = (signalType) => {
+  if (SIGNALS.some(s => s[0] === signalType)) return signalType;
+  const lastUnderscore = signalType.lastIndexOf('_');
+  if (lastUnderscore > 0) {
+    const potentialBase = signalType.substring(0, lastUnderscore);
+    if (SIGNALS.some(s => s[0] === potentialBase)) {
+      return potentialBase;
+    }
+  }
+  return signalType;
+};
+
+const getSignalParamsSchema = (sigKey, baseType) => {
+  const suffix = sigKey === baseType ? '' : sigKey.substring(baseType.length); // e.g. '_2'
+  const schema = [];
+
+  const addParam = (baseParamKey, type, defaultValue, opts = null, attrs = {}, label = null) => {
+    let paramKey = baseParamKey;
+    if (suffix) {
+      if (baseParamKey.startsWith(baseType)) {
+        paramKey = sigKey + baseParamKey.substring(baseType.length); // e.g. 'supertrend_2_period'
+      } else {
+        paramKey = `${baseParamKey}${suffix}`; // e.g. 'ema_period_2'
+      }
+    }
+    schema.push({
+      key: paramKey,
+      baseParamKey,
+      type,
+      defaultValue,
+      opts,
+      attrs,
+      label: label || baseParamKey.replace(/_/g, ' ').toUpperCase()
+    });
+  };
+
+  if (baseType === 'ma') {
+    addParam('ma_period', 'number', 20, null, { min: 1 }, 'MA Period');
+  } else if (['ema', 'ema_cross', 'ema_price_cross', 'ema_close'].includes(baseType)) {
+    addParam('ema_period', 'number', 12, null, { min: 1 }, 'EMA Period');
+    addParam('entry_ema_period', 'number', 12, null, { min: 1 }, 'Entry Period');
+    addParam('exit_ema_period', 'number', 12, null, { min: 1 }, 'Exit Period');
+  } else if (['ema_dual_cross', 'ema_dual_close'].includes(baseType)) {
+    addParam('entry_ema_fast', 'number', 9, null, { min: 1 }, 'Entry Fast');
+    addParam('entry_ema_slow', 'number', 21, null, { min: 1 }, 'Entry Slow');
+    addParam('exit_ema_fast', 'number', 9, null, { min: 1 }, 'Exit Fast');
+    addParam('exit_ema_slow', 'number', 21, null, { min: 1 }, 'Exit Slow');
+  } else if (baseType === 'engulfing') {
+    addParam('engulfing_lookback', 'number', 1, null, { min: 1, max: 20 }, 'Search Window');
+    addParam('engulfing_streak', 'number', 1, null, { min: 1, max: 10 }, 'Required Streak');
+    addParam('engulfing_mode', 'text', 'range', [
+      { value: 'range', label: 'Range (H/L)' },
+      { value: 'body', label: 'Body (O/C)' },
+      { value: 'strict', label: 'Strict (Both)' },
+      { value: 'close_range', label: 'Close > H/L (Closed)' },
+      { value: 'close_body', label: 'Close > Body (Closed)' },
+      { value: 'soft_range', label: 'Partial Range (Close > H/L)' },
+      { value: 'soft_body', label: 'Partial Body (Close > Body)' }
+    ], {}, 'Engulfing Mode');
+    addParam('engulfing_timing', 'text', 'is_opportunity', [
+      { value: 'is_opportunity', label: 'Is Opportunity' },
+      { value: 'after_opportunity', label: 'After Opportunity' }
+    ], {}, 'Timing');
+    addParam('engulfing_sequential', 'boolean', true, null, {}, 'Sequential');
+    addParam('engulfing_volume_confirm', 'boolean', false, null, {}, 'Vol Confirmation');
+  } else if (['macd_impulse', 'macd_fade', 'macd_pbc'].includes(baseType)) {
+    addParam('macd_fast', 'number', 12, null, { min: 1 }, 'MACD Fast');
+    addParam('macd_slow', 'number', 26, null, { min: 1 }, 'MACD Slow');
+    addParam('macd_signal', 'number', 9, null, { min: 1 }, 'MACD Signal');
+    if (sigKey.includes('impulse')) {
+      addParam('macd_strict_expansion', 'boolean', true, null, {}, 'Strict Expanding');
+    }
+    if (sigKey.includes('pbc')) {
+      addParam('macd_pbc_trend_ema', 'number', 50, null, { min: 1 }, 'PBC Trend EMA');
+      addParam('macd_pbc_lookback', 'number', 10, null, { min: 1 }, 'PBC Lookback');
+    }
+  } else if (baseType === 'supertrend') {
+    addParam('supertrend_period', 'number', 10, null, { min: 1, max: 39 }, 'ATR Period');
+    addParam('supertrend_multiplier', 'number', 3, null, { min: 0.1, step: 0.1 }, 'Multiplier');
+    addParam('supertrend_mode', 'text', 'trend', [
+      { value: 'trend', label: 'Trend State' },
+      { value: 'crossover', label: 'Crossover Trigger' }
+    ], {}, 'Supertrend Mode');
+  }
+
+  return schema;
+};
+
+const TOOLTIPS = {
+  ma_period: "The period of the simple moving average.",
+  ema_period: "Global fallback period used if specific Entry/Exit EMA is not set.",
+  engulfing_mode: "Body: Open/Close must engulf. Range: High/Low must engulf. Strict: Both must engulf. Close > H/L (Closed) waits for a closed confirmation candle. Partial Range/Body (Soft modes) evaluate off the live candle, which trades whipsaw protection for earlier execution.",
+  engulfing_timing: "Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.",
+  engulfing_lookback: "Maximum search window: Number of previous candles to scan for a reversal streak.",
+  engulfing_streak: "Required streak: Number of consecutive reversal candles to find within the window.",
+  engulfing_sequential: "If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.",
+  engulfing_volume_confirm: "When enabled, the engulfing candle MUST have higher volume than the engulfed candle.",
+  macd_fast: "The fast EMA period for MACD line calculation.",
+  macd_slow: "The slow EMA period for MACD line calculation.",
+  macd_signal: "The signal line EMA period.",
+  macd_strict_expansion: "When enabled, consecutive MACD histogram bars must strictly increase (bullish) or decrease (bearish) in magnitude.",
+  macd_pbc_trend_ema: "The EMA period used as the trend filter. Price must be above this for long entries, and below for short entries.",
+  macd_pbc_lookback: "The number of previous candles scanned to find a valid histogram contraction pullback.",
+  supertrend_period: "The ATR lookback period for calculating band offsets.",
+  supertrend_multiplier: "The multiplier value applied to the ATR.",
+  supertrend_mode: "Trend State: Signal fires while trend matches side. Crossover Trigger: Signal fires only on the crossover candle."
+};
+
 const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
   <div className={cn("flex items-center gap-2 mb-2", className)}>
     <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center text-accent">
@@ -1014,43 +1122,26 @@ const flattenConfig = (config) => {
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
     const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
-    return {
+
+    const flattened = {
       ...config,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
-      signal_params_ma_period: params.ma_period,
-      signal_params_ema_period: params.ema_period,
-      signal_params_entry_ema_period: params.entry_ema_period,
-      signal_params_exit_ema_period: params.exit_ema_period,
-      signal_params_entry_ema_fast: params.entry_ema_fast,
-      signal_params_entry_ema_slow: params.entry_ema_slow,
-      signal_params_exit_ema_fast: params.exit_ema_fast,
-      signal_params_exit_ema_slow: params.exit_ema_slow,
-      signal_params_macd_fast: params.macd_fast || 12,
-      signal_params_macd_slow: params.macd_slow || 26,
-      signal_params_macd_signal: params.macd_signal || 9,
-      signal_params_macd_strict_expansion: params.macd_strict_expansion !== undefined ? params.macd_strict_expansion : true,
-      signal_params_macd_pbc_trend_ema: params.macd_pbc_trend_ema || 50,
-      signal_params_macd_pbc_lookback: params.macd_pbc_lookback || 10,
-      signal_params_supertrend_period: params.supertrend_period || 10,
-      signal_params_supertrend_multiplier: params.supertrend_multiplier || 3,
-      signal_params_supertrend_mode: params.supertrend_mode || 'trend',
       scanner_weights_momentum: weights.momentum * 100,
       scanner_weights_volatility: weights.volatility * 100,
       scanner_weights_trend: weights.trend * 100,
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
-      // UI Conversion: backend decimal to UI percentage
       slippage_warning_threshold: config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1),
       leverage: config.leverage !== undefined ? Number(config.leverage) : CONFIG_LIMITS.LEVERAGE_DEFAULT,
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
-  trailing_stop_enabled: !!config.trailing_stop_enabled,
-  trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
-  smart_watchlist_enabled: !!config.smart_watchlist_enabled,
-  smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
+      trailing_stop_enabled: !!config.trailing_stop_enabled,
+      trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+      smart_watchlist_enabled: !!config.smart_watchlist_enabled,
+      smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
       scanner_signal_depth: config.scanner_signal_depth || 10,
       auto_scale_min_notional: config.auto_scale_min_notional !== undefined ? config.auto_scale_min_notional : true,
       risk_hardening_enabled: !!config.risk_hardening_enabled,
@@ -1062,6 +1153,13 @@ const flattenConfig = (config) => {
       engulfing_streak: config.engulfing_streak || 1,
       engulfing_sequential: config.engulfing_sequential !== false,
     };
+
+    // Dynamically map all params (including suffixes) directly to flattened keys
+    Object.keys(params).forEach(k => {
+      flattened[`signal_params_${k}`] = params[k];
+    });
+
+    return flattened;
   } catch (e) { return { ...config }; }
 };
 
@@ -1071,20 +1169,26 @@ const coerceAndSanitizeConfig = (rawConfig) => {
     const flat = flattenConfig(rawConfig);
     const c = { ...flat, strategy_label: (flat.strategy_label || '').trim() };
 
-    // Explicitly sanitize inputs for security and data integrity
-    const sp = { ...(typeof flat.signal_params === 'string' ? JSON.parse(flat.signal_params || '{}') : flat.signal_params || {}) };
-    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
-      const val = flat[`signal_params_${k}`];
-      if (val !== undefined && val !== null) {
-        sp[k] = Number(val);
+    // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
+    const sp = {};
+    Object.keys(flat).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        const paramKey = k.substring('signal_params_'.length);
+        const val = flat[k];
+        if (val !== undefined && val !== null) {
+          // If the parameter is supposed to be boolean, parse as boolean, otherwise coerce to number or string
+          if (val === 'true' || val === true) {
+            sp[paramKey] = true;
+          } else if (val === 'false' || val === false) {
+            sp[paramKey] = false;
+          } else if (!Number.isNaN(Number(val)) && typeof val !== 'boolean') {
+            sp[paramKey] = Number(val);
+          } else {
+            sp[paramKey] = val;
+          }
+        }
       }
     });
-    if (flat.signal_params_macd_strict_expansion !== undefined) {
-      sp.macd_strict_expansion = flat.signal_params_macd_strict_expansion === true || flat.signal_params_macd_strict_expansion === 'true';
-    }
-    if (flat.signal_params_supertrend_mode !== undefined) {
-      sp.supertrend_mode = flat.signal_params_supertrend_mode;
-    }
     c.signal_params = sp;
 
     // Ensure numeric values where expected
@@ -1599,20 +1703,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const buildConfigToSave = React.useCallback(() => {
     const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
 
-    // Explicitly sanitize inputs for security and data integrity
-    const sp = { ...(typeof cfg.signal_params === 'string' ? JSON.parse(cfg.signal_params || '{}') : cfg.signal_params || {}) };
-    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
-      const val = cfg[`signal_params_${k}`];
-      if (val !== undefined && val !== null) {
-        sp[k] = Number(val);
+    // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
+    const sp = {};
+    Object.keys(cfg).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        const paramKey = k.substring('signal_params_'.length);
+        const val = cfg[k];
+        if (val !== undefined && val !== null) {
+          if (val === 'true' || val === true) {
+            sp[paramKey] = true;
+          } else if (val === 'false' || val === false) {
+            sp[paramKey] = false;
+          } else if (!Number.isNaN(Number(val)) && typeof val !== 'boolean') {
+            sp[paramKey] = Number(val);
+          } else {
+            sp[paramKey] = val;
+          }
+        }
       }
     });
-    if (cfg.signal_params_macd_strict_expansion !== undefined) {
-      sp.macd_strict_expansion = cfg.signal_params_macd_strict_expansion === true || cfg.signal_params_macd_strict_expansion === 'true';
-    }
-    if (cfg.signal_params_supertrend_mode !== undefined) {
-      sp.supertrend_mode = cfg.signal_params_supertrend_mode;
-    }
     c.signal_params = sp;
 
     // Ensure numeric values where expected
@@ -2321,124 +2430,144 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'strategy_params'}
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_params' ? null : 'strategy_params')}
             >
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-                {renderField('MA Period', 'signal_params_ma_period', 'number', null, { min: 1 })}
-                <Tooltip content="Global fallback period used if specific Entry/Exit EMA is not set">
-                  {renderField('EMA (Global Fallback)', 'signal_params_ema_period', 'number', null, { min: 1 })}
-                </Tooltip>
-              </div>
-
               <div className="space-y-6">
-                {(cfg.enabled_signals || []).includes('engulfing') && (
-                  <div className="bg-accent/5 p-4 rounded-2xl border border-accent/20">
-                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em] mb-4">Engulfing Expert Parameters</div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <Tooltip content="Body: Open/Close must engulf. Range: High/Low must engulf. Strict: Both must engulf. Close > H/L (Closed) waits for a closed confirmation candle. Partial Range/Body (Soft modes) evaluate off the live candle, which trades whipsaw protection for earlier execution.">
-                        {renderField('Engulfing Mode', 'engulfing_mode', 'text', [
-                          { value: 'range', label: 'Range (H/L)' },
-                          { value: 'body', label: 'Body (O/C)' },
-                          { value: 'strict', label: 'Strict (Both)' },
-                          { value: 'close_range', label: 'Close > H/L (Closed)' },
-                          { value: 'close_body', label: 'Close > Body (Closed)' },
-                          { value: 'soft_range', label: 'Partial Range (Close > H/L)' },
-                          { value: 'soft_body', label: 'Partial Body (Close > Body)' }
-                        ])}
-                      </Tooltip>
-                      <Tooltip content="Is Opportunity: Signal fires on the momentum candle itself. After Opportunity: Signal must fire on the NEXT candle after momentum.">
-                        {renderField('Timing', 'engulfing_timing', 'text', [
-                          { value: 'is_opportunity', label: 'Is Opportunity' },
-                          { value: 'after_opportunity', label: 'After Opportunity' }
-                        ])}
-                      </Tooltip>
-                      <Tooltip content="Maximum search window: Number of previous candles to scan for a reversal streak.">
-                        {renderField('Search Window', 'engulfing_lookback', 'number', null, { min: 1, max: 20 })}
-                      </Tooltip>
-                      <Tooltip content="Required streak: Number of consecutive reversal candles to find within the window.">
-                        {renderField('Required Streak', 'engulfing_streak', 'number', null, { min: 1, max: 10 })}
-                      </Tooltip>
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Sequential</label>
-                          <Tooltip content="If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.">
-                            <Toggle value={cfg.engulfing_sequential !== false} onChange={(v) => setField('engulfing_sequential', v)} />
-                          </Tooltip>
+                {(() => {
+                  const entrySignals = cfg.enabled_signals || [];
+                  const exitSignals = cfg.exit_signals || [];
+                  const uniqueActiveSignals = Array.from(new Set([...entrySignals, ...exitSignals]));
+
+                  // We always ensure global parameters like ma_period and ema_period are rendered first
+                  const globalSchema = [
+                    { key: 'signal_params_ma_period', label: 'MA Period', type: 'number', baseParamKey: 'ma_period', defaultValue: 20, attrs: { min: 1 } },
+                    { key: 'signal_params_ema_period', label: 'EMA (Global Fallback)', type: 'number', baseParamKey: 'ema_period', defaultValue: 12, attrs: { min: 1 }, tooltip: "Global fallback period used if specific Entry/Exit EMA is not set" }
+                  ];
+
+                  // Generate cards for every active signal (including any suffixed layers)
+                  const cards = [];
+
+                  uniqueActiveSignals.forEach(sigKey => {
+                    const baseType = getBaseSignalType(sigKey);
+                    const schema = getSignalParamsSchema(sigKey, baseType);
+                    if (schema.length > 0) {
+                      const sigInfo = SIGNALS.find(s => s[0] === baseType);
+                      const displayLabel = sigInfo ? sigInfo[1] : baseType;
+                      const isLayered = sigKey !== baseType;
+                      const layerSuffix = isLayered ? ` (Layer: _${sigKey.split('_').pop()})` : '';
+
+                      cards.push({
+                        key: sigKey,
+                        label: `${displayLabel}${layerSuffix}`,
+                        isLayered,
+                        schema
+                      });
+                    }
+                  });
+
+                  return (
+                    <div className="space-y-6 text-left">
+                      {/* Global fallback parameters */}
+                      <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
+                        <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Global Parameters</div>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                          {globalSchema.map(field => {
+                            const render = () => (
+                              <ConfigField
+                                label={field.label}
+                                id={`config-${field.key}`}
+                                name={field.key}
+                                key={field.key}
+                                type={field.type}
+                                value={cfg[field.key] !== undefined ? cfg[field.key] : field.defaultValue}
+                                onChange={setField}
+                                error={errors[field.key]}
+                                warning={errors[`${field.key}_warn`]}
+                                attrs={{ ...field.attrs, onFocus: handleInputFocus }}
+                              />
+                            );
+                            if (field.tooltip) {
+                              return (
+                                <Tooltip key={field.key} content={field.tooltip}>
+                                  <div>{render()}</div>
+                                </Tooltip>
+                              );
+                            }
+                            return render();
+                          })}
                         </div>
                       </div>
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">Vol Confirmation</label>
-                          <Tooltip content="When enabled, the engulfing candle MUST have higher volume than the engulfed candle.">
-                            <Toggle value={cfg.engulfing_volume_confirm === true} onChange={(v) => setField('engulfing_volume_confirm', v)} />
-                          </Tooltip>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
 
-                <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
-                  <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Entry Specific EMAs</div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    {renderField('Entry Period', 'signal_params_entry_ema_period', 'number', null, { min: 1 })}
-                    {renderField('Entry Fast', 'signal_params_entry_ema_fast', 'number', null, { min: 1 })}
-                    {renderField('Entry Slow', 'signal_params_entry_ema_slow', 'number', null, { min: 1 })}
-                  </div>
-                </div>
+                      {/* Active signal-specific dynamic parameter cards */}
+                      {cards.map(card => {
+                        const isBooleanOnly = card.schema.every(s => s.type === 'boolean');
+                        return (
+                          <div key={card.key} className={cn(
+                            "p-4 rounded-2xl border transition-all space-y-4 animate-in fade-in slide-in-from-top-2 duration-300",
+                            card.isLayered ? "border-purple/30 bg-purple/[0.01]" : "bg-background/20 border-border/50"
+                          )}>
+                            <div className="flex items-center justify-between">
+                              <span className={cn(
+                                "text-[9px] font-black uppercase tracking-[0.2em]",
+                                card.isLayered ? "text-purple-400" : "text-accent"
+                              )}>
+                                {card.label}
+                              </span>
+                            </div>
 
-                <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
-                  <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Exit Specific EMAs</div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                    {renderField('Exit Period', 'signal_params_exit_ema_period', 'number', null, { min: 1 })}
-                    {renderField('Exit Fast', 'signal_params_exit_ema_fast', 'number', null, { min: 1 })}
-                    {renderField('Exit Slow', 'signal_params_exit_ema_slow', 'number', null, { min: 1 })}
-                  </div>
-                </div>
+                            <div className={cn(
+                              "grid gap-6",
+                              isBooleanOnly ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2 md:grid-cols-4"
+                            )}>
+                              {card.schema.map(field => {
+                                const renderInput = () => {
+                                  if (field.type === 'boolean') {
+                                    return (
+                                      <div className="flex flex-col gap-1.5 justify-center h-full min-h-[44px]">
+                                        <div className="flex justify-between items-center">
+                                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">{field.label}</label>
+                                          <Toggle
+                                            value={cfg[field.key] !== undefined ? cfg[field.key] === true : field.defaultValue}
+                                            onChange={(v) => setField(field.key, v)}
+                                            color={card.isLayered ? "bg-purple" : "bg-accent"}
+                                          />
+                                        </div>
+                                      </div>
+                                    );
+                                  }
 
-                {(
-                  (cfg.enabled_signals || []).includes('macd_impulse') ||
-                  (cfg.enabled_signals || []).includes('macd_pbc') ||
-                  (cfg.enabled_signals || []).includes('macd_fade') ||
-                  (cfg.exit_signals || []).includes('macd_impulse') ||
-                  (cfg.exit_signals || []).includes('macd_pbc') ||
-                  (cfg.exit_signals || []).includes('macd_fade')
-                ) && (
-                  <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">MACD Momentum Parameters</div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                      {renderField('MACD Fast', 'signal_params_macd_fast', 'number', null, { min: 1 })}
-                      {renderField('MACD Slow', 'signal_params_macd_slow', 'number', null, { min: 1 })}
-                      {renderField('MACD Signal', 'signal_params_macd_signal', 'number', null, { min: 1 })}
-                      {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.exit_signals || []).includes('macd_impulse')) && (
-                        <div className="flex flex-col gap-1.5 justify-center">
-                          <div className="flex justify-between items-center">
-                            <label className="text-[10px] text-dim font-black tracking-widest uppercase">Strict Expanding</label>
-                            <Toggle value={cfg.signal_params_macd_strict_expansion !== false} onChange={(v) => setField('signal_params_macd_strict_expansion', v)} />
+                                  return (
+                                    <ConfigField
+                                      label={field.label}
+                                      id={`config-${field.key}`}
+                                      name={field.key}
+                                      type={field.type}
+                                      value={cfg[field.key] !== undefined ? cfg[field.key] : field.defaultValue}
+                                      onChange={setField}
+                                      error={errors[field.key]}
+                                      warning={errors[`${field.key}_warn`]}
+                                      opts={field.opts}
+                                      attrs={{ ...field.attrs, onFocus: handleInputFocus }}
+                                    />
+                                  );
+                                };
+
+                                const tooltipText = TOOLTIPS[field.baseParamKey];
+                                if (tooltipText) {
+                                  return (
+                                    <Tooltip key={field.key} content={tooltipText}>
+                                      <div>{renderInput()}</div>
+                                    </Tooltip>
+                                  );
+                                }
+
+                                return <React.Fragment key={field.key}>{renderInput()}</React.Fragment>;
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      )}
-                      {((cfg.enabled_signals || []).includes('macd_pbc') || (cfg.exit_signals || []).includes('macd_pbc')) && (
-                        <>
-                          {renderField('PBC Trend EMA', 'signal_params_macd_pbc_trend_ema', 'number', null, { min: 1 })}
-                          {renderField('PBC Lookback', 'signal_params_macd_pbc_lookback', 'number', null, { min: 1 })}
-                        </>
-                      )}
+                        );
+                      })}
                     </div>
-                  </div>
-                )}
-
-                {((cfg.enabled_signals || []).includes('supertrend') || (cfg.exit_signals || []).includes('supertrend')) && (
-                  <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">Supertrend Parameters</div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                      {renderField('ATR Period', 'signal_params_supertrend_period', 'number', null, { min: 1, max: 39 })}
-                      {renderField('Multiplier', 'signal_params_supertrend_multiplier', 'number', null, { min: 0.1, step: 0.1 })}
-                      {renderField('Supertrend Mode', 'signal_params_supertrend_mode', 'text', [
-                        { value: 'trend', label: 'Trend State' },
-                        { value: 'crossover', label: 'Crossover Trigger' }
-                      ])}
-                    </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
 
               {(cfg.enabled_signals || []).includes('ema_dual_close') && (

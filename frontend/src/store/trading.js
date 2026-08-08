@@ -448,7 +448,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         hibernating: false,
         totalRiskPct: 0,
         totalSlUsed: 0,
-        isSyncingOnResume: false
+        isSyncingOnResume: false,
+        sessionPaused: false,
+        pausedStrategies: [],
+        strategyGateStates: {}
       });
       // Fetch fresh history and analytics after termination
       if (wasActive) {

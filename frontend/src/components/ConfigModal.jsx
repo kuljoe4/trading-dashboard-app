@@ -999,26 +999,9 @@ const flattenConfig = (config) => {
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
     const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
-    return {
+    const flat = {
       ...config,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
-      signal_params_ma_period: params.ma_period,
-      signal_params_ema_period: params.ema_period,
-      signal_params_entry_ema_period: params.entry_ema_period,
-      signal_params_exit_ema_period: params.exit_ema_period,
-      signal_params_entry_ema_fast: params.entry_ema_fast,
-      signal_params_entry_ema_slow: params.entry_ema_slow,
-      signal_params_exit_ema_fast: params.exit_ema_fast,
-      signal_params_exit_ema_slow: params.exit_ema_slow,
-      signal_params_macd_fast: params.macd_fast || 12,
-      signal_params_macd_slow: params.macd_slow || 26,
-      signal_params_macd_signal: params.macd_signal || 9,
-      signal_params_macd_strict_expansion: params.macd_strict_expansion !== undefined ? params.macd_strict_expansion : true,
-      signal_params_macd_pbc_trend_ema: params.macd_pbc_trend_ema || 50,
-      signal_params_macd_pbc_lookback: params.macd_pbc_lookback || 10,
-      signal_params_supertrend_period: params.supertrend_period || 10,
-      signal_params_supertrend_multiplier: params.supertrend_multiplier || 3,
-      signal_params_supertrend_mode: params.supertrend_mode || 'trend',
       scanner_weights_momentum: weights.momentum * 100,
       scanner_weights_volatility: weights.volatility * 100,
       scanner_weights_trend: weights.trend * 100,
@@ -1047,6 +1030,24 @@ const flattenConfig = (config) => {
       engulfing_streak: config.engulfing_streak || 1,
       engulfing_sequential: config.engulfing_sequential !== false,
     };
+
+    // Dynamically map all properties inside the params object to flat.signal_params_...
+    Object.keys(params).forEach(k => {
+      flat[`signal_params_${k}`] = params[k];
+    });
+
+    // Provide safe defaults for base parameters if they don't exist
+    if (flat.signal_params_macd_fast === undefined) flat.signal_params_macd_fast = 12;
+    if (flat.signal_params_macd_slow === undefined) flat.signal_params_macd_slow = 26;
+    if (flat.signal_params_macd_signal === undefined) flat.signal_params_macd_signal = 9;
+    if (flat.signal_params_macd_strict_expansion === undefined) flat.signal_params_macd_strict_expansion = true;
+    if (flat.signal_params_macd_pbc_trend_ema === undefined) flat.signal_params_macd_pbc_trend_ema = 50;
+    if (flat.signal_params_macd_pbc_lookback === undefined) flat.signal_params_macd_pbc_lookback = 10;
+    if (flat.signal_params_supertrend_period === undefined) flat.signal_params_supertrend_period = 10;
+    if (flat.signal_params_supertrend_multiplier === undefined) flat.signal_params_supertrend_multiplier = 3;
+    if (flat.signal_params_supertrend_mode === undefined) flat.signal_params_supertrend_mode = 'trend';
+
+    return flat;
   } catch (e) { return { ...config }; }
 };
 
@@ -1058,18 +1059,22 @@ const coerceAndSanitizeConfig = (rawConfig) => {
 
     // Explicitly sanitize inputs for security and data integrity
     const sp = { ...(typeof flat.signal_params === 'string' ? JSON.parse(flat.signal_params || '{}') : flat.signal_params || {}) };
-    ['ma_period', 'ema_period', 'entry_ema_period', 'exit_ema_period', 'entry_ema_fast', 'entry_ema_slow', 'exit_ema_fast', 'exit_ema_slow', 'macd_fast', 'macd_slow', 'macd_signal', 'supertrend_period', 'supertrend_multiplier', 'macd_pbc_trend_ema', 'macd_pbc_lookback'].forEach(k => {
-      const val = flat[`signal_params_${k}`];
-      if (val !== undefined && val !== null) {
-        sp[k] = Number(val);
+
+    // Copy all signal_params_ keys dynamically into the params sub-object
+    Object.keys(flat).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        const subKey = k.replace('signal_params_', '');
+        const val = flat[k];
+        if (val !== undefined && val !== null && val !== '') {
+          if (!isNaN(val) && val !== true && val !== false) {
+            sp[subKey] = Number(val);
+          } else {
+            sp[subKey] = val === 'true' ? true : val === 'false' ? false : val;
+          }
+        }
       }
     });
-    if (flat.signal_params_macd_strict_expansion !== undefined) {
-      sp.macd_strict_expansion = flat.signal_params_macd_strict_expansion === true || flat.signal_params_macd_strict_expansion === 'true';
-    }
-    if (flat.signal_params_supertrend_mode !== undefined) {
-      sp.supertrend_mode = flat.signal_params_supertrend_mode;
-    }
+
     c.signal_params = sp;
 
     // Ensure numeric values where expected
@@ -1131,6 +1136,28 @@ const coerceAndSanitizeConfig = (rawConfig) => {
     return { ...rawConfig };
   }
 };
+
+const getLayerParamKey = (layerKey, baseParamKey) => {
+  if (!layerKey) return `signal_params_${baseParamKey}`;
+  const lastUnderscore = layerKey.lastIndexOf('_');
+  if (lastUnderscore > 0) {
+    const suffix = layerKey.substring(lastUnderscore);
+    if (/^_\d+$/.test(suffix)) {
+      let prefix = '';
+      if (baseParamKey.startsWith('macd_pbc_')) prefix = 'macd_pbc';
+      else if (baseParamKey.startsWith('macd_impulse_')) prefix = 'macd_impulse';
+      else if (baseParamKey.startsWith('macd_')) prefix = 'macd';
+      else if (baseParamKey.startsWith('supertrend_')) prefix = 'supertrend';
+
+      if (prefix) {
+        const layeredParamKey = baseParamKey.replace(prefix, prefix + suffix);
+        return `signal_params_${layeredParamKey}`;
+      }
+    }
+  }
+  return `signal_params_${baseParamKey}`;
+};
+
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
   const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
     addAlert: state.addAlert,
@@ -1193,6 +1220,34 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState(null);
   const [openSectionId, setOpenSectionId] = useState('scan_general');
+
+  const [activeSupertrendLayer, setActiveSupertrendLayer] = useState('supertrend');
+  const [activeMacdLayer, setActiveMacdLayer] = useState('macd_pbc');
+
+  const activeSignals = useMemo(() => [
+    ...(cfg.enabled_signals || []),
+    ...(cfg.exit_signals || [])
+  ], [cfg.enabled_signals, cfg.exit_signals]);
+
+  const supertrendLayers = useMemo(() => {
+    return Array.from(new Set(activeSignals.filter(s => s === 'supertrend' || s.startsWith('supertrend_'))));
+  }, [activeSignals]);
+
+  const macdLayers = useMemo(() => {
+    return Array.from(new Set(activeSignals.filter(s => s.startsWith('macd_'))));
+  }, [activeSignals]);
+
+  useEffect(() => {
+    if (supertrendLayers.length > 0 && !supertrendLayers.includes(activeSupertrendLayer)) {
+      setActiveSupertrendLayer(supertrendLayers[0]);
+    }
+  }, [supertrendLayers, activeSupertrendLayer]);
+
+  useEffect(() => {
+    if (macdLayers.length > 0 && !macdLayers.includes(activeMacdLayer)) {
+      setActiveMacdLayer(macdLayers[0]);
+    }
+  }, [macdLayers, activeMacdLayer]);
 
   // Accordion behavior: auto-expand the first section of the selected tab on tab change
   useEffect(() => {
@@ -2382,42 +2437,139 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   (cfg.enabled_signals || []).includes('macd_fade') ||
                   (cfg.exit_signals || []).includes('macd_impulse') ||
                   (cfg.exit_signals || []).includes('macd_pbc') ||
-                  (cfg.exit_signals || []).includes('macd_fade')
+                  (cfg.exit_signals || []).includes('macd_fade') ||
+                  macdLayers.length > 0
                 ) && (
                   <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">MACD Momentum Parameters</div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                      {renderField('MACD Fast', 'signal_params_macd_fast', 'number', null, { min: 1 })}
-                      {renderField('MACD Slow', 'signal_params_macd_slow', 'number', null, { min: 1 })}
-                      {renderField('MACD Signal', 'signal_params_macd_signal', 'number', null, { min: 1 })}
-                      {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.exit_signals || []).includes('macd_impulse')) && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">MACD Momentum Parameters</div>
+                      {macdLayers.length > 1 && (
+                        <div className="flex gap-1 p-0.5 bg-surface/50 border border-border/60 rounded-lg overflow-x-auto max-w-full">
+                          {macdLayers.map(l => (
+                            <button
+                              key={l}
+                              type="button"
+                              onClick={() => setActiveMacdLayer(l)}
+                              className={cn(
+                                "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                                activeMacdLayer === l
+                                  ? "bg-accent text-white shadow-sm font-bold"
+                                  : "text-dim hover:text-text"
+                              )}
+                            >
+                              {l.split('_').length === 1 ? 'Base' : `Layer ${l.split('_').pop()}`}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6 pt-1">
+                      {renderField(
+                        'MACD Fast',
+                        getLayerParamKey(activeMacdLayer, 'macd_fast'),
+                        'number',
+                        null,
+                        { min: 1, placeholder: String(cfg.signal_params_macd_fast || 12) }
+                      )}
+                      {renderField(
+                        'MACD Slow',
+                        getLayerParamKey(activeMacdLayer, 'macd_slow'),
+                        'number',
+                        null,
+                        { min: 1, placeholder: String(cfg.signal_params_macd_slow || 26) }
+                      )}
+                      {renderField(
+                        'MACD Signal',
+                        getLayerParamKey(activeMacdLayer, 'macd_signal'),
+                        'number',
+                        null,
+                        { min: 1, placeholder: String(cfg.signal_params_macd_signal || 9) }
+                      )}
+                      {((cfg.enabled_signals || []).includes('macd_impulse') || (cfg.exit_signals || []).includes('macd_impulse') || activeMacdLayer.startsWith('macd_impulse')) && (
                         <div className="flex flex-col gap-1.5 justify-center">
                           <div className="flex justify-between items-center">
                             <label className="text-[10px] text-dim font-black tracking-widest uppercase">Strict Expanding</label>
-                            <Toggle value={cfg.signal_params_macd_strict_expansion !== false} onChange={(v) => setField('signal_params_macd_strict_expansion', v)} />
+                            <Toggle
+                              value={
+                                cfg[getLayerParamKey(activeMacdLayer, 'macd_strict_expansion')] !== undefined
+                                  ? cfg[getLayerParamKey(activeMacdLayer, 'macd_strict_expansion')] === true || cfg[getLayerParamKey(activeMacdLayer, 'macd_strict_expansion')] === 'true'
+                                  : cfg.signal_params_macd_strict_expansion !== false
+                              }
+                              onChange={(v) => setField(getLayerParamKey(activeMacdLayer, 'macd_strict_expansion'), v)}
+                            />
                           </div>
                         </div>
                       )}
-                      {((cfg.enabled_signals || []).includes('macd_pbc') || (cfg.exit_signals || []).includes('macd_pbc')) && (
+                      {((cfg.enabled_signals || []).includes('macd_pbc') || (cfg.exit_signals || []).includes('macd_pbc') || activeMacdLayer.startsWith('macd_pbc')) && (
                         <>
-                          {renderField('PBC Trend EMA', 'signal_params_macd_pbc_trend_ema', 'number', null, { min: 1 })}
-                          {renderField('PBC Lookback', 'signal_params_macd_pbc_lookback', 'number', null, { min: 1 })}
+                          {renderField(
+                            'PBC Trend EMA',
+                            getLayerParamKey(activeMacdLayer, 'macd_pbc_trend_ema'),
+                            'number',
+                            null,
+                            { min: 1, placeholder: String(cfg.signal_params_macd_pbc_trend_ema || 50) }
+                          )}
+                          {renderField(
+                            'PBC Lookback',
+                            getLayerParamKey(activeMacdLayer, 'macd_pbc_lookback'),
+                            'number',
+                            null,
+                            { min: 1, placeholder: String(cfg.signal_params_macd_pbc_lookback || 10) }
+                          )}
                         </>
                       )}
                     </div>
                   </div>
                 )}
 
-                {((cfg.enabled_signals || []).includes('supertrend') || (cfg.exit_signals || []).includes('supertrend')) && (
+                {((cfg.enabled_signals || []).includes('supertrend') || (cfg.exit_signals || []).includes('supertrend') || supertrendLayers.length > 0) && (
                   <div className="bg-background/20 p-4 rounded-2xl border border-border/50 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">Supertrend Parameters</div>
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                      {renderField('ATR Period', 'signal_params_supertrend_period', 'number', null, { min: 1, max: 39 })}
-                      {renderField('Multiplier', 'signal_params_supertrend_multiplier', 'number', null, { min: 0.1, step: 0.1 })}
-                      {renderField('Supertrend Mode', 'signal_params_supertrend_mode', 'text', [
-                        { value: 'trend', label: 'Trend State' },
-                        { value: 'crossover', label: 'Crossover Trigger' }
-                      ])}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="text-[9px] font-black text-accent uppercase tracking-[0.2em]">Supertrend Parameters</div>
+                      {supertrendLayers.length > 1 && (
+                        <div className="flex gap-1 p-0.5 bg-surface/50 border border-border/60 rounded-lg overflow-x-auto max-w-full">
+                          {supertrendLayers.map(l => (
+                            <button
+                              key={l}
+                              type="button"
+                              onClick={() => setActiveSupertrendLayer(l)}
+                              className={cn(
+                                "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                                activeSupertrendLayer === l
+                                  ? "bg-accent text-white shadow-sm font-bold"
+                                  : "text-dim hover:text-text"
+                              )}
+                            >
+                              {l === 'supertrend' ? 'Base' : `Layer ${l.split('_').pop()}`}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-6 pt-1">
+                      {renderField(
+                        'ATR Period',
+                        getLayerParamKey(activeSupertrendLayer, 'supertrend_period'),
+                        'number',
+                        null,
+                        { min: 1, max: 39, placeholder: String(cfg.signal_params_supertrend_period || 10) }
+                      )}
+                      {renderField(
+                        'Multiplier',
+                        getLayerParamKey(activeSupertrendLayer, 'supertrend_multiplier'),
+                        'number',
+                        null,
+                        { min: 0.1, step: 0.1, placeholder: String(cfg.signal_params_supertrend_multiplier || 3) }
+                      )}
+                      {renderField(
+                        'Supertrend Mode',
+                        getLayerParamKey(activeSupertrendLayer, 'supertrend_mode'),
+                        'text',
+                        [
+                          { value: 'trend', label: 'Trend State' },
+                          { value: 'crossover', label: 'Crossover Trigger' }
+                        ]
+                      )}
                     </div>
                   </div>
                 )}

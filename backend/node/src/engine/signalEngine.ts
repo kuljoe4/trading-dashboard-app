@@ -230,7 +230,42 @@ export class SignalEngineService {
           ? this.klineStore.getRawCandles(symbol, signalInterval)
           : candles;
 
-        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal);
+        let resolvedConfig = config;
+        if (signalType !== baseSignalType) {
+          const lastUnderscore = signalType.lastIndexOf('_');
+          if (lastUnderscore > 0) {
+            const suffix = signalType.substring(lastUnderscore); // e.g. "_2"
+            if (/^_\d+$/.test(suffix)) {
+              const hasOverride = Object.keys(config.signal_params || {}).some(k => k.includes(suffix));
+              if (hasOverride) {
+                resolvedConfig = {
+                  ...config,
+                  signal_params: new Proxy(config.signal_params || {}, {
+                    get(target, prop) {
+                      if (typeof prop === 'string') {
+                        let prefix = '';
+                        if (prop.startsWith('macd_pbc_')) prefix = 'macd_pbc';
+                        else if (prop.startsWith('macd_impulse_')) prefix = 'macd_impulse';
+                        else if (prop.startsWith('macd_')) prefix = 'macd';
+                        else if (prop.startsWith('supertrend_')) prefix = 'supertrend';
+
+                        if (prefix) {
+                          const overrideProp = prop.replace(prefix, prefix + suffix);
+                          if (overrideProp in target) {
+                            return target[overrideProp];
+                          }
+                        }
+                      }
+                      return target[prop];
+                    }
+                  })
+                };
+              }
+            }
+          }
+        }
+
+        const result = handler(symbol, resolvedConfig, signalInterval, side, purpose, signalCandles, minimal);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
         if (!minimal) {

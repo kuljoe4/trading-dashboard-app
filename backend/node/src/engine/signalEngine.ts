@@ -50,7 +50,7 @@ export class SignalEngineService {
 
   private readonly signalHandlers: Record<
     string,
-    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[], minimal?: boolean) => boolean | SignalDetail
+    (symbol: string, config: any, interval: string, side?: 'LONG' | 'SHORT', purpose?: 'entry' | 'exit', candles?: Candle[], minimal?: boolean, signalType?: string) => boolean | SignalDetail
   > = {
     momentum_pct: this.momentumPctSignal.bind(this),
     breakout_hl: this.breakoutHlSignal.bind(this),
@@ -70,8 +70,42 @@ export class SignalEngineService {
 
   constructor(private readonly klineStore: KlineStoreService) {}
 
+  public resolveSignalParam(
+    params: any,
+    signalType: string,
+    baseSignalType: string,
+    paramKey: string,
+    defaultValue: any
+  ): any {
+    if (!params) return defaultValue;
+
+    // If there's no suffix, just return the direct value
+    if (signalType === baseSignalType) {
+      return params[paramKey] !== undefined ? params[paramKey] : defaultValue;
+    }
+
+    const suffix = signalType.substring(baseSignalType.length); // e.g. "_2"
+
+    // 1. Try with suffix appended to paramKey: e.g. ema_period_2
+    const suffixedKey = `${paramKey}${suffix}`;
+    if (params[suffixedKey] !== undefined) {
+      return params[suffixedKey];
+    }
+
+    // 2. Try with baseSignalType prefix replaced by signalType prefix inside paramKey: e.g. supertrend_2_period
+    if (paramKey.startsWith(baseSignalType)) {
+      const replacedKey = signalType + paramKey.substring(baseSignalType.length);
+      if (params[replacedKey] !== undefined) {
+        return params[replacedKey];
+      }
+    }
+
+    // 3. Fallback to direct base paramKey
+    return params[paramKey] !== undefined ? params[paramKey] : defaultValue;
+  }
+
   getRequiredWarmup(config: SessionConfig): number {
-    if (!config.enabled_signals || config.enabled_signals.length === 0) return 0;
+    if ((!config.enabled_signals || config.enabled_signals.length === 0) && (!config.exit_signals || config.exit_signals.length === 0)) return 0;
 
     const cached = this.warmupCache.get(config);
     if (cached !== undefined) return cached;
@@ -79,56 +113,75 @@ export class SignalEngineService {
     let maxReq = 0;
     const params: any = config.signal_params || {};
 
-    for (const signalType of config.enabled_signals) {
-      if (signalType === 'momentum_pct') {
+    const resolveParam = (sigType: string, bType: string, key: string, fallback: any) => {
+      return this.resolveSignalParam(params, sigType, bType, key, fallback);
+    };
+
+    const processSignal = (signalType: string) => {
+      let baseType = signalType;
+      let handler = this.signalHandlers[signalType];
+
+      if (!handler) {
+        const lastUnderscore = signalType.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+          const potentialBase = signalType.substring(0, lastUnderscore);
+          if (this.signalHandlers[potentialBase]) {
+            baseType = potentialBase;
+          }
+        }
+      }
+
+      if (baseType === 'momentum_pct') {
         maxReq = Math.max(maxReq, (config.scan_lookback || 3) + 1);
-      } else if (signalType === 'breakout_hl') {
+      } else if (baseType === 'breakout_hl') {
         maxReq = Math.max(maxReq, (config.scan_lookback || 3) + 1);
-      } else if (signalType === 'ma') {
-        const period = parseInt(params.ma_period || '20', 10);
+      } else if (baseType === 'ma') {
+        const periodVal = resolveParam(signalType, baseType, 'ma_period', '20');
+        const period = parseInt(String(periodVal), 10);
         maxReq = Math.max(maxReq, period + 1);
-      } else if (signalType === 'ema' || signalType === 'ema_cross' || signalType === 'ema_price_cross' || signalType === 'ema_close') {
-        const period = parseInt(params.entry_ema_period || params.ema_period || '12', 10);
+      } else if (baseType === 'ema' || baseType === 'ema_cross' || baseType === 'ema_price_cross' || baseType === 'ema_close') {
+        const exitPeriodVal = resolveParam(signalType, baseType, 'exit_ema_period', null);
+        const entryPeriodVal = resolveParam(signalType, baseType, 'entry_ema_period', null);
+        const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
+        const period = parseInt(String(exitPeriodVal || entryPeriodVal || basePeriodVal), 10);
         maxReq = Math.max(maxReq, period * 2);
-      } else if (signalType === 'ema_dual_cross' || signalType === 'ema_dual_close') {
-        const fast = parseInt(params.entry_ema_fast || '9', 10);
-        const slow = parseInt(params.entry_ema_slow || '21', 10);
+      } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close') {
+        const fastVal = resolveParam(signalType, baseType, 'entry_ema_fast', resolveParam(signalType, baseType, 'exit_ema_fast', '9'));
+        const slowVal = resolveParam(signalType, baseType, 'entry_ema_slow', resolveParam(signalType, baseType, 'exit_ema_slow', '21'));
+        const fast = parseInt(String(fastVal), 10);
+        const slow = parseInt(String(slowVal), 10);
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
-      } else if (signalType === 'engulfing') {
-        const lookback = parseInt(params.engulfing_lookback || config.engulfing_lookback || '1', 10);
+      } else if (baseType === 'engulfing') {
+        const lookbackVal = resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1');
+        const lookback = parseInt(String(lookbackVal), 10);
         maxReq = Math.max(maxReq, lookback + 1);
-      } else if (signalType === 'macd_impulse' || signalType === 'macd_fade' || signalType === 'macd_pbc') {
-        const fast = parseInt(params.macd_fast || '12', 10);
-        const slow = parseInt(params.macd_slow || '26', 10);
-        const signal = parseInt(params.macd_signal || '9', 10);
-        const emaPeriod = parseInt(params.macd_pbc_trend_ema || '50', 10);
+      } else if (baseType === 'macd_impulse' || baseType === 'macd_fade' || baseType === 'macd_pbc') {
+        const fastVal = resolveParam(signalType, baseType, 'macd_fast', '12');
+        const slowVal = resolveParam(signalType, baseType, 'macd_slow', '26');
+        const sigVal = resolveParam(signalType, baseType, 'macd_signal', '9');
+        const emaVal = resolveParam(signalType, baseType, 'macd_pbc_trend_ema', '50');
+
+        const fast = parseInt(String(fastVal), 10);
+        const slow = parseInt(String(slowVal), 10);
+        const signal = parseInt(String(sigVal), 10);
+        const emaPeriod = parseInt(String(emaVal), 10);
         maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2, emaPeriod * 2);
-      } else if (signalType === 'supertrend') {
-        const period = parseInt(params.supertrend_period || '10', 10);
+      } else if (baseType === 'supertrend') {
+        const periodVal = resolveParam(signalType, baseType, 'supertrend_period', '10');
+        const period = parseInt(String(periodVal), 10);
         maxReq = Math.max(maxReq, period * 5);
+      }
+    };
+
+    if (config.enabled_signals) {
+      for (const signalType of config.enabled_signals) {
+        processSignal(signalType);
       }
     }
 
-    // Also consider exit signals if applicable, but usually warmup is for entry scanning
     if (config.exit_signals) {
       for (const signalType of config.exit_signals) {
-        if (signalType === 'ema_close') {
-          const period = parseInt(params.exit_ema_period || params.ema_period || '12', 10);
-          maxReq = Math.max(maxReq, period * 2);
-        } else if (signalType === 'ema_dual_cross' || signalType === 'ema_dual_close') {
-          const fast = parseInt(params.exit_ema_fast || '9', 10);
-          const slow = parseInt(params.exit_ema_slow || '21', 10);
-          maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
-        } else if (signalType === 'macd_impulse' || signalType === 'macd_fade' || signalType === 'macd_pbc') {
-          const fast = parseInt(params.macd_fast || '12', 10);
-          const slow = parseInt(params.macd_slow || '26', 10);
-          const signal = parseInt(params.macd_signal || '9', 10);
-          const emaPeriod = parseInt(params.macd_pbc_trend_ema || '50', 10);
-          maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2, emaPeriod * 2);
-        } else if (signalType === 'supertrend') {
-          const period = parseInt(params.supertrend_period || '10', 10);
-          maxReq = Math.max(maxReq, period * 5);
-        }
+        processSignal(signalType);
       }
     }
 

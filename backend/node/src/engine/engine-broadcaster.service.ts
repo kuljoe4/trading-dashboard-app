@@ -594,6 +594,14 @@ export class EngineBroadcasterService {
       hibernation_mode: config.hibernation_mode || 'adaptive',
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,
+      paused_strategies: Array.from(this.sessionState.pausedStrategies || []),
+      strategy_gate_states: Object.fromEntries(
+        Array.from((this.sessionState.strategyGateStates || new Map()).entries()).map(([k, v]) => [k, {
+          gateState: v?.gateState || null,
+          gateReason: v?.gateReason || null,
+          isAdaptiveTightened: v?.isAdaptiveTightened || false
+        }])
+      ),
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       activeWindows: getActiveWindows(),
       rateLimit: getBinanceRateLimit(),

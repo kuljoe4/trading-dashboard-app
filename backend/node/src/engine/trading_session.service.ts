@@ -1241,6 +1241,24 @@ export class TradingSessionService implements OnApplicationShutdown {
     } else {
       this.sessionState.paused = paused;
     }
+
+    // High-visibility logging, Decision Log auditing, and dashboard alerts
+    const target = strategyLabel ? `Strategy "${strategyLabel}"` : "Session engine";
+    const statusWord = paused ? "PAUSED" : "RESUMED";
+    const logMsg = `[Engine Control] ${target} has been ${statusWord} by user command.`;
+    this.logger.log(logMsg);
+
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+      msg: logMsg,
+      level: paused ? "warn" : "info"
+    });
+
+    this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+      level: paused ? "warn" : "success",
+      title: paused ? "Strategy Paused" : "Strategy Resumed",
+      message: `${target} is now ${paused ? "inactive (skipping entries)" : "active (monitoring entries)"}.`
+    });
+
     this.broadcast("tick", {
       paused: this.sessionState.paused,
       paused_strategies: Array.from(this.sessionState.pausedStrategies || [])
@@ -1251,6 +1269,12 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.config = config;
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
+
+    // Hot-reload synchronization of paused status and strategy pause lists
+    this.sessionState.paused = !!config.paused;
+    this.sessionState.pausedStrategies = new Set(config.paused_strategies || []);
+    this.logger.log(`[Config Sync] Synchronized paused states: paused=${this.sessionState.paused}, paused_strategies=[${Array.from(this.sessionState.pausedStrategies).join(', ')}]`);
+
     if (
       prev &&
       (prev.hot_loop_interval_ms !== config.hot_loop_interval_ms ||

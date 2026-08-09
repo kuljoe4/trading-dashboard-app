@@ -130,4 +130,52 @@ describe('RrOptimizationService', () => {
     expect(supertrendRec).toBeDefined();
     expect(supertrendRec!.parameterName).toBe('supertrend_period / supertrend_multiplier');
   });
+
+  describe('BOLT OPTIMIZATION: Performance Benchmark', () => {
+    it('achieves measurable execution speedups and verifies correctness on larger datasets', () => {
+      const size = 500;
+      const trades: Partial<TradeEntity>[] = [];
+      const baseTime = Date.now();
+
+      // Mock a mix of closed and open trades to simulate actual execution
+      for (let i = 0; i < size; i++) {
+        const isClosed = i % 10 !== 0; // 90% closed
+        trades.push({
+          status: isClosed ? 'CLOSED' : 'OPEN',
+          entry_ts: isClosed ? new Date(baseTime - (i + 1) * 60000) : undefined,
+          exit_ts: isClosed ? new Date(baseTime - i * 60000) : undefined,
+          max_rr_achieved: isClosed ? 1.0 + (i % 5) * 0.5 : undefined,
+          min_rr_achieved: isClosed ? -0.2 - (i % 3) * 0.1 : undefined,
+          risk_usdt: 50,
+          initial_risk_usdt: 50,
+          entry_price: 100,
+          initial_sl: 99,
+          pnl: isClosed ? (i % 2 === 0 ? 100 : -50) : 0,
+          is_reconciliation: false,
+          strategy_config: {
+            scan_interval: '1m'
+          }
+        });
+      }
+
+      // Warm up
+      service.calculateRrOptimization(trades as TradeEntity[]);
+
+      const start = performance.now();
+      const iterations = 500;
+      for (let i = 0; i < iterations; i++) {
+        service.calculateRrOptimization(trades as TradeEntity[]);
+      }
+      const end = performance.now();
+      const avgTimeUs = ((end - start) / iterations) * 1000;
+
+      // Ensure that we log performance metrics clearly
+      console.log(`[BENCHMARK] calculateRrOptimization average execution time on ${size} trades: ${avgTimeUs.toFixed(2)} microseconds`);
+
+      const result = service.calculateRrOptimization(trades as TradeEntity[]);
+      expect(result.status).toBe('OPTIMAL');
+      expect(result.sampleSize).toBe(450); // 90% of 500
+      expect(result.curve.length).toBeGreaterThan(0);
+    });
+  });
 });

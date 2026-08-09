@@ -1,3 +1,7 @@
+## 2026-08-09 - [Optimization] Loop-Fused Sweep and Statistics Collection in RrOptimization
+**Learning:** Combining multiple array filtering, mapping, and reduction loops (such as filtering closed trades, mapping to simulation objects, and calculating average duration statistics) into a single-pass loop over raw collections avoids intermediate array garbage collection (GC) pressure and reduces iterations. For statistical and predictive sweeps on historical trades, loop fusion is highly efficient.
+**Action:** Always look to fuse sequential filter, map, and duration accumulator patterns on collections of historical records into a single-pass for loop.
+
 ## 2026-08-02 - [Optimization] Risk Engine Loop-Fusion and Allocation Reduction
 **Learning:** Performing redundant `.filter()` and `.reduce()` operations to group and summarize active and closed trades prior to frequency/performance checking creates substantial Garbage Collection (GC) overhead and CPU churn. Even on a cache hit, these allocations occur on every single tick. Consolidating active trade metrics into a single allocation-free `for` loop and performing strategy-level filtering on-the-fly inside the performance checking loops completely eliminates transient heap allocations, ensuring an $O(1)$ hot path on cache hits.
 **Action:** Avoid pre-filtering collections prior to caching or frequency loops; instead, pass raw arrays directly and apply filtering logic lazily/on-the-fly within single-pass traversal loops.

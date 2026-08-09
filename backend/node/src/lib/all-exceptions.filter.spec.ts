@@ -119,4 +119,43 @@ describe('AllExceptionsFilter', () => {
     expect(loggedMessage).toContain('api_key=[MASKED]');
     expect(loggedMessage).not.toContain('superSecret123');
   });
+
+  it('should sanitize non-500 HttpException responses containing sensitive info before replying to the client', () => {
+    const exception = new HttpException(
+      'Validation failed for api_key=superSecret123&password=secretPassword',
+      HttpStatus.BAD_REQUEST,
+    );
+
+    filter.catch(exception, mockArgumentsHost);
+
+    expect(mockHttpAdapter.reply).toHaveBeenCalledWith(
+      mockResponse,
+      expect.objectContaining({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: 'Validation failed for api_key=[MASKED]&password=[MASKED]',
+        path: '/test-url',
+      }),
+      HttpStatus.BAD_REQUEST
+    );
+  });
+
+  it('should sanitize non-500 validation error responses containing sensitive info in an array before replying to the client', () => {
+    const validationMessage = ['api_key=superSecret123 must be valid', 'other details'];
+    const exception = new HttpException(
+      { message: validationMessage, error: 'Bad Request', statusCode: 400 },
+      HttpStatus.BAD_REQUEST,
+    );
+
+    filter.catch(exception, mockArgumentsHost);
+
+    expect(mockHttpAdapter.reply).toHaveBeenCalledWith(
+      mockResponse,
+      expect.objectContaining({
+        statusCode: HttpStatus.BAD_REQUEST,
+        message: ['api_key=[MASKED] must be valid', 'other details'],
+        path: '/test-url',
+      }),
+      HttpStatus.BAD_REQUEST
+    );
+  });
 });

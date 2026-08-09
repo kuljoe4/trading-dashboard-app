@@ -93,4 +93,43 @@ describe('AuditLogService', () => {
       }),
     );
   });
+
+  it('strictly validates and sanitizes level to prevent DB overflows or invalid string values', async () => {
+    mockRepository.save.mockResolvedValue({});
+
+    // Test valid levels
+    await service.log({
+      action: 'VALID_LEVEL_TEST',
+      level: 'WARN',
+    });
+    expect(mockRepository.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: 'VALID_LEVEL_TEST',
+        level: 'WARN',
+      }),
+    );
+
+    // Test malformed/invalid levels (non-uppercase, invalid characters, or too long)
+    await service.log({
+      action: 'INVALID_LEVEL_CHARS_TEST',
+      level: 'WARN123' as any,
+    });
+    expect(mockRepository.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: 'INVALID_LEVEL_CHARS_TEST',
+        level: 'INFO',
+      }),
+    );
+
+    await service.log({
+      action: 'INVALID_LEVEL_LENGTH_TEST',
+      level: 'A'.repeat(50) as any,
+    });
+    expect(mockRepository.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: 'INVALID_LEVEL_LENGTH_TEST',
+        level: 'INFO',
+      }),
+    );
+  });
 });

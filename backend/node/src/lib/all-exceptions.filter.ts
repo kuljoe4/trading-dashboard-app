@@ -39,7 +39,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       timestamp: new Date().toISOString(),
       path: httpAdapter.getRequestUrl(ctx.getRequest()),
       // SENTINEL: Prevent sensitive data leakage by forcing a generic message for 5xx errors
-      message: httpStatus >= 500 ? 'Internal server error' : message,
+      // and sanitizing non-500 response messages to prevent accidental credential/key leakage to clients.
+      message: httpStatus >= 500 ? 'Internal server error' : sanitize(message),
     };
 
     if (exception instanceof MomentumException) {

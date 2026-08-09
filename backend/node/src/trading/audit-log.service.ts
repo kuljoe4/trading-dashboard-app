@@ -44,9 +44,14 @@ export class AuditLogService {
         details: params.details ? sanitize(params.details) : undefined,
       };
 
+      // SENTINEL: Strictly sanitize and validate level to prevent TypeORM database column overflows.
+      const sanitizedLevel = params.level && typeof params.level === 'string' && /^[A-Z]{3,20}$/.test(params.level)
+        ? params.level
+        : 'INFO';
+
       const entry = this.auditLogRepository.create({
         ...sanitizedParams,
-        level: params.level || 'INFO',
+        level: sanitizedLevel,
         timestamp: new Date(),
       });
       await this.auditLogRepository.save(entry);

@@ -38,7 +38,7 @@ const Metric = memo(({ label, value }) => (
 ))
 Metric.displayName = 'Metric'
 
-const RRLadder = memo(({ trade }) => {
+const RRLadder = memo(({ trade, interactiveEnabled }) => {
   const triggers = trade.live_rr_sequence || []
   const exits = trade.exit_rr_sequence || []
   const maxRR = trade.max_rr || 0
@@ -152,18 +152,22 @@ const RRLadder = memo(({ trade }) => {
                 </div>
               ) : (
                 <div
-                  onDoubleClick={() => {
+                  onClick={() => {
+                    if (!interactiveEnabled) return;
                     setEditingMilestone({ idx: i, type: 'trigger' });
                     setTempValue(String(trigger));
                   }}
                   className={cn(
-                    "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300 cursor-pointer border-b border-dashed border-transparent hover:border-accent hover:text-accent flex items-center gap-1 group/trig",
+                    "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300 border-b border-dashed border-transparent flex items-center gap-1 group/trig",
+                    interactiveEnabled
+                      ? "cursor-pointer hover:border-accent hover:text-accent"
+                      : "cursor-not-allowed opacity-90",
                     current ? "text-accent scale-110" : done ? "text-green" : "text-dim"
                   )}
-                  title="Double-click to edit Trigger R"
+                  title={interactiveEnabled ? "Click to edit Trigger R" : "Trigger R (Read-Only)"}
                 >
                   {trigger}R
-                  <Edit3 size={8} className="opacity-0 group-hover/trig:opacity-100 transition-opacity text-accent" />
+                  {interactiveEnabled && <Edit3 size={8} className="opacity-0 group-hover/trig:opacity-100 transition-opacity text-accent" />}
                 </div>
               )}
 
@@ -205,19 +209,23 @@ const RRLadder = memo(({ trade }) => {
                 </div>
               ) : (
                 <div
-                  onDoubleClick={() => {
+                  onClick={() => {
+                    if (!interactiveEnabled) return;
                     setEditingMilestone({ idx: i, type: 'exit' });
                     setTempValue(String(exits[i] ?? 0));
                   }}
                   className={cn(
-                    "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300 cursor-pointer border-b border-dashed border-transparent hover:border-accent hover:text-accent group/ex",
+                    "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300 border-b border-dashed border-transparent group/ex",
+                    interactiveEnabled
+                      ? "cursor-pointer hover:border-accent hover:text-accent"
+                      : "cursor-not-allowed opacity-95",
                     done ? "text-text font-black" : "text-dim/60"
                   )}
-                  title="Double-click to edit Secured Stop R"
+                  title={interactiveEnabled ? "Click to edit Secured Stop R" : "Secured Stop R (Read-Only)"}
                 >
                   <span className="flex items-center gap-1 justify-center">
                     SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}
-                    <Edit3 size={8} className="opacity-0 group-hover/ex:opacity-100 transition-opacity text-accent" />
+                    {interactiveEnabled && <Edit3 size={8} className="opacity-0 group-hover/ex:opacity-100 transition-opacity text-accent" />}
                   </span>
                   <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-30")}>
                     {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
@@ -273,6 +281,16 @@ const resolveSignalParam = (params, signalType, baseSignalType, paramKey, defaul
   return params[paramKey] !== undefined ? params[paramKey] : defaultValue;
 };
 
+const getParamStoreKey = (sigKey, baseType, baseParamKey) => {
+  if (sigKey === baseType) return baseParamKey;
+  const suffix = sigKey.substring(baseType.length); // e.g. '_2'
+  if (baseParamKey.startsWith(baseType)) {
+    return sigKey + baseParamKey.substring(baseType.length);
+  } else {
+    return `${baseParamKey}${suffix}`;
+  }
+};
+
 const getSignalInfo = (key, config) => {
   const base = getBaseSignalType(key);
   let tf = config?.signal_timeframes?.[key] || config?.scan_interval || config?.interval || '1m';
@@ -291,17 +309,17 @@ const getSignalInfo = (key, config) => {
       const fast = resolve('macd_fast', 12);
       const slow = resolve('macd_slow', 26);
       const sig = resolve('macd_signal', 9);
-      params.push({ label: 'Fast', value: fast });
-      params.push({ label: 'Slow', value: slow });
-      params.push({ label: 'Signal', value: sig });
+      params.push({ label: 'Fast', value: fast, key: 'macd_fast', type: 'number' });
+      params.push({ label: 'Slow', value: slow, key: 'macd_slow', type: 'number' });
+      params.push({ label: 'Signal', value: sig, key: 'macd_signal', type: 'number' });
       if (base === 'macd_pbc') {
         const trendEma = resolve('macd_pbc_trend_ema', 50);
         const lb = resolve('macd_pbc_lookback', 10);
-        params.push({ label: 'Trend EMA', value: trendEma });
-        params.push({ label: 'Lookback', value: lb });
+        params.push({ label: 'Trend EMA', value: trendEma, key: 'macd_pbc_trend_ema', type: 'number' });
+        params.push({ label: 'Lookback', value: lb, key: 'macd_pbc_lookback', type: 'number' });
       } else if (base === 'macd_impulse') {
         const strict = resolve('macd_strict_expansion', true);
-        params.push({ label: 'Strict', value: strict ? 'Yes' : 'No' });
+        params.push({ label: 'Strict', value: strict ? 'Yes' : 'No', rawValue: strict, key: 'macd_strict_expansion', type: 'boolean' });
       }
       break;
     }
@@ -309,9 +327,19 @@ const getSignalInfo = (key, config) => {
       const period = resolve('supertrend_period', 10);
       const mult = resolve('supertrend_multiplier', 3);
       const mode = resolve('supertrend_mode', 'trend');
-      params.push({ label: 'Period', value: period });
-      params.push({ label: 'Mult', value: mult });
-      params.push({ label: 'Mode', value: mode });
+      params.push({ label: 'Period', value: period, key: 'supertrend_period', type: 'number' });
+      params.push({ label: 'Mult', value: mult, key: 'supertrend_multiplier', type: 'number' });
+      params.push({
+        label: 'Mode',
+        value: mode === 'trend' ? 'Trend State' : 'Crossover',
+        rawValue: mode,
+        key: 'supertrend_mode',
+        type: 'select',
+        options: [
+          { value: 'trend', label: 'Trend State' },
+          { value: 'crossover', label: 'Crossover Trigger' }
+        ]
+      });
       break;
     }
     case 'engulfing': {
@@ -319,10 +347,24 @@ const getSignalInfo = (key, config) => {
       const streak = resolve('engulfing_streak', config?.engulfing_streak ?? 1);
       const mode = resolve('engulfing_mode', config?.engulfing_mode ?? 'range');
       const volConfirm = resolve('engulfing_volume_confirm', config?.engulfing_volume_confirm ?? false);
-      params.push({ label: 'Lookback', value: lookback });
-      params.push({ label: 'Streak', value: streak });
-      params.push({ label: 'Mode', value: mode });
-      params.push({ label: 'Vol Conf', value: volConfirm ? 'Yes' : 'No' });
+      params.push({ label: 'Lookback', value: lookback, key: 'engulfing_lookback', type: 'number' });
+      params.push({ label: 'Streak', value: streak, key: 'engulfing_streak', type: 'number' });
+      params.push({
+        label: 'Mode',
+        value: mode,
+        key: 'engulfing_mode',
+        type: 'select',
+        options: [
+          { value: 'range', label: 'Range (H/L)' },
+          { value: 'body', label: 'Body (O/C)' },
+          { value: 'strict', label: 'Strict (Both)' },
+          { value: 'close_range', label: 'Close > H/L (Closed)' },
+          { value: 'close_body', label: 'Close > Body (Closed)' },
+          { value: 'soft_range', label: 'Partial Range (Close > H/L)' },
+          { value: 'soft_body', label: 'Partial Body (Close > Body)' }
+        ]
+      });
+      params.push({ label: 'Vol Conf', value: volConfirm ? 'Yes' : 'No', rawValue: volConfirm, key: 'engulfing_volume_confirm', type: 'boolean' });
       break;
     }
     case 'ema':
@@ -330,32 +372,32 @@ const getSignalInfo = (key, config) => {
     case 'ema_price_cross':
     case 'ema_close': {
       const period = resolve('exit_ema_period', resolve('ema_period', 12));
-      params.push({ label: 'Period', value: period });
+      params.push({ label: 'Period', value: period, key: 'exit_ema_period', type: 'number' });
       break;
     }
     case 'ema_dual_cross':
     case 'ema_dual_close': {
       const fast = resolve('exit_ema_fast', resolve('entry_ema_fast', 9));
       const slow = resolve('exit_ema_slow', resolve('entry_ema_slow', 21));
-      params.push({ label: 'Fast', value: fast });
-      params.push({ label: 'Slow', value: slow });
+      params.push({ label: 'Fast', value: fast, key: 'exit_ema_fast', type: 'number' });
+      params.push({ label: 'Slow', value: slow, key: 'exit_ema_slow', type: 'number' });
       break;
     }
     case 'ma': {
       const period = resolve('ma_period', 20);
-      params.push({ label: 'Period', value: period });
+      params.push({ label: 'Period', value: period, key: 'ma_period', type: 'number' });
       break;
     }
     case 'momentum_pct': {
       const threshold = resolve('scan_pct_threshold', config?.scan_pct_threshold ?? 2.0);
       const lookback = resolve('scan_lookback', config?.scan_lookback ?? 3);
-      params.push({ label: 'Threshold', value: `${threshold}%` });
-      params.push({ label: 'Lookback', value: lookback });
+      params.push({ label: 'Threshold', value: `${threshold}%`, rawValue: threshold, key: 'scan_pct_threshold', type: 'number' });
+      params.push({ label: 'Lookback', value: lookback, key: 'scan_lookback', type: 'number' });
       break;
     }
     case 'breakout_hl': {
       const lookback = resolve('scan_lookback', config?.scan_lookback ?? 3);
-      params.push({ label: 'Lookback', value: lookback });
+      params.push({ label: 'Lookback', value: lookback, key: 'scan_lookback', type: 'number' });
       break;
     }
     default:
@@ -365,9 +407,11 @@ const getSignalInfo = (key, config) => {
   return { timeframe: tf, params };
 };
 
-const ExitMonitor = memo(({ status, logic, trade }) => {
+const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInteractiveEnabled }) => {
   const [editingDelay, setEditingDelay] = useState(null) // key being edited
   const [tempDelay, setTempDelay] = useState('')
+  const [editingParam, setEditingParam] = useState(null) // { sigKey, storeKey }
+  const [tempParamVal, setTempParamVal] = useState('')
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
   
   // Sort entries by proximity (triggerProgress descending)
@@ -401,6 +445,34 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
     setTempDelay('');
   };
 
+  const handleUpdateParam = async (sigKey, baseParamKey, val) => {
+    const baseType = getBaseSignalType(sigKey);
+    const storeKey = getParamStoreKey(sigKey, baseType, baseParamKey);
+
+    let nextVal;
+    if (val === 'true' || val === 'false') {
+      nextVal = val === 'true';
+    } else {
+      const num = Number(val);
+      nextVal = isNaN(num) || val === '' ? val : num;
+    }
+
+    const currentParams = trade.strategy_config?.signal_params || {};
+    const payload = {
+      strategy_config: {
+        signal_params: { ...currentParams, [storeKey]: nextVal }
+      }
+    };
+
+    try {
+      await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+    } catch (e) {
+      console.error(e);
+    }
+    setEditingParam(null);
+    setTempParamVal('');
+  };
+
   if (!status || Object.keys(status).length === 0) return null;
   const mark = Number(trade.current_price || trade.mark_price || 0)
   const isLong = trade.direction === 'LONG'
@@ -426,18 +498,42 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
             {logic === 'all' ? 'Match All' : 'Match Any'}
           </div>
         </div>
-        <div className="flex items-center gap-2 md:gap-3">
-           <div className="flex -space-x-1">
-              {entries.map(([key, s]) => (
-                 <div key={key} className={cn(
-                   "w-2 h-2 md:w-3 md:h-3 rounded-full border border-surface transition-all duration-500",
-                   s.fired && s.active ? "bg-green shadow-lg shadow-green/20" : "bg-dim/20"
-                 )} />
-              ))}
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-end">
+           {/* Interactive Mode Toggle switch */}
+           <div className="flex items-center gap-1.5 bg-background/40 border border-border/30 rounded-xl px-2 py-0.5 h-6">
+             <span className="text-[7px] md:text-[8px] font-black text-dim uppercase tracking-wider select-none">Interactive Editing:</span>
+             <button
+               type="button"
+               onClick={() => setInteractiveEnabled(!interactiveEnabled)}
+               className={cn(
+                 "relative inline-flex h-3.5 w-6 shrink-0 cursor-pointer rounded-full border border-transparent transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                 interactiveEnabled ? "bg-accent" : "bg-surface-light border-border/40"
+               )}
+               aria-pressed={interactiveEnabled}
+               aria-label="Toggle Interactive Editing Mode"
+             >
+               <span
+                 className={cn(
+                   "pointer-events-none inline-block h-2.5 w-2.5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out",
+                   interactiveEnabled ? "translate-x-2.5" : "translate-x-0"
+                 )}
+               />
+             </button>
            </div>
-           <span className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-tighter", satisfiedCount > 0 ? (allFired ? "text-red" : "text-amber") : "text-dim")}>
-              {satisfiedCount}/{totalCount}
-           </span>
+
+           <div className="flex items-center gap-2">
+             <div className="flex -space-x-1">
+                {entries.map(([key, s]) => (
+                   <div key={key} className={cn(
+                     "w-2 h-2 md:w-3 md:h-3 rounded-full border border-surface transition-all duration-500",
+                     s.fired && s.active ? "bg-green shadow-lg shadow-green/20" : "bg-dim/20"
+                   )} />
+                ))}
+             </div>
+             <span className={cn("text-[9px] md:text-[10px] font-black uppercase tracking-tighter", satisfiedCount > 0 ? (allFired ? "text-red" : "text-amber") : "text-dim")}>
+                {satisfiedCount}/{totalCount}
+             </span>
+           </div>
         </div>
       </div>
 
@@ -467,23 +563,33 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                       Collecting
                     </span>
                   ) : s.remaining_delay > 0 && !isFired && (
-                    <div className="flex items-center gap-1 bg-amber/10 text-amber px-1 rounded cursor-pointer hover:bg-amber/20 transition-colors">
+                    <div className={cn(
+                      "flex items-center gap-1 bg-amber/10 text-amber px-1 rounded transition-colors",
+                      interactiveEnabled ? "cursor-pointer hover:bg-amber/20" : "cursor-not-allowed opacity-80"
+                    )}>
                       <Clock size={8} /> 
-                      {editingDelay === key ? (
+                      {editingDelay === key && interactiveEnabled ? (
                         <div className="flex items-center gap-1">
                           <input type="text" className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1" value={tempDelay}
                                  onChange={(e) => setTempDelay(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)} autoFocus />
                           <button onClick={() => handleUpdateDelay(key, tempDelay)} className="text-green"><CheckCircle2 size={10} /></button>
                         </div>
                       ) : (
-                        <span className="cursor-pointer hover:underline" onClick={() => { setEditingDelay(key); setTempDelay(String(s.config_delay || Math.round(s.remaining_delay))); }}>
+                        <span
+                          className={cn(interactiveEnabled ? "cursor-pointer hover:underline" : "cursor-not-allowed")}
+                          onClick={() => {
+                            if (!interactiveEnabled) return;
+                            setEditingDelay(key);
+                            setTempDelay(String(s.config_delay || Math.round(s.remaining_delay)));
+                          }}
+                        >
                           {s.config_delay && typeof s.config_delay === 'string' && s.config_delay.endsWith('c')
                             ? `${s.config_delay} (${formatDuration(s.remaining_delay * 1000)})`
                             : formatDuration(s.remaining_delay * 1000)
                           }
                         </span>
                       )}
-                      {editingDelay !== key && <button onClick={() => handleUpdateDelay(key, 0)} className="text-[7px] bg-red/20 px-1 rounded">SKIP</button>}
+                      {editingDelay !== key && interactiveEnabled && <button onClick={() => handleUpdateDelay(key, 0)} className="text-[7px] bg-red/20 px-1 rounded">SKIP</button>}
                     </div>
                   )}
                   <span className={cn(
@@ -538,12 +644,101 @@ const ExitMonitor = memo(({ status, logic, trade }) => {
                 {params.length > 0 && (
                   <div className="flex flex-wrap gap-1 items-center">
                     <span className="text-[7px] text-dim/50 uppercase font-black tracking-wider">Params:</span>
-                    {params.map((p, pIdx) => (
-                      <span key={pIdx} className="text-[7.5px] font-mono text-dim/80 bg-white/[0.04] px-1.5 py-0.5 rounded border border-white/[0.05]">
-                        <span className="text-dim/50 uppercase mr-0.5">{p.label}:</span>
-                        <span className="font-bold text-text/80">{p.value}</span>
-                      </span>
-                    ))}
+                    {params.map((p, pIdx) => {
+                      const baseType = getBaseSignalType(key);
+                      const storeKey = getParamStoreKey(key, baseType, p.key);
+                      const isEditing = editingParam?.sigKey === key && editingParam?.storeKey === storeKey;
+                      const displayVal = p.rawValue !== undefined ? p.rawValue : p.value;
+
+                      if (isEditing) {
+                        return (
+                          <div
+                            key={pIdx}
+                            className="inline-flex items-center gap-1 bg-background border border-accent/40 rounded px-1.5 py-0.5 h-6 shadow-sm"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="text-[7px] text-accent font-black uppercase font-mono mr-0.5">{p.label}:</span>
+                            {p.type === 'select' ? (
+                              <select
+                                value={tempParamVal}
+                                onChange={(e) => setTempParamVal(e.target.value)}
+                                onBlur={() => handleUpdateParam(key, p.key, tempParamVal)}
+                                className="bg-transparent font-mono text-[8px] font-bold text-text outline-none border-b border-white/20 px-0.5 h-4 cursor-pointer focus-visible:border-accent"
+                                autoFocus
+                              >
+                                {p.options.map(opt => (
+                                  <option key={opt.value} value={opt.value} className="bg-surface text-text">{opt.label}</option>
+                                ))}
+                              </select>
+                            ) : p.type === 'boolean' ? (
+                              <select
+                                value={tempParamVal}
+                                onChange={(e) => setTempParamVal(e.target.value)}
+                                onBlur={() => handleUpdateParam(key, p.key, tempParamVal)}
+                                className="bg-transparent font-mono text-[8px] font-bold text-text outline-none border-b border-white/20 px-0.5 h-4 cursor-pointer focus-visible:border-accent"
+                                autoFocus
+                              >
+                                <option value="true" className="bg-surface text-text">Yes</option>
+                                <option value="false" className="bg-surface text-text">No</option>
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={tempParamVal}
+                                onChange={(e) => setTempParamVal(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleUpdateParam(key, p.key, tempParamVal);
+                                  if (e.key === 'Escape') setEditingParam(null);
+                                }}
+                                onBlur={() => handleUpdateParam(key, p.key, tempParamVal)}
+                                className="w-10 bg-transparent font-mono text-[8px] font-bold text-text outline-none border-b border-white/20 px-0.5 h-4 focus-visible:border-accent"
+                                autoFocus
+                              />
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateParam(key, p.key, tempParamVal)}
+                              className="text-green hover:text-green-400 p-0.5 focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                              aria-label="Save parameter"
+                            >
+                              <CheckCircle2 size={10} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingParam(null)}
+                              className="text-red hover:text-red-400 p-0.5 focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                              aria-label="Cancel editing"
+                            >
+                              <XCircle size={10} />
+                            </button>
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <button
+                          key={pIdx}
+                          type="button"
+                          onClick={(e) => {
+                            if (!interactiveEnabled) return;
+                            e.stopPropagation();
+                            setEditingParam({ sigKey: key, storeKey });
+                            setTempParamVal(String(displayVal));
+                          }}
+                          className={cn(
+                            "text-[7.5px] font-mono text-dim/80 bg-white/[0.04] px-1.5 py-0.5 rounded border border-white/[0.05] transition-all duration-200 flex items-center gap-0.5 group/param focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                            interactiveEnabled
+                              ? "hover:bg-accent/10 hover:border-accent/30 hover:text-accent hover:shadow-[0_0_8px_rgba(91,111,255,0.1)] cursor-pointer"
+                              : "cursor-not-allowed opacity-90"
+                          )}
+                          aria-label={interactiveEnabled ? `Edit ${p.label} parameter (current: ${p.value})` : `${p.label} parameter: ${p.value}`}
+                        >
+                          <span className={cn("text-dim/50 uppercase mr-0.5", interactiveEnabled && "group-hover/param:text-accent/50")}>{p.label}:</span>
+                          <span className={cn("font-bold text-text/80", interactiveEnabled && "group-hover/param:text-accent")}>{p.value}</span>
+                          {interactiveEnabled && <span className="opacity-0 group-hover/param:opacity-100 transition-opacity duration-150 text-[6.5px] text-accent/80 ml-0.5">✎</span>}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
                 {/* Live description/relevancy details */}
@@ -577,6 +772,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const sessionActive = useTradingStore(state => state.sessionActive);
   const activeSessionBalance = useTradingStore(state => state.balance);
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
+
+  // Master switch to enable/disable touch/click-to-edit inline interactivity
+  const [interactiveEnabled, setInteractiveEnabled] = useState(true);
 
   // Inline Stop Loss Editor State
   const [isEditingSl, setIsEditingSl] = useState(false)
@@ -621,14 +819,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const [formLadder, setFormLadder] = useState([])
 
   // Overrides configurations
-  const [formOverrides, setFormOverrides] = useState({
-    exit_ema_period: '',
-    supertrend_period: '',
-    supertrend_multiplier: '',
-    macd_fast: '',
-    macd_slow: '',
-    macd_signal: '',
-  })
+  const [formOverrides, setFormOverrides] = useState({})
 
   // Exit Signal Delays state
   const [formDelays, setFormDelays] = useState({})
@@ -674,15 +865,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       }))
       setFormLadder(ladderPairs)
 
-      const sc = trade.strategy_config?.signal_params || trade.strategy_config || {}
-      setFormOverrides({
-        exit_ema_period: sc.exit_ema_period ?? sc.ema_period ?? '',
-        supertrend_period: sc.supertrend_period ?? '',
-        supertrend_multiplier: sc.supertrend_multiplier ?? '',
-        macd_fast: sc.macd_fast ?? '',
-        macd_slow: sc.macd_slow ?? '',
-        macd_signal: sc.macd_signal ?? '',
-      })
+      const sc = trade.strategy_config?.signal_params || {}
+      const dynamicOverrides = {};
+      activeSignalKeys.forEach(sigKey => {
+        const baseType = getBaseSignalType(sigKey);
+        const { params } = getSignalInfo(sigKey, trade.strategy_config || {});
+        params.forEach(p => {
+          const storeKey = getParamStoreKey(sigKey, baseType, p.key);
+          dynamicOverrides[storeKey] = sc[storeKey] !== undefined ? String(sc[storeKey]) : '';
+        });
+      });
+      setFormOverrides(dynamicOverrides);
 
       // Initialize delay values for each active signal
       const localDelays = trade.strategy_config?.exit_signal_delays || {}
@@ -744,12 +937,18 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       const exit_rr_sequence = sortedLadder.map(r => Number(r.exit))
 
       const signal_params = {}
-      if (formOverrides.exit_ema_period !== '') signal_params.exit_ema_period = Number(formOverrides.exit_ema_period);
-      if (formOverrides.supertrend_period !== '') signal_params.supertrend_period = Number(formOverrides.supertrend_period);
-      if (formOverrides.supertrend_multiplier !== '') signal_params.supertrend_multiplier = Number(formOverrides.supertrend_multiplier);
-      if (formOverrides.macd_fast !== '') signal_params.macd_fast = Number(formOverrides.macd_fast);
-      if (formOverrides.macd_slow !== '') signal_params.macd_slow = Number(formOverrides.macd_slow);
-      if (formOverrides.macd_signal !== '') signal_params.macd_signal = Number(formOverrides.macd_signal);
+      Object.entries(formOverrides).forEach(([k, v]) => {
+        if (v !== '' && v !== null && v !== undefined) {
+          const num = Number(v);
+          if (!isNaN(num) && v !== '') {
+            signal_params[k] = num;
+          } else if (v === 'true' || v === 'false') {
+            signal_params[k] = v === 'true';
+          } else {
+            signal_params[k] = v;
+          }
+        }
+      });
 
       const exit_signal_delays = {}
       Object.entries(formDelays).forEach(([k, v]) => {
@@ -944,12 +1143,20 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               </div>
             ) : (
               <span
-                onDoubleClick={handleStartEditSl}
-                className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none cursor-pointer border-b border-dashed border-dim/30 hover:border-accent hover:text-accent transition-all flex items-center gap-1 mt-1 group/sl"
-                title="Double-click to edit Stop Loss Price"
+                onClick={() => {
+                  if (!interactiveEnabled) return;
+                  handleStartEditSl();
+                }}
+                className={cn(
+                  "font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none border-b border-dashed border-dim/30 transition-all flex items-center gap-1 mt-1 group/sl",
+                  interactiveEnabled
+                    ? "cursor-pointer hover:border-accent hover:text-accent"
+                    : "cursor-not-allowed opacity-95"
+                )}
+                title={interactiveEnabled ? "Click to edit Stop Loss Price" : "Stop Loss Price (Read-Only)"}
               >
                 {price(sl)}
-                <Edit3 size={8} className="opacity-0 group-hover/sl:opacity-100 transition-opacity text-accent" />
+                {interactiveEnabled && <Edit3 size={8} className="opacity-0 group-hover/sl:opacity-100 transition-opacity text-accent" />}
               </span>
             )}
           </div>
@@ -1004,11 +1211,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
          <div className="lg:col-span-2 space-y-3 md:space-y-4">
-            <RRLadder trade={trade} />
+            <RRLadder trade={trade} interactiveEnabled={interactiveEnabled} />
          </div>
 
          <div className="space-y-3 md:space-y-4">
-            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} />
+            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} interactiveEnabled={interactiveEnabled} setInteractiveEnabled={setInteractiveEnabled} />
 
             <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
               <SectionLabel className="mb-3 md:mb-5">
@@ -1353,85 +1560,88 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                       <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
                         Technical Indicator Overrides
                       </SectionLabel>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <div>
-                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Exit EMA Period</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 12"
-                            value={formOverrides.exit_ema_period}
-                            onChange={(e) => setFormOverrides({ ...formOverrides, exit_ema_period: e.target.value })}
-                            className={cn(
-                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
-                              ringColorClass
-                            )}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Period</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 10"
-                            value={formOverrides.supertrend_period}
-                            onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_period: e.target.value })}
-                            className={cn(
-                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
-                              ringColorClass
-                            )}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">Supertrend Multiplier</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 3"
-                            value={formOverrides.supertrend_multiplier}
-                            onChange={(e) => setFormOverrides({ ...formOverrides, supertrend_multiplier: e.target.value })}
-                            className={cn(
-                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
-                              ringColorClass
-                            )}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Fast Period</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 12"
-                            value={formOverrides.macd_fast}
-                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_fast: e.target.value })}
-                            className={cn(
-                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
-                              ringColorClass
-                            )}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Slow Period</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 26"
-                            value={formOverrides.macd_slow}
-                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_slow: e.target.value })}
-                            className={cn(
-                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
-                              ringColorClass
-                            )}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">MACD Signal Period</label>
-                          <input
-                            type="number"
-                            placeholder="e.g. 9"
-                            value={formOverrides.macd_signal}
-                            onChange={(e) => setFormOverrides({ ...formOverrides, macd_signal: e.target.value })}
-                            className={cn(
-                              "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
-                              ringColorClass
-                            )}
-                          />
-                        </div>
+                      <div className="space-y-4">
+                        {activeSignalKeys.map(sigKey => {
+                          const baseType = getBaseSignalType(sigKey);
+                          const { timeframe, params } = getSignalInfo(sigKey, trade.strategy_config || {});
+                          if (params.length === 0) return null;
+
+                          const label = FRIENDLY_SIGNAL_NAMES[baseType] || baseType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+                          const isLayered = sigKey !== baseType;
+                          const suffix = isLayered ? ` (Layer: _${sigKey.split('_').pop()})` : '';
+
+                          return (
+                            <div key={sigKey} className="bg-white/[0.01] border border-white/[0.03] p-3 rounded-xl space-y-2.5">
+                              <div className="flex justify-between items-center border-b border-white/[0.02] pb-1.5">
+                                <span className="text-[9px] font-black uppercase tracking-wider text-text/95">
+                                  {label}{suffix}
+                                </span>
+                                <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase">
+                                  {timeframe}
+                                </span>
+                              </div>
+                              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                {params.map(p => {
+                                  const storeKey = getParamStoreKey(sigKey, baseType, p.key);
+                                  const val = formOverrides[storeKey] ?? '';
+
+                                  return (
+                                    <div key={p.key}>
+                                      <label className="text-[8px] font-black text-dim uppercase tracking-wider block mb-1">
+                                        {p.label}
+                                      </label>
+                                      {p.type === 'select' ? (
+                                        <select
+                                          value={val}
+                                          onChange={(e) => setFormOverrides({ ...formOverrides, [storeKey]: e.target.value })}
+                                          className={cn(
+                                            "px-2 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                            ringColorClass
+                                          )}
+                                        >
+                                          <option value="">Default ({p.value})</option>
+                                          {p.options.map(opt => (
+                                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                          ))}
+                                        </select>
+                                      ) : p.type === 'boolean' ? (
+                                        <select
+                                          value={val}
+                                          onChange={(e) => setFormOverrides({ ...formOverrides, [storeKey]: e.target.value })}
+                                          className={cn(
+                                            "px-2 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                            ringColorClass
+                                          )}
+                                        >
+                                          <option value="">Default ({p.value ? 'Yes' : 'No'})</option>
+                                          <option value="true">Yes</option>
+                                          <option value="false">No</option>
+                                        </select>
+                                      ) : (
+                                        <input
+                                          type="number"
+                                          step="any"
+                                          placeholder={`Default (${p.value})`}
+                                          value={val}
+                                          onChange={(e) => setFormOverrides({ ...formOverrides, [storeKey]: e.target.value })}
+                                          className={cn(
+                                            "px-3 py-1.5 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all",
+                                            ringColorClass
+                                          )}
+                                        />
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {activeSignalKeys.length === 0 && (
+                          <div className="text-center py-4 text-xs text-dim italic">
+                            No active indicator overrides available.
+                          </div>
+                        )}
                       </div>
                     </div>
 

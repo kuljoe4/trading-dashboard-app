@@ -569,39 +569,34 @@ export class SessionService implements OnModuleInit {
 
     // DATA-02: Indicator Convergence validation
     const maxCandles = parseInt(process.env.KLINE_MAX_CANDLES || "200", 10);
-    const indicatorPeriods = [
-      signalParams.ema_period,
-      signalParams.entry_ema_period,
-      signalParams.exit_ema_period,
-      signalParams.entry_ema_slow,
-      signalParams.exit_ema_slow,
-      signalParams.ma_period,
-    ]
-      .map((p) => parseInt(p, 10))
-      .filter((p) => !isNaN(p));
+
+    // Proactively scan all keys in signalParams for any indicator periods to protect against convergence failures
+    const indicatorPeriods: number[] = [];
+    for (const [key, val] of Object.entries(signalParams)) {
+      const lowerKey = key.toLowerCase();
+      const isPeriodKey = lowerKey.includes("period") || lowerKey.includes("slow") || lowerKey.includes("fast") || lowerKey.includes("_ema");
+      if (isPeriodKey) {
+        const parsed = parseInt(String(val), 10);
+        if (!isNaN(parsed)) {
+          indicatorPeriods.push(parsed);
+
+          // If this is a supertrend period (including layered supertrend like supertrend_2_period), enforce the 5x warmup limit
+          if (lowerKey.includes("supertrend")) {
+            if (parsed * 5 >= maxCandles) {
+              throw new BadRequestException(
+                `Supertrend ATR period ${parsed} is too large for current KLINE_MAX_CANDLES (${maxCandles}). The required warmup (${parsed * 5} candles) exceeds or equals KLINE_MAX_CANDLES. Please use an ATR Period < ${Math.floor(maxCandles / 5)} or increase KLINE_MAX_CANDLES.`,
+              );
+            }
+          }
+        }
+      }
+    }
 
     for (const p of indicatorPeriods) {
       if (p >= maxCandles * 0.5) {
         throw new BadRequestException(
           `Indicator period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). Values may not converge for reliable signals. Use a period < ${Math.floor(maxCandles * 0.5)} or increase KLINE_MAX_CANDLES.`,
         );
-      }
-    }
-
-    if (allEnabled.includes("supertrend")) {
-      const stPeriodVal = signalParams.supertrend_period;
-      const stPeriod = parseInt(
-        stPeriodVal !== undefined && stPeriodVal !== null && stPeriodVal !== ''
-          ? String(stPeriodVal)
-          : "10",
-        10
-      );
-      if (!isNaN(stPeriod)) {
-        if (stPeriod * 5 >= maxCandles) {
-          throw new BadRequestException(
-            `Supertrend ATR period ${stPeriod} is too large for current KLINE_MAX_CANDLES (${maxCandles}). The required warmup (${stPeriod * 5} candles) exceeds or equals KLINE_MAX_CANDLES. Please use an ATR Period < ${Math.floor(maxCandles / 5)} or increase KLINE_MAX_CANDLES.`,
-          );
-        }
       }
     }
 

@@ -46,6 +46,56 @@ const RRLadder = memo(({ trade }) => {
   const risk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price))
   const activeIdx = triggers.reduce((idx, trigger, i) => maxRR >= trigger ? i : idx, -1)
 
+  const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
+  const [editingMilestone, setEditingMilestone] = useState(null); // { idx, type: 'trigger' | 'exit' }
+  const [tempValue, setTempValue] = useState('');
+
+  const handleSaveMilestoneTrigger = async (idx, val) => {
+    const num = Number(val);
+    if (isNaN(num) || num <= 0) return;
+
+    const currentTriggers = [...triggers];
+    currentTriggers[idx] = num;
+
+    // Check strict ascending order constraint
+    for (let i = 1; i < currentTriggers.length; i++) {
+      if (currentTriggers[i] <= currentTriggers[i - 1]) {
+        useTradingStore.getState().addAlert({
+          level: 'error',
+          title: 'Invalid Order',
+          message: 'Guard Ladder triggers must be in strictly ascending order.'
+        });
+        return;
+      }
+    }
+
+    const payload = {
+      live_rr_sequence: currentTriggers
+    };
+
+    const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+    if (success) {
+      setEditingMilestone(null);
+    }
+  };
+
+  const handleSaveMilestoneExit = async (idx, val) => {
+    const num = Number(val);
+    if (isNaN(num) || num < 0) return;
+
+    const currentExits = [...exits];
+    currentExits[idx] = num;
+
+    const payload = {
+      exit_rr_sequence: currentExits
+    };
+
+    const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+    if (success) {
+      setEditingMilestone(null);
+    }
+  };
+
   // Use authoritative current_sl if available, otherwise fall back to ladder recompute
   const currentSl = trade.sl_price || (activeIdx >= 0 ?
     (trade.direction === 'LONG' ? trade.entry_price + risk * exits[activeIdx] : trade.entry_price - risk * exits[activeIdx]) :
@@ -56,7 +106,6 @@ const RRLadder = memo(({ trade }) => {
     return (price - trade.entry_price) * trade.qty * (trade.direction === 'LONG' ? 1 : -1)
   }
 
-// Simplified 5-column grid for RRLadder
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
       <div className="flex justify-between items-center mb-3 md:mb-5">
@@ -84,13 +133,39 @@ const RRLadder = memo(({ trade }) => {
           const current = i === activeIdx
           return (
             <div key={`${trigger}-${i}`} className="flex flex-col items-center flex-1 min-w-[70px] z-10 relative">
-              {/* Trigger Name / RR target */}
-              <div className={cn(
-                "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300",
-                current ? "text-accent scale-110" : done ? "text-green" : "text-dim"
-              )}>
-                {trigger}R
-              </div>
+              {/* Trigger Name / RR target (Inline Editable) */}
+              {editingMilestone?.idx === i && editingMilestone?.type === 'trigger' ? (
+                <div className="flex items-center gap-1 mb-2 bg-background/80 px-1 py-0.5 rounded border border-border/80">
+                  <input
+                    type="number"
+                    step="any"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveMilestoneTrigger(i, tempValue);
+                      if (e.key === 'Escape') setEditingMilestone(null);
+                    }}
+                    className="w-10 bg-transparent text-center font-mono text-[9px] font-bold outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                    autoFocus
+                  />
+                  <button onClick={() => handleSaveMilestoneTrigger(i, tempValue)} className="text-green"><CheckCircle2 size={10} /></button>
+                </div>
+              ) : (
+                <div
+                  onDoubleClick={() => {
+                    setEditingMilestone({ idx: i, type: 'trigger' });
+                    setTempValue(String(trigger));
+                  }}
+                  className={cn(
+                    "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300 cursor-pointer border-b border-dashed border-transparent hover:border-accent hover:text-accent flex items-center gap-1 group/trig",
+                    current ? "text-accent scale-110" : done ? "text-green" : "text-dim"
+                  )}
+                  title="Double-click to edit Trigger R"
+                >
+                  {trigger}R
+                  <Edit3 size={8} className="opacity-0 group-hover/trig:opacity-100 transition-opacity text-accent" />
+                </div>
+              )}
 
               {/* Stepper Node Bubble */}
               <div className={cn(
@@ -111,16 +186,44 @@ const RRLadder = memo(({ trade }) => {
                 )}
               </div>
 
-              {/* secured stop representation */}
-              <div className={cn(
-                "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300",
-                done ? "text-text font-black" : "text-dim/60"
-              )}>
-                <span>SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}</span>
-                <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-30")}>
-                  {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
-                </span>
-              </div>
+              {/* secured stop representation (Inline Editable) */}
+              {editingMilestone?.idx === i && editingMilestone?.type === 'exit' ? (
+                <div className="flex items-center gap-1 mt-2.5 bg-background/80 px-1 py-0.5 rounded border border-border/80">
+                  <input
+                    type="number"
+                    step="any"
+                    value={tempValue}
+                    onChange={(e) => setTempValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveMilestoneExit(i, tempValue);
+                      if (e.key === 'Escape') setEditingMilestone(null);
+                    }}
+                    className="w-10 bg-transparent text-center font-mono text-[9px] font-bold outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                    autoFocus
+                  />
+                  <button onClick={() => handleSaveMilestoneExit(i, tempValue)} className="text-green"><CheckCircle2 size={10} /></button>
+                </div>
+              ) : (
+                <div
+                  onDoubleClick={() => {
+                    setEditingMilestone({ idx: i, type: 'exit' });
+                    setTempValue(String(exits[i] ?? 0));
+                  }}
+                  className={cn(
+                    "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300 cursor-pointer border-b border-dashed border-transparent hover:border-accent hover:text-accent group/ex",
+                    done ? "text-text font-black" : "text-dim/60"
+                  )}
+                  title="Double-click to edit Secured Stop R"
+                >
+                  <span className="flex items-center gap-1 justify-center">
+                    SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}
+                    <Edit3 size={8} className="opacity-0 group-hover/ex:opacity-100 transition-opacity text-accent" />
+                  </span>
+                  <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-30")}>
+                    {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
+                  </span>
+                </div>
+              )}
             </div>
           )
         })}
@@ -146,6 +249,30 @@ const getBaseSignalType = (key) => {
   return key;
 };
 
+const resolveSignalParam = (params, signalType, baseSignalType, paramKey, defaultValue) => {
+  if (!params) return defaultValue;
+
+  if (signalType === baseSignalType) {
+    return params[paramKey] !== undefined ? params[paramKey] : defaultValue;
+  }
+
+  const suffix = signalType.substring(baseSignalType.length); // e.g. "_2"
+
+  const suffixedKey = `${paramKey}${suffix}`;
+  if (params[suffixedKey] !== undefined) {
+    return params[suffixedKey];
+  }
+
+  if (paramKey.startsWith(baseSignalType)) {
+    const replacedKey = signalType + paramKey.substring(baseSignalType.length);
+    if (params[replacedKey] !== undefined) {
+      return params[replacedKey];
+    }
+  }
+
+  return params[paramKey] !== undefined ? params[paramKey] : defaultValue;
+};
+
 const getSignalInfo = (key, config) => {
   const base = getBaseSignalType(key);
   let tf = config?.signal_timeframes?.[key] || config?.scan_interval || config?.interval || '1m';
@@ -155,41 +282,43 @@ const getSignalInfo = (key, config) => {
   const params = [];
   const sp = config?.signal_params || {};
 
+  const resolve = (pKey, def) => resolveSignalParam(sp, key, base, pKey, def);
+
   switch (base) {
     case 'macd_fade':
     case 'macd_impulse':
     case 'macd_pbc': {
-      const fast = sp.macd_fast ?? 12;
-      const slow = sp.macd_slow ?? 26;
-      const sig = sp.macd_signal ?? 9;
+      const fast = resolve('macd_fast', 12);
+      const slow = resolve('macd_slow', 26);
+      const sig = resolve('macd_signal', 9);
       params.push({ label: 'Fast', value: fast });
       params.push({ label: 'Slow', value: slow });
       params.push({ label: 'Signal', value: sig });
       if (base === 'macd_pbc') {
-        const trendEma = sp.macd_pbc_trend_ema ?? 50;
-        const lb = sp.macd_pbc_lookback ?? 10;
+        const trendEma = resolve('macd_pbc_trend_ema', 50);
+        const lb = resolve('macd_pbc_lookback', 10);
         params.push({ label: 'Trend EMA', value: trendEma });
         params.push({ label: 'Lookback', value: lb });
       } else if (base === 'macd_impulse') {
-        const strict = sp.macd_strict_expansion === true || sp.macd_strict_expansion === 'true';
+        const strict = resolve('macd_strict_expansion', true);
         params.push({ label: 'Strict', value: strict ? 'Yes' : 'No' });
       }
       break;
     }
     case 'supertrend': {
-      const period = sp.supertrend_period ?? 10;
-      const mult = sp.supertrend_multiplier ?? 3;
-      const mode = sp.supertrend_mode ?? 'trend';
+      const period = resolve('supertrend_period', 10);
+      const mult = resolve('supertrend_multiplier', 3);
+      const mode = resolve('supertrend_mode', 'trend');
       params.push({ label: 'Period', value: period });
       params.push({ label: 'Mult', value: mult });
       params.push({ label: 'Mode', value: mode });
       break;
     }
     case 'engulfing': {
-      const lookback = config?.engulfing_lookback ?? sp.engulfing_lookback ?? 1;
-      const streak = config?.engulfing_streak ?? sp.engulfing_streak ?? 1;
-      const mode = config?.engulfing_mode ?? sp.engulfing_mode ?? 'range';
-      const volConfirm = config?.engulfing_volume_confirm ?? sp.engulfing_volume_confirm ?? false;
+      const lookback = resolve('engulfing_lookback', config?.engulfing_lookback ?? 1);
+      const streak = resolve('engulfing_streak', config?.engulfing_streak ?? 1);
+      const mode = resolve('engulfing_mode', config?.engulfing_mode ?? 'range');
+      const volConfirm = resolve('engulfing_volume_confirm', config?.engulfing_volume_confirm ?? false);
       params.push({ label: 'Lookback', value: lookback });
       params.push({ label: 'Streak', value: streak });
       params.push({ label: 'Mode', value: mode });
@@ -200,32 +329,32 @@ const getSignalInfo = (key, config) => {
     case 'ema_cross':
     case 'ema_price_cross':
     case 'ema_close': {
-      const period = sp.exit_ema_period ?? sp.ema_period ?? 12;
+      const period = resolve('exit_ema_period', resolve('ema_period', 12));
       params.push({ label: 'Period', value: period });
       break;
     }
     case 'ema_dual_cross':
     case 'ema_dual_close': {
-      const fast = sp.exit_ema_fast ?? sp.entry_ema_fast ?? 9;
-      const slow = sp.exit_ema_slow ?? sp.entry_ema_slow ?? 21;
+      const fast = resolve('exit_ema_fast', resolve('entry_ema_fast', 9));
+      const slow = resolve('exit_ema_slow', resolve('entry_ema_slow', 21));
       params.push({ label: 'Fast', value: fast });
       params.push({ label: 'Slow', value: slow });
       break;
     }
     case 'ma': {
-      const period = sp.ma_period ?? 20;
+      const period = resolve('ma_period', 20);
       params.push({ label: 'Period', value: period });
       break;
     }
     case 'momentum_pct': {
-      const threshold = config?.scan_pct_threshold ?? sp.scan_pct_threshold ?? 2.0;
-      const lookback = config?.scan_lookback ?? sp.scan_lookback ?? 3;
+      const threshold = resolve('scan_pct_threshold', config?.scan_pct_threshold ?? 2.0);
+      const lookback = resolve('scan_lookback', config?.scan_lookback ?? 3);
       params.push({ label: 'Threshold', value: `${threshold}%` });
       params.push({ label: 'Lookback', value: lookback });
       break;
     }
     case 'breakout_hl': {
-      const lookback = config?.scan_lookback ?? sp.scan_lookback ?? 3;
+      const lookback = resolve('scan_lookback', config?.scan_lookback ?? 3);
       params.push({ label: 'Lookback', value: lookback });
       break;
     }
@@ -448,6 +577,35 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const sessionActive = useTradingStore(state => state.sessionActive);
   const activeSessionBalance = useTradingStore(state => state.balance);
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
+
+  // Inline Stop Loss Editor State
+  const [isEditingSl, setIsEditingSl] = useState(false)
+  const [tempSl, setTempSl] = useState(trade?.sl_price || trade?.current_sl || 0)
+
+  useEffect(() => {
+    if (trade && !isEditingSl) {
+      setTempSl(trade.sl_price || trade.current_sl || 0);
+    }
+  }, [trade, isEditingSl]);
+
+  const handleStartEditSl = () => {
+    setTempSl(trade?.sl_price || trade?.current_sl || 0);
+    setIsEditingSl(true);
+  };
+
+  const handleSaveSl = async () => {
+    const nextSl = Number(tempSl);
+    if (isNaN(nextSl) || nextSl <= 0) return;
+    try {
+      const payload = { current_sl: nextSl };
+      const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+      if (success) {
+        setIsEditingSl(false);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Ref to track if we just completed a successful configuration save to prevent stale overwrites
   const justSavedConfig = useRef(false)
@@ -752,7 +910,48 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             )}>
               <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
             </span>
-            <span className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none">{price(sl)}</span>
+            {isEditingSl ? (
+              <div className="flex items-center gap-1 mt-1.5">
+                <span className="text-[10px] font-mono text-dim">$</span>
+                <input
+                  type="number"
+                  step="any"
+                  value={tempSl}
+                  onChange={(e) => setTempSl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveSl();
+                    if (e.key === 'Escape') setIsEditingSl(false);
+                  }}
+                  className="w-20 bg-background border border-border/80 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveSl}
+                  className="text-green hover:scale-115 transition-transform"
+                  aria-label="Save stop loss price override"
+                >
+                  <CheckCircle2 size={12} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditingSl(false)}
+                  className="text-red hover:scale-115 transition-transform"
+                  aria-label="Cancel stop loss price override"
+                >
+                  <XCircle size={12} />
+                </button>
+              </div>
+            ) : (
+              <span
+                onDoubleClick={handleStartEditSl}
+                className="font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none cursor-pointer border-b border-dashed border-dim/30 hover:border-accent hover:text-accent transition-all flex items-center gap-1 mt-1 group/sl"
+                title="Double-click to edit Stop Loss Price"
+              >
+                {price(sl)}
+                <Edit3 size={8} className="opacity-0 group-hover/sl:opacity-100 transition-opacity text-accent" />
+              </span>
+            )}
           </div>
           <div className="flex flex-col items-end gap-0.5">
             <span className="text-[8px] md:text-[9px] font-black text-green uppercase tracking-widest flex items-center gap-1">

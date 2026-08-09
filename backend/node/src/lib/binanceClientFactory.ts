@@ -206,7 +206,10 @@ export class BinanceClientFactory implements OnModuleInit {
               if (msg.includes('429') || msg.includes('418')) {
                 this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}). Entering Terminal Lock.`);
                 const banMatch = msg.match(/banned until (\d+)/i);
-                const until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
+                let until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
+                if (banMatch && until < 9999999999) {
+                  until *= 1000;
+                }
 
                 BinanceRequestQueue.setCooldownUntil(until);
                 this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
@@ -577,7 +580,11 @@ export class BinanceRequestQueue {
                // SRE: Attempt to extract absolute ban timestamp from message: "banned until (\d+)"
                const banMatch = msg.match(/banned until (\d+)/i);
                if (banMatch) {
-                 until = parseInt(banMatch[1], 10);
+                 let parsedUntil = parseInt(banMatch[1], 10);
+                 if (parsedUntil < 9999999999) {
+                   parsedUntil *= 1000;
+                 }
+                 until = parsedUntil;
                } else if (error.headers && error.headers['retry-after']) {
                  until = Date.now() + (parseInt(error.headers['retry-after'], 10) * 1000);
                } else {

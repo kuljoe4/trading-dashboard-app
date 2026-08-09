@@ -839,7 +839,11 @@ export class MarketFeedService {
             isBanned: () => this.sessionState.isBanned(),
             onBan: (msg) => {
                this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
-               const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+               const banMatch = msg.match(/banned until (\d+)/i);
+               let until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
+               if (banMatch && until < 9999999999) {
+                 until *= 1000;
+               }
                BinanceRequestQueue.setCooldownUntil(until);
                this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
                this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
@@ -1031,7 +1035,11 @@ export class MarketFeedService {
                 isBanned: () => this.sessionState.isBanned(),
                 onBan: (msg) => {
                    this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
-                   const until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+                   const banMatch = msg.match(/banned until (\d+)/i);
+                   let until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
+                   if (banMatch && until < 9999999999) {
+                     until *= 1000;
+                   }
                    BinanceRequestQueue.setCooldownUntil(until);
                    this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
                    this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
@@ -1153,13 +1161,14 @@ export class MarketFeedService {
           await this.backfillKlines(task.symbol, task.interval);
         } catch (err: any) {
           const msg = err.message || '';
-          const isBan = msg.includes('banned') || msg.includes('418');
+          const isBan = msg.includes('banned') || msg.includes('418') || msg.includes('IP banned');
           const isRateLimit = msg.includes('429');
 
           if (isBan || isRateLimit) {
-             this.logger.warn(`Critical API issue detected during backfill: ${msg}. Purging ${this.backfillQueue.length} items from backfill queue.`);
-             this.backfillQueue = [];
-             break; // Exit the while loop immediately
+             this.logger.warn(`Critical API issue detected during backfill: ${msg}. Pausing backfill queue. Re-queueing ${task.symbol} (${task.interval}) and waiting 5s.`);
+             this.backfillQueue.unshift(task);
+             await new Promise(resolve => setTimeout(resolve, 5000));
+             continue; // Exit this iteration, let next loop iteration check ban status
           }
           this.logger.error(`Backfill failed for ${task.symbol} ${task.interval}: ${msg}`);
         }

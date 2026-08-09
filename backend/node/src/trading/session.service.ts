@@ -2307,10 +2307,10 @@ export class SessionService implements OnModuleInit {
     }
 
     // Merge Strategy Configuration overrides (MACD Fade, Supertrend, etc.)
-    const strategyConfig = {
-      ...(trade.strategy_config || {}),
-      ...(dto.strategy_config || {}),
-    };
+    const strategyConfig = this.deepMerge(
+      trade.strategy_config || {},
+      dto.strategy_config || {}
+    );
 
     if (dto.strategy_config) {
       // Re-validate structural dependencies and bounds constraints on the fully merged trade strategy configuration
@@ -3116,5 +3116,20 @@ export class SessionService implements OnModuleInit {
     // The trade-by-trade cumulative PnL calculated above is purely performance-based and completely immune to funding changes.
 
     return analytics;
+  }
+
+  private deepMerge(target: any, source: any): any {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) return source;
+    if (!target || typeof target !== 'object' || Array.isArray(target)) return source;
+
+    const output = { ...target };
+    Object.keys(source).forEach(key => {
+      if (source[key] instanceof Object && !Array.isArray(source[key]) && key in target) {
+        output[key] = this.deepMerge(target[key], source[key]);
+      } else {
+        output[key] = source[key];
+      }
+    });
+    return output;
   }
 }

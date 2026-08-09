@@ -40,19 +40,76 @@ export class RrOptimizationService {
 
   /**
    * Performs an MFE (Maximum Favorable Excursion) sweep to find optimal RR targets.
-   * BOLT OPTIMIZATION: O(N log N) sort + O(N) sweep using cumulative counters.
+   * BOLT OPTIMIZATION: Loop-fused single-pass filter, map, and duration stats aggregator
+   * to completely eliminate multiple array allocations and repeated iterations.
    * Minimal allocation path.
    */
   calculateRrOptimization(trades: TradeEntity[]): RrOptimizationResult {
-    const closedTrades = trades.filter(t =>
-      t.status !== 'OPEN' &&
-      t.exit_ts &&
-      !t.is_reconciliation &&
-      t.max_rr_achieved !== undefined &&
-      t.max_rr_achieved !== null
-    );
+    const tradeData: {
+      max_rr: number;
+      risk: number;
+      pnl: number;
+      epsilon: number;
+      isWin: boolean;
+      isLoss: boolean;
+      isScratch: boolean;
+    }[] = [];
 
-    if (closedTrades.length < 5) {
+    let sumMaePct = 0;
+    let sumDurationMs = 0;
+    let countWithDuration = 0;
+    let defaultInterval = '1m';
+
+    // BOLT OPTIMIZATION: Combine filter, map, and statistical accumulation into a single-pass loop.
+    const totalInputTrades = trades.length;
+    for (let i = 0; i < totalInputTrades; i++) {
+      const t = trades[i];
+      if (
+        t.status !== 'OPEN' &&
+        t.exit_ts &&
+        !t.is_reconciliation &&
+        t.max_rr_achieved !== undefined &&
+        t.max_rr_achieved !== null
+      ) {
+        // Exit signal duration/interval stats accumulated on the fly
+        if (t.entry_ts) {
+          const dur = t.exit_ts.getTime() - t.entry_ts.getTime();
+          if (dur > 0) {
+            sumDurationMs += dur;
+            countWithDuration++;
+          }
+        }
+        if (t.strategy_config?.scan_interval) {
+          defaultInterval = t.strategy_config.scan_interval;
+        }
+
+        // MFE/MAE calculations
+        const risk = Number(t.initial_risk_usdt || t.risk_usdt || 0);
+        const pnl = Number(t.pnl || 0);
+        const epsilon = Math.max(risk * 0.05, 0.5);
+
+        // Calculate Maximum Adverse Excursion (MAE) pct relative to entry
+        const riskDistPct = Math.abs((t.entry_price - (t.initial_sl || t.current_sl || t.entry_price)) / t.entry_price) * 100;
+        const maePct = (t.min_rr_achieved !== undefined && t.min_rr_achieved !== null && t.min_rr_achieved < 0)
+          ? Math.abs(Number(t.min_rr_achieved)) * riskDistPct
+          : ((pnl < 0) ? riskDistPct : 0.5);
+        sumMaePct += maePct;
+
+        tradeData.push({
+          max_rr: Number(t.max_rr_achieved || 0),
+          risk,
+          pnl,
+          epsilon,
+          isWin: pnl > epsilon,
+          isLoss: pnl < -epsilon,
+          isScratch: Math.abs(pnl) <= epsilon
+        });
+      }
+    }
+
+    const n = tradeData.length;
+
+    if (n < 5) {
       return {
         recommendedRr: 0,
         conservativeRr: 0,
@@ -62,42 +119,12 @@ export class RrOptimizationService {
         maxProfitFactor: 0,
         maxExpectancy: 0,
         curve: [],
-        sampleSize: closedTrades.length,
+        sampleSize: n,
         status: 'INSUFFICIENT_DATA',
         recommendedExitSignals: [],
       };
     }
 
-    // Performance Engineering: Pre-calculate outcomes and epsilons for all trades
-    let sumMaePct = 0;
-    const tradeData = closedTrades.map(t => {
-      const risk = Number(t.initial_risk_usdt || t.risk_usdt || 0);
-      const pnl = Number(t.pnl || 0);
-      const epsilon = Math.max(risk * 0.05, 0.5);
-
-      // Calculate Maximum Adverse Excursion (MAE) pct relative to entry
-      // MAE pct is effectively how far the trade went against us.
-      // We first calculate the full risk distance percentage at entry.
-      const riskDistPct = Math.abs((t.entry_price - (t.initial_sl || t.current_sl || t.entry_price)) / t.entry_price) * 100;
-      // If t.min_rr_achieved is tracked and negative, we have an exact, high-fidelity adverse excursion!
-      // Otherwise, we gracefully fall back to the legacy loss estimation / safe win baseline.
-      const maePct = (t.min_rr_achieved !== undefined && t.min_rr_achieved !== null && t.min_rr_achieved < 0)
-        ? Math.abs(Number(t.min_rr_achieved)) * riskDistPct
-        : ((pnl < 0) ? riskDistPct : 0.5);
-      sumMaePct += maePct;
-
-      return {
-        max_rr: Number(t.max_rr_achieved || 0),
-        risk,
-        pnl,
-        epsilon,
-        isWin: pnl > epsilon,
-        isLoss: pnl < -epsilon,
-        isScratch: Math.abs(pnl) <= epsilon
-      };
-    });
-
-    const n = tradeData.length;
     // Strategy: Recommend trailing distance at 2x Average Adverse Excursion to survive normal noise
     const avgMaePct = sumMaePct / n;
     const recommendedTrailingDistance = roundTo(Math.max(0.5, avgMaePct * 2), 2);
@@ -118,7 +145,8 @@ export class RrOptimizationService {
     let countScratchesUnderT = 0;
 
     // Initialize "Under T" with all trades
-    for (const d of tradeData) {
+    for (let i = 0; i < n; i++) {
+      const d = tradeData[i];
       if (d.isWin) {
         sumPnlWinsUnderT += d.pnl;
         countWinsUnderT++;
@@ -140,7 +168,9 @@ export class RrOptimizationService {
       steps.push(t);
     }
 
-    for (const t of steps) {
+    const stepsLen = steps.length;
+    for (let j = 0; j < stepsLen; j++) {
+      const t = steps[j];
       // Move trades that now satisfy max_rr >= T
       while (ptr < n && tradeData[ptr].max_rr >= t) {
         const d = tradeData[ptr];
@@ -199,7 +229,9 @@ export class RrOptimizationService {
     let maxExp = -Infinity;
 
     // 1. Find Balanced (Max PF) and Aggressive (Max Expectancy)
-    for (const point of curve) {
+    const curveLen = curve.length;
+    for (let i = 0; i < curveLen; i++) {
+      const point = curve[i];
       if (point.profitFactor > maxPF) {
         maxPF = point.profitFactor;
         balancedRr = point.threshold;
@@ -212,7 +244,7 @@ export class RrOptimizationService {
 
     // 2. Find Conservative (High Win Rate + Positive PF)
     // Heuristic: Highest RR where Win Rate >= 60% and PF > 1.1
-    for (let i = curve.length - 1; i >= 0; i--) {
+    for (let i = curveLen - 1; i >= 0; i--) {
       const p = curve[i];
       if (p.winRate >= 60 && p.profitFactor > 1.1) {
         conservativeRr = p.threshold;
@@ -226,23 +258,6 @@ export class RrOptimizationService {
     }
 
     // --- PREDICTIVE MODELLING FOR OPTIMAL EXIT SIGNAL PARAMETERS ---
-    let sumDurationMs = 0;
-    let countWithDuration = 0;
-    let defaultInterval = '1m';
-
-    for (const t of closedTrades) {
-      if (t.entry_ts && t.exit_ts) {
-        const dur = t.exit_ts.getTime() - t.entry_ts.getTime();
-        if (dur > 0) {
-          sumDurationMs += dur;
-          countWithDuration++;
-        }
-      }
-      if (t.strategy_config?.scan_interval) {
-        defaultInterval = t.strategy_config.scan_interval;
-      }
-    }
-
     const avgDurationMs = countWithDuration > 0 ? sumDurationMs / countWithDuration : 15 * 60000;
     const intervalToMs = (interval: string): number => {
       const match = String(interval || '1m').match(/^(\d+)([mhdM])$/);

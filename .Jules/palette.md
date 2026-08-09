@@ -37,3 +37,7 @@
 ## 2026-08-01 - Global Search Input Focus Recovery and Modal Viewport Management
 **Learning:** In highly interactive, single-page application dashboards, display and transition states should never disrupt user flow. Specifically, (1) clearing a text-based search input must programmatically recover focus to the input element via refs to prevent keyboard focus loss or accidental page traps, and (2) global helpers like cheatsheets (e.g. keyboard shortcuts) must automatically close on hash routing changes to prevent overlay blocking when using hotkeys.
 **Action:** Establish strict ref-based focus recovery on all accessory clear triggers and sync modal toggles to hash changes to prevent persistent layout blocking.
+
+## 2026-08-02 - Tooltip Backdrop and Interactive Trigger Click-Hijacking Prevention
+**Learning:** Tooltips must remain completely lightweight, non-blocking, and transparent to underlying user interactions. Rendering a `fixed inset-0` backdrop (even with `pointer-events-none`) can interfere with mobile touch events and browser click propagation. Furthermore, custom touch/click handlers on tooltip triggers must never hijack clicks on interactive elements (like buttons, links, or inputs) on mobile/touch viewports, which blocks critical user actions like pausing or resuming strategies.
+**Action:** Always ensure tooltips never render fullscreen backdrops, keep their portals completely non-blocking (`pointer-events-none`), and strictly gate trigger click/tap-to-toggle logic to non-interactive elements only.

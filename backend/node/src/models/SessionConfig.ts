@@ -45,6 +45,10 @@ export class SessionConfig {
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
+  @ArrayMaxSize(100)
+  @MaxLength(100, { each: true })
+  @Matches(/^[a-zA-Z0-9_ .\-()><=%+,\[\]]*$/, { each: true, message: 'Paused strategies can only contain alphanumeric characters, spaces, underscores, dots, hyphens, and safe descriptive characters like (), ><=, %, +, ,, and []' })
+  @Matches(/^(?!.*<[a-zA-Z!/]).*$/, { each: true, message: 'Paused strategies cannot contain HTML tags or tag-like structures' })
   paused_strategies?: string[];
 
   @IsBoolean()
@@ -54,7 +58,7 @@ export class SessionConfig {
   @IsString()
   @IsOptional()
   @MaxLength(100)
-  @Matches(/^[a-zA-Z0-9_\s.\-()><=%+,\[\]]*$/, { message: 'Strategy label can only contain alphanumeric characters, spaces, underscores, dots, hyphens, and safe descriptive characters like (), ><=, %, +, ,, and []' })
+  @Matches(/^[a-zA-Z0-9_ .\-()><=%+,\[\]]*$/, { message: 'Strategy label can only contain alphanumeric characters, spaces, underscores, dots, hyphens, and safe descriptive characters like (), ><=, %, +, ,, and []' })
   @Matches(/^(?!.*<[a-zA-Z!/]).*$/, { message: 'Strategy label cannot contain HTML tags or tag-like structures' })
   strategy_label?: string = "Momentum Strategy";
 

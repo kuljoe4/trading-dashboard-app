@@ -24,8 +24,6 @@ export const ChartSkeleton = ({ height = 180 }) => (
 
 // Accessible Session Details Modal using Radix Dialog
 export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
-  const [copied, setCopied] = useState(false);
-
   // PERFORMANCE: Use loop-fused single-pass useMemo to calculate base/variant PnLs in O(N) time with zero array allocations
   const variantPnls = useMemo(() => {
     const map = new Map();
@@ -45,12 +43,6 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 
   // SEC: Rules of Hooks require all useX hooks to be declared above any early return statement
   if (!session) return null;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(session.id);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const label = strategyLabel(session);
   const duration = (() => {
@@ -115,13 +107,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                       <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session UUID</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-mono font-bold text-text/80 bg-surface px-2 py-1 rounded border border-border/50 select-all">{session.id}</span>
-                        <button
-                          onClick={handleCopy}
-                          className="p-1 hover:bg-white/5 rounded text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer"
-                          aria-label="Copy session ID"
-                        >
-                          {copied ? <CheckCircle2 size={12} className="text-green" /> : <Copy size={12} />}
-                        </button>
+                        <CopyButton value={session.id} tooltip="Copy session ID" successTooltip="Copied session ID!" className="p-1" />
                       </div>
                     </div>
 

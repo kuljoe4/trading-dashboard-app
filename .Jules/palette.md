@@ -41,3 +41,7 @@
 ## 2026-08-02 - Tooltip Backdrop and Interactive Trigger Click-Hijacking Prevention
 **Learning:** Tooltips must remain completely lightweight, non-blocking, and transparent to underlying user interactions. Rendering a `fixed inset-0` backdrop (even with `pointer-events-none`) can interfere with mobile touch events and browser click propagation. Furthermore, custom touch/click handlers on tooltip triggers must never hijack clicks on interactive elements (like buttons, links, or inputs) on mobile/touch viewports, which blocks critical user actions like pausing or resuming strategies.
 **Action:** Always ensure tooltips never render fullscreen backdrops, keep their portals completely non-blocking (`pointer-events-none`), and strictly gate trigger click/tap-to-toggle logic to non-interactive elements only.
+
+## 2026-08-10 - Consolidating Copy-to-Clipboard Accessibility and De-duplication
+**Learning:** Manual clipboard copy logic in modals can lead to duplicated state management and inconsistency in focus rings, visual tooltips, and state-clearing transitions. Replacing these manual implementations with a reusable, highly accessible `<CopyButton>` primitive ensures consistent visual feedback, standardizes custom transition states ("Copy" -> "Copied!"), and enforces keyboard-driven focus rings and descriptive ARIA attributes seamlessly across all modals.
+**Action:** Always replace manual copy-to-clipboard interactions and local state tracking with a unified design system `<CopyButton>` wrapper.

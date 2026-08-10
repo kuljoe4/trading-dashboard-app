@@ -146,4 +146,71 @@ describe('Sentinel: SessionConfig Input Gating & XSS Prevention', () => {
       }
     });
   });
+
+  describe('Sentinel: SessionConfig Paused Strategies Gating & XSS Prevention', () => {
+    it('should accept standard valid paused strategies list', async () => {
+      const config = plainToInstance(SessionConfig, {
+        paused_strategies: ['Momentum Strategy (EMA 50 > 200)', 'EMA Cross [9,21] > 2.5%'],
+      });
+      const errors = await validate(config);
+      expect(errors.find(e => e.property === 'paused_strategies')).toBeUndefined();
+    });
+
+    it('should reject paused strategies containing script tags or HTML-like structures', async () => {
+      const xssPayloads = [
+        '<script>alert("XSS")</script>',
+        '<img src=x onerror=alert(1)>',
+        '<<SCRIPT>alert("XSS")//<</SCRIPT>',
+        '<div style="width:100px">Custom Strategy</div>',
+      ];
+
+      for (const payload of xssPayloads) {
+        const config = plainToInstance(SessionConfig, {
+          paused_strategies: [payload],
+        });
+        const errors = await validate(config);
+        const labelError = errors.find(e => e.property === 'paused_strategies');
+        expect(labelError).toBeDefined();
+        expect(labelError?.constraints?.matches).toBeDefined();
+      }
+    });
+
+    it('should reject paused strategies containing disallowed dangerous characters', async () => {
+      const dangerousLabels = [
+        'Strategy; DROP TABLE sessions;',
+        'Strategy\nwith\rnewlines',
+        'Strategy"with\'quotes',
+      ];
+
+      for (const label of dangerousLabels) {
+        const config = plainToInstance(SessionConfig, {
+          paused_strategies: [label],
+        });
+        const errors = await validate(config);
+        const labelError = errors.find(e => e.property === 'paused_strategies');
+        expect(labelError).toBeDefined();
+        expect(labelError?.constraints?.matches).toBeDefined();
+      }
+    });
+
+    it('should reject overly long paused strategy labels', async () => {
+      const config = plainToInstance(SessionConfig, {
+        paused_strategies: ['A'.repeat(101)],
+      });
+      const errors = await validate(config);
+      const labelError = errors.find(e => e.property === 'paused_strategies');
+      expect(labelError).toBeDefined();
+      expect(labelError?.constraints?.maxLength).toBeDefined();
+    });
+
+    it('should reject overly large array of paused strategies', async () => {
+      const config = plainToInstance(SessionConfig, {
+        paused_strategies: Array(101).fill('Valid Strategy'),
+      });
+      const errors = await validate(config);
+      const labelError = errors.find(e => e.property === 'paused_strategies');
+      expect(labelError).toBeDefined();
+      expect(labelError?.constraints?.arrayMaxSize).toBeDefined();
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, memo } from 'react'
-import * as Dialog from '@radix-ui/react-dialog'
+import { Drawer } from 'vaul'
 import { X, Clock, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { cn, CopyButton, VisuallyHidden, Tooltip, ModalAlertTicker } from './ui/primitives'
 import { formatDuration } from '../lib/formatters'
@@ -48,86 +48,92 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
   }
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={onClose}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-md z-[100] animate-in fade-in duration-300" />
-        <Dialog.Content 
-          aria-labelledby="modal-title"
-          aria-describedby="modal-description"
-          className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 w-full rounded-t-3xl rounded-b-none max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-3xl md:max-h-[90vh] md:rounded-xl overflow-y-auto no-scrollbar bg-surface/95 border border-border/50 p-3.5 md:p-5 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] backdrop-blur-xl z-[101] animate-in fade-in zoom-in-95 duration-300 focus:outline-none">
-          <VisuallyHidden>
-            <Dialog.Description id="modal-description">
-              Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.
-            </Dialog.Description>
-          </VisuallyHidden>
-          <div className="flex items-center justify-between mb-3 sticky -top-5 bg-surface/80 backdrop-blur-sm z-20 pb-2 pt-2">
-            <div className="flex items-center gap-2.5">
-              <div className={cn(
-                "w-8 h-8 rounded-xl flex items-center justify-center shadow-md transition-transform duration-500 hover:scale-105",
-                isLong ? "bg-green/10 text-green shadow-green/20" : "bg-red/10 text-red shadow-red/20"
-              )}>
-                {isLong ? <ArrowUpRight size={15} /> : <ArrowDownRight size={15} />}
-              </div>
-              <div className="flex flex-col">
-                <div className="flex items-center gap-1.5">
-                  <Dialog.Title asChild>
-                    <h2 id="modal-title" className="text-base font-black tracking-tighter">{trade.symbol}</h2>
-                  </Dialog.Title>
-                  <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
-                </div>
-                <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] flex-wrap">
-                  {showResumingFeedback ? (
-                    <span className="text-accent flex items-center gap-1">
-                      <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
-                    </span>
-                  ) : (
-                    <>
-                      <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
-                        {trade.direction}
-                      </span>
-                      {trade.strategy_label && (
-                        <span className="text-dim/80 font-bold lowercase tracking-normal">
-                          via {trade.strategy_label}
-                        </span>
-                      )}
-                      {trade.strategy_label && config && (
-                        trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
-                          <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
-                            Base
-                          </span>
-                        ) : (
-                          <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
-                            Variant
-                          </span>
-                        )
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-            <Tooltip content="Close Details">
-              <Dialog.Close asChild>
-                <button className="p-1.5 hover:bg-white/5 rounded-xl transition-all text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close Details">
-                  <X size={14} />
-                </button>
-              </Dialog.Close>
-            </Tooltip>
-          </div>
-          <ModalAlertTicker />
+    <Drawer.Root open={isOpen} onOpenChange={onClose} repositionInputs={false}>
+      <Drawer.Portal>
+        <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
+        <Drawer.Content
+          className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto h-auto">
 
-          <TradeDetailContent 
-            trade={trade}
-            isSyncing={isResuming}
-            onTradeClose={handleForceClose}
-            isClosing={isClosing}
-            confirmClose={confirmClose}
-            setConfirmClose={setConfirmClose}
-            layout="modal"
-          />
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+          {/* Drawer Handle */}
+          <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
+            <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+            <VisuallyHidden>
+              <Drawer.Title>Trade Details for {trade.symbol}</Drawer.Title>
+              <Drawer.Description id="modal-description">
+                Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.
+              </Drawer.Description>
+            </VisuallyHidden>
+          </div>
+
+          {/* Drawer scrollable content */}
+          <div className="flex-1 overflow-y-auto no-scrollbar p-4 lg:p-6">
+            <div className="flex items-center justify-between mb-3 sticky -top-5 bg-background/80 backdrop-blur-sm z-20 pb-2 pt-2">
+              <div className="flex items-center gap-2.5">
+                <div className={cn(
+                  "w-8 h-8 rounded-xl flex items-center justify-center shadow-md transition-transform duration-500 hover:scale-105",
+                  isLong ? "bg-green/10 text-green shadow-green/20" : "bg-red/10 text-red shadow-red/20"
+                )}>
+                  {isLong ? <ArrowUpRight size={15} /> : <ArrowDownRight size={15} />}
+                </div>
+                <div className="flex flex-col">
+                  <div className="flex items-center gap-1.5">
+                    <h2 id="modal-title" className="text-base font-black tracking-tighter">{trade.symbol}</h2>
+                    <CopyButton value={trade.symbol} className="opacity-40 hover:opacity-100" />
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] flex-wrap">
+                    {showResumingFeedback ? (
+                      <span className="text-accent flex items-center gap-1">
+                        <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
+                      </span>
+                    ) : (
+                      <>
+                        <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
+                          {trade.direction}
+                        </span>
+                        {trade.strategy_label && (
+                          <span className="text-dim/80 font-bold lowercase tracking-normal">
+                            via {trade.strategy_label}
+                          </span>
+                        )}
+                        {trade.strategy_label && config && (
+                          trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
+                            <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
+                              Base
+                            </span>
+                          ) : (
+                            <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
+                              Variant
+                            </span>
+                          )
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <Tooltip content="Close Details">
+                <Drawer.Close asChild>
+                  <button className="p-1.5 hover:bg-white/5 rounded-xl transition-all text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close Details">
+                    <X size={14} />
+                  </button>
+                </Drawer.Close>
+              </Tooltip>
+            </div>
+            <ModalAlertTicker />
+
+            <TradeDetailContent
+              trade={trade}
+              isSyncing={isResuming}
+              onTradeClose={handleForceClose}
+              isClosing={isClosing}
+              confirmClose={confirmClose}
+              setConfirmClose={setConfirmClose}
+              layout="modal"
+            />
+          </div>
+        </Drawer.Content>
+      </Drawer.Portal>
+    </Drawer.Root>
   )
 })
 TradeDetailModal.displayName = 'TradeDetailModal'

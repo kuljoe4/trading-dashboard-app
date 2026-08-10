@@ -1232,6 +1232,7 @@ export const HistoryView = () => {
 
   const sessionsToRender = useMemo(() => {
     const term = search.toLowerCase().trim()
+    const termUpper = term.toUpperCase()
     let filtered = allSessionsWithTrades
       .filter(s => {
         // Mode filter
@@ -1242,7 +1243,8 @@ export const HistoryView = () => {
         if (!term) return true;
         const label = strategyLabel(s).toLowerCase();
         const matchesLabel = label.includes(term);
-        const matchesSymbol = s.trades?.some(t => t.symbol?.toLowerCase().includes(term));
+        // BOLT OPTIMIZATION: Avoid expensive toLowerCase() string allocations inside the trades loop
+        const matchesSymbol = s.trades?.some(t => t.symbol?.includes(termUpper));
         const matchesId = s.id.toLowerCase().includes(term);
         return matchesLabel || matchesSymbol || matchesId;
       });
@@ -1250,10 +1252,21 @@ export const HistoryView = () => {
     if (sortBy === 'pnl') {
       filtered.sort((a, b) => Number(b.totalPnl || 0) - Number(a.totalPnl || 0));
     } else if (sortBy === 'winrate') {
+      // BOLT OPTIMIZATION: Use lightweight win rate calculator instead of heavy calculatePerformanceMetrics
+      const calculateWinRate = (trades) => {
+        const count = trades?.length || 0;
+        if (count === 0) return 0;
+        let wins = 0;
+        for (let i = 0; i < count; i++) {
+          if (Number(trades[i].pnl || 0) > 0) wins++;
+        }
+        return Math.round((wins / count) * 100);
+      };
+
       // BOLT OPTIMIZATION: Pre-calculate win rates to avoid expensive recalculation in the O(N log N) sorting loop (Schwartzian transform)
       const mapped = filtered.map(s => ({
         s,
-        winRate: s.analytics?.overallWinRate || calculatePerformanceMetrics(s.trades).winRate
+        winRate: s.analytics?.overallWinRate || calculateWinRate(s.trades)
       }));
       mapped.sort((a, b) => b.winRate - a.winRate);
       filtered = mapped.map(item => item.s);

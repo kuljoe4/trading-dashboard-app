@@ -313,12 +313,12 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
               <Tooltip content={
                 <div className="flex flex-col gap-1 text-[10px]">
-                   <div className="flex justify-between gap-4"><span>Commission:</span> <span>-{fmtUSD(trade.realized_fee || 0)}</span></div>
-                   <div className="flex justify-between gap-4"><span>Funding:</span> <span>{trade.funding_fee > 0 ? '-' : '+'}{fmtUSD(Math.abs(trade.funding_fee || 0))}</span></div>
+                   <div className="flex justify-between gap-4"><span>Commission:</span> <span className="text-red/70">{fmtUSD(-(trade.realized_fee || 0))}</span></div>
+                   <div className="flex justify-between gap-4"><span>Funding:</span> <span className={trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70'}>{fmtUSD(-(trade.funding_fee || 0))}</span></div>
                 </div>
               }>
                 <span className="text-[8px] text-dim/40 font-bold font-mono cursor-help border-b border-dotted border-dim/10 mt-0.5">
-                  -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))}
+                  {fmtUSD(-(safeNum(trade.realized_fee) + safeNum(trade.funding_fee)))}
                 </span>
               </Tooltip>
             )}

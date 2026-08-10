@@ -208,3 +208,102 @@ test('Stacked win/loss distribution calculation loop-fusion correctness and perf
   console.log(`  - Optimized Loop-fused (no allocations): ${optimizedDuration.toFixed(4)} ms`);
   console.log(`  - Execution Speedup:                    ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
 });
+
+test('calculateWinRate helper correctness and performance benchmark', () => {
+  const calculateWinRate = (trades) => {
+    const count = trades?.length || 0;
+    if (count === 0) return 0;
+    let wins = 0;
+    for (let i = 0; i < count; i++) {
+      if (Number(trades[i].pnl || 0) > 0) wins++;
+    }
+    return Math.round((wins / count) * 100);
+  };
+
+  const listSize = 300;
+  const mockTrades = Array.from({ length: listSize }, () => ({
+    pnl: (Math.random() - 0.4) * 100,
+    createdAt: '2026-07-20T00:00:00.000Z'
+  }));
+
+  // Correctness Verification
+  const expectedWinRate = calculatePerformanceMetrics(mockTrades, 10000).winRate;
+  const actualWinRate = calculateWinRate(mockTrades);
+  assert.strictEqual(actualWinRate, expectedWinRate, 'Win rate must match exactly.');
+
+  // Benchmark
+  const iterations = 5000;
+  // Warmup
+  calculatePerformanceMetrics(mockTrades, 10000);
+  calculateWinRate(mockTrades);
+
+  // Heavy
+  const startHeavy = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    calculatePerformanceMetrics(mockTrades, 10000);
+  }
+  const endHeavy = performance.now();
+  const heavyDuration = endHeavy - startHeavy;
+
+  // Lightweight
+  const startLight = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    calculateWinRate(mockTrades);
+  }
+  const endLight = performance.now();
+  const lightDuration = endLight - startLight;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (Win Rate Calculation, List size: ${listSize} trades, ${iterations} iterations):`);
+  console.log(`  - Original Heavy calculatePerformanceMetrics: ${heavyDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Lightweight calculateWinRate: ${lightDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                    ${(heavyDuration / Math.max(0.0001, lightDuration)).toFixed(1)}x faster`);
+});
+
+test('Search Filter Symbol check performance benchmark', () => {
+  const listSize = 500;
+  const mockTrades = Array.from({ length: listSize }, () => ({
+    symbol: 'BTCUSDT'
+  }));
+
+  const term = 'btc';
+  const termUpper = 'BTC';
+
+  const originalSearch = (trades, query) => {
+    return trades.some(t => t.symbol?.toLowerCase().includes(query));
+  };
+
+  const optimizedSearch = (trades, queryUpper) => {
+    return trades.some(t => t.symbol?.includes(queryUpper));
+  };
+
+  // Correctness
+  assert.strictEqual(originalSearch(mockTrades, term), optimizedSearch(mockTrades, termUpper), 'Search results must match.');
+
+  // Benchmark
+  const iterations = 10000;
+
+  // Warmup
+  originalSearch(mockTrades, term);
+  optimizedSearch(mockTrades, termUpper);
+
+  // Original
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalSearch(mockTrades, term);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  // Optimized
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedSearch(mockTrades, termUpper);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (Search Filter Symbol match, List size: ${listSize} trades, ${iterations} iterations):`);
+  console.log(`  - Original symbol.toLowerCase().includes(term): ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized symbol.includes(termUpper):         ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                            ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});

@@ -292,7 +292,7 @@ async function bootstrap() {
     const activeCount = clients.filter((c: any) => c.isActive !== false).length;
     tradingSessionService.setListenerCount(activeCount);
     const dashCount = clients.filter(
-      (c: any) => c.isActive !== false && !c.focusMode,
+      (c: any) => c.isActive !== false && (!c.focusMode || !!c.focusScannerSymbol),
     ).length;
     tradingSessionService.setDashboardCount(dashCount);
   };
@@ -324,7 +324,7 @@ async function bootstrap() {
         return;
       }
 
-      if (payload.type === "scanner" && client.focusMode === true) return;
+      if (payload.type === "scanner" && client.focusMode === true && !client.focusScannerSymbol) return;
 
       if (payload.type === "tick") {
         const tick = engineBroadcaster.getFidelityTick(payload, client);
@@ -448,10 +448,15 @@ async function bootstrap() {
         }
         if (data.type === "set_focus_mode") {
           const wasFocused = socket.focusMode;
+          const wasScannerSymbol = socket.focusScannerSymbol;
           socket.focusMode = data.enabled === true;
           socket.focusTradeId = data.tradeId || null;
           socket.focusStrategyLabel = data.strategyLabel || null;
           socket.focusScannerSymbol = data.scannerSymbol || null;
+
+          if (wasFocused !== socket.focusMode || wasScannerSymbol !== socket.focusScannerSymbol) {
+            updateMonitoringSuppression();
+          }
 
           // If becoming focused, immediately broadcast the current session state to the client
           // to prevent UI "data gaps" during transition.

@@ -24,8 +24,6 @@ export const ChartSkeleton = ({ height = 180 }) => (
 
 // Accessible Session Details Modal using Radix Dialog
 export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
-  const [copied, setCopied] = useState(false);
-
   // PERFORMANCE: Use loop-fused single-pass useMemo to calculate base/variant PnLs in O(N) time with zero array allocations
   const variantPnls = useMemo(() => {
     const map = new Map();
@@ -45,12 +43,6 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 
   // SEC: Rules of Hooks require all useX hooks to be declared above any early return statement
   if (!session) return null;
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(session.id);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const label = strategyLabel(session);
   const duration = (() => {
@@ -115,13 +107,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                       <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session UUID</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-[10px] font-mono font-bold text-text/80 bg-surface px-2 py-1 rounded border border-border/50 select-all">{session.id}</span>
-                        <button
-                          onClick={handleCopy}
-                          className="p-1 hover:bg-white/5 rounded text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer"
-                          aria-label="Copy session ID"
-                        >
-                          {copied ? <CheckCircle2 size={12} className="text-green" /> : <Copy size={12} />}
-                        </button>
+                        <CopyButton value={session.id} tooltip="Copy session ID" successTooltip="Copied session ID!" className="p-1" />
                       </div>
                     </div>
 
@@ -313,12 +299,12 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
               <Tooltip content={
                 <div className="flex flex-col gap-1 text-[10px]">
-                   <div className="flex justify-between gap-4"><span>Commission:</span> <span>-{fmtUSD(trade.realized_fee || 0)}</span></div>
-                   <div className="flex justify-between gap-4"><span>Funding:</span> <span>{trade.funding_fee > 0 ? '-' : '+'}{fmtUSD(Math.abs(trade.funding_fee || 0))}</span></div>
+                   <div className="flex justify-between gap-4"><span>Commission:</span> <span className="text-red/70">{fmtUSD(-(trade.realized_fee || 0))}</span></div>
+                   <div className="flex justify-between gap-4"><span>Funding:</span> <span className={trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70'}>{fmtUSD(-(trade.funding_fee || 0))}</span></div>
                 </div>
               }>
                 <span className="text-[8px] text-dim/40 font-bold font-mono cursor-help border-b border-dotted border-dim/10 mt-0.5">
-                  -{fmtUSD(safeNum(trade.realized_fee) + safeNum(trade.funding_fee))}
+                  {fmtUSD(-(safeNum(trade.realized_fee) + safeNum(trade.funding_fee)))}
                 </span>
               </Tooltip>
             )}
@@ -1232,6 +1218,7 @@ export const HistoryView = () => {
 
   const sessionsToRender = useMemo(() => {
     const term = search.toLowerCase().trim()
+    const termUpper = term.toUpperCase()
     let filtered = allSessionsWithTrades
       .filter(s => {
         // Mode filter
@@ -1242,7 +1229,8 @@ export const HistoryView = () => {
         if (!term) return true;
         const label = strategyLabel(s).toLowerCase();
         const matchesLabel = label.includes(term);
-        const matchesSymbol = s.trades?.some(t => t.symbol?.toLowerCase().includes(term));
+        // BOLT OPTIMIZATION: Avoid expensive toLowerCase() string allocations inside the trades loop
+        const matchesSymbol = s.trades?.some(t => t.symbol?.includes(termUpper));
         const matchesId = s.id.toLowerCase().includes(term);
         return matchesLabel || matchesSymbol || matchesId;
       });
@@ -1250,10 +1238,21 @@ export const HistoryView = () => {
     if (sortBy === 'pnl') {
       filtered.sort((a, b) => Number(b.totalPnl || 0) - Number(a.totalPnl || 0));
     } else if (sortBy === 'winrate') {
+      // BOLT OPTIMIZATION: Use lightweight win rate calculator instead of heavy calculatePerformanceMetrics
+      const calculateWinRate = (trades) => {
+        const count = trades?.length || 0;
+        if (count === 0) return 0;
+        let wins = 0;
+        for (let i = 0; i < count; i++) {
+          if (Number(trades[i].pnl || 0) > 0) wins++;
+        }
+        return Math.round((wins / count) * 100);
+      };
+
       // BOLT OPTIMIZATION: Pre-calculate win rates to avoid expensive recalculation in the O(N log N) sorting loop (Schwartzian transform)
       const mapped = filtered.map(s => ({
         s,
-        winRate: s.analytics?.overallWinRate || calculatePerformanceMetrics(s.trades).winRate
+        winRate: s.analytics?.overallWinRate || calculateWinRate(s.trades)
       }));
       mapped.sort((a, b) => b.winRate - a.winRate);
       filtered = mapped.map(item => item.s);

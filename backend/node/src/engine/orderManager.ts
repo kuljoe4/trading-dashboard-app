@@ -3244,28 +3244,34 @@ export class OrderManagerService {
          const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
          const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
 
+         const totalPnlPoints = trade.direction === 'LONG'
+           ? exitPrice - trade.entry_price
+           : trade.entry_price - exitPrice;
+
+         const totalGrossPnl = totalPnlPoints * initialQty;
+         const absoluteNetPnl = roundEight(totalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0));
+
          const isAnySlHit = exitReason === `${EXIT_REASONS.SL_HIT}` ||
-                            (exitReason && exitReason.startsWith(EXIT_REASONS.SL_HIT));
+                            (exitReason && exitReason.startsWith(EXIT_REASONS.SL_HIT)) ||
+                            exitReason === EXIT_REASONS.EXCHANGE_SL_OR_MANUAL ||
+                            exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
 
          if ((options.alreadyRealized || options.feesAlreadyAccounted) && !isAnySlHit) {
-            this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl}`);
+            const divergence = Math.abs((trade.pnl || 0) - absoluteNetPnl);
+            if (divergence > 0.01) {
+               this.logger.warn(`[PnL Divergence Alert] Trade ${trade.id} (${symbol}): Accumulated PnL (${trade.pnl}) and Absolute Recomputed PnL (${absoluteNetPnl}) diverge by ${divergence.toFixed(4)}. Force-correcting trade PnL to Absolute Recomputed PnL to prevent state-bleeding or double-count. Qty=${initialQty}, Entry=${trade.entry_price}, Exit=${exitPrice}, Fees=${trade.realized_fee}, Funding=${trade.funding_fee}`);
+               trade.pnl = absoluteNetPnl;
+            } else {
+               this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl} (Absolute PnL=${absoluteNetPnl}, Divergence=${divergence})`);
+            }
          } else {
             // CHRONOS: Absolute PnL Calculation for Live mode.
             // When alreadyRealized is false, it means we are performing a terminal closure
             // (e.g. from Watchdog or external sync) where we have an authoritative average exit price.
             // To ensure integrity across missed UDS slices, we calculate absolute gross profit
             // from entry to exit on the total position size, then subtract all realized costs.
-
-            const totalPnlPoints = trade.direction === 'LONG'
-              ? exitPrice - trade.entry_price
-              : trade.entry_price - exitPrice;
-
-            const totalGrossPnl = totalPnlPoints * initialQty;
-            const finalNetPnl = roundEight(totalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0));
-
-            this.logger.log(`[PnL Integrity] Finalizing Live trade ${symbol}: AbsoluteGross=${totalGrossPnl.toFixed(4)}, Fees=${trade.realized_fee}, Funding=${trade.funding_fee}, FinalNet=${finalNetPnl} (Qty=${initialQty}, Exit=${exitPrice})`);
-
-            trade.pnl = finalNetPnl;
+            this.logger.log(`[PnL Integrity] Finalizing Live trade ${symbol} via Absolute PnL path: AbsoluteGross=${totalGrossPnl.toFixed(4)}, Fees=${trade.realized_fee}, Funding=${trade.funding_fee}, FinalNet=${absoluteNetPnl} (Qty=${initialQty}, Exit=${exitPrice}, Reason=${exitReason})`);
+            trade.pnl = absoluteNetPnl;
          }
 
          // CHRONOS: Restore trade.qty to the total order size (recovered initialQty) for history accuracy.

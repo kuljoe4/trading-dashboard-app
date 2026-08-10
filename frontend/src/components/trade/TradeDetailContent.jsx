@@ -774,7 +774,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
 
   // Master switch to enable/disable touch/click-to-edit inline interactivity
-  const [interactiveEnabled, setInteractiveEnabled] = useState(true);
+  const [interactiveEnabled, setInteractiveEnabled] = useState(false);
 
   // Inline Stop Loss Editor State
   const [isEditingSl, setIsEditingSl] = useState(false)

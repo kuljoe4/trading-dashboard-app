@@ -184,6 +184,48 @@ export class ExecutionService {
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
+        // Anti-whipsaw / same-candle re-entry protection
+        const uniqueTimeframes = new Set<string>();
+        uniqueTimeframes.add(symbolConfig.scan_interval || '1m');
+        if (symbolConfig.enabled_signals) {
+          for (const sig of symbolConfig.enabled_signals) {
+            const tf = symbolConfig.signal_timeframes?.[sig];
+            if (tf && tf !== 'default') {
+              uniqueTimeframes.add(tf);
+            }
+          }
+        }
+
+        const closedForSymbol = this.sessionState.closedTrades.filter(t => t.symbol === opp.symbol);
+        if (closedForSymbol.length > 0) {
+          let sameCandleGated = false;
+          let gatedTimeframe = '';
+
+          for (const tf of uniqueTimeframes) {
+            const tfCandles = this.klineStore.getRawCandles(opp.symbol, tf);
+            if (tfCandles.length > 0) {
+              const currentCandleStart = tfCandles[tfCandles.length - 1].time;
+
+              // If any closed trade for this symbol has entry_ts >= currentCandleStart
+              const hasSameCandleTrade = closedForSymbol.some(t => {
+                if (!t.entry_ts) return false;
+                return new Date(t.entry_ts).getTime() >= currentCandleStart;
+              });
+
+              if (hasSameCandleTrade) {
+                sameCandleGated = true;
+                gatedTimeframe = tf;
+                break;
+              }
+            }
+          }
+
+          if (sameCandleGated) {
+            this.logger.debug(`${opp.symbol}: Entry skipped - a trade was already entered during the current ${gatedTimeframe} candle period to prevent whipsawing.`);
+            continue;
+          }
+        }
+
         // "After Opportunity" timing check:
         // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
         // GATED: Only apply if engulfing is actually enabled.

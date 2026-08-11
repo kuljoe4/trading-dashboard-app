@@ -233,6 +233,8 @@ export class ExecutionService {
 
         const supertrendDetail = signalResult.details?.supertrend || signalResult.details?.['exit_supertrend'];
         const supertrendSlPrice = supertrendDetail?.slPrice;
+        const macdPbcDetail = signalResult.details?.macd_pbc;
+        const macdPbcSlPrice = macdPbcDetail?.slPrice;
 
         const slResult = this.riskEngine.computeSl(
           price,
@@ -245,7 +247,8 @@ export class ExecutionService {
           patternHigh,
           bodyLow,
           bodyHigh,
-          supertrendSlPrice
+          supertrendSlPrice,
+          macdPbcSlPrice
         );
 
         if (slResult.rejected) {

@@ -128,5 +128,129 @@ describe('Lookback SL Logic', () => {
       expect(result.rejected).toBe(false);
       expect(result.slPrice).toBe(98); // Clamped to 2% Max
     });
+
+    it('should clamp lookback SL distance to MACD PBC stop-loss distance when lookback SL is less than MACD PBC', () => {
+      const config = new SessionConfig();
+      config.sl_type = 'lookback_low/high';
+      config.sl_min_pct = 1.0;
+      config.sl_max_pct = 3.0;
+      config.sl_out_of_bounds_action = 'clamp';
+
+      const entryPrice = 100;
+      const direction = 'LONG';
+      const minLow = 99.5; // Lookback SL distance = 0.5% (less than min 1.0% and less than MACD PBC SL)
+      const macdPbcSlPrice = 98.5; // MACD PBC SL distance = 1.5%
+
+      const result = riskEngine.computeSl(
+        entryPrice,
+        direction,
+        config,
+        minLow,
+        105,
+        'BTCUSDT',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        macdPbcSlPrice
+      );
+
+      expect(result.rejected).toBe(false);
+      expect(result.slPrice).toBe(98.5); // Should be clamped to the MACD PBC SL price
+    });
+
+    it('should clamp lookback SL distance to maxDistance when MACD PBC stop-loss distance is higher than the max', () => {
+      const config = new SessionConfig();
+      config.sl_type = 'lookback_low/high';
+      config.sl_min_pct = 1.0;
+      config.sl_max_pct = 3.0;
+      config.sl_out_of_bounds_action = 'clamp';
+
+      const entryPrice = 100;
+      const direction = 'LONG';
+      const minLow = 99.5; // Lookback SL distance = 0.5%
+      const macdPbcSlPrice = 95.0; // MACD PBC SL distance = 5.0% (higher than max 3.0%)
+
+      const result = riskEngine.computeSl(
+        entryPrice,
+        direction,
+        config,
+        minLow,
+        105,
+        'BTCUSDT',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        macdPbcSlPrice
+      );
+
+      expect(result.rejected).toBe(false);
+      expect(result.slPrice).toBe(97.0); // Clamped to maxDistance (3.0%)
+    });
+
+    it('should support rejection when lookback SL is less than MACD PBC stop-loss and action is reject', () => {
+      const config = new SessionConfig();
+      config.sl_type = 'lookback_low/high';
+      config.sl_min_pct = 1.0;
+      config.sl_max_pct = 3.0;
+      config.sl_out_of_bounds_action = 'reject';
+
+      const entryPrice = 100;
+      const direction = 'LONG';
+      const minLow = 99.5; // Lookback SL distance = 0.5%
+      const macdPbcSlPrice = 98.5; // MACD PBC SL distance = 1.5%
+
+      const result = riskEngine.computeSl(
+        entryPrice,
+        direction,
+        config,
+        minLow,
+        105,
+        'BTCUSDT',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        macdPbcSlPrice
+      );
+
+      expect(result.rejected).toBe(true);
+      expect(result.reason).toContain('below MACD PBC adjusted min');
+    });
+
+    it('should use MACD PBC stop-loss when lookback extremes are unavailable', () => {
+      const config = new SessionConfig();
+      config.sl_type = 'lookback_low/high';
+      config.sl_min_pct = 1.0;
+      config.sl_max_pct = 3.0;
+      config.sl_out_of_bounds_action = 'clamp';
+
+      const entryPrice = 100;
+      const direction = 'LONG';
+      const macdPbcSlPrice = 98.5; // MACD PBC SL distance = 1.5%
+
+      // minLow is undefined (extremes unavailable)
+      const result = riskEngine.computeSl(
+        entryPrice,
+        direction,
+        config,
+        undefined,
+        undefined,
+        'BTCUSDT',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        macdPbcSlPrice
+      );
+
+      expect(result.rejected).toBe(false);
+      expect(result.slPrice).toBe(98.5); // Should use MACD PBC SL instead of falling back to PCT SL
+    });
   });
 });

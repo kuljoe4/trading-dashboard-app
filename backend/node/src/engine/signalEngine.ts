@@ -1655,8 +1655,20 @@ export class SignalEngineService {
         const isExpandingPositive = currHist > prevHist;
 
         if (isExpandingPositive && hadPullback) {
-          fired = true;
-          description = `MACD Pullback-to-Continuation LONG confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing Low: ${roundTo(slPrice, 8)}`;
+          let continuationCount = 0;
+          let idx = hLen - 1;
+          while (idx >= 1 && histogram[idx] > histogram[idx - 1]) {
+            continuationCount++;
+            idx--;
+          }
+
+          if (purpose !== 'exit' && continuationCount > 2) {
+            fired = false;
+            description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-2)`;
+          } else {
+            fired = true;
+            description = `MACD Pullback-to-Continuation LONG confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing Low: ${roundTo(slPrice, 8)}`;
+          }
         } else if (!isExpandingPositive) {
           description = `Histogram is not expanding positive: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
         } else {
@@ -1666,8 +1678,20 @@ export class SignalEngineService {
         const isExpandingNegative = currHist < prevHist;
 
         if (isExpandingNegative && hadPullback) {
-          fired = true;
-          description = `MACD Pullback-to-Continuation SHORT confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing High: ${roundTo(slPrice, 8)}`;
+          let continuationCount = 0;
+          let idx = hLen - 1;
+          while (idx >= 1 && histogram[idx] < histogram[idx - 1]) {
+            continuationCount++;
+            idx--;
+          }
+
+          if (purpose !== 'exit' && continuationCount > 2) {
+            fired = false;
+            description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-2)`;
+          } else {
+            fired = true;
+            description = `MACD Pullback-to-Continuation SHORT confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing High: ${roundTo(slPrice, 8)}`;
+          }
         } else if (!isExpandingNegative) {
           description = `Histogram is not expanding negative: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}`;
         } else {

@@ -99,7 +99,7 @@ const getSignalParamsSchema = (sigKey, baseType) => {
       }
     }
     schema.push({
-      key: paramKey,
+      key: `signal_params_${paramKey}`,
       baseParamKey,
       type,
       defaultValue,

@@ -129,6 +129,7 @@ describe('Chronos Authoritative Synchronization', () => {
         ot: 'MARKET',
         x: 'TRADE',
         z: '5.0',
+        l: '5.0',
         ap: '2100',
         rp: '500.0', // Authoritative realized profit for this slice
         n: '2.0', // Authoritative commission for this slice

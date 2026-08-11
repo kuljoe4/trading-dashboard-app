@@ -95,4 +95,27 @@ describe("Sentinel: AdoptPositionDto Input Gating & Validation", () => {
     expect(labelError).toBeDefined();
     expect(labelError?.constraints?.maxLength).toBeDefined();
   });
+
+  it("should reject negative or zero values for initialSl and currentSl", async () => {
+    const invalidCases = [
+      { initialSl: 0, currentSl: 100 },
+      { initialSl: 100, currentSl: 0 },
+      { initialSl: -50, currentSl: 100 },
+      { initialSl: 100, currentSl: -0.1 },
+    ];
+
+    for (const testCase of invalidCases) {
+      const dto = plainToInstance(AdoptPositionDto, {
+        symbol: "BTCUSDT",
+        strategyLabel: "Valid Strategy Label",
+        initialSl: testCase.initialSl,
+        currentSl: testCase.currentSl,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      const slError = errors.find((e) => e.property === "initialSl" || e.property === "currentSl");
+      expect(slError).toBeDefined();
+      expect(slError?.constraints?.min).toBeDefined();
+    }
+  });
 });

@@ -128,6 +128,7 @@ describe('Chronos Authoritative Synchronization', () => {
         S: 'SELL',
         ot: 'MARKET',
         x: 'TRADE',
+        l: '5.0', // Last filled qty
         z: '5.0',
         l: '5.0',
         ap: '2100',

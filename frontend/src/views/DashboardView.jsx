@@ -1123,6 +1123,9 @@ export function DashboardView({ initialStrategy }) {
   const [showInsights, setShowInsights] = useState(false)
 
   const correlationData = useMemo(() => {
+    // BOLT OPTIMIZATION: Loop-fused single-pass traversal over tradeHistory with O(1) direct branch-based
+    // bucket sorting, utilizing pre-calculated numeric entry/exit milliseconds (t.entry_ts_ms, t.exit_ts_ms).
+    // This completely avoids instantiating redundant Date objects and invoking nested .find() per trade.
     const list = tradeHistory || [];
     const buckets = [
       { label: '< 5m', min: 0, max: 5 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
@@ -1130,31 +1133,49 @@ export function DashboardView({ initialStrategy }) {
       { label: '> 30m', min: 30 * 60 * 1000, max: Infinity, grossWin: 0, grossLoss: 0, count: 0 }
     ];
 
-    list.forEach(t => {
-      if (!t.entry_ts || !t.exit_ts) return;
-      const entry = new Date(t.entry_ts).getTime();
-      const exit = new Date(t.exit_ts).getTime();
-      const duration = exit - entry;
-      if (duration < 0) return;
+    const len = list.length;
+    for (let i = 0; i < len; i++) {
+      const t = list[i];
+      if (!t) continue;
 
-      const bucket = buckets.find(b => duration >= b.min && duration < b.max);
+      const entry = t.entry_ts_ms ?? (t.entry_ts ? new Date(t.entry_ts).getTime() : 0);
+      const exit = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      if (!entry || !exit) continue;
+
+      const duration = exit - entry;
+      if (duration < 0) continue;
+
+      let bucket = null;
+      if (duration < 5 * 60 * 1000) {
+        bucket = buckets[0];
+      } else if (duration < 30 * 60 * 1000) {
+        bucket = buckets[1];
+      } else {
+        bucket = buckets[2];
+      }
+
       if (bucket) {
         const pnl = Number(t.pnl || 0);
         if (pnl > 0) bucket.grossWin += pnl;
         else if (pnl < 0) bucket.grossLoss += Math.abs(pnl);
         bucket.count++;
       }
-    });
+    }
 
-    return buckets.map(b => {
+    const bLen = buckets.length;
+    const result = new Array(bLen);
+    for (let i = 0; i < bLen; i++) {
+      const b = buckets[i];
       const pfVal = b.grossLoss > 0 ? (b.grossWin / b.grossLoss) : (b.grossWin > 0 ? b.grossWin : 0);
-      return {
+      result[i] = {
         label: b.label,
         profitFactor: Number(Number(pfVal).toFixed(2)),
         count: b.count,
         avgDurationText: b.label
       };
-    });
+    }
+
+    return result;
   }, [tradeHistory]);
 
   useEffect(() => {

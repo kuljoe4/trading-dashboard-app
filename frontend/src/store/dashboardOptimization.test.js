@@ -242,3 +242,158 @@ test('Active maps calculation: performance benchmark', () => {
   console.log(`  - Optimized Loop-fused single-pass maps:  ${optimizedDuration.toFixed(4)} ms`);
   console.log(`  - Execution Speedup:                      ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
 });
+
+// Original correlationData calculation in DashboardView.jsx
+function originalCorrelationData(tradeHistory) {
+  const list = tradeHistory || [];
+  const buckets = [
+    { label: '< 5m', min: 0, max: 5 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+    { label: '5m - 30m', min: 5 * 60 * 1000, max: 30 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+    { label: '> 30m', min: 30 * 60 * 1000, max: Infinity, grossWin: 0, grossLoss: 0, count: 0 }
+  ];
+
+  list.forEach(t => {
+    if (!t.entry_ts || !t.exit_ts) return;
+    const entry = new Date(t.entry_ts).getTime();
+    const exit = new Date(t.exit_ts).getTime();
+    const duration = exit - entry;
+    if (duration < 0) return;
+
+    const bucket = buckets.find(b => duration >= b.min && duration < b.max);
+    if (bucket) {
+      const pnl = Number(t.pnl || 0);
+      if (pnl > 0) bucket.grossWin += pnl;
+      else if (pnl < 0) bucket.grossLoss += Math.abs(pnl);
+      bucket.count++;
+    }
+  });
+
+  return buckets.map(b => {
+    const pfVal = b.grossLoss > 0 ? (b.grossWin / b.grossLoss) : (b.grossWin > 0 ? b.grossWin : 0);
+    return {
+      label: b.label,
+      profitFactor: Number(Number(pfVal).toFixed(2)),
+      count: b.count,
+      avgDurationText: b.label
+    };
+  });
+}
+
+// Optimized correlationData calculation in DashboardView.jsx
+function optimizedCorrelationData(tradeHistory) {
+  const list = tradeHistory || [];
+  const buckets = [
+    { label: '< 5m', min: 0, max: 5 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+    { label: '5m - 30m', min: 5 * 60 * 1000, max: 30 * 60 * 1000, grossWin: 0, grossLoss: 0, count: 0 },
+    { label: '> 30m', min: 30 * 60 * 1000, max: Infinity, grossWin: 0, grossLoss: 0, count: 0 }
+  ];
+
+  const len = list.length;
+  for (let i = 0; i < len; i++) {
+    const t = list[i];
+    if (!t) continue;
+
+    const entry = t.entry_ts_ms ?? (t.entry_ts ? new Date(t.entry_ts).getTime() : 0);
+    const exit = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+    if (!entry || !exit) continue;
+
+    const duration = exit - entry;
+    if (duration < 0) continue;
+
+    let bucket = null;
+    if (duration < 5 * 60 * 1000) {
+      bucket = buckets[0];
+    } else if (duration < 30 * 60 * 1000) {
+      bucket = buckets[1];
+    } else {
+      bucket = buckets[2];
+    }
+
+    if (bucket) {
+      const pnl = Number(t.pnl || 0);
+      if (pnl > 0) bucket.grossWin += pnl;
+      else if (pnl < 0) bucket.grossLoss += Math.abs(pnl);
+      bucket.count++;
+    }
+  }
+
+  const bLen = buckets.length;
+  const result = new Array(bLen);
+  for (let i = 0; i < bLen; i++) {
+    const b = buckets[i];
+    const pfVal = b.grossLoss > 0 ? (b.grossWin / b.grossLoss) : (b.grossWin > 0 ? b.grossWin : 0);
+    result[i] = {
+      label: b.label,
+      profitFactor: Number(Number(pfVal).toFixed(2)),
+      count: b.count,
+      avgDurationText: b.label
+    };
+  }
+
+  return result;
+}
+
+test('correlationData: correctness of original and optimized implementations', () => {
+  const tradeHistory = [
+    { entry_ts: '2026-07-20T10:00:00.000Z', exit_ts: '2026-07-20T10:04:00.000Z', entry_ts_ms: 1784541600000, exit_ts_ms: 1784541840000, pnl: 50.00 }, // 4m - bucket 0 (wins)
+    { entry_ts: '2026-07-20T11:00:00.000Z', exit_ts: '2026-07-20T11:20:00.000Z', entry_ts_ms: 1784545200000, exit_ts_ms: 1784546400000, pnl: -20.00 }, // 20m - bucket 1 (losses)
+    { entry_ts: '2026-07-20T12:00:00.000Z', exit_ts: '2026-07-20T13:00:00.000Z', entry_ts_ms: 1784548800000, exit_ts_ms: 1784552400000, pnl: 100.00 }, // 60m - bucket 2 (wins)
+    { entry_ts: '2026-07-20T14:00:00.000Z', exit_ts: '2026-07-20T14:15:00.000Z', entry_ts_ms: 1784556000000, exit_ts_ms: 1784556900000, pnl: 30.00 }   // 15m - bucket 1 (wins)
+  ];
+
+  const originalResult = originalCorrelationData(tradeHistory);
+  const optimizedResult = optimizedCorrelationData(tradeHistory);
+
+  assert.deepStrictEqual(optimizedResult, originalResult, 'Both implementations must return identical values.');
+  assert.strictEqual(optimizedResult[0].count, 1);
+  assert.strictEqual(optimizedResult[1].count, 2);
+  assert.strictEqual(optimizedResult[2].count, 1);
+  assert.strictEqual(optimizedResult[1].profitFactor, 1.5); // 30 / 20 = 1.5
+});
+
+test('correlationData: performance benchmark', () => {
+  const listSize = 1000;
+  const tradeHistory = Array.from({ length: listSize }, (_, i) => {
+    const entryTime = Date.now() - i * 60000;
+    const duration = Math.random() * 45 * 60000; // up to 45 mins
+    const exitTime = entryTime + duration;
+    return {
+      entry_ts: new Date(entryTime).toISOString(),
+      exit_ts: new Date(exitTime).toISOString(),
+      entry_ts_ms: entryTime,
+      exit_ts_ms: exitTime,
+      pnl: (Math.random() - 0.4) * 100
+    };
+  });
+
+  // Warmup
+  originalCorrelationData(tradeHistory);
+  optimizedCorrelationData(tradeHistory);
+
+  const iterations = 1000;
+
+  // Benchmark original approach
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalCorrelationData(tradeHistory);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  // Benchmark optimized approach
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedCorrelationData(tradeHistory);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  const resOriginal = originalCorrelationData(tradeHistory);
+  const resOptimized = optimizedCorrelationData(tradeHistory);
+  assert.deepStrictEqual(resOptimized, resOriginal, 'Optimized results must match original results exactly.');
+
+  console.log(`\n⚡ Bolt Performance Benchmark (Correlation Data Calculation, List size: ${listSize} trades, ${iterations} iterations):`);
+  console.log(`  - Original new Date() / buckets.find:  ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized O(1) timestamps / branch: ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                  ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});

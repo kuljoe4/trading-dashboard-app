@@ -166,7 +166,7 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
   });
 
   describe('MACD Pullback-to-Continuation (PBC) Signal', () => {
-    it('should fire on LONG when price is above Trend EMA and histogram slope reverses positive', () => {
+    it('should fire on LONG when price is above Trend EMA and histogram slope reverses positive (within 2 candles)', () => {
       const config = new SessionConfig();
       config.enabled_signals = ['macd_pbc'];
       config.signal_params = {
@@ -178,18 +178,16 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       };
 
       // Generate prices steadily above 50 EMA (represented by slow growth)
-      // and construct a pullback (histogram goes from contracting to expanding positive)
       const prices = Array(120).fill(100);
       for (let i = 0; i < 120; i++) {
         prices[i] = 100 + i * 2; // steady uptrend, close is always above 50 EMA
       }
 
-      // Pullback & Continuation on last candles
-      prices[115] = 300;
-      prices[116] = 295; // pullback low
-      prices[117] = 330; // pullback tick
-      prices[118] = 380; // continuation rise 1
-      prices[119] = 450; // continuation rise 2
+      // Pullback & Continuation on last candles (1st or 2nd continuation candle)
+      prices[116] = 300;
+      prices[117] = 295; // pullback low
+      prices[118] = 330; // continuation 1 (reversal)
+      prices[119] = 380; // continuation 2
 
       const candles = generateCandles(prices);
       klineStore.getRawCandles.mockReturnValue(candles);
@@ -198,6 +196,38 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       expect(result.details?.macd_pbc?.fired).toBe(true);
       expect(result.details?.macd_pbc?.slPrice).toBeDefined();
       expect(result.details?.macd_pbc?.slPrice).toBeLessThan(330);
+    });
+
+    it('should reject LONG when continuation candle count is greater than 2', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['macd_pbc'];
+      config.signal_params = {
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_pbc_trend_ema: 50,
+        macd_pbc_lookback: 5,
+      };
+
+      // Generate prices steadily above 50 EMA
+      const prices = Array(120).fill(100);
+      for (let i = 0; i < 120; i++) {
+        prices[i] = 100 + i * 2;
+      }
+
+      // Pullback & Continuation: 3 consecutive expanding candles
+      prices[115] = 300;
+      prices[116] = 295; // pullback low
+      prices[117] = 330; // continuation 1 (reversal)
+      prices[118] = 380; // continuation 2
+      prices[119] = 450; // continuation 3
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
+      expect(result.details?.macd_pbc?.fired).toBe(false);
+      expect(result.details?.macd_pbc?.description).toContain('Rejected: MACD PBC continuation candle count is 3 (Entry Window: 1-2)');
     });
 
     it('should reject LONG when price is below Trend EMA', () => {

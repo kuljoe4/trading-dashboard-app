@@ -491,16 +491,17 @@ export class RiskEngineService {
     patternHigh?: number,
     bodyLow?: number,
     bodyHigh?: number,
-    supertrendSlPrice?: number
+    supertrendSlPrice?: number,
+    macdPbcSlPrice?: number
   ): { slPrice: number; rejected: boolean; reason?: string } {
     if (config.sl_type === 'trailing') {
-      return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice);
+      return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
     }
 
     if (config.sl_type === 'supertrend') {
       if (supertrendSlPrice === undefined || supertrendSlPrice <= 0 || isNaN(supertrendSlPrice) || !isFinite(supertrendSlPrice)) {
         this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Supertrend stop-loss price unavailable or invalid (value: ${supertrendSlPrice}). Falling back to Pct SL.`);
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
       }
 
       const minPct = config.sl_min_pct ?? 0.3;
@@ -545,26 +546,51 @@ export class RiskEngineService {
 
     // SL based on lookback period extremes
     if (config.sl_type === 'lookback_low/high') {
-      if (minLow === undefined || maxHigh === undefined || minLow === 0 || maxHigh === 0 || minLow === Infinity || maxHigh === -Infinity) {
-        // Fallback to percentage if lookback data not available
-        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL.`);
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol);
-      }
-
       const minPct = config.sl_min_pct ?? 0.3;
       const maxPct = config.sl_max_pct ?? 3.0;
       const action = config.sl_out_of_bounds_action || 'clamp';
       const minDistance = entryPrice * (minPct / 100);
       const maxDistance = entryPrice * (maxPct / 100);
 
-      let structuralSl: number;      let rawDistance: number;
+      let structuralSl: number;
+      let rawDistance: number;
+      let usingMacdPbcSl = false;
 
-      if (direction === 'LONG') {
-        structuralSl = minLow;
-        rawDistance = Math.abs(entryPrice - structuralSl);
+      const extremesAvailable = !(minLow === undefined || maxHigh === undefined || minLow === 0 || maxHigh === 0 || minLow === Infinity || maxHigh === -Infinity);
+
+      if (!extremesAvailable) {
+        if (macdPbcSlPrice && macdPbcSlPrice > 0) {
+          structuralSl = macdPbcSlPrice;
+          rawDistance = Math.abs(entryPrice - structuralSl);
+          usingMacdPbcSl = true;
+          this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable. Using MACD PBC SL price: ${macdPbcSlPrice} as structural SL.`);
+        } else {
+          // Fallback to percentage if lookback data not available
+          this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL.`);
+          return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
+        }
       } else {
-        structuralSl = maxHigh;
-        rawDistance = Math.abs(structuralSl - entryPrice);
+        if (direction === 'LONG') {
+          structuralSl = minLow;
+          rawDistance = Math.abs(entryPrice - structuralSl);
+        } else {
+          structuralSl = maxHigh;
+          rawDistance = Math.abs(structuralSl - entryPrice);
+        }
+      }
+
+      let effectiveMinDistance = minDistance;
+
+      if (!usingMacdPbcSl && macdPbcSlPrice && macdPbcSlPrice > 0) {
+        const macdPbcDistance = Math.abs(entryPrice - macdPbcSlPrice);
+        if (rawDistance < macdPbcDistance) {
+          effectiveMinDistance = Math.min(macdPbcDistance, maxDistance);
+          usingMacdPbcSl = true;
+          this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback SL distance (${rawDistance.toFixed(5)}) is less than MACD PBC SL distance (${macdPbcDistance.toFixed(5)}). Adjusting effectiveMinDistance to: ${effectiveMinDistance.toFixed(5)}`);
+        }
+      } else if (usingMacdPbcSl) {
+        const macdPbcDistance = Math.abs(entryPrice - macdPbcSlPrice!);
+        effectiveMinDistance = Math.min(macdPbcDistance, maxDistance);
       }
 
       const rawDistPct = (rawDistance / entryPrice) * 100;
@@ -573,13 +599,15 @@ export class RiskEngineService {
       let rejected = false;
       let reason: string | undefined;
 
-      if (rawDistance < minDistance) {
+      if (rawDistance < effectiveMinDistance) {
         if (action === 'reject') {
            clampType = 'REJECT';
            rejected = true;
-           reason = `Lookback SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
+           reason = usingMacdPbcSl
+             ? `Lookback SL dist ${rawDistPct.toFixed(2)}% below MACD PBC adjusted min ${((effectiveMinDistance / entryPrice) * 100).toFixed(2)}%`
+             : `Lookback SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
         } else {
-           finalDistance = minDistance;
+           finalDistance = effectiveMinDistance;
            clampType = 'MIN_CLAMP';
         }
       } else if (rawDistance > maxDistance) {
@@ -597,9 +625,10 @@ export class RiskEngineService {
 
       this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Lookback SL Journey:
         Entry: ${entryPrice}
-        Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl}
+        Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl} ${usingMacdPbcSl ? '(MACD PBC)' : ''}
         Raw Dist: ${Number(rawDistance || 0).toFixed(5)} (${rawDistPct.toFixed(2)}%)
         Min: ${minPct}% (${Number(minDistance || 0).toFixed(5)}), Max: ${maxPct}% (${Number(maxDistance || 0).toFixed(5)})
+        Effective Min: ${Number(effectiveMinDistance || 0).toFixed(5)}
         Action: ${action.toUpperCase()}, Result: ${clampType} -> Dist: ${Number(finalDistance || 0).toFixed(5)}
         Final SL: ${Number(slPrice || 0).toFixed(5)}`);
 
@@ -625,7 +654,7 @@ export class RiskEngineService {
 
       if (structuralSl === undefined || structuralSl <= 0) {
         this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Engulfing boundary unavailable. Falling back to Pct SL.`);
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol);
+        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
       }
 
       const minPct = config.sl_min_pct ?? 0.3;

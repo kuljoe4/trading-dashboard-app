@@ -99,7 +99,7 @@ const getSignalParamsSchema = (sigKey, baseType) => {
       }
     }
     schema.push({
-      key: paramKey,
+      key: `signal_params_${paramKey}`,
       baseParamKey,
       type,
       defaultValue,
@@ -767,8 +767,8 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
   return (
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40" />
+        <div className="relative flex-1 group">
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
           <input
             ref={watchlistSearchInputRef}
             type="text"
@@ -778,7 +778,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
             className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
-          {searchTerm && (
+          {searchTerm ? (
             <Tooltip content="Clear Search">
               <button
                 type="button"
@@ -792,6 +792,10 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
                 <X size={16} />
               </button>
             </Tooltip>
+          ) : (
+            <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+              /
+            </kbd>
           )}
         </div>
 
@@ -3310,7 +3314,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="relative flex-1 sm:w-64 group">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50" />
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent transition-colors" />
                     <input
                       ref={presetSearchInputRef}
                       type="text"

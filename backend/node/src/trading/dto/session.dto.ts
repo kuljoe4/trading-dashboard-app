@@ -11,6 +11,7 @@ import {
   ArrayMaxSize,
   MaxLength,
   Matches,
+  Min,
 } from "class-validator";
 import { Type } from "class-transformer";
 import { SessionConfig } from "../../models/SessionConfig";
@@ -69,16 +70,19 @@ export class AdoptPositionDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0.000001, { message: "Initial SL must be a positive number" })
   initialSl?: number;
 
   @IsOptional()
   @IsNumber()
+  @Min(0.000001, { message: "Current SL must be a positive number" })
   currentSl?: number;
 }
 
 export class UpdateTradeConfigDto {
   @IsOptional()
   @IsNumber()
+  @Min(0.000001, { message: "Stop loss must be a positive number" })
   current_sl?: number;
 
   @IsOptional()

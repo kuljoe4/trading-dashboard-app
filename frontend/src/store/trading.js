@@ -2,6 +2,7 @@ import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { sessionAPI, normalizeUrl } from '../api/client.js'
 import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits.js'
+import { applyTheme } from '../lib/theme.js'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
@@ -294,6 +295,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   isThrottled: false, entryCount: 0, hitCount: 0,
+  theme: 'default',
+  setTheme: (theme) => {
+    set({ theme });
+    applyTheme(theme);
+  },
 
   addAlert: (alert) => {
      const now = Date.now();
@@ -859,7 +865,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     config: state.config,
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
-    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs
+    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
+    theme: state.theme
   }),
   version: 1,
   onRehydrateStorage: () => (state) => {
@@ -870,6 +877,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       state.isSyncingOnResume = !!state.sessionActive;
       state.wsStatus = 'offline';
       state.ws = null;
+
+      // Apply theme on load
+      applyTheme(state.theme || 'default');
 
       // Force collections to arrays to avoid TypeError: B is undefined
       state.activeTrades = Array.isArray(state.activeTrades) ? state.activeTrades : [];

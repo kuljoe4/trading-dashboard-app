@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: #080b0f;
-  --color-surface: #0d1117;
-  --color-accent: #5b6fff;
-  --color-green: #00e5a0;
-  --color-red: #ff4466;
-  --color-amber: #f5a623;
-  --color-text: #f0f3f8;
-  --color-dim: #8ba1c1;
-  --color-border: #1e293b;
-  --color-border-hover: #334155;
+  --color-background: var(--color-background-theme, #080b0f);
+  --color-surface: var(--color-surface-theme, #0d1117);
+  --color-accent: var(--color-accent-theme, #5b6fff);
+  --color-green: var(--color-green-theme, #00e5a0);
+  --color-red: var(--color-red-theme, #ff4466);
+  --color-amber: var(--color-amber-theme, #f5a623);
+  --color-text: var(--color-text-theme, #f0f3f8);
+  --color-dim: var(--color-dim-theme, #8ba1c1);
+  --color-border: var(--color-border-theme, #1e293b);
+  --color-border-hover: var(--color-border-hover-theme, #334155);
 
   --font-sans: 'Inter', 'Inter var', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;

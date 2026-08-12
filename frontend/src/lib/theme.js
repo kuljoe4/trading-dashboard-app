@@ -1,29 +1,120 @@
+export const THEMES = {
+  default: {
+    name: 'Default Dark',
+    desc: 'Deep midnight blue with vibrant accents (original style)',
+    colors: {
+      '--color-background-theme': '#080b0f',
+      '--color-surface-theme': '#0d1117',
+      '--color-accent-theme': '#5b6fff',
+      '--color-green-theme': '#00e5a0',
+      '--color-red-theme': '#ff4466',
+      '--color-amber-theme': '#f5a623',
+      '--color-text-theme': '#f0f3f8',
+      '--color-dim-theme': '#8ba1c1',
+      '--color-border-theme': '#1e293b',
+      '--color-border-hover-theme': '#334155',
+    }
+  },
+  cyberpunk: {
+    name: 'Cyberpunk Neon',
+    desc: 'Vibrant neon fuchsia and emerald on a deep cyber-violet canvas',
+    colors: {
+      '--color-background-theme': '#0c0714',
+      '--color-surface-theme': '#140e24',
+      '--color-accent-theme': '#d946ef',
+      '--color-green-theme': '#10b981',
+      '--color-red-theme': '#ef4444',
+      '--color-amber-theme': '#f59e0b',
+      '--color-text-theme': '#f5f3f7',
+      '--color-dim-theme': '#a78bfa',
+      '--color-border-theme': '#3b0764',
+      '--color-border-hover-theme': '#6b21a8',
+    }
+  },
+  forest: {
+    name: 'Nordic Woods',
+    desc: 'Sophisticated sage, mint, and pine forest palette',
+    colors: {
+      '--color-background-theme': '#0a0f0d',
+      '--color-surface-theme': '#121a16',
+      '--color-accent-theme': '#10b981',
+      '--color-green-theme': '#34d399',
+      '--color-red-theme': '#f87171',
+      '--color-amber-theme': '#fbbf24',
+      '--color-text-theme': '#f0f7f4',
+      '--color-dim-theme': '#86a397',
+      '--color-border-theme': '#1d2c25',
+      '--color-border-hover-theme': '#2d4338',
+    }
+  },
+  ocean: {
+    name: 'Ocean Sapphire',
+    desc: 'Sleek, refreshing deep sapphire and cyan ice breeze',
+    colors: {
+      '--color-background-theme': '#050e14',
+      '--color-surface-theme': '#0a1924',
+      '--color-accent-theme': '#06b6d4',
+      '--color-green-theme': '#10b981',
+      '--color-red-theme': '#f43f5e',
+      '--color-amber-theme': '#f59e0b',
+      '--color-text-theme': '#f1f7fa',
+      '--color-dim-theme': '#80a5b8',
+      '--color-border-theme': '#153043',
+      '--color-border-hover-theme': '#204a67',
+    }
+  },
+  carbon: {
+    name: 'Monochrome Slate',
+    desc: 'High-contrast professional carbon fiber and sleek white accents',
+    colors: {
+      '--color-background-theme': '#0d0d0d',
+      '--color-surface-theme': '#181818',
+      '--color-accent-theme': '#ffffff',
+      '--color-green-theme': '#10b981',
+      '--color-red-theme': '#ef4444',
+      '--color-amber-theme': '#f59e0b',
+      '--color-text-theme': '#ededed',
+      '--color-dim-theme': '#888888',
+      '--color-border-theme': '#2e2e2e',
+      '--color-border-hover-theme': '#444444',
+    }
+  }
+};
+
+export const applyTheme = (themeName) => {
+  if (typeof window === 'undefined') return;
+  const theme = THEMES[themeName] || THEMES.default;
+  Object.entries(theme.colors).forEach(([property, value]) => {
+    document.documentElement.style.setProperty(property, value);
+  });
+};
+
 export const C = {
-  bg: "#080b0f",
-  surface: "#0d1117",
-  border: "#1a2030",
-  borderHover: "#2a3550",
-  muted: "#3a4560",
-  text: "#c8d4e8",
-  dim: "#5a6a88",
-  green: "#00e5a0",
-  greenDim: "#00e5a015",
-  greenBorder: "#00e5a030",
-  red: "#ff4466",
-  redDim: "#ff446615",
-  redBorder: "#ff446630",
-  amber: "#f5a623",
-  amberDim: "#f5a62315",
-  blue: "#4a9eff",
-  blueDim: "#4a9eff15",
-  accent: "#5b6fff",
-  accentDim: "#5b6fff20",
+  bg: "var(--color-background-theme, #080b0f)",
+  surface: "var(--color-surface-theme, #0d1117)",
+  border: "var(--color-border-theme, #1e293b)",
+  borderHover: "var(--color-border-hover-theme, #334155)",
+  muted: "var(--color-dim-theme, #8ba1c1)",
+  text: "var(--color-text-theme, #f0f3f8)",
+  dim: "var(--color-dim-theme, #8ba1c1)",
+  green: "var(--color-green-theme, #00e5a0)",
+  greenDim: "rgba(0, 229, 160, 0.15)",
+  greenBorder: "rgba(0, 229, 160, 0.3)",
+  red: "var(--color-red-theme, #ff4466)",
+  redDim: "rgba(255, 68, 102, 0.15)",
+  redBorder: "rgba(255, 68, 102, 0.3)",
+  amber: "var(--color-amber-theme, #f5a623)",
+  amberDim: "rgba(245, 166, 35, 0.15)",
+  blue: "var(--color-accent-theme, #5b6fff)",
+  blueDim: "rgba(91, 111, 255, 0.15)",
+  accent: "var(--color-accent-theme, #5b6fff)",
+  accentDim: "rgba(91, 111, 255, 0.2)",
 };
 
 export const pnlColor = (pnl) => {
   const n = Number(pnl);
-  if (n === 0) return C.dim;
-  return n > 0 ? C.green : C.red;
+  if (n === 0) return "var(--color-dim-theme, #8ba1c1)";
+  return n > 0 ? "var(--color-green-theme, #00e5a0)" : "var(--color-red-theme, #ff4466)";
 };
 
 export const pnlClass = (pnl) => {

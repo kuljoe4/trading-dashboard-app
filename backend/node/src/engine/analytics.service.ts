@@ -290,8 +290,25 @@ export class AnalyticsService {
       netPnl: roundTo(b.netPnl, 2)
     }));
 
+    let finalizedCurve = cumulativePnL;
+    const maxPoints = 200;
+    if (totalTrades > maxPoints) {
+      finalizedCurve = [];
+      // Always include the first point to establish baseline
+      finalizedCurve.push(cumulativePnL[0]);
+
+      const step = (totalTrades - 1) / (maxPoints - 1);
+      for (let j = 1; j < maxPoints - 1; j++) {
+        const index = Math.round(j * step);
+        finalizedCurve.push(cumulativePnL[index]);
+      }
+
+      // Always include the last point to show the absolute final state
+      finalizedCurve.push(cumulativePnL[totalTrades - 1]);
+    }
+
     return {
-      cumulativePnL,
+      cumulativePnL: finalizedCurve,
       maxDrawdown: roundTo(maxDD, 2),
       maxDrawdownPct: roundTo(maxDDPct, 2),
       timeOfDay,

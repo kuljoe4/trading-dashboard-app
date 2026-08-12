@@ -22,7 +22,27 @@ const TradesView = () => {
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
 
-  const peakRr = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+  // BOLT OPTIMIZATION: Combine active trade calculations into a single-pass loop-fused useMemo
+  const { activePnl, activeEstPnl, trueProjectedPnl, peakRr } = useMemo(() => {
+    const trades = activeTrades || [];
+    let pnl = 0;
+    let estPnl = 0;
+    let maxRr = 0;
+    const len = trades.length;
+    for (let i = 0; i < len; i++) {
+      const t = trades[i];
+      pnl += safeNum(t.pnl);
+      estPnl += safeNum(t.est_pnl_to_realize);
+      maxRr = Math.max(maxRr, t.max_rr || 0);
+    }
+    const projected = (totalPnl - pnl) + estPnl;
+    return {
+      activePnl: pnl,
+      activeEstPnl: estPnl,
+      trueProjectedPnl: projected,
+      peakRr: maxRr
+    };
+  }, [activeTrades, totalPnl]);
 
   const selectedTrade = (activeTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
 
@@ -58,34 +78,27 @@ const TradesView = () => {
         />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
-        {(() => {
-          const activePnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.pnl), 0);
-          const activeEstPnl = (activeTrades || []).reduce((acc, t) => acc + safeNum(t.est_pnl_to_realize), 0);
-          const trueProjectedPnl = (totalPnl - activePnl) + activeEstPnl;
-          return (
-            <StatCard
-              label="Active P&L"
-              value={fmtUSD(activePnl)}
-              color={pnlClass(activePnl)}
-              subValue={
-                <div className="flex flex-col gap-0.5 mt-1 min-w-[130px]">
-                  <div className="flex items-center justify-between text-[10px] text-dim/60">
-                    <span>Session Return:</span>
-                    <span className="font-bold font-mono" style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] text-dim/60">
-                    <span>Est. Target:</span>
-                    <span className="font-bold font-mono" style={{ color: pnlColor(activeEstPnl) }}>≈ {fmtUSD(activeEstPnl)}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] text-dim/80 pt-0.5 border-t border-border/20">
-                    <span>Projected:</span>
-                    <span className="font-bold font-mono" style={{ color: pnlColor(trueProjectedPnl) }}>≈ {fmtUSD(trueProjectedPnl)}</span>
-                  </div>
-                </div>
-              }
-            />
-          );
-        })()}
+        <StatCard
+          label="Active P&L"
+          value={fmtUSD(activePnl)}
+          color={pnlClass(activePnl)}
+          subValue={
+            <div className="flex flex-col gap-0.5 mt-1 min-w-[130px]">
+              <div className="flex items-center justify-between text-[10px] text-dim/60">
+                <span>Session Return:</span>
+                <span className="font-bold font-mono" style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-dim/60">
+                <span>Est. Target:</span>
+                <span className="font-bold font-mono" style={{ color: pnlColor(activeEstPnl) }}>≈ {fmtUSD(activeEstPnl)}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-dim/80 pt-0.5 border-t border-border/20">
+                <span>Projected:</span>
+                <span className="font-bold font-mono" style={{ color: pnlColor(trueProjectedPnl) }}>≈ {fmtUSD(trueProjectedPnl)}</span>
+              </div>
+            </div>
+          }
+        />
         <StatCard label="Active Risk" value={`${Number(totalRiskPct || 0).toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
         <StatCard label="Peak RR" value={`+${Number(peakRr || 0).toFixed(2)}`} color="text-accent" />
         <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />

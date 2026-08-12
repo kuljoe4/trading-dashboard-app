@@ -31,6 +31,22 @@ export const THEMES = {
       '--color-border-hover-theme': '#38444d',
     }
   },
+  coolGray: {
+    name: 'Onyx Gray',
+    desc: 'Sleek, neutral gunmetal gray and onyx dark mode (no blue tint)',
+    colors: {
+      '--color-background-theme': '#1c1e21',
+      '--color-surface-theme': '#242729',
+      '--color-accent-theme': '#3b82f6',
+      '--color-green-theme': '#10b981',
+      '--color-red-theme': '#ef4444',
+      '--color-amber-theme': '#f59e0b',
+      '--color-text-theme': '#f3f4f6',
+      '--color-dim-theme': '#9ca3af',
+      '--color-border-theme': '#374151',
+      '--color-border-hover-theme': '#4b5563',
+    }
+  },
   cyberpunk: {
     name: 'Cyberpunk Neon',
     desc: 'Vibrant neon fuchsia and emerald on a deep cyber-violet canvas',

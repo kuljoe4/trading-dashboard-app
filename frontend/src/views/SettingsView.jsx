@@ -7,9 +7,10 @@ import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
+import { THEMES } from '../lib/theme.js'
 
 export function SettingsView() {
-  const { healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS, config, patchConfig, configSyncing } = useTradingStore()
+  const { theme: currentTheme, setTheme, healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS, config, patchConfig, configSyncing } = useTradingStore()
   const cfg = config || {}
   const [adminApiKey, setAdminApiKeyValue] = useState(localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || '')
   const [showAdminKey, setShowAdminKey] = useState(false)
@@ -157,6 +158,50 @@ export function SettingsView() {
         />
 
         <div className="flex flex-col gap-6 lg:gap-8">
+          <section>
+            <SectionLabel className="mb-4">Dashboard Visual Theme</SectionLabel>
+            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-4">
+              <div>
+                <p className="text-[11px] text-dim font-medium uppercase mb-4">Choose a modern look for your trading cockpit and analytics dashboard</p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {Object.entries(THEMES).map(([id, t]) => {
+                  const isActive = currentTheme === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setTheme(id)}
+                      aria-label={`Select ${t.name} theme`}
+                      aria-pressed={isActive}
+                      className={cn(
+                        "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex flex-col justify-between h-32 cursor-pointer",
+                        isActive ? "border-accent bg-accent/5 ring-2 ring-accent/15" : "border-border bg-background hover:border-border-hover hover:bg-surface"
+                      )}
+                    >
+                      <div className="w-full">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={cn("text-[11px] font-black uppercase tracking-tighter", isActive ? "text-accent" : "text-text")}>{t.name}</span>
+                          {isActive && <CheckCircle2 size={14} className="text-accent" />}
+                        </div>
+                        <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight mb-3">{t.desc}</p>
+                      </div>
+
+                      {/* Visual Color Preview Capsule */}
+                      <div className="flex items-center gap-1 bg-surface/50 p-1.5 rounded-lg border border-border/40 w-fit">
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Background" style={{ backgroundColor: t.colors['--color-background-theme'] }} />
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Surface" style={{ backgroundColor: t.colors['--color-surface-theme'] }} />
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Accent" style={{ backgroundColor: t.colors['--color-accent-theme'] }} />
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Green" style={{ backgroundColor: t.colors['--color-green-theme'] }} />
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Red" style={{ backgroundColor: t.colors['--color-red-theme'] }} />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
           <section>
             <SectionLabel className="mb-4">Dashboard Security</SectionLabel>
             <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">

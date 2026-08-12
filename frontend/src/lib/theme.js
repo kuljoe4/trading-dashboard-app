@@ -15,6 +15,22 @@ export const THEMES = {
       '--color-border-hover-theme': '#334155',
     }
   },
+  slateDim: {
+    name: 'Slate Dim',
+    desc: 'Comfortable blue-gray charcoal theme (not pitch black)',
+    colors: {
+      '--color-background-theme': '#15202b',
+      '--color-surface-theme': '#192734',
+      '--color-accent-theme': '#1da1f2',
+      '--color-green-theme': '#17bf63',
+      '--color-red-theme': '#e0245e',
+      '--color-amber-theme': '#ffad1f',
+      '--color-text-theme': '#ffffff',
+      '--color-dim-theme': '#8899a6',
+      '--color-border-theme': '#253341',
+      '--color-border-hover-theme': '#38444d',
+    }
+  },
   cyberpunk: {
     name: 'Cyberpunk Neon',
     desc: 'Vibrant neon fuchsia and emerald on a deep cyber-violet canvas',
@@ -93,6 +109,22 @@ export const THEMES = {
       '--color-dim-theme': '#475569',
       '--color-border-theme': '#e2e8f0',
       '--color-border-hover-theme': '#cbd5e1',
+    }
+  },
+  warmCream: {
+    name: 'Warm Cream (Day)',
+    desc: 'Soothing daylight theme with ivory, bronze, and stone tones',
+    colors: {
+      '--color-background-theme': '#faf8f5',
+      '--color-surface-theme': '#ffffff',
+      '--color-accent-theme': '#b45309',
+      '--color-green-theme': '#047857',
+      '--color-red-theme': '#b91c1c',
+      '--color-amber-theme': '#d97706',
+      '--color-text-theme': '#292524',
+      '--color-dim-theme': '#78716c',
+      '--color-border-theme': '#e7e5e4',
+      '--color-border-hover-theme': '#d6d3d1',
     }
   }
 };

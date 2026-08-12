@@ -197,4 +197,39 @@ describe('AnalyticsService', () => {
       expect(durationOpt).toBeLessThan(durationOrig * 1.5); // Ensure it is faster or at least as fast (no regressions)
     });
   });
+
+  describe('COURIER OPTIMIZATION: Downsampling cumulativePnL', () => {
+    it('downsamples cumulativePnL to exactly 200 points when trades exceed 200, preserving first and last point values', () => {
+      const numTrades = 350;
+      const trades = Array.from({ length: numTrades }, (_, i) => ({
+        pnl: 10, // constant win
+        status: 'CLOSED',
+        exit_ts: new Date(1700000000000 + i * 1000 * 60),
+      })) as TradeEntity[];
+
+      const result = service.calculateAnalytics(trades, 10000);
+
+      // Verify downsampling target
+      expect(result.cumulativePnL).toHaveLength(200);
+
+      // First point of original was 10, first point of downsampled must be 10
+      expect(result.cumulativePnL[0].pnl).toBe(10);
+
+      // Last point of original was 3500 (350 * 10), last point of downsampled must be 3500
+      expect(result.cumulativePnL[199].pnl).toBe(3500);
+    });
+
+    it('does not downsample cumulativePnL when trades are less than or equal to 200', () => {
+      const numTrades = 150;
+      const trades = Array.from({ length: numTrades }, (_, i) => ({
+        pnl: 10,
+        status: 'CLOSED',
+        exit_ts: new Date(1700000000000 + i * 1000 * 60),
+      })) as TradeEntity[];
+
+      const result = service.calculateAnalytics(trades, 10000);
+
+      expect(result.cumulativePnL).toHaveLength(150);
+    });
+  });
 });

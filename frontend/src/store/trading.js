@@ -845,7 +845,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   name: 'momentum_trading_store',
   storage: createJSONStorage(() => localStorage),
   partialize: (state) => ({
-    // Whitelist only essential data to keep storage size under control and avoid stale session control bits
+    // Whitelist only essential data to keep storage size under control and avoid stale session control bits.
+    // WISP OPTIMIZATION: Removed heavy static API response keys `tradeHistory`, `lifetimeAnalytics`, and `analytics` from persistence.
+    // This completely eliminates high-frequency synchronous serialization and blocking disk writes to `localStorage` on every WebSocket
+    // tick, log line, or ticker broadcast. They are fetched cleanly on demand upon page load and view mounting.
     sessionActive: state.sessionActive,
     strategyId: state.strategyId,
     balance: state.balance,
@@ -854,12 +857,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     totalRiskPct: state.totalRiskPct,
     totalSlUsed: state.totalSlUsed,
     config: state.config,
-    tradeHistory: state.tradeHistory,
-    lifetimeAnalytics: state.lifetimeAnalytics,
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
-    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
-    analytics: state.analytics
+    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs
   }),
   version: 1,
   onRehydrateStorage: () => (state) => {

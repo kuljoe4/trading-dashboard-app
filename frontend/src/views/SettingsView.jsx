@@ -606,17 +606,18 @@ export function SettingsView() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border/50">
                 <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
-                  <div>
+                  <label htmlFor="track_binance_rate_limits" className="cursor-pointer select-none flex-grow mr-4">
                     <div className="text-sm font-bold">Track Rate Limits</div>
                     <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Monitor Binance API weights</div>
-                  </div>
+                  </label>
                   <button
+                    id="track_binance_rate_limits"
                     onClick={() => patchConfig({ track_binance_rate_limits: cfg.track_binance_rate_limits === false ? true : false })}
                     role="switch"
                     aria-checked={cfg.track_binance_rate_limits !== false}
                     aria-label="Toggle Track Rate Limits"
                     className={cn(
-                      "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
                       (cfg.track_binance_rate_limits !== false) ? "bg-green" : "bg-border"
                     )}
                   >
@@ -628,17 +629,18 @@ export function SettingsView() {
                 </div>
 
                 <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-amber/30 transition-colors">
-                  <div>
+                  <label htmlFor="debug_mode" className="cursor-pointer select-none flex-grow mr-4">
                     <div className="text-sm font-bold">Debug Mode</div>
                     <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose server-side logs</div>
-                  </div>
+                  </label>
                   <button
+                    id="debug_mode"
                     onClick={() => patchConfig({ debug_mode: !cfg.debug_mode })}
                     role="switch"
                     aria-checked={cfg.debug_mode === true}
                     aria-label="Toggle Debug Mode"
                     className={cn(
-                      "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
                       (cfg.debug_mode === true) ? "bg-amber" : "bg-border"
                     )}
                   >
@@ -719,22 +721,23 @@ export function SettingsView() {
             <SectionLabel className="mb-4">Dashboard & Streaming</SectionLabel>
             <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-6">
               <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
+                <div className="flex items-center gap-4 flex-grow">
+                  <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
                     <Activity size={20} className="text-accent" />
                   </div>
-                  <div>
+                  <label htmlFor="system_health_bar" className="cursor-pointer select-none flex-grow">
                     <h3 className="text-sm font-bold uppercase tracking-tight">System Health Bar</h3>
                     <p className="text-[11px] text-dim font-medium uppercase mt-1">Show CPU, Memory and event loop lag</p>
-                  </div>
+                  </label>
                 </div>
                 <button
+                  id="system_health_bar"
                   onClick={() => setHealthEnabled(!healthEnabled)}
                   role="switch"
                   aria-checked={healthEnabled}
                   aria-label="Toggle System Health Bar"
                   className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                    "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
                     healthEnabled ? "bg-green" : "bg-border"
                   )}
                 >
@@ -746,22 +749,23 @@ export function SettingsView() {
               </div>
 
               <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-green/10 flex items-center justify-center">
+                <div className="flex items-center gap-4 flex-grow">
+                  <div className="w-10 h-10 rounded-xl bg-green/10 flex items-center justify-center shrink-0">
                     <Zap size={20} className="text-green" />
                   </div>
-                  <div>
+                  <label htmlFor="real_time_streaming" className="cursor-pointer select-none flex-grow">
                     <h3 className="text-sm font-bold uppercase tracking-tight">Real-time Streaming</h3>
                     <p className="text-[11px] text-dim font-medium uppercase mt-1">Enable/Disable all incoming WebSocket updates</p>
-                  </div>
+                  </label>
                 </div>
                 <button
+                  id="real_time_streaming"
                   onClick={() => setStreamingEnabled(!streamingEnabled)}
                   role="switch"
                   aria-checked={streamingEnabled}
                   aria-label="Toggle Real-time Streaming"
                   className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                    "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
                     streamingEnabled ? "bg-green" : "bg-border"
                   )}
                 >

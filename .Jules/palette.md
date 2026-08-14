@@ -45,3 +45,7 @@
 ## 2026-08-10 - Consolidating Copy-to-Clipboard Accessibility and De-duplication
 **Learning:** Manual clipboard copy logic in modals can lead to duplicated state management and inconsistency in focus rings, visual tooltips, and state-clearing transitions. Replacing these manual implementations with a reusable, highly accessible `<CopyButton>` primitive ensures consistent visual feedback, standardizes custom transition states ("Copy" -> "Copied!"), and enforces keyboard-driven focus rings and descriptive ARIA attributes seamlessly across all modals.
 **Action:** Always replace manual copy-to-clipboard interactions and local state tracking with a unified design system `<CopyButton>` wrapper.
+
+## 2026-08-14 - Settings View Switch Accessibility and Click Target Standard
+**Learning:** Dense toggle panels in system configurations often separate text descriptions from active switches, limiting the interactive hit target to the small toggle switch itself and violating WCAG 2.1 touch target guidelines. Wrapping the description text in a semantic `<label>` element bound to the switch `<button>` via matching `htmlFor` and `id` properties, paired with `cursor-pointer flex-grow`, drastically expands the clickable hit target for better responsive usability and perfect screen-reader associations.
+**Action:** Always ensure all toggle/switch controls utilize matching `<label>` elements for expanded click hit targets and seamless keyboard/touch navigation.

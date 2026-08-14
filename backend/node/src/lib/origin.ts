@@ -1,4 +1,10 @@
-export const checkOrigin = (origin: string, allowedOrigins: string[]): boolean => {
+export const checkOrigin = (origin: any, allowedOrigins: string[]): boolean => {
+  // SENTINEL: Return false early if origin is null, undefined, not a string, or exceeds 512 characters.
+  // This mitigates ReDoS risks and prevents runtime crashes from invalid or oversized Origin headers.
+  if (!origin || typeof origin !== "string" || origin.length > 512) {
+    return false;
+  }
+
   const normalizedOrigin = origin.replace(/\/$/, "");
   return allowedOrigins.some((pattern) => {
     let normalizedPattern = pattern.trim().replace(/\/$/, "");

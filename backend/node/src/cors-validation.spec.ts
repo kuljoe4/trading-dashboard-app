@@ -72,4 +72,14 @@ describe('checkOrigin', () => {
     // Subdomain with special characters that should be blocked
     expect(checkOrigin('https://sub/folder.example.com', wildcardPatterns)).toBe(false);
   });
+
+  it('should handle null, undefined, non-string, and extremely long origins safely', () => {
+    expect(checkOrigin(null, allowedOrigins)).toBe(false);
+    expect(checkOrigin(undefined, allowedOrigins)).toBe(false);
+    expect(checkOrigin(12345 as any, allowedOrigins)).toBe(false);
+    expect(checkOrigin({} as any, allowedOrigins)).toBe(false);
+
+    const extremelyLongOrigin = 'https://' + 'a'.repeat(600) + '.example.com';
+    expect(checkOrigin(extremelyLongOrigin, allowedOrigins)).toBe(false);
+  });
 });

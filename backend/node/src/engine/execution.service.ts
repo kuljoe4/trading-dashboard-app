@@ -264,7 +264,10 @@ export class ExecutionService {
         const price = this.tickerCache.getPrice(opp.symbol);
         if (!price) continue;
 
-        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
+        const slTimeframe = (!symbolConfig.sl_lookback_timeframe || symbolConfig.sl_lookback_timeframe === 'default')
+          ? (symbolConfig.scan_interval || '1m')
+          : symbolConfig.sl_lookback_timeframe;
+        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
 
         // Extract engulfing pattern details if available
         const engulfingDetail = signalResult.details?.engulfing;

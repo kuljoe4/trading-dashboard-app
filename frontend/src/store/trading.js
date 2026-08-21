@@ -264,7 +264,7 @@ const defaultConfig = {
   slippage_warning_threshold: CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT || 0.001,
   auto_scale_min_notional: true,
   hibernation_mode: 'adaptive',
-  debug_mode: false,
+  debug_mode: typeof localStorage !== 'undefined' && localStorage.getItem('global_debug_mode') === 'true',
   smart_watchlist_enabled: false,
   smart_watchlist_sensitivity: 0.7,
   trailing_stop_enabled: false,
@@ -575,13 +575,25 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     if (c.trading_mode) {
       localStorage.setItem('global_trading_mode', c.trading_mode);
     }
+    if (c.debug_mode !== undefined && typeof localStorage !== 'undefined') {
+      localStorage.setItem('global_debug_mode', String(c.debug_mode));
+    }
     set((st) => ({ config: deepMerge(st.config, c) }));
   },
 
   patchConfig: async (patch) => {
     const st = get();
     console.log('[Config Trace] patchConfig initiating:', patch);
+    if (patch.debug_mode !== undefined && typeof localStorage !== 'undefined') {
+      localStorage.setItem('global_debug_mode', String(patch.debug_mode));
+    }
     const newConfig = deepMerge(st.config, patch);
+
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('config_draft', JSON.stringify(newConfig));
+      }
+    } catch (e) {}
 
     // Update local state immediately for instant feedback
     set({ config: newConfig, configSyncing: true });

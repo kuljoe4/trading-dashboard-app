@@ -43,7 +43,9 @@ export class PauseSessionDto {
 export class UpdateSessionDto {
   @IsObject()
   @IsNotEmpty()
-  config: Record<string, any>;
+  @ValidateNested()
+  @Type(() => SessionConfig)
+  config: SessionConfig;
 }
 
 export class AdoptPositionDto {

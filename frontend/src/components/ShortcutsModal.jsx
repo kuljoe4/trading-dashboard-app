@@ -7,19 +7,35 @@ const SHORTCUT_GROUPS = [
   {
     title: 'Navigation',
     shortcuts: [
-      { keys: ['1', 'C'], label: 'Go to Cockpit View' },
-      { keys: ['2', 'T'], label: 'Go to Active Positions' },
-      { keys: ['3', 'H'], label: 'Go to Trade History' },
-      { keys: ['4'], label: 'Go to System Settings' },
+      { keys: ['1', 'C'], label: 'Go to Cockpit View', action: () => { window.location.hash = '#/'; } },
+      { keys: ['2', 'T'], label: 'Go to Active Positions', action: () => { window.location.hash = '#/trades'; } },
+      { keys: ['3', 'H'], label: 'Go to Trade History', action: () => { window.location.hash = '#/history'; } },
+      { keys: ['4'], label: 'Go to System Settings', action: () => { window.location.hash = '#/settings'; } },
     ]
   },
   {
     title: 'Global Actions',
     shortcuts: [
-      { keys: ['S'], label: 'Toggle Live Scanner' },
-      { keys: ['/'], label: 'Focus & Select Search Input' },
-      { keys: ['?'], label: 'Toggle Keyboard Cheatsheet' },
-      { keys: ['Esc'], label: 'Close Active Dialog / Blur input' },
+      { keys: ['S'], label: 'Toggle Live Scanner', action: () => { window.dispatchEvent(new Event('toggle-scanner')); } },
+      {
+        keys: ['/'],
+        label: 'Focus & Select Search Input',
+        action: () => {
+          setTimeout(() => {
+            const searchInputs = Array.from(document.querySelectorAll('input[placeholder*="Search"]'));
+            const visibleSearchInput = searchInputs.find(
+              (input) => input.offsetWidth > 0 || input.offsetHeight > 0 || input.offsetParent !== null
+            );
+            const searchInput = visibleSearchInput || searchInputs.pop();
+            if (searchInput) {
+              searchInput.focus();
+              searchInput.select();
+            }
+          }, 50);
+        }
+      },
+      { keys: ['?'], label: 'Toggle Keyboard Cheatsheet', action: null },
+      { keys: ['Esc'], label: 'Close Active Dialog / Blur input', action: null },
     ]
   }
 ]
@@ -69,22 +85,34 @@ export const ShortcutsModal = ({ isOpen, onClose }) => {
                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.15em] border-b border-border/30 pb-1.5">
                   {group.title}
                 </div>
-                <div className="space-y-2.5">
-                  {group.shortcuts.map((s, idx) => (
-                    <div key={idx} className="flex items-center justify-between text-xs">
-                      <span className="text-dim/80 font-medium">{s.label}</span>
-                      <div className="flex items-center gap-1">
-                        {s.keys.map((key, kIdx) => (
-                          <React.Fragment key={kIdx}>
-                            {kIdx > 0 && <span className="text-[9px] text-dim/40 font-bold uppercase px-0.5">or</span>}
-                            <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-background border border-border/80 font-mono text-[10px] font-black text-accent shadow-sm uppercase tracking-tight">
-                              {key}
-                            </kbd>
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                <div className="space-y-1">
+                  {group.shortcuts.map((s, idx) => {
+                    const keysText = s.keys.join(' or ');
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          if (s.action) s.action();
+                          onClose();
+                        }}
+                        aria-label={`${s.label} (${keysText})`}
+                        className="w-full flex items-center justify-between text-xs p-2 rounded-lg transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none text-left group/item cursor-pointer"
+                      >
+                        <span className="text-dim/80 group-hover/item:text-text font-medium transition-colors">{s.label}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {s.keys.map((key, kIdx) => (
+                            <React.Fragment key={kIdx}>
+                              {kIdx > 0 && <span className="text-[9px] text-dim/40 font-bold uppercase px-0.5">or</span>}
+                              <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-background border border-border/80 font-mono text-[10px] font-black text-accent shadow-sm uppercase tracking-tight group-hover/item:border-accent/40 transition-colors">
+                                {key}
+                              </kbd>
+                            </React.Fragment>
+                          ))}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ))}

@@ -658,9 +658,12 @@ export class PositionTrackerService {
     // to handle exchange-side rounding/flooring that might place SL 1 tick below entry.
     const tolerance = Math.max(0.00000001, trade.entry_price * 0.0001);
 
-    const isBreakevenOrBetter = trade.direction === 'LONG'
-      ? trade.current_sl >= trade.entry_price - tolerance
-      : trade.current_sl <= trade.entry_price + tolerance;
+    // SRE: If current_sl is 0 but initial_sl > 0, the SL was removed on runtime while in profit (e.g. via exit_signals_override_ratchet)
+    const isBreakevenOrBetter = trade.current_sl > 0
+      ? (trade.direction === 'LONG'
+          ? trade.current_sl >= trade.entry_price - tolerance
+          : trade.current_sl <= trade.entry_price + tolerance)
+      : (trade.initial_sl > 0 ? true : false);
 
     const isForcedRelease = trade.strategy_config?.force_risk_release === true;
 

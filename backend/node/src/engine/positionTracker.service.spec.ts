@@ -648,4 +648,77 @@ describe('PositionTrackerService', () => {
       expect(service.totalRisk()).toBe(0);
     });
   });
+
+  describe('refreshTradeRisk and SL override in profit', () => {
+    it('releases risk locks (risk_usdt = 0) when current_sl = 0 and initial_sl > 0 for LONG and SHORT trades', () => {
+      const longTrade = {
+        symbol: 'LONG_NO_SL',
+        direction: 'LONG',
+        entry_price: 50000,
+        initial_sl: 49000,
+        current_sl: 0,
+        qty: 0.1,
+        status: 'OPEN',
+        risk_usdt: 100,
+      } as unknown as Trade;
+
+      service.addTrade(longTrade);
+      expect(longTrade.risk_usdt).toBe(0);
+
+      const shortTrade = {
+        symbol: 'SHORT_NO_SL',
+        direction: 'SHORT',
+        entry_price: 50000,
+        initial_sl: 51000,
+        current_sl: 0,
+        qty: 0.1,
+        status: 'OPEN',
+        risk_usdt: 100,
+      } as unknown as Trade;
+
+      service.addTrade(shortTrade);
+      expect(shortTrade.risk_usdt).toBe(0);
+      expect(service.totalRisk()).toBe(0);
+    });
+
+    it('removes SL and releases risk locks when handleExitSignalOverrideIfNeeded is triggered in profit', async () => {
+      const trade = {
+        symbol: 'OVERRIDE_TEST',
+        direction: 'LONG',
+        entry_price: 50000,
+        initial_sl: 49000,
+        current_sl: 49000,
+        qty: 0.1,
+        status: 'OPEN',
+        risk_usdt: 100,
+        binance_stop_order_id: '12345',
+        exit_signals_status: {
+          supertrend: {
+            fired: true,
+            active: true,
+            threshold: 51000,
+            threshold_is_price: true,
+          },
+        },
+      } as any;
+
+      service.addTrade(trade);
+      expect(service.totalRisk()).toBe(100);
+
+      mockTickerCache.getPrice = jest.fn().mockReturnValue(52000); // Active price 52000 > threshold 51000
+
+      const config = {
+        exit_signals_override_ratchet: true,
+        scan_interval: '1m',
+        paper_mode: true,
+      } as SessionConfig;
+
+      const overridden = await service.handleExitSignalOverrideIfNeeded(trade, config);
+
+      expect(overridden).toBe(true);
+      expect(trade.current_sl).toBe(0);
+      expect(trade.risk_usdt).toBe(0);
+      expect(service.totalRisk()).toBe(0);
+    });
+  });
 });

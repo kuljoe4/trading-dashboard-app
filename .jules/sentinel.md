@@ -1,3 +1,8 @@
+## 2026-08-22 - UpdateSessionDto Input Validation & Nested Config Hardening
+**Vulnerability:** The session config update DTO `UpdateSessionDto` in `backend/node/src/trading/dto/session.dto.ts` typed `config` as `Record<string, any>` without `@ValidateNested()` or `@Type(() => SessionConfig)` decorators. This allowed incoming HTTP PATCH requests to bypass NestJS `ValidationPipe` checks, permitting unvalidated or malicious payloads (such as HTML/script injection or out-of-bounds parameters) to enter the system before reaching service-level merge logic.
+**Learning:** In NestJS applications, DTO properties representing nested configuration blocks must always be explicitly decorated with `@ValidateNested()` and `@Type(() => NestedClass)` to instruct `class-validator` and `class-transformer` to run nested schema rules during initial HTTP request validation.
+**Prevention:** Decorate all nested configuration object fields in DTOs with `@ValidateNested()` and `@Type(() => TargetClass)` and include unit tests verifying `plainToInstance` and `validate` behavior against invalid payloads.
+
 ## 2026-08-14 - CORS Origin Validation and ReDoS Mitigation Standard
 **Vulnerability:** In `backend/node/src/lib/origin.ts`, the `checkOrigin` function lacked a type guard and length constraint. Passing a null, undefined, non-string, or extremely long origin string would result in runtime `TypeError` crashes or create high risks of CPU/memory resource exhaustion and Regular Expression Denial of Service (ReDoS) from matching dynamic wildcard patterns.
 **Learning:** Handlers evaluating raw HTTP header payloads against wildcard structures or regular expressions must always enforce strict type assertions and length ceilings early at the entry barrier.

@@ -1144,6 +1144,7 @@ const flattenConfig = (config) => {
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
       trailing_stop_enabled: !!config.trailing_stop_enabled,
       trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+      release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
       scanner_signal_depth: config.scanner_signal_depth || 10,
@@ -2811,6 +2812,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
                 {renderField('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
                 {renderField('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 my-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                <div className="flex flex-col text-left">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Est. P&L Risk Release</span>
+                  <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Release risk lock (risk_usdt = 0) when active estimated P&L reaches or exceeds breakeven, even before physical SL ratchets.</p>
+                </div>
+                <Toggle
+                  value={cfg.release_risk_on_est_pnl_be || false}
+                  onChange={(v) => setField('release_risk_on_est_pnl_be', v)}
+                />
               </div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">

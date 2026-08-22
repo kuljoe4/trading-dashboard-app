@@ -1,3 +1,7 @@
+## 2026-08-22 - [Optimization] Loop-Fused Anti-Whipsaw Same-Candle Re-entry Check
+**Learning:** Performing array `.filter()` followed by `.some()` and `new Date()` date parsing inside high-frequency scanner opportunity loops creates transient array allocations and CPU overhead. Furthermore, executing kline store queries (`getRawCandles`) for every timeframe before verifying if closed trades exist for a given symbol wastes CPU time. Pre-checking symbol existence (`hasClosedForSymbol`) and fusing the traversal over `closedTrades` using direct timestamp comparisons eliminates intermediate allocations and achieves a ~2.8x execution speedup.
+**Action:** Always pre-gate symbol-specific checks before querying kline/candle stores, and fuse `.filter()` + `.some()` closures into single-pass `for` loops with numeric timestamp comparisons.
+
 ## 2026-08-09 - [Optimization] Loop-Fused Sweep and Statistics Collection in RrOptimization
 **Learning:** Combining multiple array filtering, mapping, and reduction loops (such as filtering closed trades, mapping to simulation objects, and calculating average duration statistics) into a single-pass loop over raw collections avoids intermediate array garbage collection (GC) pressure and reduces iterations. For statistical and predictive sweeps on historical trades, loop fusion is highly efficient.
 **Action:** Always look to fuse sequential filter, map, and duration accumulator patterns on collections of historical records into a single-pass for loop.

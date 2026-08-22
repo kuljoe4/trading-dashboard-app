@@ -269,6 +269,7 @@ const defaultConfig = {
   smart_watchlist_sensitivity: 0.7,
   trailing_stop_enabled: false,
   trailing_stop_distance_pct: 1.0,
+  release_risk_on_est_pnl_be: false,
   scanner_weights: {
     momentum: 0.5,
     volatility: 0.3,

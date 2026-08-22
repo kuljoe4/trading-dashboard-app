@@ -720,5 +720,37 @@ describe('PositionTrackerService', () => {
       expect(trade.risk_usdt).toBe(0);
       expect(service.totalRisk()).toBe(0);
     });
+
+    it('releases risk locks on estimated PnL breakeven when release_risk_on_est_pnl_be option is enabled', () => {
+      const trade = {
+        symbol: 'EST_PNL_TEST',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 90, // SL still at 90 (below entry)
+        qty: 10,
+        status: 'OPEN',
+        risk_usdt: 100,
+      } as unknown as Trade;
+
+      service.addTrade(trade);
+      expect(trade.risk_usdt).toBe(100);
+
+      const config = {
+        release_risk_on_est_pnl_be: true,
+      } as SessionConfig;
+
+      // Price is 105 (above entry 100)
+      service.refreshTradeRisk(trade, false, 105, config);
+
+      expect(trade.risk_usdt).toBe(0);
+      expect(service.totalRisk()).toBe(0);
+
+      // Price drops back to 95 (below entry 100)
+      service.refreshTradeRisk(trade, false, 95, config);
+
+      expect(trade.risk_usdt).toBe(100);
+      expect(service.totalRisk()).toBe(100);
+    });
   });
 });

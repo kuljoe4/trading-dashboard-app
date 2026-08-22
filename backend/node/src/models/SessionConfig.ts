@@ -496,6 +496,10 @@ export class SessionConfig {
   @IsOptional()
   force_risk_release?: boolean = false;
 
+  @IsBoolean()
+  @IsOptional()
+  release_risk_on_est_pnl_be?: boolean = false;
+
   @IsObject()
   @IsOptional()
   scanner_weights?: {

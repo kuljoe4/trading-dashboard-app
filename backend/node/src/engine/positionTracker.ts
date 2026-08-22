@@ -226,7 +226,7 @@ export class PositionTrackerService {
         }
         trade.current_sl = 0;
         trade.updated_at = new Date();
-        this.refreshTradeRisk(trade);
+        this.refreshTradeRisk(trade, false, undefined, config);
       }
       return true;
     }
@@ -366,7 +366,7 @@ export class PositionTrackerService {
 
            // SRE: Live Risk Mitigation.
            // Automatically handles risk release and updates _totalRisk via refreshTradeRisk
-           this.refreshTradeRisk(trade);
+           this.refreshTradeRisk(trade, false, currentPrice, config);
 
            this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
 
@@ -384,7 +384,7 @@ export class PositionTrackerService {
         trade.updated_at = new Date();
 
         // Recalculate locked P&L and risk release for the newly committed milestone
-        this.refreshTradeRisk(trade);
+        this.refreshTradeRisk(trade, false, currentPrice, config);
 
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
@@ -549,7 +549,7 @@ export class PositionTrackerService {
                   const finalSl = updateRes.price || roundedSl;
                   trade.current_sl = finalSl;
                   trade.updated_at = new Date();
-                  this.refreshTradeRisk(trade);
+                  this.refreshTradeRisk(trade, false, currentPrice, config);
                   this.logSlAdjustment(trade, prevSl, finalSl, -3, !!updateRes.price && updateRes.price !== roundedSl);
                   this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                 }
@@ -651,18 +651,35 @@ export class PositionTrackerService {
    * Enforces the "Breakeven Risk Release" rule: risk is 0 if SL is at or beyond entry.
    * Otherwise, risk is based on the initial stop distance.
    */
-  public refreshTradeRisk(trade: Trade, skipTotalRiskUpdate = false): void {
+  public refreshTradeRisk(trade: Trade, skipTotalRiskUpdate = false, currentPrice?: number, config?: SessionConfig): void {
     const prevRisk = trade.risk_usdt || 0;
 
     // SRE: Increased tolerance for breakeven detection (0.01% or 0.00000001)
     // to handle exchange-side rounding/flooring that might place SL 1 tick below entry.
     const tolerance = Math.max(0.00000001, trade.entry_price * 0.0001);
 
-    const isBreakevenOrBetter = trade.direction === 'LONG'
-      ? trade.current_sl >= trade.entry_price - tolerance
-      : trade.current_sl <= trade.entry_price + tolerance;
+    // SRE: If current_sl is 0 but initial_sl > 0, the SL was removed on runtime while in profit (e.g. via exit_signals_override_ratchet)
+    let isBreakevenOrBetter = trade.current_sl > 0
+      ? (trade.direction === 'LONG'
+          ? trade.current_sl >= trade.entry_price - tolerance
+          : trade.current_sl <= trade.entry_price + tolerance)
+      : (trade.initial_sl > 0 ? true : false);
 
-    const isForcedRelease = trade.strategy_config?.force_risk_release === true;
+    // Feature: Option to release risk lock when live estimated PnL (market price) is at or above breakeven
+    const activeConfig = config || trade.strategy_config;
+    if (!isBreakevenOrBetter && activeConfig?.release_risk_on_est_pnl_be) {
+      const livePrice = currentPrice || (this.tickerCache ? this.tickerCache.getPrice(trade.symbol) : undefined) || trade.mark_price || trade.last_price;
+      if (livePrice && livePrice > 0 && trade.entry_price > 0) {
+        const estProfitBe = trade.direction === 'LONG'
+          ? livePrice >= trade.entry_price - tolerance
+          : livePrice <= trade.entry_price + tolerance;
+        if (estProfitBe) {
+          isBreakevenOrBetter = true;
+        }
+      }
+    }
+
+    const isForcedRelease = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;
 
     if (isBreakevenOrBetter || isForcedRelease) {
       trade.risk_usdt = 0;
@@ -671,9 +688,14 @@ export class PositionTrackerService {
       trade.risk_usdt = roundEight(slDistance * trade.qty);
     }
 
-    if (!skipTotalRiskUpdate && this.trades.has(trade.symbol) && prevRisk > 0 && trade.risk_usdt === 0) {
-      this._totalRisk = roundEight(Math.max(0, this._totalRisk - prevRisk));
-      this.logger.log(`[Risk Mitigation] ${trade.symbol} reached breakeven. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
+    if (!skipTotalRiskUpdate && this.trades.has(trade.symbol)) {
+      if (prevRisk > 0 && trade.risk_usdt === 0) {
+        this._totalRisk = roundEight(Math.max(0, this._totalRisk - prevRisk));
+        this.logger.log(`[Risk Mitigation] ${trade.symbol} reached breakeven. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
+      } else if (prevRisk === 0 && trade.risk_usdt > 0) {
+        this._totalRisk = roundEight(this._totalRisk + trade.risk_usdt);
+        this.logger.log(`[Risk Mitigation] ${trade.symbol} re-locked risk: ${trade.risk_usdt} USDT. New Total Risk: ${this._totalRisk}`);
+      }
     }
   }
 
@@ -830,7 +852,7 @@ export class PositionTrackerService {
         const finalSl = updateRes.price || newSl;
         trade.current_sl = finalSl;
         trade.updated_at = new Date();
-        this.refreshTradeRisk(trade);
+        this.refreshTradeRisk(trade, false, currentPrice, config);
         this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }

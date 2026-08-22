@@ -157,6 +157,7 @@ const sessionConfigAllowedKeys = [
   'smart_watchlist_sensitivity',
   'trailing_stop_enabled',
   'trailing_stop_distance_pct',
+  'release_risk_on_est_pnl_be',
   'signal_timeframes',
   'paused',
   'paused_strategies',

@@ -193,7 +193,8 @@ export class KlineStoreService {
     interval: string,
     period: number,
   ): { minLow: number; maxHigh: number } {
-    const key = `${symbol}_${interval}`;
+    const effectiveInterval = (!interval || interval === 'default') ? '1m' : interval;
+    const key = `${symbol}_${effectiveInterval}`;
     const candles = this.klines.get(key) || [];
 
     if (candles.length <= 1) {
@@ -209,11 +210,11 @@ export class KlineStoreService {
     // BOLT OPTIMIZATION: Try stable cache FIRST before any O(N) loops.
     // Since completed candles are immutable, the gap detection and extremes result remains static.
     // We only need to check freshness dynamically (which is O(1) time comparison).
-    const stableKey = `${symbol}:${interval}:${period}`;
+    const stableKey = `${symbol}:${effectiveInterval}:${period}`;
     const stable = this.hlStableCache.get(stableKey);
 
     if (stable && stable.time === targetCandle.time && stable.count === period) {
-      if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, interval)) {
+      if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, effectiveInterval)) {
         return { minLow: 0, maxHigh: 0 };
       }
       return { minLow: stable.minLow, maxHigh: stable.maxHigh };

@@ -3,6 +3,9 @@ import { SessionController } from "./session.controller";
 import { SessionService } from "./session.service";
 import { ConfigService } from "@nestjs/config";
 import { BadRequestException } from "@nestjs/common";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
+import { UpdateSessionDto } from "./dto/session.dto";
 
 describe("SessionController", () => {
   let controller: SessionController;
@@ -118,6 +121,41 @@ describe("SessionController", () => {
       await expect(controller.getTrade(longInput)).rejects.toThrow(
         BadRequestException,
       );
+    });
+  });
+
+  describe("UpdateSessionDto Validation", () => {
+    it("should pass validation for valid nested config", async () => {
+      const dto = plainToInstance(UpdateSessionDto, {
+        config: {
+          strategy_label: "Safe Strategy",
+          scan_interval: "5m",
+        },
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it("should reject nested config containing XSS in strategy_label", async () => {
+      const dto = plainToInstance(UpdateSessionDto, {
+        config: {
+          strategy_label: "<script>alert('xss')</script>",
+        },
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(JSON.stringify(errors)).toContain("Strategy label");
+    });
+
+    it("should reject nested config containing invalid scan_interval", async () => {
+      const dto = plainToInstance(UpdateSessionDto, {
+        config: {
+          scan_interval: "invalid_interval",
+        },
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(JSON.stringify(errors)).toContain("scan_interval must be a valid Binance kline interval");
     });
   });
 });

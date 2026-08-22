@@ -127,12 +127,30 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
   return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
 };
 
+// BOLT OPTIMIZATION: Bounded stable WeakMap cache for Supertrend calculations to avoid redundant O(N) passes on the same dataset.
+// Using WeakMap keyed on the candles array reference ensures 100% collision-proof, memory-safe, and asset-isolated caching.
+const supertrendWeakCache = new WeakMap();
+
 /**
  * Premium Wilder's RMA/ATR-based Supertrend calculation on the frontend.
  * Matches the backend calculation in signalEngine.ts exactly.
  */
 export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) => {
   const len = candles.length;
+  if (len === 0) {
+    return { supertrend: [], direction: [], insufficientData: true };
+  }
+
+  let assetCache = supertrendWeakCache.get(candles);
+  if (!assetCache) {
+    assetCache = new Map();
+    supertrendWeakCache.set(candles, assetCache);
+  }
+
+  const key = `${period}:${multiplier}`;
+  const cached = assetCache.get(key);
+  if (cached) return cached;
+
   const supertrend = new Array(len).fill(0);
   const direction = new Array(len).fill('up'); // 'up' | 'down'
 
@@ -233,5 +251,8 @@ export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) =
     prevFinalLower = finalLower;
   }
 
-  return { supertrend, direction, insufficientData: false };
+  const result = { supertrend, direction, insufficientData: false };
+  assetCache.set(key, result);
+
+  return result;
 };

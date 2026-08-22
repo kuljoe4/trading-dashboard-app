@@ -196,8 +196,19 @@ export class ExecutionService {
           }
         }
 
-        const closedForSymbol = this.sessionState.closedTrades.filter(t => t.symbol === opp.symbol);
-        if (closedForSymbol.length > 0) {
+        // BOLT OPTIMIZATION: Loop-fused anti-whipsaw same-candle re-entry check.
+        // Replaces intermediate .filter() array allocation, .some() closure, and redundant new Date() parsing
+        // with a single-pass traversal over closedTrades using numeric timestamps.
+        const closedTrades = this.sessionState.closedTrades;
+        let hasClosedForSymbol = false;
+        for (let i = 0; i < closedTrades.length; i++) {
+          if (closedTrades[i].symbol === opp.symbol) {
+            hasClosedForSymbol = true;
+            break;
+          }
+        }
+
+        if (hasClosedForSymbol) {
           let sameCandleGated = false;
           let gatedTimeframe = '';
 
@@ -206,17 +217,19 @@ export class ExecutionService {
             if (tfCandles.length > 0) {
               const currentCandleStart = tfCandles[tfCandles.length - 1].time;
 
-              // If any closed trade for this symbol has entry_ts >= currentCandleStart
-              const hasSameCandleTrade = closedForSymbol.some(t => {
-                if (!t.entry_ts) return false;
-                return new Date(t.entry_ts).getTime() >= currentCandleStart;
-              });
-
-              if (hasSameCandleTrade) {
-                sameCandleGated = true;
-                gatedTimeframe = tf;
-                break;
+              for (let i = 0; i < closedTrades.length; i++) {
+                const t = closedTrades[i];
+                if (t.symbol === opp.symbol && t.entry_ts) {
+                  const entryTsMs = typeof t.entry_ts === 'number' ? t.entry_ts : (t.entry_ts instanceof Date ? t.entry_ts.getTime() : new Date(t.entry_ts).getTime());
+                  if (entryTsMs >= currentCandleStart) {
+                    sameCandleGated = true;
+                    gatedTimeframe = tf;
+                    break;
+                  }
+                }
               }
+
+              if (sameCandleGated) break;
             }
           }
 
@@ -264,7 +277,10 @@ export class ExecutionService {
         const price = this.tickerCache.getPrice(opp.symbol);
         if (!price) continue;
 
-        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, symbolConfig.sl_lookback_timeframe || '1m', symbolConfig.sl_lookback_period || 20);
+        const slTimeframe = (!symbolConfig.sl_lookback_timeframe || symbolConfig.sl_lookback_timeframe === 'default')
+          ? (symbolConfig.scan_interval || '1m')
+          : symbolConfig.sl_lookback_timeframe;
+        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
 
         // Extract engulfing pattern details if available
         const engulfingDetail = signalResult.details?.engulfing;

@@ -94,4 +94,16 @@ test('calculateProximity unit tests', async (t) => {
     const resNear = calculateProximity(signal, 104, 110, false, true);
     assert.strictEqual(resNear, 80);
   });
+
+  await t.test('handles dual EMA cross/close when entry is zero or equal to threshold', () => {
+    const signal = {
+      value: 99.8,
+      threshold: 100.0,
+      fired: false,
+      threshold_is_price: true
+    };
+    // Spread = 0.2, MaxSpread = 1.0 (1% of 100). Progress = (1 - 0.2/1.0)*100 = 80%
+    const res = calculateProximity(signal, 99.8, 0, true, true);
+    assert.strictEqual(Math.round(res), 80);
+  });
 });

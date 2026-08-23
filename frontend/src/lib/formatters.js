@@ -77,12 +77,20 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
 
   const maxVal = isFired ? 100 : 99;
 
-  // Handle price-based signals
+  // Handle price-based signals (including dual EMA cross/close where value is fast EMA/price and threshold is slow EMA/price)
   if (thresholdIsPrice) {
-    if (entry === 0 || threshold === 0 || threshold === entry) {
-      return 0;
-    }
     if (isExit) {
+      // For dual EMA cross/close or indicator price thresholds, if entry isn't usable or signal relies on value vs threshold:
+      // If signal provides both value & threshold (e.g. Fast EMA value vs Slow EMA threshold), evaluate convergence between value and threshold
+      if (entry === 0 || threshold === 0 || threshold === entry) {
+        if (value !== 0 && threshold !== 0) {
+          const spread = Math.abs(value - threshold);
+          const maxSpread = threshold * 0.01; // 1% spread reference
+          const progress = Math.max(0, (1 - spread / maxSpread) * 100);
+          return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+        }
+        return 0;
+      }
       const reference = Math.max(1e-8, Math.abs(entry - threshold));
       let progress = 0;
       if (isLong) {
@@ -104,6 +112,9 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
       return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
     } else {
       // Entry signals
+      if (entry === 0 || threshold === 0 || threshold === entry) {
+        return 0;
+      }
       const totalDist = threshold - entry;
       const currentDist = currentMark - entry;
       const progress = (currentDist / totalDist) * 100;

@@ -259,6 +259,165 @@ test('calculateWinRate helper correctness and performance benchmark', () => {
   console.log(`  - Execution Speedup:                    ${(heavyDuration / Math.max(0.0001, lightDuration)).toFixed(1)}x faster`);
 });
 
+test('RrWinRateCalculator single-pass return tracking correctness and performance benchmark', () => {
+  const trades = Array.from({ length: 500 }, (_, i) => ({
+    max_rr_achieved: (i % 3 === 0) ? 2.5 : 0.8,
+    min_rr_achieved: -0.5,
+    initial_risk_usdt: 100,
+    exit_ts_ms: 1784545200000 + i * 60000,
+    entry_ts_ms: 1784541600000 + i * 60000,
+    exit_rr: (i % 2 === 0) ? 1.5 : -1.0
+  }));
+
+  const targetRr = 2.0;
+  const startingBalance = 10000;
+  const projectedTrades = 50;
+  const usePctRisk = true;
+  const riskPct = 1.0;
+  const useCompounding = true;
+
+  const originalImpl = (trades) => {
+    const startBalNum = Number(startingBalance) || 10000;
+    const riskPctNum = Number(riskPct) || 1.0;
+    const count = trades.length;
+
+    let winCount = 0;
+    let totalSimulatedPnl = 0;
+    let currentBalance = startBalNum;
+    const simReturns = [];
+
+    for (let i = 0; i < count; i++) {
+      const t = trades[i];
+      const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
+      const isWin = maxRr >= targetRr;
+
+      const risk = usePctRisk
+        ? (useCompounding ? (currentBalance * (riskPctNum / 100)) : (startBalNum * (riskPctNum / 100)))
+        : Number(t.initial_risk_usdt || t.risk_usdt || 100);
+
+      let tradePnl = 0;
+      if (isWin) {
+        winCount++;
+        tradePnl = targetRr * risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
+      } else {
+        tradePnl = -risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
+      }
+
+      const pctReturn = startBalNum > 0 ? (tradePnl / startBalNum) * 100 : 0;
+      simReturns.push(pctReturn);
+    }
+
+    let sharpeRatio = 0;
+    let sortinoRatio = 0;
+
+    if (count > 0) {
+      const meanReturn = simReturns.reduce((sum, r) => sum + r, 0) / count;
+      const variance = simReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / count;
+      const downsideVariance = simReturns.reduce((sum, r) => sum + Math.pow(Math.min(0, r), 2), 0) / count;
+
+      const stdDev = Math.sqrt(variance);
+      const downsideStdDev = Math.sqrt(downsideVariance);
+
+      sharpeRatio = stdDev > 0 ? (meanReturn / stdDev) : 0;
+      sortinoRatio = downsideStdDev > 0 ? (meanReturn / downsideStdDev) : 0;
+    }
+
+    return { sharpeRatio: sharpeRatio.toFixed(2), sortinoRatio: sortinoRatio.toFixed(2) };
+  };
+
+  const optimizedImpl = (trades) => {
+    const startBalNum = Number(startingBalance) || 10000;
+    const riskPctNum = Number(riskPct) || 1.0;
+    const count = trades.length;
+
+    let winCount = 0;
+    let totalSimulatedPnl = 0;
+    let currentBalance = startBalNum;
+    let sumReturns = 0;
+    let sumSquaredReturns = 0;
+    let downsideSumSquaredReturns = 0;
+
+    for (let i = 0; i < count; i++) {
+      const t = trades[i];
+      const maxRr = Number(t.max_rr_achieved ?? t.max_rr ?? 0);
+      const isWin = maxRr >= targetRr;
+
+      const risk = usePctRisk
+        ? (useCompounding ? (currentBalance * (riskPctNum / 100)) : (startBalNum * (riskPctNum / 100)))
+        : Number(t.initial_risk_usdt || t.risk_usdt || 100);
+
+      let tradePnl = 0;
+      if (isWin) {
+        winCount++;
+        tradePnl = targetRr * risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
+      } else {
+        tradePnl = -risk;
+        totalSimulatedPnl += tradePnl;
+        currentBalance += tradePnl;
+      }
+
+      const pctReturn = startBalNum > 0 ? (tradePnl / startBalNum) * 100 : 0;
+      sumReturns += pctReturn;
+      sumSquaredReturns += pctReturn * pctReturn;
+      if (pctReturn < 0) {
+        downsideSumSquaredReturns += pctReturn * pctReturn;
+      }
+    }
+
+    let sharpeRatio = 0;
+    let sortinoRatio = 0;
+
+    if (count > 0) {
+      const meanReturn = sumReturns / count;
+      const variance = Math.max(0, (sumSquaredReturns / count) - (meanReturn * meanReturn));
+      const downsideVariance = downsideSumSquaredReturns / count;
+
+      const stdDev = Math.sqrt(variance);
+      const downsideStdDev = Math.sqrt(downsideVariance);
+
+      sharpeRatio = stdDev > 0 ? (meanReturn / stdDev) : 0;
+      sortinoRatio = downsideStdDev > 0 ? (meanReturn / downsideStdDev) : 0;
+    }
+
+    return { sharpeRatio: sharpeRatio.toFixed(2), sortinoRatio: sortinoRatio.toFixed(2) };
+  };
+
+  // 1. Correctness Verification
+  const resOriginal = originalImpl(trades);
+  const resOptimized = optimizedImpl(trades);
+  assert.deepStrictEqual(resOptimized, resOriginal, 'Optimized Sharpe/Sortino ratios must match original exactly.');
+
+  // 2. Performance Benchmark
+  const iterations = 10000;
+  originalImpl(trades);
+  optimizedImpl(trades);
+
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalImpl(trades);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedImpl(trades);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (RrWinRateCalculator Simulation, List size: ${trades.length} trades, ${iterations} iterations):`);
+  console.log(`  - Original simReturns array + reduce: ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Loop-fused scalar accumulators: ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                     ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});
+
 test('Search Filter Symbol check performance benchmark', () => {
   const listSize = 500;
   const mockTrades = Array.from({ length: listSize }, () => ({

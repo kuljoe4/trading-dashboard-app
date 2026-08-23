@@ -1108,7 +1108,7 @@ export function DashboardView({ initialStrategy }) {
     };
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
-  const maxRR = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, trade.max_rr || 0), 0), [activeTrades])
+  const maxRR = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0), [activeTrades])
 
   const monitoredSymbolsSet = useMemo(() => {
     const set = new Set();

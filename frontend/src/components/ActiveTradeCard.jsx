@@ -78,7 +78,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   let peakPos = 0
 
   // Calculate Peak Price position
-  const maxRr = trade.max_rr ?? trade.rr ?? 0;
+  const maxRr = Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0);
   const initialSl = Number(trade.initial_sl || sl || 0);
   const risk = Math.abs(entry - initialSl);
   const peakPrice = isLong ? (entry + maxRr * risk) : (entry - maxRr * risk);
@@ -140,7 +140,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
-      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}
+      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0).toFixed(2)}R`}
     >
       {showResumingFeedback && (
         <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">

@@ -132,6 +132,51 @@ export class PositionTrackerService {
     }
   }
 
+  /**
+   * SRE/DATA: Hydrate and sanitize max_rr_achieved from DB state, milestone index, SL lock, or live price.
+   */
+  public hydrateMaxRr(trade: Trade, config?: SessionConfig): void {
+    const rawVal = Number(trade.max_rr_achieved);
+    let maxRr = !isNaN(rawVal) && isFinite(rawVal) ? rawVal : 0;
+
+    const activeConfig = config || trade.strategy_config;
+    const liveRrSeq = (trade.live_rr_sequence && trade.live_rr_sequence.length > 0)
+      ? trade.live_rr_sequence
+      : (activeConfig?.live_rr_sequence || []);
+
+    // 1. Floor from milestone index if valid
+    const seqIndex = trade.rr_sequence_index ?? -1;
+    if (seqIndex >= 0 && liveRrSeq[seqIndex] !== undefined) {
+      maxRr = Math.max(maxRr, Number(liveRrSeq[seqIndex]) || 0);
+    }
+
+    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+    if (risk > 0) {
+      // 2. Floor from current SL locked profit
+      if (trade.current_sl && trade.current_sl > 0) {
+        const slReward = trade.direction === 'LONG'
+          ? trade.current_sl - trade.entry_price
+          : trade.entry_price - trade.current_sl;
+        if (slReward > 0) {
+          maxRr = Math.max(maxRr, slReward / risk);
+        }
+      }
+
+      // 3. Floor from current price / mark price / last price
+      const currentPrice = (this.tickerCache?.getPrice ? this.tickerCache.getPrice(trade.symbol) : undefined) || trade.mark_price || trade.last_price;
+      if (currentPrice && currentPrice > 0) {
+        const liveReward = trade.direction === 'LONG'
+          ? currentPrice - trade.entry_price
+          : trade.entry_price - currentPrice;
+        if (liveReward > 0) {
+          maxRr = Math.max(maxRr, liveReward / risk);
+        }
+      }
+    }
+
+    trade.max_rr_achieved = roundEight(maxRr);
+  }
+
   addTrade(trade: Trade): void {
     // CHRONOS: Skip adding trades that were already closed while in-flight
     if (trade.status !== 'OPEN') {
@@ -146,6 +191,9 @@ export class PositionTrackerService {
     if (existing) {
       this._totalRisk = roundEight(this._totalRisk - (existing.risk_usdt || 0));
     }
+
+    // Hydrate max_rr_achieved to ensure numbers are coerced and floored against milestones/profit
+    this.hydrateMaxRr(trade);
 
     // SRE: Ensure risk is correctly calculated before adding to total
     this.refreshTradeRisk(trade, true);
@@ -256,7 +304,7 @@ export class PositionTrackerService {
 
     // BOLT: Update peak RR on every tick to ensure high-fidelity analytics.
     // We only emit TRADE_UPDATED if it changes significantly (0.1 R) to avoid DB pressure.
-    const oldMaxRr = trade.max_rr_achieved || 0;
+    const oldMaxRr = Number(trade.max_rr_achieved || 0);
     if (liveRr > oldMaxRr) {
       trade.max_rr_achieved = liveRr;
       if (liveRr - oldMaxRr >= 0.1) {
@@ -764,15 +812,14 @@ export class PositionTrackerService {
       }
     }
 
+    // DATA-07: Reconcile max_rr_achieved to match discovered milestone
+    if (bestIndex !== -1 && liveRrSequence[bestIndex] !== undefined) {
+      trade.max_rr_achieved = Math.max(Number(trade.max_rr_achieved || 0), liveRrSequence[bestIndex]);
+    }
+
     if (bestIndex !== trade.rr_sequence_index) {
       this.logger.log(`[Reconciliation] ${trade.symbol} reconciling milestone index from SL price: ${trade.rr_sequence_index} -> ${bestIndex}`);
       trade.rr_sequence_index = bestIndex;
-
-      // DATA-07: Also reconcile max_rr_achieved to match the discovered milestone
-      // to ensure the ladder continues from the correct peak.
-      if (bestIndex !== -1 && liveRrSequence[bestIndex] !== undefined) {
-        trade.max_rr_achieved = Math.max(trade.max_rr_achieved || 0, liveRrSequence[bestIndex]);
-      }
 
       // BOLT: Only update the internal map if this trade is already tracked
       if (this.trades.has(trade.symbol)) {

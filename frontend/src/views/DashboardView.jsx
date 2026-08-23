@@ -157,7 +157,7 @@ const BanBanner = ({ apiStatus }) => {
   if (!apiStatus?.isBanned && !apiStatus?.isRateLimited) return null;
 
   const isBan = apiStatus.isBanned;
-  const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString() : 'unknown';
+  const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown';
 
   return (
     <motion.div
@@ -444,7 +444,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 
   const messages = {
     max_trades: 'Maximum open trades reached. Entry gated.',
-    max_trades_period: nextSlotSec !== null ? `Maximum trades for the current period reached. Next slot: ${nextSlotSec} sec.` : 'Maximum trades for the current period reached. Scanner paused.',
+    max_trades_period: nextSlotSec !== null ? `Maximum trades for the current period reached. Next slot in ~${Math.max(1, Math.ceil(nextSlotSec / 60))}m.` : 'Maximum trades for the current period reached. Scanner paused.',
     sl_guard: 'Session Stop-Loss Guard reached. All entries blocked.',
     risk_pct: 'Total risk limit reached. Entries restricted.',
     tod_risk: 'Historical performance risk for this hour. Entries blocked.',
@@ -1663,7 +1663,7 @@ export function DashboardView({ initialStrategy }) {
                  View Full Analytics <ChevronRight size={12} />
                </button>
                <span className="hidden sm:inline text-[9px] text-dim font-black uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50">
-                  {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString()}` : 'Updated Live'}
+                  {analytics?.cumulativePnL?.length ? `As of ${new Date(analytics.cumulativePnL[analytics.cumulativePnL.length - 1].ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Updated Live'}
                </span>
                <div className={cn(
                  "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
@@ -1758,14 +1758,11 @@ export function DashboardView({ initialStrategy }) {
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
                           {analytics.riskWidthBuckets.map((b) => {
-                            const durationSeconds = Math.round(b.avgDurationMs / 1000);
-                            const durationMinutes = Math.floor(durationSeconds / 60);
+                            const durationMinutes = Math.floor(b.avgDurationMs / 60000);
                             const durationHrs = Math.floor(durationMinutes / 60);
                             const durationFormatted = durationHrs > 0
                               ? `${durationHrs}h ${durationMinutes % 60}m`
-                              : durationMinutes > 0
-                                ? `${durationMinutes}m ${durationSeconds % 60}s`
-                                : `${durationSeconds}s`;
+                              : `${durationMinutes}m`;
 
                             const winRatePct = Math.round(b.winRate);
                             const pfColor = b.profitFactor >= 2.0 ? 'text-green' :

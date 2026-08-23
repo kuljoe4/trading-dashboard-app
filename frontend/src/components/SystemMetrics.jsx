@@ -100,7 +100,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
           {rateLimitLastSync && (
             <div className="flex justify-between gap-6 mt-1 pt-1 border-t border-border/30">
               <span className="text-dim">Last Sync:</span>
-              <span className="text-accent">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              <span className="text-accent">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           )}
         </div>

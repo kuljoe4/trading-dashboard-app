@@ -1714,7 +1714,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                         "px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all h-8",
                                         ringColorClass
                                       )}
-                                      aria-label={`Exit delay for ${label} in seconds`}
+                                      aria-label={`Exit delay for ${label}`}
                                     />
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
                                   </>

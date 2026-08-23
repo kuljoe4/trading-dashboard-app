@@ -112,7 +112,7 @@ const VariantGatingSummary = React.memo(() => {
                         )}
                         {info.nextSlotTs && (
                           <div className="text-[8px] font-mono text-dim/50 font-bold uppercase flex items-center gap-1">
-                            <Clock size={8} /> Next Slot: <span className="text-accent font-black font-mono">{new Date(info.nextSlotTs).toLocaleTimeString()}</span>
+                            <Clock size={8} /> Next Slot: <span className="text-accent font-black font-mono">{new Date(info.nextSlotTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                         )}
                       </div>

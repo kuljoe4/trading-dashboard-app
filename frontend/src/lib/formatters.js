@@ -19,20 +19,18 @@ export const price = (value) => {
 
 /**
  * Human-readable duration formatter for trade activity.
- * Converts milliseconds to a compact d/h/m/s string.
+ * Converts milliseconds to a compact d/h/m string.
  */
 export const formatDuration = (ms) => {
-  if (ms == null || ms < 0) return '0s';
-  const s = Math.floor(ms / 1000);
-  const m = Math.floor(s / 60);
+  if (ms == null || ms < 0) return '0m';
+  const m = Math.floor(ms / 60000);
   const h = Math.floor(m / 60);
   const d = Math.floor(h / 24);
 
   const parts = [];
   if (d > 0) parts.push(`${d}d`);
   if (h % 24 > 0 || d > 0) parts.push(`${h % 24}h`);
-  if (m % 60 > 0 || h > 0) parts.push(`${m % 60}m`);
-  if (s % 60 > 0 || m > 0 || parts.length === 0) parts.push(`${s % 60}s`);
+  if (m % 60 > 0 || h > 0 || parts.length === 0) parts.push(`${m % 60}m`);
 
   return parts.join(' ');
 };
@@ -41,7 +39,7 @@ export const formatDuration = (ms) => {
  * Legacy duration helper for entry timestamps.
  */
 export const durationFromTimestamp = (entryTs) => {
-  if (!entryTs) return '0s';
+  if (!entryTs) return '0m';
   const now = Date.now();
   const entry = new Date(entryTs).getTime();
   return formatDuration(now - entry);

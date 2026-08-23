@@ -128,12 +128,12 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                   <div className="bg-background/40 border border-border/40 rounded-xl p-4 grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-1">
                       <span className="text-[8px] text-dim font-black uppercase tracking-widest">Started At</span>
-                      <span className="text-[10.5px] font-bold text-text">{new Date(session.startTime).toLocaleString()}</span>
+                      <span className="text-[10.5px] font-bold text-text">{new Date(session.startTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</span>
                     </div>
                     <div className="flex flex-col gap-1">
                       <span className="text-[8px] text-dim font-black uppercase tracking-widest">Ended At</span>
                       <span className="text-[10.5px] font-bold text-text">
-                        {session.endTime ? new Date(session.endTime).toLocaleString() : 'Active / Unfinished'}
+                        {session.endTime ? new Date(session.endTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Active / Unfinished'}
                       </span>
                     </div>
                     <div className="col-span-2 flex flex-col gap-1 pt-2 border-t border-border/5">
@@ -279,8 +279,8 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
               <span className="text-[9px] opacity-20">|</span>
               <Tooltip content={
                 <div className="flex flex-col gap-1 text-[10px]">
-                  <div>Entry: {new Date(trade.entry_ts || trade.createdAt).toLocaleString()}</div>
-                  <div>Exit: {trade.exit_ts ? new Date(trade.exit_ts).toLocaleString() : 'Open'}</div>
+                  <div>Entry: {new Date(trade.entry_ts || trade.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}</div>
+                  <div>Exit: {trade.exit_ts ? new Date(trade.exit_ts).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Open'}</div>
                 </div>
               }>
                 <span className="text-[9px] font-bold font-mono flex items-center gap-1 cursor-help">

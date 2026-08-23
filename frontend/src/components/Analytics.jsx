@@ -153,7 +153,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
             <div className="h-4"> {/* Fix CLS by pre-allocating space for date */}
               {hoverData?.ts && (
                 <span className="text-[9px] text-dim font-mono uppercase mt-1">
-                  {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                  {new Date(hoverData.ts).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </span>
               )}
             </div>

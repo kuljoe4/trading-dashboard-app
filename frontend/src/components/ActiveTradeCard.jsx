@@ -340,39 +340,59 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </Tooltip>
             )}
 
-            {/* Winning Est. Target Marker */}
-            {trade.est_pnl_to_realize !== undefined && (
-              <Tooltip content={
-                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                  <div className="font-bold border-b border-white/5 pb-1 mb-1 flex items-center justify-between gap-4">
-                    <span>Est. Exit Target</span>
-                    <span className={cn("font-mono font-black", pnlClass(trade.est_pnl_to_realize))}>
-                      {fmtUSD(trade.est_pnl_to_realize)}
-                    </span>
-                  </div>
-                  <div className="text-dim">
-                    Source: <span className="text-text font-semibold">{estLabel}</span>
-                  </div>
-                  <div className="text-dim">
-                    Price: <span className="text-text font-mono font-semibold">{fmtUSD(estPrice)}</span>
-                  </div>
-                </div>
-              }>
-                <div
-                  className="absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-3 rotate-45 border-2 border-purple bg-background shadow-[0_0_8px_rgba(168,85,247,0.5)] z-40 cursor-help transition-all duration-500 hover:scale-125"
-                  style={{ left: `${estPos}%` }}
-                />
-              </Tooltip>
-            )}
+            {/* O(1) Gauge Marker Collision Detection */}
+            {(() => {
+              const isEstCollidingWithMark = Math.abs(estPos - progress) < 3.5;
+              const isEstCollidingWithPeak = Math.abs(estPos - clampedPeakPos) < 3.5;
+              const isPeakCollidingWithMark = Math.abs(clampedPeakPos - progress) < 3.0;
 
-            {/* Glowing Price Handle/Thumb showing current Mark location */}
-            <div
-              className={cn(
-                "absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-3 rounded-full border-2 bg-surface shadow-md z-30 transition-all duration-500",
-                trade.pnl >= 0 ? "border-green" : "border-red"
-              )}
-              style={{ left: `${progress}%` }}
-            />
+              return (
+                <>
+                  {/* Winning Est. Target Marker with Collision Offset */}
+                  {trade.est_pnl_to_realize !== undefined && (
+                    <Tooltip content={
+                      <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+                        <div className="font-bold border-b border-white/5 pb-1 mb-1 flex items-center justify-between gap-4">
+                          <span>Est. Exit Target</span>
+                          <span className={cn("font-mono font-black", pnlClass(trade.est_pnl_to_realize))}>
+                            {fmtUSD(trade.est_pnl_to_realize)}
+                          </span>
+                        </div>
+                        <div className="text-dim">
+                          Source: <span className="text-text font-semibold">{estLabel}</span>
+                        </div>
+                        <div className="text-dim">
+                          Price: <span className="text-text font-mono font-semibold">{fmtUSD(estPrice)}</span>
+                        </div>
+                        {(isEstCollidingWithMark || isEstCollidingWithPeak) && (
+                          <div className="text-[9px] text-accent/80 font-mono mt-0.5 pt-0.5 border-t border-white/5">
+                            ⚡ Marker shifted slightly to prevent visual overlap
+                          </div>
+                        )}
+                      </div>
+                    }>
+                      <div
+                        className={cn(
+                          "absolute -ml-1.5 w-3 h-3 rotate-45 border-2 border-purple bg-background shadow-[0_0_8px_rgba(168,85,247,0.5)] z-40 cursor-help transition-all duration-300 hover:scale-125",
+                          isEstCollidingWithMark ? "top-[-5px]" : "top-1/2 -translate-y-1/2"
+                        )}
+                        style={{ left: `${estPos}%` }}
+                      />
+                    </Tooltip>
+                  )}
+
+                  {/* Glowing Price Handle/Thumb showing current Mark location */}
+                  <div
+                    className={cn(
+                      "absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-3 rounded-full border-2 bg-surface shadow-md z-30 transition-all duration-300",
+                      trade.pnl >= 0 ? "border-green" : "border-red",
+                      isPeakCollidingWithMark && "ring-2 ring-purple/40"
+                    )}
+                    style={{ left: `${progress}%` }}
+                  />
+                </>
+              );
+            })()}
           </div>
         </div>
 

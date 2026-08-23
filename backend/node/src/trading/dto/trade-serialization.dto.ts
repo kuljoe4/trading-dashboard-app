@@ -13,6 +13,7 @@ export interface TradeSerializationDto {
   funding_fee?: number;
   rr: number;
   max_rr: number;
+  max_rr_achieved?: number;
   direction: 'LONG' | 'SHORT';
   entry_price: number;
   qty: number;
@@ -55,6 +56,7 @@ export interface TickTradeDto {
   funding_fee?: number;
   rr: number;
   max_rr: number;
+  max_rr_achieved?: number;
   direction: 'LONG' | 'SHORT';
   entry_price: number;
   qty: number;

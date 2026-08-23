@@ -2583,7 +2583,11 @@ export class SessionService implements OnModuleInit {
         !isNaN(Number(trade.entry_price)) &&
         trade.qty != null &&
         !isNaN(Number(trade.qty)),
-    );
+    ).map((t) => ({
+      ...t,
+      max_rr: Number(t.max_rr_achieved || 0),
+      max_rr_achieved: Number(t.max_rr_achieved || 0),
+    }));
 
     const logs = includeLogs
       ? await this.logRepository.find({

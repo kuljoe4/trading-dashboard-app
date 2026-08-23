@@ -43,7 +43,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const isSignalWinning = trade.est_pnl_source && trade.est_pnl_source.startsWith('signal:');
 
-  // Check if any otherwise-qualifying signal (its threshold sits at/below mark for LONG, or at/above mark for SHORT) is currently delay-gated
+  // Check if any signal threshold has been crossed by the mark price or is actively fired
+  let hasCrossedSignal = false;
   let hasDelayedSignal = false;
   if (trade.exit_signals_status) {
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
@@ -56,10 +57,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         }
         const isDelayActive = typeof sig.remaining_delay === 'number' && sig.remaining_delay > 0;
         const currentPnlVal = Number(trade.pnl || 0);
+        if (sig.fired && sig.active) {
+          hasCrossedSignal = true;
+        }
         if (isDelayActive && signalPnl <= currentPnlVal) {
           hasDelayedSignal = true;
-          break;
         }
+      } else if (sig && sig.fired && sig.active) {
+        hasCrossedSignal = true;
       }
     }
   }
@@ -247,7 +252,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <span className="font-mono text-text/90 font-bold">{fmtUSD(mark)}</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
-            {hasDelayedSignal && (
+            {hasCrossedSignal && (
+              <Tooltip content="One or more technical exit signals have triggered or crossed threshold!">
+                <span className="inline-flex items-center gap-1 bg-red/15 text-red border border-red/30 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter leading-none animate-pulse shadow-[0_0_8px_rgba(255,68,102,0.3)] mr-1">
+                  ⚡ CROSSED / FIRED
+                </span>
+              </Tooltip>
+            )}
+            {hasDelayedSignal && !hasCrossedSignal && (
               <Tooltip content="An exit signal threshold is active but currently delay-gated. It may become the active estimate soon.">
                 <span className="inline-flex items-center gap-1 bg-amber/10 text-amber border border-amber/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter leading-none animate-pulse mr-1.5">
                   <Clock size={8} className="animate-spin duration-[3000ms]" /> Delayed Signal

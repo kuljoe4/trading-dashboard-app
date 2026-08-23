@@ -97,7 +97,7 @@ export const SignalGauge = React.memo(({
       <div className="space-y-1.5">
         <div className="flex justify-between items-end px-1">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest">Proximity</span>
-          <span className={cn("text-[9px] font-mono font-black", fired ? "text-green" : "text-text/80")}>
+          <span className={cn("text-[9px] font-mono font-black", isFired ? "text-red" : fired ? "text-amber" : "text-accent")}>
             {insufficientData ? '0.0' : Number(progress).toFixed(1)}%
           </span>
         </div>
@@ -108,7 +108,7 @@ export const SignalGauge = React.memo(({
             transition={{ type: "spring", stiffness: 40, damping: 20 }}
             className={cn(
               "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
-              isFired ? "bg-red" : fired ? "bg-amber" : "bg-accent"
+              isFired ? "bg-gradient-to-r from-red/80 to-red shadow-[0_0_8px_rgba(255,68,102,0.5)]" : fired ? "bg-gradient-to-r from-amber/80 to-amber" : "bg-gradient-to-r from-accent/60 to-accent"
             )}
           />
         </div>

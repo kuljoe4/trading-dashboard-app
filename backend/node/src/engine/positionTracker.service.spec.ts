@@ -740,13 +740,15 @@ describe('PositionTrackerService', () => {
         release_risk_on_est_pnl_be: true,
       } as SessionConfig;
 
-      // Price is 105 (above entry 100)
+      // Estimated PnL is +10 (above breakeven 0)
+      trade.est_pnl_to_realize = 10;
       service.refreshTradeRisk(trade, false, 105, config);
 
       expect(trade.risk_usdt).toBe(0);
       expect(service.totalRisk()).toBe(0);
 
-      // Price drops back to 95 (below entry 100)
+      // Estimated PnL drops back to -50 (below breakeven 0)
+      trade.est_pnl_to_realize = -50;
       service.refreshTradeRisk(trade, false, 95, config);
 
       expect(trade.risk_usdt).toBe(100);

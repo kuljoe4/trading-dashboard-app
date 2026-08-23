@@ -665,17 +665,11 @@ export class PositionTrackerService {
           : trade.current_sl <= trade.entry_price + tolerance)
       : (trade.initial_sl > 0 ? true : false);
 
-    // Feature: Option to release risk lock when live estimated PnL (market price) is strictly at or above breakeven
+    // Feature: Option to release risk lock when estimated exit floor PnL (trade.est_pnl_to_realize) is at or above breakeven (>= 0)
     const activeConfig = config || trade.strategy_config;
     if (!isBreakevenOrBetter && activeConfig?.release_risk_on_est_pnl_be) {
-      const livePrice = currentPrice || (this.tickerCache ? this.tickerCache.getPrice(trade.symbol) : undefined) || trade.mark_price || trade.last_price;
-      if (livePrice && livePrice > 0 && trade.entry_price > 0) {
-        const estProfitBe = trade.direction === 'LONG'
-          ? livePrice >= trade.entry_price
-          : livePrice <= trade.entry_price;
-        if (estProfitBe) {
-          isBreakevenOrBetter = true;
-        }
+      if (trade.est_pnl_to_realize !== undefined && trade.est_pnl_to_realize >= 0) {
+        isBreakevenOrBetter = true;
       }
     }
 

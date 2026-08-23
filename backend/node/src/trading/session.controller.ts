@@ -197,8 +197,8 @@ export class SessionController {
   @Get("history")
   async getHistory(@Query("sessionId") sessionId?: string) {
     if (sessionId && sessionId !== "all") {
-      // SENTINEL: Enforce maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse.
-      if (sessionId.length > 50) {
+      // SENTINEL: Enforce type safety and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and type confusion.
+      if (typeof sessionId !== "string" || sessionId.length > 50) {
         throw new BadRequestException("Invalid sessionId format");
       }
       const isUuid =
@@ -209,7 +209,7 @@ export class SessionController {
         throw new BadRequestException("Invalid sessionId format");
       }
     }
-    return this.sessionService.getHistory(sessionId);
+    return this.sessionService.getHistory(sessionId as string);
   }
 
   @Post("trade/:symbol/close")
@@ -237,7 +237,7 @@ export class SessionController {
   async getLifetimeAnalytics(
     @Query("mode") mode: "paper" | "testnet" | "live",
   ) {
-    if (mode && !["paper", "testnet", "live"].includes(mode)) {
+    if (mode && (typeof mode !== "string" || !["paper", "testnet", "live"].includes(mode))) {
       throw new BadRequestException(
         "Invalid mode. Must be one of: paper, testnet, live",
       );

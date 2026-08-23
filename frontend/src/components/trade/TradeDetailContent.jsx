@@ -146,9 +146,17 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                       if (e.key === 'Escape') setEditingMilestone(null);
                     }}
                     className="w-10 bg-transparent text-center font-mono text-[9px] font-bold outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                    aria-label={`Milestone ${i + 1} trigger R value`}
                     autoFocus
                   />
-                  <button onClick={() => handleSaveMilestoneTrigger(i, tempValue)} className="text-green"><CheckCircle2 size={10} /></button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveMilestoneTrigger(i, tempValue)}
+                    className="text-green focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
+                    aria-label={`Save milestone ${i + 1} trigger R value`}
+                  >
+                    <CheckCircle2 size={10} />
+                  </button>
                 </div>
               ) : (
                 <div
@@ -203,9 +211,17 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                       if (e.key === 'Escape') setEditingMilestone(null);
                     }}
                     className="w-10 bg-transparent text-center font-mono text-[9px] font-bold outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                    aria-label={`Milestone ${i + 1} exit stop loss R value`}
                     autoFocus
                   />
-                  <button onClick={() => handleSaveMilestoneExit(i, tempValue)} className="text-green"><CheckCircle2 size={10} /></button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveMilestoneExit(i, tempValue)}
+                    className="text-green focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
+                    aria-label={`Save milestone ${i + 1} exit stop loss R value`}
+                  >
+                    <CheckCircle2 size={10} />
+                  </button>
                 </div>
               ) : (
                 <div
@@ -570,9 +586,23 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
                       <Clock size={8} /> 
                       {editingDelay === key && interactiveEnabled ? (
                         <div className="flex items-center gap-1">
-                          <input type="text" className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded px-1" value={tempDelay}
-                                 onChange={(e) => setTempDelay(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)} autoFocus />
-                          <button onClick={() => handleUpdateDelay(key, tempDelay)} className="text-green"><CheckCircle2 size={10} /></button>
+                          <input
+                            type="text"
+                            className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded px-1"
+                            value={tempDelay}
+                            onChange={(e) => setTempDelay(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)}
+                            aria-label={`Edit exit delay for ${s.label || key}`}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateDelay(key, tempDelay)}
+                            className="text-green focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
+                            aria-label={`Save exit delay for ${s.label || key}`}
+                          >
+                            <CheckCircle2 size={10} />
+                          </button>
                         </div>
                       ) : (
                         <span
@@ -589,7 +619,16 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
                           }
                         </span>
                       )}
-                      {editingDelay !== key && interactiveEnabled && <button onClick={() => handleUpdateDelay(key, 0)} className="text-[7px] bg-red/20 px-1 rounded">SKIP</button>}
+                      {editingDelay !== key && interactiveEnabled && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateDelay(key, 0)}
+                          className="text-[7px] bg-red/20 px-1 rounded hover:bg-red/30 transition-colors focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                          aria-label={`Skip exit delay for ${s.label || key}`}
+                        >
+                          SKIP
+                        </button>
+                      )}
                     </div>
                   )}
                   <span className={cn(
@@ -1122,12 +1161,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     if (e.key === 'Escape') setIsEditingSl(false);
                   }}
                   className="w-20 bg-background border border-border/80 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                  aria-label="Stop loss price input"
                   autoFocus
                 />
                 <button
                   type="button"
                   onClick={handleSaveSl}
-                  className="text-green hover:scale-115 transition-transform"
+                  className="text-green hover:scale-115 transition-transform focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
                   aria-label="Save stop loss price override"
                 >
                   <CheckCircle2 size={12} />
@@ -1135,7 +1175,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 <button
                   type="button"
                   onClick={() => setIsEditingSl(false)}
-                  className="text-red hover:scale-115 transition-transform"
+                  className="text-red hover:scale-115 transition-transform focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
                   aria-label="Cancel stop loss price override"
                 >
                   <XCircle size={12} />
@@ -1714,7 +1754,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                         "px-3 py-1.5 pr-8 w-full font-mono text-xs bg-background/50 border border-border/50 text-text rounded-lg transition-all h-8",
                                         ringColorClass
                                       )}
-                                      aria-label={`Exit delay for ${label} in seconds`}
+                                      aria-label={`Exit delay for ${label}`}
                                     />
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-black text-dim/40 font-mono">s</span>
                                   </>

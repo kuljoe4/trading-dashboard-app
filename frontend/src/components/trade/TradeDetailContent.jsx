@@ -570,10 +570,15 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
             <div key={key} className="space-y-1 md:space-y-3 p-2 bg-white/[0.01] border border-white/[0.02] rounded-xl hover:bg-white/[0.02] hover:border-white/[0.05] transition-all">
               <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
                 <div className="flex items-center gap-1.5 md:gap-2">
-                  <span className={isFired ? "text-red" : s.fired ? "text-amber" : "text-dim"}>{s.label || key}</span>
+                  <span className={isFired ? "text-red font-black" : s.fired ? "text-amber font-bold" : "text-dim"}>{s.label || key}</span>
                   <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
                     {timeframe}
                   </span>
+                  {isFired && (
+                    <span className="bg-red/20 text-red border border-red/30 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 animate-pulse shadow-[0_0_8px_rgba(255,68,102,0.3)]">
+                      CROSSED / TRIGGERED
+                    </span>
+                  )}
                   {s.insufficientData ? (
                     <span className="text-dim bg-background/50 border border-border/40 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
                       Collecting
@@ -1026,10 +1031,10 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     }
   }
 
-  const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals, estPnlToRealize } = useMemo(() => {
+  const { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty, qtyFormatted, riskFormatted, slDistPct = 0, slInitialDistPct = 0, enhancedExitSignals, estPnlToRealize, targetProjectedPnl } = useMemo(() => {
     if (!trade) return {
       isLong: true, pnlPct: 0, progress: 50, entry: 0, mark: 0, sl: 0, initialSl: 0, tp: 0, qty: 0,
-      qtyFormatted: '0.0000', riskFormatted: '$0.00', slDistPct: 0, slInitialDistPct: 0, enhancedExitSignals: {}, estPnlToRealize: 0
+      qtyFormatted: '0.0000', riskFormatted: '$0.00', slDistPct: 0, slInitialDistPct: 0, enhancedExitSignals: {}, estPnlToRealize: 0, targetProjectedPnl: 0
     }
     const isLong = trade.direction === 'LONG'
     const entry = Number(trade.entry_price || 0)
@@ -1081,7 +1086,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
     const estPnlToRealize = Number(trade.est_pnl_to_realize || 0)
 
-    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty: qtyVal, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals, estPnlToRealize }
+    // Compute true projected P&L at target R:R or TP price
+    const initialRiskUsdt = Number(trade.initial_risk_usdt || Math.abs(entry - initialSl) * qtyVal || 0)
+    let targetProjectedPnl = 0
+    if (tp > 0 && entry > 0 && qtyVal > 0) {
+      targetProjectedPnl = Math.abs(tp - entry) * qtyVal
+    } else {
+      const tpRatio = Number(trade.tp_ratio || trade.strategy_config?.tp_ratio || 2.0)
+      targetProjectedPnl = initialRiskUsdt * tpRatio
+    }
+
+    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty: qtyVal, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals, estPnlToRealize, targetProjectedPnl }
   }, [trade])
 
   if (!trade) return null
@@ -1288,10 +1303,16 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                          color: sessionReturnBlock.color
                        },
                        {
-                         label: 'Est. P&L at Target',
-                         value: `${fmtUSD(estPnlToRealize)} (${fmt(trade.tp_ratio || 0, 2)}R)`,
+                         label: 'Est. Exit Floor P&L',
+                         value: `${fmtUSD(estPnlToRealize)}`,
                          color: estPnlToRealize >= 0 ? 'text-green' : 'text-red',
-                         tooltip: 'Estimated Projected profit and loss if exited at target Reward-to-Risk ratio.'
+                         tooltip: 'Guaranteed minimum profit or loss locked by the active stop-loss or exit signal floor.'
+                       },
+                       {
+                         label: 'Projected Target P&L',
+                         value: `${fmtUSD(targetProjectedPnl)} (${fmt(trade.tp_ratio || 2.0, 2)}R)`,
+                         color: targetProjectedPnl >= 0 ? 'text-purple' : 'text-dim',
+                         tooltip: 'Target profit and loss if position reaches full fixed target R:R ratio or Take Profit price.'
                        },
                        {
                          label: 'Min RR (Drawdown)',

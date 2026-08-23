@@ -33,7 +33,7 @@ const TradesView = () => {
       const t = trades[i];
       pnl += safeNum(t.pnl);
       estPnl += safeNum(t.est_pnl_to_realize);
-      maxRr = Math.max(maxRr, t.max_rr || 0);
+      maxRr = Math.max(maxRr, Number(t.max_rr ?? t.max_rr_achieved ?? 0));
     }
     const projected = (totalPnl - pnl) + estPnl;
     return {

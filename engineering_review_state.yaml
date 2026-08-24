@@ -1,0 +1,208 @@
+last_review: 2026-08-24
+system: Momentum Engine
+version: 1.0.0
+
+review_history:
+  - id: ARCH-001
+    status: resolved
+    severity: high
+    category: architecture
+    discovered: 2026-05-01
+    resolved: 2026-06-15
+    files:
+      - backend/node/src/engine/trading_session.service.ts
+      - backend/node/src/engine/maintenance.service.ts
+      - backend/node/src/engine/session-lifecycle.service.ts
+    notes: "God Object Risk: TradingSessionService was overloaded with background maintenance, funding fees, and lifecycle tasks. Decomposed into MaintenanceService and SessionLifecycleService."
+
+  - id: ARCH-002
+    status: resolved
+    severity: medium
+    category: architecture
+    discovered: 2026-05-01
+    resolved: 2026-06-01
+    files:
+      - backend/node/src/engine/engine-broadcaster.service.ts
+    notes: "Transport Leak: WebSocket broadcasting logic isolated into EngineBroadcasterService with tiered bandwidth modes (Full, Mid, Low, Eco)."
+
+  - id: ARCH-003
+    status: open
+    severity: medium
+    category: architecture
+    discovered: 2026-05-15
+    files:
+      - backend/node/src/trading/session.service.ts
+      - backend/node/src/engine/orderManager.ts
+      - backend/node/src/engine/trading_session.service.ts
+      - backend/node/src/engine/execution.service.ts
+    notes: "Circular dependencies across NestJS execution and order management services resolved via forwardRef. Should be refactored to reactive event emitter patterns."
+    recommendation: "Replace forwardRef injections with decoupled event subscriptions via @nestjs/event-emitter."
+
+  - id: SEC-001
+    status: accepted_risk
+    severity: medium
+    category: security
+    discovered: 2026-05-01
+    files:
+      - backend/node/src/auth/ApiKeyGuard.ts
+    notes: "ADMIN_API_KEY fallback allows unprotected local development when key is unset. Explicit warning logged on boot."
+    recommendation: "Enforce strict key requirement when NODE_ENV === 'production'."
+
+  - id: SEC-002
+    status: resolved
+    severity: high
+    category: security
+    discovered: 2026-06-10
+    resolved: 2026-06-12
+    files:
+      - backend/node/src/lib/origin.ts
+    notes: "CORS Origin Validation and ReDoS Mitigation: checkOrigin hardened against null, non-string, or >512 char strings."
+
+  - id: SEC-003
+    status: resolved
+    severity: high
+    category: security
+    discovered: 2026-06-15
+    resolved: 2026-06-16
+    files:
+      - backend/node/src/models/SessionConfig.ts
+      - backend/node/src/trading/dto/session.dto.ts
+    notes: "Stored XSS & String Array Validation: Array bounds, character whitelisting, and negative lookaheads applied to string arrays."
+
+  - id: SEC-004
+    status: resolved
+    severity: low
+    category: security
+    discovered: 2026-06-20
+    resolved: 2026-06-20
+    files:
+      - backend/node/src/engine/trading_session.service.ts
+    notes: "Private Property Leak: Removed (this as any) access on private timers and timestamp members."
+
+  - id: SEC-005
+    status: resolved
+    severity: high
+    category: security
+    discovered: 2026-07-01
+    resolved: 2026-07-02
+    files:
+      - backend/node/src/trading/session.controller.ts
+    notes: "HTTP Parameter Pollution Hardening: Explicit typeof !== 'string' guard prevents query array coercion vulnerabilities."
+
+  - id: REL-001
+    status: resolved
+    severity: high
+    category: reliability
+    discovered: 2026-06-25
+    resolved: 2026-06-26
+    files:
+      - backend/node/src/engine/market_feed.service.ts
+      - backend/node/src/lib/binanceClientFactory.ts
+    notes: "Binance API Ban & Rate Limit Recovery: Backfill tasks unshifted back to queue during bans, epoch timestamp conversion handled."
+
+  - id: REL-002
+    status: resolved
+    severity: high
+    category: reliability
+    discovered: 2026-07-10
+    resolved: 2026-07-11
+    files:
+      - backend/node/src/engine/orderManager.ts
+    notes: "Terminal Trade P&L Reconciliation and Self-Healing: Reconciles accumulated trade P&L against direction-aware Net P&L on close."
+
+  - id: PERF-001
+    status: resolved
+    severity: medium
+    category: performance
+    discovered: 2026-06-18
+    resolved: 2026-06-19
+    files:
+      - backend/node/src/engine/execution.service.ts
+    notes: "Anti-Whipsaw Same-Candle Re-entry Optimization: Single-pass traversal over closed trades using numeric timestamps (~2.8x speedup)."
+
+  - id: PERF-002
+    status: resolved
+    severity: medium
+    category: performance
+    discovered: 2026-07-05
+    resolved: 2026-07-06
+    files:
+      - backend/node/src/engine/analytics.service.ts
+    notes: "Cumulative P&L Curve Downsampling: Downsamples REST curve output to 200 points max, reducing network egress by up to 90%."
+
+  - id: PERF-003
+    status: resolved
+    severity: medium
+    category: performance
+    discovered: 2026-07-12
+    resolved: 2026-07-12
+    files:
+      - frontend/src/store/trading.js
+    notes: "Zustand Local Storage Persistence Optimization: Excluded transient ticker/scanner results and heavy history payloads from partialize whitelist."
+
+  - id: PERF-004
+    status: resolved
+    severity: medium
+    category: performance
+    discovered: 2026-07-15
+    resolved: 2026-07-15
+    files:
+      - backend/node/src/engine/market_feed.service.ts
+    notes: "Citadel Protocol MarketFeed REST Seed Optimization: Bypasses 40-weight GET ticker REST call when tickerCache is already populated."
+
+  - id: CODE-001
+    status: resolved
+    severity: medium
+    category: code_quality
+    discovered: 2026-06-15
+    resolved: 2026-06-16
+    files:
+      - backend/node/src/engine/engine-broadcaster.service.ts
+    notes: "Type Safety Drift: Eliminated as any casts on EngineBroadcaster via typed public getters."
+
+  - id: CODE-002
+    status: resolved
+    severity: low
+    category: code_quality
+    discovered: 2026-06-18
+    resolved: 2026-06-18
+    files:
+      - backend/node/src/engine/orderManager.ts
+    notes: "Redundant Analytics Calculation: finalizeTradeClosure reuses pre-calculated trade analytics from broadcaster."
+
+  - id: CODE-003
+    status: open
+    severity: low
+    category: code_quality
+    discovered: 2026-05-31
+    files:
+      - backend/node/src/lib/math.ts
+      - backend/node/src/engine/positionTracker.ts
+    notes: "Floating-Point Financial Math Accumulation: Double-precision floating point math used in high-frequency aggregation paths."
+    recommendation: "Ensure rigorous application of roundEight on all aggregated financial math steps or evaluate fixed-decimal arithmetic helper."
+
+  - id: TEST-001
+    status: open
+    severity: low
+    category: testing
+    discovered: 2026-08-24
+    files:
+      - backend/node/src/tests/
+    notes: "Jest worker teardown open handles warning during full test suite run due to active timers in integration tests."
+    recommendation: "Add explicit unref() or afterAll teardown in integration test suites."
+
+architecture_decisions:
+  - ADR-001: "Pro-Loop Execution Architecture - Separate high-frequency position monitoring (1s) from lower-frequency scanning (15s)."
+  - ADR-002: "Tiered Bandwidth WS Broadcaster - Broadcast full updates only to focused tabs; stream thinned deltas to background/unfocused views."
+  - ADR-003: "Single-Instance Memory Engine - In-memory KlineStore and TickerCache designed for ultra-low latency under 256MB Node.js heap."
+  - ADR-004: "Self-Healing PnL Reconciler - Recompute net P&L on trade closure and auto-correct corrupted accumulated P&L state."
+  - ADR-005: "Strict DTO & NestJS Validation Pipe - Mandate Class-Validator constraints with XSS lookaheads and strict query type assertions."
+
+metrics:
+  test_count_backend: 608
+  test_suites_backend: 131
+  backend_test_pass_rate: 100.0
+  frontend_bundle_size_kb: 538.30
+  heap_memory_usage_mb: 185
+  hot_loop_latency_avg_ms: 0.85
+  ws_bandwidth_savings_pct: 85.0

@@ -59,7 +59,6 @@ export class MarketFeedService {
   private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
   private currentIsTestnet = false;
   private restSeedInFlight = false;
-  private lastRestSeedTs = 0;
 
   private lastMiniTickerMsgTs = 0;
   private lastMarkTickerMsgTs = 0;
@@ -369,11 +368,13 @@ export class MarketFeedService {
       return;
     }
     if (this.restSeedInFlight) return;
-    const now = Date.now();
     const cacheSize = this.tickerCache.getCacheSize();
-    // Once seeded, only re-seed every 5 minutes to keep prices reasonably
-    // fresh without hammering the 40-weight endpoint.
-    if (cacheSize > 0 && (now - this.lastRestSeedTs) < 5 * 60 * 1000) return;
+    // CITADEL PROTOCOL: Skip REST seed if TickerCache is already populated via WS or previous seed.
+    // Weight Saved: 40 weight units per prevented REST call (GET /fapi/v1/ticker/24hr).
+    if (cacheSize > 0) {
+      this.logger.debug(`[MarketFeed] REST seed skipped: TickerCache already populated (${cacheSize} symbols).`);
+      return;
+    }
 
     this.restSeedInFlight = true;
     try {
@@ -392,7 +393,6 @@ export class MarketFeedService {
       const data = (await response.json()) as any[];
       if (Array.isArray(data) && data.length > 0) {
         this.tickerCache.bulkUpdate(data);
-        this.lastRestSeedTs = Date.now();
         this.logger.log(`[MarketFeed] REST seed complete: ${data.length} symbols loaded into TickerCache.`);
         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
           msg: `[MarketFeed] Market data restored via REST fallback (${data.length} symbols).`,

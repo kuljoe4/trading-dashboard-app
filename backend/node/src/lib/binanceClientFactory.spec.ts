@@ -51,4 +51,28 @@ describe('BinanceClientFactory', () => {
     // Verify that the weight update event was emitted
     expect(emitSpy).toHaveBeenCalledWith('binance.weight_update', 500);
   });
+
+  it('genericRequest should throw error and trigger ban handling when response is HTTP 418 / 429', async () => {
+    const emitSpy = jest.spyOn(eventEmitter, 'emit');
+    const mockBanResponse = {
+      ok: false,
+      status: 418,
+      statusText: 'IP Banned',
+      headers: {
+        get: (name: string) => name === 'X-MBX-USED-WEIGHT-1M' ? '2400' : null
+      },
+      clone: () => ({
+        text: jest.fn().mockResolvedValue('IP banned until 1718000000000')
+      })
+    };
+    const mockTask = jest.fn().mockResolvedValue(mockBanResponse);
+
+    await expect(factory.genericRequest(mockTask, 'test-ban-task')).rejects.toThrow('HTTP 418');
+
+    // Verify ban event was emitted
+    expect(emitSpy).toHaveBeenCalledWith('binance.api_limit_reached', expect.objectContaining({
+      type: 'BAN',
+      message: expect.stringContaining('HTTP 418')
+    }));
+  });
 });

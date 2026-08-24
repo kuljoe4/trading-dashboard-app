@@ -329,15 +329,13 @@ export class OrderManagerService {
               level: 'info'
             });
 
-            const isInitial = slType === 'INITIAL_SL';
-
             this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol,
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
               orderId, // DATA-ACCURACY: Pass orderId for authoritative recovery
-              feesAlreadyAccounted: !isInitial, // CHRONOS: Signal that commissions were already handled via UDS 'n' events unless initial
-              alreadyRealized: !isInitial // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events unless initial
+              feesAlreadyAccounted: true, // CHRONOS: Signal that commissions were already handled via UDS 'n' events
+              alreadyRealized: true // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
             });
           }
         }

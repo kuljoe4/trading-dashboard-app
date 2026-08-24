@@ -80,9 +80,16 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
   // Handle price-based signals (including dual EMA cross/close where value is fast EMA/price and threshold is slow EMA/price)
   if (thresholdIsPrice) {
     if (isExit) {
-      // For dual EMA cross/close or indicator price thresholds, if entry isn't usable or signal relies on value vs threshold:
-      // If signal provides both value & threshold (e.g. Fast EMA value vs Slow EMA threshold), evaluate convergence between value and threshold
-      if (entry === 0 || threshold === 0 || threshold === entry) {
+      // Check if the signal is an indicator-pair signal (e.g., dual EMA cross/close where value is Fast EMA and threshold is Slow EMA)
+      const isIndicatorPair = !!(
+        signal.is_indicator_pair ||
+        (signal.key && (signal.key.includes('dual') || signal.key.includes('_cross'))) ||
+        (signal.metric && (signal.metric.includes('Dual') || signal.metric.includes('Cross'))) ||
+        (signal.description && signal.description.toLowerCase().includes('crossed'))
+      );
+
+      // For dual EMA cross/close or indicator price thresholds, evaluate convergence between value and threshold if it's an indicator pair or if entry is not usable
+      if (isIndicatorPair || entry === 0 || threshold === 0 || threshold === entry) {
         if (value !== 0 && threshold !== 0) {
           const spread = Math.abs(value - threshold);
           const maxSpread = threshold * 0.01; // 1% spread reference

@@ -761,7 +761,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
                   </p>
                 )}
               </div>
-            </div>
+            </SignalGauge>
           )
         })}
       </div>

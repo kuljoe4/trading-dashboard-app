@@ -1240,7 +1240,7 @@ export class MarketFeedService {
         this.updateWeight(response.headers);
         klines = (await response.data()) as any[][];
       } else {
-        const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
+        const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
         const response = await this.binanceClientFactory.genericRequest(
           () => fetch(url, { signal: AbortSignal.timeout(10000) }),
           'klineCandlestickData'

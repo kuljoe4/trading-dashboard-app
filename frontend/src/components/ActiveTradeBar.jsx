@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { fmtUSD, pnlColor, pnlClass, C, safeNum } from '../lib/theme'
 import { ArrowLeftRight, ChevronRight, XCircle } from 'lucide-react'
-import { cn, Btn } from './ui/primitives'
+import { cn, Btn, Tooltip } from './ui/primitives'
 import { sessionAPI } from '../api/client'
 import { ConfirmationModal } from './ConfirmationModal'
 
@@ -79,23 +79,24 @@ export const ActiveTradeBar = React.memo(() => {
           {(activeTrades || []).map(t => {
             const slPnl = getEstSlPnl(t)
             return (
-              <div key={t.symbol} className="flex flex-col gap-1">
-                <button
-                  onClick={() => setClosingSymbol(t.symbol)}
-                  role="listitem"
-                  aria-label={`Close ${t.symbol} position`}
-                  className={cn(
-                    "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
-                  )}
-                >
-                  <div className="flex items-center gap-1.5">
-                    {t.is_reconciliation && <div className="w-1.5 h-1.5 rounded-full bg-amber shadow-[0_0_5px_rgba(245,166,35,0.5)]" />}
-                    {t.symbol.replace('USDT', '')}
-                  </div>
-                  <span style={{ color: pnlColor(t.pnl) }}>
-                    {fmtUSD(t.pnl)}
-                  </span>
-                </button>
+              <div key={t.symbol} className="flex flex-col gap-1" role="listitem">
+                <Tooltip content={`Click to liquidate ${t.symbol} position`}>
+                  <button
+                    onClick={() => setClosingSymbol(t.symbol)}
+                    aria-label={`Close ${t.symbol} position`}
+                    className={cn(
+                      "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
+                    )}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {t.is_reconciliation && <div className="w-1.5 h-1.5 rounded-full bg-amber shadow-[0_0_5px_rgba(245,166,35,0.5)]" />}
+                      {t.symbol.replace('USDT', '')}
+                    </div>
+                    <span style={{ color: pnlColor(t.pnl) }}>
+                      {fmtUSD(t.pnl)}
+                    </span>
+                  </button>
+                </Tooltip>
                 <div className="flex items-center justify-center px-1">
                    <span className={cn("text-[8px] font-mono font-bold uppercase tracking-tighter opacity-60", pnlClass(slPnl))}>
                      SL: {fmtUSD(slPnl)}

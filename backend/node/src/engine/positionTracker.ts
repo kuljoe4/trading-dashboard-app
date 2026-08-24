@@ -877,6 +877,12 @@ export class PositionTrackerService {
       return;
     }
 
+    // Specialized high-frequency trailing stop & auto-ratchet for Knife Catch trades
+    if (trade.is_knife && config.knife_trailing_enabled) {
+      await this.checkKnifeTrailingStop(trade, currentPrice, config);
+      return;
+    }
+
     if (!config.trailing_stop_enabled) return;
 
     const distancePct = config.trailing_stop_distance_pct || 1.0;
@@ -930,6 +936,126 @@ export class PositionTrackerService {
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, currentPrice, config);
         this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
+    }
+  }
+
+  /**
+   * Specialized Knife Catch Auto-Ratchet & Dynamic Trailing Engine.
+   * Enforces tight, high-frequency trailing distance and immediate auto-breakeven locking on velocity spikes.
+   */
+  async checkKnifeTrailingStop(
+    trade: Trade,
+    currentPrice: number,
+    config: SessionConfig,
+  ): Promise<void> {
+    const symbol = trade.symbol;
+    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+
+    // 1. Auto-Ratchet Evaluation on R:R thresholds
+    if (risk > 0) {
+      const reward = trade.direction === 'LONG'
+        ? currentPrice - trade.entry_price
+        : trade.entry_price - currentPrice;
+      const liveRr = reward / risk;
+
+      const beRr = config.knife_auto_ratchet_be_rr ?? 0.5;
+      const lockRr = config.knife_auto_ratchet_lock_rr ?? 1.0;
+
+      let targetRatchetSl: number | null = null;
+      if (liveRr >= lockRr) {
+        // Lock 0.5R profit on velocity lock threshold
+        targetRatchetSl = trade.direction === 'LONG'
+          ? trade.entry_price + risk * (lockRr * 0.5)
+          : trade.entry_price - risk * (lockRr * 0.5);
+      } else if (liveRr >= beRr) {
+        // Move SL to breakeven (entry price) on breakeven threshold
+        targetRatchetSl = trade.entry_price;
+      }
+
+      if (targetRatchetSl !== null) {
+        const filteredRatchet = this.orderManager.applyFilters(symbol, targetRatchetSl, trade.qty, {
+          priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+          skipNotionalCheck: true
+        });
+        const ratchetSl = filteredRatchet.price;
+        const minDelta = trade.entry_price * 0.00005;
+
+        let shouldRatchet = false;
+        if (trade.direction === 'LONG') {
+          shouldRatchet = ratchetSl > trade.current_sl + Math.max(0.00000001, minDelta);
+        } else {
+          shouldRatchet = ratchetSl < trade.current_sl - Math.max(0.00000001, minDelta);
+        }
+
+        if (shouldRatchet && !this.orderManager.isRatcheting(symbol)) {
+          const prevSl = trade.current_sl;
+          const updateRes = await this.orderManager.updateStopLoss(trade, ratchetSl, prevSl);
+
+          if (updateRes.success) {
+            const finalSl = updateRes.price || ratchetSl;
+            trade.current_sl = finalSl;
+            trade.updated_at = new Date();
+            this.refreshTradeRisk(trade, false, currentPrice, config);
+            this.logSlAdjustment(trade, prevSl, finalSl, -5, !!updateRes.price && updateRes.price !== ratchetSl);
+            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          }
+        }
+      }
+    }
+
+    // 2. High-Frequency Dynamic Trailing Stop
+    const distancePct = config.knife_trailing_distance_pct ?? 0.5;
+    const distance = currentPrice * (distancePct / 100);
+
+    let prospectiveSl: number;
+    if (trade.direction === 'LONG') {
+      prospectiveSl = currentPrice - distance;
+    } else {
+      prospectiveSl = currentPrice + distance;
+    }
+
+    if (isNaN(prospectiveSl) || !isFinite(prospectiveSl) || prospectiveSl <= 0) {
+      return;
+    }
+
+    const filtered = this.orderManager.applyFilters(symbol, prospectiveSl, trade.qty, {
+      priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+      skipNotionalCheck: true
+    });
+    let newSl = filtered.price;
+
+    const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+    const buffer = currentPrice * (bufferPct / 100);
+
+    if (trade.direction === 'LONG') {
+      newSl = Math.min(newSl, currentPrice - buffer);
+    } else {
+      newSl = Math.max(newSl, currentPrice + buffer);
+    }
+
+    const minDelta = trade.entry_price * 0.00005; // 0.005% min delta for knife trades
+    let shouldUpdate = false;
+
+    if (trade.direction === 'LONG') {
+      shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+    } else {
+      shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+    }
+
+    if (shouldUpdate) {
+      if (this.orderManager.isRatcheting(symbol)) return;
+
+      const prevSl = trade.current_sl;
+      const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+
+      if (updateRes.success) {
+        const finalSl = updateRes.price || newSl;
+        trade.current_sl = finalSl;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade, false, currentPrice, config);
+        this.logSlAdjustment(trade, prevSl, finalSl, -4, !!updateRes.price && updateRes.price !== newSl);
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
     }

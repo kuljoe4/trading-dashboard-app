@@ -117,7 +117,7 @@ export const normalizeTrade = (t = {}, pt = null) => {
     try { sigStatus = JSON.parse(t._sig_json); } catch (e) {}
   }
 
-  const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}:${t.close_blocked}:${t.illiquid_blocked}:${t.qty}:${t.max_rr_achieved}`;
+  const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}:${t.close_blocked}:${t.illiquid_blocked}:${t.qty}:${t.max_rr_achieved}:${t.is_knife}`;
   if (p._fingerprint === f && !t._delta && !t._thin && !t._sig_json) return p;
   if (t._delta || t._thin) {
     const ep = toNumber(t.entry_price ?? p.entry_price);
@@ -160,6 +160,7 @@ export const normalizeTrade = (t = {}, pt = null) => {
       realized_fee: t.realized_fee !== undefined ? toNumber(t.realized_fee) : p.realized_fee,
       funding_fee: t.funding_fee !== undefined ? toNumber(t.funding_fee) : p.funding_fee,
       is_reconciliation: t.is_reconciliation ?? p.is_reconciliation,
+      is_knife: t.is_knife ?? p.is_knife,
       exit_ts_ms,
       entry_ts_ms
     };
@@ -271,6 +272,10 @@ const defaultConfig = {
   smart_watchlist_sensitivity: 0.7,
   trailing_stop_enabled: false,
   trailing_stop_distance_pct: 1.0,
+  knife_trailing_enabled: false,
+  knife_trailing_distance_pct: 0.5,
+  knife_auto_ratchet_be_rr: 0.5,
+  knife_auto_ratchet_lock_rr: 1.0,
   release_risk_on_est_pnl_be: false,
   scanner_weights: {
     momentum: 0.5,

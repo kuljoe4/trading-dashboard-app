@@ -429,6 +429,9 @@ export class ExecutionService {
 
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
+            if (signalResult.firedSignals?.includes('knife_catch')) {
+              trade.is_knife = true;
+            }
             this.positionTracker.addTrade(trade);
             this.sessionState.updateStatsOnEntry(trade.id, trade.strategy_label);
 

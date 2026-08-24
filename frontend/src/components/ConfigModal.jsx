@@ -1144,6 +1144,8 @@ const flattenConfig = (config) => {
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
       trailing_stop_enabled: !!config.trailing_stop_enabled,
       trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+      knife_trailing_enabled: !!config.knife_trailing_enabled,
+      knife_trailing_distance_pct: config.knife_trailing_distance_pct ?? 0.5,
       release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
@@ -3112,6 +3114,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           {renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
                        </div>
                        <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="trailing" />
+                    </motion.div>
+                 )}
+              </div>
+
+              {/* Knife Catch Trailing Stop Loss */}
+              <div className="bg-surface/40 border border-border/40 p-4 rounded-xl space-y-4 transition-all">
+                 <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-amber/10 flex items-center justify-center text-amber"><Zap size={20} /></div>
+                      <div>
+                        <div className="text-sm font-bold text-amber">⚡ Knife Catch Trailing</div>
+                        <div className="text-[10px] text-dim font-medium uppercase tracking-tight">High-frequency tight trailing stops specifically for velocity burst trades</div>
+                      </div>
+                    </div>
+                    <Toggle value={cfg.knife_trailing_enabled === true} onChange={(v) => setField('knife_trailing_enabled', v)} />
+                 </div>
+
+                 {cfg.knife_trailing_enabled && (
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {renderField('Knife Trailing Distance (%)', 'knife_trailing_distance_pct', 'number', null, { min: 0.05, max: 10, step: 0.05 })}
+                       </div>
                     </motion.div>
                  )}
               </div>

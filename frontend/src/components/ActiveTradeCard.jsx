@@ -192,7 +192,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
               <MonitoredBadge className="opacity-80" />
             )}
-            {trade.strategy_config?.trailing_stop_enabled && (
+            {trade.is_knife && (
+              <span className="bg-amber/20 border border-amber/40 text-amber text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.25)] leading-none">
+                ⚡ KNIFE CATCH
+              </span>
+            )}
+            {trade.strategy_config?.trailing_stop_enabled && !trade.is_knife && (
               <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-[0_0_8px_rgba(168,85,247,0.15)] leading-none">
                 Trailing Active
               </span>

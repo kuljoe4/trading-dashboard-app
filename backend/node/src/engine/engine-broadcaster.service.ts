@@ -211,6 +211,7 @@ export class EngineBroadcasterService {
         rr_sequence_index: trade.rr_sequence_index ?? -1,
         close_attempts: trade.close_attempts,
         close_blocked: trade.close_blocked,
+        is_knife: trade.is_knife,
         _delta: true,
       };
     }
@@ -317,6 +318,7 @@ export class EngineBroadcasterService {
       entry_daily_change_pct: trade.entry_daily_change_pct,
       close_attempts: trade.close_attempts,
       close_blocked: trade.close_blocked,
+      is_knife: trade.is_knife,
       initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
       risk_usdt: trade.risk_usdt ?? 0,
       est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),

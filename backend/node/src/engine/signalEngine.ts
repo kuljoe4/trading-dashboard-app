@@ -66,6 +66,7 @@ export class SignalEngineService {
     macd_fade: this.macdFadeSignal.bind(this),
     macd_pbc: this.macdPbcSignal.bind(this),
     supertrend: this.supertrendSignal.bind(this),
+    knife_catch: this.knifeCatchSignal.bind(this),
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
@@ -170,6 +171,10 @@ export class SignalEngineService {
         const periodVal = resolveParam(signalType, baseType, 'supertrend_period', '10');
         const period = parseInt(String(periodVal), 10);
         maxReq = Math.max(maxReq, period * 5);
+      } else if (baseType === 'knife_catch') {
+        const lookbackVal = resolveParam(signalType, baseType, 'knife_lookback', '3');
+        const period = parseInt(String(lookbackVal), 10);
+        maxReq = Math.max(maxReq, period + 2);
       }
     };
 
@@ -2086,6 +2091,113 @@ export class SignalEngineService {
         threshold: 0,
         unit: 'price',
         metric: 'Supertrend',
+        description: 'Signal error',
+      };
+    }
+  }
+
+  /**
+   * PERF-OPTIMIZED Knife Catch / Velocity Burst Signal.
+   * Quantifies rapid, extreme price drops/spikes (falling/rising knife) using Rate-Of-Change over ATR/Volatility.
+   * Single-pass zero-allocation calculation to avoid garbage collection pressure during hot scanning loops.
+   */
+  private knifeCatchSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose?: 'entry' | 'exit',
+    passedCandles?: Candle[],
+    minimal?: boolean,
+  ): boolean | SignalDetail {
+    try {
+      const params = config.signal_params || {};
+      const lookback = parseInt(String(this.resolveSignalParam(params, 'knife_catch', 'knife_catch', 'knife_lookback', '3')), 10);
+      const rocThresholdPct = parseFloat(String(this.resolveSignalParam(params, 'knife_catch', 'knife_catch', 'knife_roc_threshold_pct', '2.5')));
+      const wickRejectionPct = parseFloat(String(this.resolveSignalParam(params, 'knife_catch', 'knife_catch', 'knife_wick_rejection_pct', '0.2')));
+
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+      if (candles.length < lookback + 1) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: rocThresholdPct,
+          unit: '%',
+          metric: 'Knife Catch',
+          description: 'Insufficient candle data',
+          insufficientData: true,
+        };
+      }
+
+      const currentCandle = candles[candles.length - 1];
+      const startCandle = candles[candles.length - 1 - lookback];
+
+      if (!startCandle || !currentCandle || startCandle.close <= 0) {
+        return {
+          fired: false,
+          value: 0,
+          threshold: rocThresholdPct,
+          unit: '%',
+          metric: 'Knife Catch',
+          description: 'Invalid candle data',
+          insufficientData: true,
+        };
+      }
+
+      // Calculate Rate of Change over lookback periods
+      const rocPct = ((currentCandle.close - startCandle.close) / startCandle.close) * 100;
+      const absRocPct = Math.abs(rocPct);
+
+      // Wick Rejection calculation (bottom wick for LONG knife catch, top wick for SHORT knife catch)
+      const candleRange = Math.max(currentCandle.high - currentCandle.low, 0.00000001);
+      const lowerWick = Math.max(0, Math.min(currentCandle.open, currentCandle.close) - currentCandle.low);
+      const upperWick = Math.max(0, currentCandle.high - Math.max(currentCandle.open, currentCandle.close));
+      const lowerWickRatio = lowerWick / candleRange;
+      const upperWickRatio = upperWick / candleRange;
+
+      let fired = false;
+      let description = '';
+
+      if (side === 'LONG') {
+        // Falling Knife Long Entry: Price plunged down by at least rocThresholdPct
+        const velocityFired = rocPct <= -rocThresholdPct;
+        const wickFired = lowerWickRatio >= wickRejectionPct;
+        fired = velocityFired && wickFired;
+        description = fired
+          ? `Falling Knife LONG detected: ROC ${rocPct.toFixed(2)}% <= -${rocThresholdPct}% with ${(lowerWickRatio * 100).toFixed(1)}% lower wick`
+          : `ROC ${rocPct.toFixed(2)}% (req <= -${rocThresholdPct}%) or lower wick ${(lowerWickRatio * 100).toFixed(1)}% (req >= ${(wickRejectionPct * 100).toFixed(1)}%) unsatisfied`;
+      } else if (side === 'SHORT') {
+        // Rising Knife Short Entry: Price spiked up by at least rocThresholdPct
+        const velocityFired = rocPct >= rocThresholdPct;
+        const wickFired = upperWickRatio >= wickRejectionPct;
+        fired = velocityFired && wickFired;
+        description = fired
+          ? `Rising Knife SHORT detected: ROC +${rocPct.toFixed(2)}% >= +${rocThresholdPct}% with ${(upperWickRatio * 100).toFixed(1)}% upper wick`
+          : `ROC +${rocPct.toFixed(2)}% (req >= +${rocThresholdPct}%) or upper wick ${(upperWickRatio * 100).toFixed(1)}% (req >= ${(wickRejectionPct * 100).toFixed(1)}%) unsatisfied`;
+      } else {
+        // Unspecified side: Any extreme velocity burst
+        fired = absRocPct >= rocThresholdPct;
+        description = fired ? `Knife velocity burst detected: ROC ${rocPct.toFixed(2)}%` : `ROC ${rocPct.toFixed(2)}% below threshold`;
+      }
+
+      if (minimal) return fired;
+
+      return {
+        fired,
+        value: roundTo(absRocPct, 2),
+        threshold: rocThresholdPct,
+        unit: '%',
+        metric: 'Knife Catch',
+        description,
+      };
+    } catch (error) {
+      this.logger.debug(`Knife catch signal error: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        fired: false,
+        value: 0,
+        threshold: 0,
+        unit: '%',
+        metric: 'Knife Catch',
         description: 'Signal error',
       };
     }

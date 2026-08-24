@@ -32,6 +32,7 @@ export interface TradeSerializationDto {
   risk_usdt?: number;
   close_attempts?: number;
   close_blocked?: boolean;
+  is_knife?: boolean;
   est_pnl_to_realize?: number;
   est_pnl_source?: string;
   exit_rr?: number;
@@ -63,6 +64,7 @@ export interface TickTradeDto {
   entry_daily_change_pct?: number;
   close_attempts?: number;
   close_blocked?: boolean;
+  is_knife?: boolean;
   initial_risk_usdt?: number;
   risk_usdt?: number;
   est_pnl_to_realize?: number;

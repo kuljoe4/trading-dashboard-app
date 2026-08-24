@@ -494,6 +494,28 @@ export class SessionConfig {
 
   @IsBoolean()
   @IsOptional()
+  knife_trailing_enabled?: boolean = false;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.05)
+  @Max(10.0)
+  knife_trailing_distance_pct?: number = 0.5;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(10.0)
+  knife_auto_ratchet_be_rr?: number = 0.5;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.2)
+  @Max(20.0)
+  knife_auto_ratchet_lock_rr?: number = 1.0;
+
+  @IsBoolean()
+  @IsOptional()
   force_risk_release?: boolean = false;
 
   @IsBoolean()

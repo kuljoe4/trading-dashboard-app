@@ -119,6 +119,9 @@ export class TradeEntity {
   @Column({ default: false })
   is_reconciliation: boolean;
 
+  @Column({ default: false })
+  is_knife: boolean;
+
   @Column({ default: 0 })
   close_attempts: number;
 

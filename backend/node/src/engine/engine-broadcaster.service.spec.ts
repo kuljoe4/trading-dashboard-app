@@ -217,4 +217,53 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
         expect(result.trades[0]._thin).toBe(true);
       });
   });
+
+  describe('serializeStrategyGateStates & paused_strategies optimizations', () => {
+    it('should return frozen EMPTY_OBJECT when strategyGateStates is empty', () => {
+      sessionState.strategyGateStates = new Map();
+      const result = service.serializeStrategyGateStates();
+      expect(result).toEqual({});
+      expect(Object.isFrozen(result)).toBe(true);
+    });
+
+    it('should correctly format strategy gate states when map is populated', () => {
+      sessionState.strategyGateStates = new Map([
+        ['Strategy A', { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true }],
+        ['Strategy B', { gateState: null, gateReason: null, isAdaptiveTightened: false }],
+      ]);
+
+      const result = service.serializeStrategyGateStates();
+      expect(result).toEqual({
+        'Strategy A': { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true },
+        'Strategy B': { gateState: null, gateReason: null, isAdaptiveTightened: false },
+      });
+    });
+
+    it('should return frozen EMPTY_ARRAY when pausedStrategies is empty in broadcastTick', () => {
+      sessionState.pausedStrategies = new Set();
+      (service as any).lastTickTime = 0; // force broadcast
+      service.broadcastTick([], {} as any, [], false, () => [], () => ({}));
+
+      const broadcastPayload = broadcastService.broadcast.mock.calls[0][1];
+      expect(broadcastPayload.paused_strategies).toEqual([]);
+      expect(Object.isFrozen(broadcastPayload.paused_strategies)).toBe(true);
+    });
+
+    it('benchmark: serializeStrategyGateStates 1,000,000 calls', () => {
+      sessionState.strategyGateStates = new Map([
+        ['Strategy 1', { gateState: 'max_trades', gateReason: 'Limit', isAdaptiveTightened: false }],
+        ['Strategy 2', { gateState: 'sl_guard', gateReason: 'Stop loss hit', isAdaptiveTightened: true }],
+      ]);
+
+      const iterations = 1000000;
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        service.serializeStrategyGateStates();
+      }
+      const end = performance.now();
+      const totalMs = end - start;
+      console.log(`[BENCHMARK] serializeStrategyGateStates ${iterations} calls: ${totalMs.toFixed(2)}ms (${((totalMs / iterations) * 1000000).toFixed(2)}ns/call)`);
+      expect(totalMs).toBeGreaterThan(0);
+    });
+  });
 });

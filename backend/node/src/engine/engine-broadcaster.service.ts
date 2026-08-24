@@ -12,6 +12,10 @@ import { PositionTrackerService } from './positionTracker';
 import { TradeSerializationDto, TickTradeDto } from '../trading/dto/trade-serialization.dto';
 import { roundEight, roundTo } from '../lib/math';
 
+// BOLT OPTIMIZATION: Module-level static frozen constants to eliminate GC allocations on hot broadcast paths
+const EMPTY_ARRAY: any[] = Object.freeze([]) as unknown as any[];
+const EMPTY_OBJECT: Readonly<Record<string, any>> = Object.freeze({});
+
 @Injectable()
 export class EngineBroadcasterService {
   private readonly logger = new Logger(EngineBroadcasterService.name);
@@ -43,6 +47,24 @@ export class EngineBroadcasterService {
    */
   private getStrategyLabel(c: Partial<SessionConfig> | null | undefined): string {
     return (c?.strategy_label || 'Momentum Strategy').toString();
+  }
+
+  /**
+   * BOLT OPTIMIZATION: Single-pass serialization of strategy gate states to eliminate intermediate array and tuple allocations.
+   */
+  public serializeStrategyGateStates(): Record<string, any> {
+    const map = this.sessionState.strategyGateStates;
+    if (!map || map.size === 0) return EMPTY_OBJECT;
+
+    const res: Record<string, any> = {};
+    for (const [k, v] of map.entries()) {
+      res[k] = {
+        gateState: v?.gateState || null,
+        gateReason: v?.gateReason || null,
+        isAdaptiveTightened: v?.isAdaptiveTightened || false,
+      };
+    }
+    return res;
   }
 
   /**
@@ -219,8 +241,8 @@ export class EngineBroadcasterService {
       min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       strategy_config: trade.strategy_config,
-      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || []),
-      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || []),
+      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
+      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
       exit_signal_logic: trade.strategy_config?.exit_signal_logic || config?.exit_signal_logic || 'any',
       tp_mode: trade.strategy_config?.tp_mode || config?.tp_mode || 'fixed',
       tp_ratio: trade.strategy_config?.tp_ratio || config?.tp_ratio || 2,
@@ -305,8 +327,8 @@ export class EngineBroadcasterService {
       _thin: true,
       _sl_len: trade.sl_adjustments?.length || 0,
       _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
-      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || []),
-      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || []),
+      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
+      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
     };
   }
 
@@ -609,14 +631,10 @@ export class EngineBroadcasterService {
       hibernation_mode: config.hibernation_mode || 'adaptive',
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,
-      paused_strategies: Array.from(this.sessionState.pausedStrategies || []),
-      strategy_gate_states: Object.fromEntries(
-        Array.from((this.sessionState.strategyGateStates || new Map()).entries()).map(([k, v]) => [k, {
-          gateState: v?.gateState || null,
-          gateReason: v?.gateReason || null,
-          isAdaptiveTightened: v?.isAdaptiveTightened || false
-        }])
-      ),
+      paused_strategies: (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.size > 0)
+        ? Array.from(this.sessionState.pausedStrategies)
+        : EMPTY_ARRAY,
+      strategy_gate_states: this.serializeStrategyGateStates(),
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       activeWindows: getActiveWindows(),
       rateLimit: getBinanceRateLimit(),

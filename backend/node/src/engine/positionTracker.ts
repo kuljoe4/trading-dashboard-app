@@ -716,7 +716,42 @@ export class PositionTrackerService {
     // Feature: Option to release risk lock when estimated exit floor PnL (trade.est_pnl_to_realize) is at or above breakeven (>= 0)
     const activeConfig = config || trade.strategy_config;
     if (!isBreakevenOrBetter && activeConfig?.release_risk_on_est_pnl_be) {
-      if (trade.est_pnl_to_realize !== undefined && trade.est_pnl_to_realize >= 0) {
+      let estPnl = trade.est_pnl_to_realize;
+      if (estPnl === undefined) {
+        const mark = currentPrice || this.tickerCache.getPrice(trade.symbol) || trade.mark_price || trade.last_price || trade.entry_price;
+        if (mark && trade.entry_price && trade.qty) {
+          const isLong = trade.direction === 'LONG';
+          const currentUnrealizedPnl = isLong ? (mark - trade.entry_price) * trade.qty : (trade.entry_price - mark) * trade.qty;
+          const slPrice = trade.current_sl || trade.sl_price || 0;
+          let maxEstPnl = slPrice > 0 ? (isLong ? (slPrice - trade.entry_price) * trade.qty : (trade.entry_price - slPrice) * trade.qty) : -Infinity;
+
+          if (trade.exit_signals_status) {
+            for (const [key, status] of Object.entries(trade.exit_signals_status)) {
+              const sigStatus = status as any;
+              if (!sigStatus) continue;
+              const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+              if (isDelayActive) continue;
+
+              let sigPnl: number | null = null;
+              if (sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+                sigPnl = isLong ? (sigStatus.threshold - trade.entry_price) * trade.qty : (trade.entry_price - sigStatus.threshold) * trade.qty;
+              } else if (sigStatus.fired && sigStatus.active) {
+                sigPnl = currentUnrealizedPnl;
+              }
+
+              if (sigPnl !== null && sigPnl > maxEstPnl) {
+                maxEstPnl = sigPnl;
+              }
+            }
+          }
+          if (maxEstPnl !== -Infinity) {
+            estPnl = Math.min(maxEstPnl, currentUnrealizedPnl);
+            trade.est_pnl_to_realize = estPnl;
+          }
+        }
+      }
+
+      if (estPnl !== undefined && estPnl >= 0) {
         isBreakevenOrBetter = true;
       }
     }

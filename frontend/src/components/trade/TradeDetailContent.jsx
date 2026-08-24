@@ -558,132 +558,100 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
           const isFired = s.fired && s.active
           const threshold = Number(s.threshold) || 0
 
-          // Estimated PnL at trigger
-          const estPnl = s.threshold_is_price
+          // Estimated PnL at trigger (capped at current unrealized live PnL to align with backend realizable exit PnL)
+          const rawEstPnl = s.threshold_is_price
             ? (threshold - entryPrice) * qty * (isLong ? 1 : -1)
             : null;
+          const livePnl = (mark && entryPrice && qty)
+            ? (mark - entryPrice) * qty * (isLong ? 1 : -1)
+            : null;
+          const estPnl = (rawEstPnl !== null && livePnl !== null)
+            ? Math.min(rawEstPnl, livePnl)
+            : rawEstPnl;
           const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null;
 
           const { timeframe, params } = getSignalInfo(key, trade.strategy_config);
 
           return (
-            <div key={key} className="space-y-1 md:space-y-3 p-2 bg-white/[0.01] border border-white/[0.02] rounded-xl hover:bg-white/[0.02] hover:border-white/[0.05] transition-all">
-              <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
-                <div className="flex items-center gap-1.5 md:gap-2">
-                  <span className={isFired ? "text-red font-black" : s.fired ? "text-amber font-bold" : "text-dim"}>{s.label || key}</span>
-                  <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
-                    {timeframe}
-                  </span>
-                  {isFired && (
-                    <span className="bg-red/20 text-red border border-red/30 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 animate-pulse shadow-[0_0_8px_rgba(255,68,102,0.3)]">
-                      CROSSED / TRIGGERED
-                    </span>
-                  )}
-                  {s.insufficientData ? (
-                    <span className="text-dim bg-background/50 border border-border/40 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
-                      Collecting
-                    </span>
-                  ) : s.remaining_delay > 0 && !isFired && (
-                    <div className={cn(
-                      "flex items-center gap-1 bg-amber/10 text-amber px-1 rounded transition-colors",
-                      interactiveEnabled ? "cursor-pointer hover:bg-amber/20" : "cursor-not-allowed opacity-80"
-                    )}>
-                      <Clock size={8} /> 
-                      {editingDelay === key && interactiveEnabled ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded px-1"
-                            value={tempDelay}
-                            onChange={(e) => setTempDelay(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)}
-                            aria-label={`Edit exit delay for ${s.label || key}`}
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateDelay(key, tempDelay)}
-                            className="text-green focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
-                            aria-label={`Save exit delay for ${s.label || key}`}
-                          >
-                            <CheckCircle2 size={10} />
-                          </button>
-                        </div>
-                      ) : (
-                        <span
-                          className={cn(interactiveEnabled ? "cursor-pointer hover:underline" : "cursor-not-allowed")}
-                          onClick={() => {
-                            if (!interactiveEnabled) return;
-                            setEditingDelay(key);
-                            setTempDelay(String(s.config_delay || Math.round(s.remaining_delay)));
-                          }}
-                        >
-                          {s.config_delay && typeof s.config_delay === 'string' && s.config_delay.endsWith('c')
-                            ? `${s.config_delay} (${formatDuration(s.remaining_delay * 1000)})`
-                            : formatDuration(s.remaining_delay * 1000)
-                          }
-                        </span>
-                      )}
-                      {editingDelay !== key && interactiveEnabled && (
+            <SignalGauge
+              key={key}
+              label={s.label || key}
+              value={s.value}
+              threshold={s.threshold}
+              unit={s.unit}
+              fired={s.fired}
+              active={s.active}
+              remainingDelay={s.remaining_delay}
+              configDelay={s.config_delay}
+              insufficientData={s.insufficientData}
+              thresholdIsPrice={s.threshold_is_price}
+              isLong={isLong}
+              entryPrice={entryPrice}
+              markPrice={mark}
+              qty={qty}
+              riskUsdt={riskUsdt}
+              type="exit"
+            >
+              {/* Delay control overrides and inline editing */}
+              {s.remaining_delay > 0 && !isFired && (
+                <div className="flex items-center justify-between text-[9px] font-mono mb-1.5">
+                  <span className="text-dim/60 font-black uppercase">Delay Override:</span>
+                  <div className={cn(
+                    "flex items-center gap-1 bg-amber/10 text-amber px-1.5 py-0.5 rounded border border-amber/20 transition-colors",
+                    interactiveEnabled ? "cursor-pointer hover:bg-amber/20" : "cursor-not-allowed opacity-80"
+                  )}>
+                    <Clock size={8} />
+                    {editingDelay === key && interactiveEnabled ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded px-1 text-[9px]"
+                          value={tempDelay}
+                          onChange={(e) => setTempDelay(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)}
+                          aria-label={`Edit exit delay for ${s.label || key}`}
+                          autoFocus
+                        />
                         <button
                           type="button"
-                          onClick={() => handleUpdateDelay(key, 0)}
-                          className="text-[7px] bg-red/20 px-1 rounded hover:bg-red/30 transition-colors focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
-                          aria-label={`Skip exit delay for ${s.label || key}`}
+                          onClick={() => handleUpdateDelay(key, tempDelay)}
+                          className="text-green focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
+                          aria-label={`Save exit delay for ${s.label || key}`}
                         >
-                          SKIP
+                          <CheckCircle2 size={10} />
                         </button>
-                      )}
-                    </div>
-                  )}
-                  <span className={cn(
-                    "md:hidden inline text-[8px] font-mono",
-                    isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
-                  )}>{s.insufficientData ? '---' : `${Number(s.progress || 0).toFixed(0)}%`}</span>
-                </div>
-                <div className="md:flex hidden items-center gap-2 font-mono">
-                  <span className="text-dim/60">Mark: {price(mark)}</span>
-                  <ArrowRight size={10} className="text-dim/40" />
-                  <span className={isFired ? "text-red" : "text-text"}>{price(threshold)}</span>
-                </div>
-              </div>
-
-              {/* Enhanced Proximity Bar (SignalGauge Style) */}
-              <div className="space-y-0.5 md:space-y-1.5">
-                <div className="h-1.5 md:h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${s.progress}%` }}
-                    transition={{ type: "spring", stiffness: 40, damping: 20 }}
-                    className={cn(
-                      "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
-                      isFired ? "bg-red shadow-[0_0_8px_rgba(255,68,102,0.4)]" : s.fired ? "bg-amber" : "bg-accent"
-                    )}
-                  />
-                </div>
-
-                <div className="flex justify-between items-center px-0.5 md:px-1">
-                   <div className="flex items-center gap-1.5 font-mono">
-                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline-block hidden">
-                        {s.insufficientData ? 'Collecting' : `${Number(s.progress || 0).toFixed(1)}% Proxy`}
-                      </span>
-                      <span className="text-[7.5px] md:text-[9px] text-dim/60">{price(mark)}</span>
-                      <ArrowRight size={8} className="text-dim/20" />
-                      <span className={cn("text-[7.5px] md:text-[9px]", isFired ? "text-red" : "text-text/80")}>{price(threshold)}</span>
-                   </div>
-                   {estPnl !== null && (
-                      <div className={cn(
-                        "text-[8px] md:text-[9px] font-mono font-black",
-                        estPnl >= 0 ? "text-green" : "text-red"
-                      )}>
-                        {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({Number(estRr || 0).toFixed(1)}R)
                       </div>
-                   )}
+                    ) : (
+                      <span
+                        className={cn(interactiveEnabled ? "cursor-pointer hover:underline" : "cursor-not-allowed")}
+                        onClick={() => {
+                          if (!interactiveEnabled) return;
+                          setEditingDelay(key);
+                          setTempDelay(String(s.config_delay || Math.round(s.remaining_delay)));
+                        }}
+                      >
+                        {s.config_delay && typeof s.config_delay === 'string' && s.config_delay.endsWith('c')
+                          ? `${s.config_delay} (${formatDuration(s.remaining_delay * 1000)})`
+                          : formatDuration(s.remaining_delay * 1000)
+                        }
+                      </span>
+                    )}
+                    {editingDelay !== key && interactiveEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateDelay(key, 0)}
+                        className="text-[7px] bg-red/20 px-1 rounded hover:bg-red/30 transition-colors focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                        aria-label={`Skip exit delay for ${s.label || key}`}
+                      >
+                        SKIP
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Technical signal parameters and relevant live details */}
-              <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-white/[0.03]">
+              <div className="flex flex-col gap-1">
                 {/* Parameters badges */}
                 {params.length > 0 && (
                   <div className="flex flex-wrap gap-1 items-center">

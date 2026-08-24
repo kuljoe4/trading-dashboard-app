@@ -106,4 +106,19 @@ test('calculateProximity unit tests', async (t) => {
     const res = calculateProximity(signal, 99.8, 0, true, true);
     assert.strictEqual(Math.round(res), 80);
   });
+
+  await t.test('handles dual EMA cross/close for live trades with non-zero entry price', () => {
+    const signal = {
+      key: 'ema_dual_cross',
+      value: 99.8,
+      threshold: 100.0,
+      metric: 'Exit EMA Dual',
+      fired: false,
+      threshold_is_price: true
+    };
+    // Even when entry is 90 and mark is 105, for an EMA dual cross signal, proximity evaluates Fast EMA vs Slow EMA convergence
+    // Spread = 0.2, MaxSpread = 1.0 -> 80%
+    const res = calculateProximity(signal, 105, 90, true, true);
+    assert.strictEqual(Math.round(res), 80);
+  });
 });

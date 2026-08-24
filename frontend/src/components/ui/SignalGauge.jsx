@@ -20,6 +20,7 @@ export const SignalGauge = React.memo(({
   markPrice,
   qty,
   riskUsdt,
+  children,
   type = 'entry' // 'entry' or 'exit'
 }) => {
   const isFired = fired && active
@@ -49,10 +50,16 @@ export const SignalGauge = React.memo(({
 
   const status = getStatus()
 
-  // Estimated PnL / RR for exit signals
-  const estPnl = (thresholdIsPrice && entryPrice && qty)
+  // Estimated PnL / RR for exit signals (capped at current unrealized live PnL to align with backend realizable exit PnL)
+  const rawEstPnl = (thresholdIsPrice && entryPrice && qty)
     ? (numThreshold - entryPrice) * qty * (isLong ? 1 : -1)
     : null
+  const livePnl = (markPrice && entryPrice && qty)
+    ? (markPrice - entryPrice) * qty * (isLong ? 1 : -1)
+    : null
+  const estPnl = (rawEstPnl !== null && livePnl !== null)
+    ? Math.min(rawEstPnl, livePnl)
+    : rawEstPnl
   const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null
 
   const content = (
@@ -132,6 +139,12 @@ export const SignalGauge = React.memo(({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {children && (
+        <div className="mt-2 pt-2 border-t border-border/30">
+          {children}
         </div>
       )}
     </div>

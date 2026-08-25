@@ -572,7 +572,9 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
 
   const exitRrDistribution = useMemo(() => {
     let rangeMinusToZero = 0;
-    let rangeZeroToOne = 0;
+    let rangeZeroToQuarter = 0;
+    let rangeQuarterToHalf = 0;
+    let rangeHalfToOne = 0;
     let rangeOneToTwo = 0;
     let rangeTwoToThree = 0;
     let rangeThreePlus = 0;
@@ -581,8 +583,12 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       const err = Number(t.exit_rr ?? 0);
       if (err <= 0) {
         rangeMinusToZero++;
-      } else if (err > 0 && err <= 1.0) {
-        rangeZeroToOne++;
+      } else if (err > 0 && err <= 0.25) {
+        rangeZeroToQuarter++;
+      } else if (err > 0.25 && err <= 0.5) {
+        rangeQuarterToHalf++;
+      } else if (err > 0.5 && err <= 1.0) {
+        rangeHalfToOne++;
       } else if (err > 1.0 && err <= 2.0) {
         rangeOneToTwo++;
       } else if (err > 2.0 && err <= 3.0) {
@@ -595,7 +601,9 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     const total = trades.length || 1;
     return [
       { label: '≤ 0 R', count: rangeMinusToZero, pct: ((rangeMinusToZero / total) * 100).toFixed(1), color: 'text-red bg-red/10 border-red/20' },
-      { label: '0 to 1 R', count: rangeZeroToOne, pct: ((rangeZeroToOne / total) * 100).toFixed(1), color: 'text-dim bg-background/20 border-border/20' },
+      { label: '0 to 0.25 R', count: rangeZeroToQuarter, pct: ((rangeZeroToQuarter / total) * 100).toFixed(1), color: 'text-dim bg-background/20 border-border/20' },
+      { label: '0.25 to 0.5 R', count: rangeQuarterToHalf, pct: ((rangeQuarterToHalf / total) * 100).toFixed(1), color: 'text-amber bg-amber/10 border-amber/20' },
+      { label: '0.5 to 1 R', count: rangeHalfToOne, pct: ((rangeHalfToOne / total) * 100).toFixed(1), color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
       { label: '1 to 2 R', count: rangeOneToTwo, pct: ((rangeOneToTwo / total) * 100).toFixed(1), color: 'text-accent bg-accent/10 border-accent/20' },
       { label: '2 to 3 R', count: rangeTwoToThree, pct: ((rangeTwoToThree / total) * 100).toFixed(1), color: 'text-green bg-green/10 border-green/20' },
       { label: '3R +', count: rangeThreePlus, pct: ((rangeThreePlus / total) * 100).toFixed(1), color: 'text-purple bg-purple/10 border-purple/20' },
@@ -678,28 +686,28 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       <div className="flex items-center gap-3 sm:gap-4 w-full">
         <input
           type="range"
-          min="0.5"
+          min="0.1"
           max="6.0"
           step="0.1"
           value={targetRr}
           onChange={(e) => setTargetRr(Number(e.target.value))}
           aria-label="Target Risk-to-Reward Ratio"
-          aria-valuemin="0.5"
+          aria-valuemin="0.1"
           aria-valuemax="6.0"
           aria-valuenow={targetRr}
           className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         <div className="flex items-center gap-1.5 shrink-0">
           <button
-            onClick={() => setTargetRr(prev => Math.max(0.5, Number((prev - 0.5).toFixed(1))))}
-            aria-label="Decrease target Risk-to-Reward ratio by 0.5"
+            onClick={() => setTargetRr(prev => Math.max(0.1, Number((prev <= 0.5 ? prev - 0.1 : prev - 0.5).toFixed(1))))}
+            aria-label="Decrease target Risk-to-Reward ratio"
             className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             -
           </button>
           <button
-            onClick={() => setTargetRr(prev => Math.min(6.0, Number((prev + 0.5).toFixed(1))))}
-            aria-label="Increase target Risk-to-Reward ratio by 0.5"
+            onClick={() => setTargetRr(prev => Math.min(6.0, Number((prev < 0.5 ? prev + 0.1 : prev + 0.5).toFixed(1))))}
+            aria-label="Increase target Risk-to-Reward ratio"
             className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             +
@@ -796,7 +804,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       {/* Exit RR Frequency Distribution */}
       <div className="pt-2.5 border-t border-border/10 flex flex-col gap-1.5">
         <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none">Exit RR Distribution Frequency</span>
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-1">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 mt-1">
           {exitRrDistribution.map((dist, idx) => (
             <div key={idx} className={cn("p-1.5 rounded-lg border flex flex-col justify-between gap-1", dist.color.split(' ')[1], dist.color.split(' ')[2])}>
               <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-wider">

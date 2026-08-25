@@ -5,14 +5,14 @@ export const THEMES = {
     colors: {
       '--color-background-theme': '#080b0f',
       '--color-surface-theme': '#0d1117',
-      '--color-accent-theme': '#5b6fff',
+      '--color-accent-theme': '#6378ff',
       '--color-green-theme': '#00e5a0',
       '--color-red-theme': '#ff4466',
       '--color-amber-theme': '#f5a623',
       '--color-text-theme': '#f0f3f8',
-      '--color-dim-theme': '#8ba1c1',
-      '--color-border-theme': '#1e293b',
-      '--color-border-hover-theme': '#334155',
+      '--color-dim-theme': '#9ab2d6',
+      '--color-border-theme': '#24344d',
+      '--color-border-hover-theme': '#3b4e6b',
     }
   },
   slateDim: {
@@ -26,9 +26,9 @@ export const THEMES = {
       '--color-red-theme': '#e0245e',
       '--color-amber-theme': '#ffad1f',
       '--color-text-theme': '#ffffff',
-      '--color-dim-theme': '#8899a6',
-      '--color-border-theme': '#253341',
-      '--color-border-hover-theme': '#38444d',
+      '--color-dim-theme': '#a0b3c6',
+      '--color-border-theme': '#2e3f52',
+      '--color-border-hover-theme': '#415469',
     }
   },
   coolGray: {
@@ -42,9 +42,9 @@ export const THEMES = {
       '--color-red-theme': '#ef4444',
       '--color-amber-theme': '#f59e0b',
       '--color-text-theme': '#f3f4f6',
-      '--color-dim-theme': '#9ca3af',
-      '--color-border-theme': '#374151',
-      '--color-border-hover-theme': '#4b5563',
+      '--color-dim-theme': '#b0b7c3',
+      '--color-border-theme': '#3e4856',
+      '--color-border-hover-theme': '#525e70',
     }
   },
   cyberpunk: {
@@ -53,14 +53,14 @@ export const THEMES = {
     colors: {
       '--color-background-theme': '#0c0714',
       '--color-surface-theme': '#140e24',
-      '--color-accent-theme': '#d946ef',
+      '--color-accent-theme': '#e855ff',
       '--color-green-theme': '#10b981',
       '--color-red-theme': '#ef4444',
       '--color-amber-theme': '#f59e0b',
       '--color-text-theme': '#f5f3f7',
-      '--color-dim-theme': '#a78bfa',
-      '--color-border-theme': '#3b0764',
-      '--color-border-hover-theme': '#6b21a8',
+      '--color-dim-theme': '#c4b5fd',
+      '--color-border-theme': '#4c0f82',
+      '--color-border-hover-theme': '#7e22ce',
     }
   },
   forest: {
@@ -74,9 +74,9 @@ export const THEMES = {
       '--color-red-theme': '#f87171',
       '--color-amber-theme': '#fbbf24',
       '--color-text-theme': '#f0f7f4',
-      '--color-dim-theme': '#86a397',
-      '--color-border-theme': '#1d2c25',
-      '--color-border-hover-theme': '#2d4338',
+      '--color-dim-theme': '#9ebbb0',
+      '--color-border-theme': '#273c33',
+      '--color-border-hover-theme': '#3a564a',
     }
   },
   ocean: {
@@ -90,9 +90,9 @@ export const THEMES = {
       '--color-red-theme': '#f43f5e',
       '--color-amber-theme': '#f59e0b',
       '--color-text-theme': '#f1f7fa',
-      '--color-dim-theme': '#80a5b8',
-      '--color-border-theme': '#153043',
-      '--color-border-hover-theme': '#204a67',
+      '--color-dim-theme': '#9ac2d6',
+      '--color-border-theme': '#1f425c',
+      '--color-border-hover-theme': '#2e6085',
     }
   },
   carbon: {
@@ -105,10 +105,10 @@ export const THEMES = {
       '--color-green-theme': '#10b981',
       '--color-red-theme': '#ef4444',
       '--color-amber-theme': '#f59e0b',
-      '--color-text-theme': '#ededed',
-      '--color-dim-theme': '#888888',
-      '--color-border-theme': '#2e2e2e',
-      '--color-border-hover-theme': '#444444',
+      '--color-text-theme': '#ffffff',
+      '--color-dim-theme': '#aaaaaa',
+      '--color-border-theme': '#3a3a3a',
+      '--color-border-hover-theme': '#555555',
     }
   },
   light: {
@@ -117,14 +117,14 @@ export const THEMES = {
     colors: {
       '--color-background-theme': '#f4f6fa',
       '--color-surface-theme': '#ffffff',
-      '--color-accent-theme': '#2563eb',
-      '--color-green-theme': '#059669',
-      '--color-red-theme': '#dc2626',
-      '--color-amber-theme': '#d97706',
+      '--color-accent-theme': '#1d4ed8',
+      '--color-green-theme': '#047857',
+      '--color-red-theme': '#b91c1c',
+      '--color-amber-theme': '#b45309',
       '--color-text-theme': '#0f172a',
-      '--color-dim-theme': '#475569',
-      '--color-border-theme': '#e2e8f0',
-      '--color-border-hover-theme': '#cbd5e1',
+      '--color-dim-theme': '#334155',
+      '--color-border-theme': '#cbd5e1',
+      '--color-border-hover-theme': '#94a3b8',
     }
   },
   warmCream: {
@@ -133,14 +133,14 @@ export const THEMES = {
     colors: {
       '--color-background-theme': '#faf8f5',
       '--color-surface-theme': '#ffffff',
-      '--color-accent-theme': '#b45309',
+      '--color-accent-theme': '#92400e',
       '--color-green-theme': '#047857',
-      '--color-red-theme': '#b91c1c',
-      '--color-amber-theme': '#d97706',
-      '--color-text-theme': '#292524',
-      '--color-dim-theme': '#78716c',
-      '--color-border-theme': '#e7e5e4',
-      '--color-border-hover-theme': '#d6d3d1',
+      '--color-red-theme': '#991b1b',
+      '--color-amber-theme': '#b45309',
+      '--color-text-theme': '#1c1917',
+      '--color-dim-theme': '#57534e',
+      '--color-border-theme': '#d6d3d1',
+      '--color-border-hover-theme': '#a8a29e',
     }
   }
 };

@@ -262,6 +262,17 @@ findings:
     notes: "Custom Radix switches and environment selections lack focus-visible rings."
     recommendation: "Enforce custom focus-visible:ring-2 styles on all toggle switches and environment buttons."
 
+  - id: UX-029
+    status: resolved
+    severity: high
+    category: accessibility
+    screens:
+      - global
+      - settings
+      - active-trade-card
+    notes: "Dim font contrast ratio in several light and dark themes fell below WCAG 2.1 AA standards (4.5:1 ratio)."
+    recommendation: "Boosted theme color tokens for dim text (--color-dim-theme) and border colors across all 9 theme presets in theme.js, and upgraded low-opacity text references."
+
 design_decisions:
   - DD-001: "Operator Cockpit vision - prioritize information density and real-time awareness over marketing aesthetics."
   - DD-002: "WebSocket-first data flow with delta merging to minimize network egress while keeping UI fresh."

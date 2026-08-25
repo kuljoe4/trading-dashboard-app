@@ -2436,8 +2436,8 @@ export class OrderManagerService {
                       const isInitial = Math.abs(parseFloat(orderData.stopPrice || orderData.triggerPrice || '0') - trade.initial_sl) < trade.initial_sl * 0.0001;
                       const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
-                      // BOLT: Explicitly map milestone-based SLs to TRAILING_STOP for better UI awareness
-                      if (!isInitial && slType.includes('milestone')) {
+                      // Explicitly preserve slType (e.g. SL_HIT_M1, SL_HIT_BREAKEVEN, SL_HIT_TRAILING_STOP)
+                      if (!isInitial && (slType === 'TRAILING_STOP' || slType === 'trailing')) {
                         reason = EXIT_REASONS.TRAILING_STOP;
                       } else {
                         reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
@@ -2469,11 +2469,18 @@ export class OrderManagerService {
                          this.logger.log(`[Sync] Fallback to generic SIGNAL exit reason.`);
                       }
                    } else {
-                      // BOLT: Distinguish TRAILING_STOP from initial SL hits
+                      // Distinguish adjusted SL from initial SL hits
                       const currentExchangeSl = parseFloat(orderData.stopPrice || orderData.triggerPrice || '0');
                       const initialSl = Number(trade.initial_sl);
-                      if (currentExchangeSl > 0 && initialSl > 0 && Math.abs(currentExchangeSl - initialSl) > initialSl * 0.0001) {
-                        reason = EXIT_REASONS.TRAILING_STOP;
+                      const isInitial = Math.abs(currentExchangeSl - initialSl) <= initialSl * 0.0001;
+                      const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+
+                      if (currentExchangeSl > 0 && initialSl > 0 && !isInitial) {
+                        if (slType === 'TRAILING_STOP' || slType === 'trailing') {
+                          reason = EXIT_REASONS.TRAILING_STOP;
+                        } else {
+                          reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                        }
                       } else {
                         reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                       }
@@ -2488,7 +2495,7 @@ export class OrderManagerService {
                          const isInitial = Math.abs(currentSl - initialSl) < initialSl * 0.0001;
                          const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
-                         if (!isInitial && slType.includes('milestone')) {
+                         if (!isInitial && (slType === 'TRAILING_STOP' || slType === 'trailing')) {
                             reason = EXIT_REASONS.TRAILING_STOP;
                          } else {
                             reason = `${EXIT_REASONS.SL_HIT}_${slType}`;

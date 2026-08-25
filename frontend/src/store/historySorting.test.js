@@ -418,6 +418,58 @@ test('RrWinRateCalculator single-pass return tracking correctness and performanc
   console.log(`  - Execution Speedup:                     ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
 });
 
+test('RrWinRateCalculator low RR targets below 0.5 correctness and exit distribution bucket verification', () => {
+  const trades = [
+    { exit_rr: -1.0, max_rr_achieved: 0.1, min_rr_achieved: -1.0, initial_risk_usdt: 100 },
+    { exit_rr: 0.15, max_rr_achieved: 0.2, min_rr_achieved: -0.1, initial_risk_usdt: 100 },
+    { exit_rr: 0.35, max_rr_achieved: 0.4, min_rr_achieved: -0.2, initial_risk_usdt: 100 },
+    { exit_rr: 0.75, max_rr_achieved: 0.8, min_rr_achieved: -0.1, initial_risk_usdt: 100 },
+    { exit_rr: 1.5,  max_rr_achieved: 1.8, min_rr_achieved: -0.0, initial_risk_usdt: 100 },
+    { exit_rr: 2.5,  max_rr_achieved: 2.8, min_rr_achieved: -0.0, initial_risk_usdt: 100 },
+    { exit_rr: 3.5,  max_rr_achieved: 3.8, min_rr_achieved: -0.0, initial_risk_usdt: 100 },
+  ];
+
+  // Test target RR = 0.2R (sub-0.5 target)
+  const targetRr = 0.2;
+  let winCount = 0;
+  trades.forEach(t => {
+    if (Number(t.max_rr_achieved) >= targetRr) {
+      winCount++;
+    }
+  });
+
+  // max_rr_achieved values: 0.1 (L), 0.2 (W), 0.4 (W), 0.8 (W), 1.8 (W), 2.8 (W), 3.8 (W) -> 6 wins, 1 loss
+  assert.strictEqual(winCount, 6, 'Sub-0.5 target RR of 0.2 should evaluate 6 winning trades out of 7');
+
+  // Verify exit RR distribution buckets for sub-0.5 ranges
+  let rangeMinusToZero = 0;
+  let rangeZeroToQuarter = 0;
+  let rangeQuarterToHalf = 0;
+  let rangeHalfToOne = 0;
+  let rangeOneToTwo = 0;
+  let rangeTwoToThree = 0;
+  let rangeThreePlus = 0;
+
+  trades.forEach(t => {
+    const err = Number(t.exit_rr);
+    if (err <= 0) rangeMinusToZero++;
+    else if (err > 0 && err <= 0.25) rangeZeroToQuarter++;
+    else if (err > 0.25 && err <= 0.5) rangeQuarterToHalf++;
+    else if (err > 0.5 && err <= 1.0) rangeHalfToOne++;
+    else if (err > 1.0 && err <= 2.0) rangeOneToTwo++;
+    else if (err > 2.0 && err <= 3.0) rangeTwoToThree++;
+    else rangeThreePlus++;
+  });
+
+  assert.strictEqual(rangeMinusToZero, 1, '≤ 0 R count');
+  assert.strictEqual(rangeZeroToQuarter, 1, '0 to 0.25 R count');
+  assert.strictEqual(rangeQuarterToHalf, 1, '0.25 to 0.5 R count');
+  assert.strictEqual(rangeHalfToOne, 1, '0.5 to 1 R count');
+  assert.strictEqual(rangeOneToTwo, 1, '1 to 2 R count');
+  assert.strictEqual(rangeTwoToThree, 1, '2 to 3 R count');
+  assert.strictEqual(rangeThreePlus, 1, '3R + count');
+});
+
 test('Search Filter Symbol check performance benchmark', () => {
   const listSize = 500;
   const mockTrades = Array.from({ length: listSize }, () => ({

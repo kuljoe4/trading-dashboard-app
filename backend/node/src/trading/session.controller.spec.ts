@@ -18,6 +18,7 @@ describe("SessionController", () => {
         {
           provide: SessionService,
           useValue: {
+            startSession: jest.fn().mockResolvedValue({ id: 'test-session-id' }),
             getTrade: jest.fn(),
             getHistory: jest.fn(),
             getLifetimeAnalytics: jest.fn(),
@@ -38,6 +39,52 @@ describe("SessionController", () => {
 
     controller = module.get<SessionController>(SessionController);
     sessionService = module.get<SessionService>(SessionService);
+    jest.clearAllMocks();
+  });
+
+  describe("startSession", () => {
+    it("should instantiate SessionConfig with plainToInstance when sessionId is provided", async () => {
+      const mockReq = { ip: "127.0.0.1", headers: {} } as any;
+      const rawConfig = { strategy_label: "Custom Strategy", scan_interval: "15m" };
+      const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+
+      await controller.startSession(
+        { config: rawConfig as any, paper_mode: true, sessionId },
+        mockReq,
+      );
+
+      expect(sessionService.startSession).toHaveBeenCalledTimes(1);
+      const [passedConfig, passedPaperMode, passedSessionId, passedIp] = (
+        sessionService.startSession as jest.Mock
+      ).mock.calls[0];
+
+      expect(passedConfig.constructor.name).toBe("SessionConfig");
+      expect(passedConfig.strategy_label).toBe("Custom Strategy");
+      expect(passedConfig.scan_interval).toBe("15m");
+      expect(passedPaperMode).toBe(true);
+      expect(passedSessionId).toBe(sessionId);
+      expect(passedIp).toBe("127.0.0.1");
+    });
+
+    it("should instantiate SessionConfig with plainToInstance when sessionId is not provided", async () => {
+      const mockReq = { ip: "127.0.0.1", headers: {} } as any;
+      const rawConfig = { strategy_label: "Default Strategy" };
+
+      await controller.startSession(
+        { config: rawConfig as any, paper_mode: false },
+        mockReq,
+      );
+
+      expect(sessionService.startSession).toHaveBeenCalledTimes(1);
+      const [passedConfig, passedPaperMode, passedSessionId] = (
+        sessionService.startSession as jest.Mock
+      ).mock.calls[0];
+
+      expect(passedConfig.constructor.name).toBe("SessionConfig");
+      expect(passedConfig.strategy_label).toBe("Default Strategy");
+      expect(passedPaperMode).toBe(false);
+      expect(passedSessionId).toBeUndefined();
+    });
   });
 
   describe("getHistory", () => {

@@ -32,20 +32,11 @@ export class SessionController {
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
 
-    if (body.sessionId) {
-      return this.sessionService.startSession(
-        body.config || ({} as any),
-        body.paper_mode ?? true,
-        body.sessionId,
-        clientIp,
-        userAgent,
-      );
-    }
     const config = plainToInstance(SessionConfig, body.config || {});
     return this.sessionService.startSession(
       config,
       body.paper_mode ?? true,
-      undefined,
+      body.sessionId,
       clientIp,
       userAgent,
     );

@@ -522,6 +522,13 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       sortinoRatio = downsideStdDev > 0 ? (meanReturn / downsideStdDev) : 0;
     }
 
+    // Profit Factor & Expectancy (R) calculations based on win rate W and target RR R
+    const lossCount = count - winCount;
+    const grossWins = winCount * targetRr;
+    const grossLosses = lossCount * 1.0;
+    const profitFactor = grossLosses > 0 ? (grossWins / grossLosses) : (grossWins > 0 ? 99.99 : 0);
+    const expectancyR = count > 0 ? ((calculatedWinRate * targetRr) - ((1 - calculatedWinRate) * 1.0)) : 0;
+
     // Streak Drawdown computation:
     const maxStreakDrawdownPct = usePctRisk
       ? (useCompounding
@@ -566,7 +573,9 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       maxLossStreak,
       maxStreakDrawdownPct: maxStreakDrawdownPct.toFixed(2),
       sharpeRatio: sharpeRatio.toFixed(2),
-      sortinoRatio: sortinoRatio.toFixed(2)
+      sortinoRatio: sortinoRatio.toFixed(2),
+      profitFactor: profitFactor.toFixed(2),
+      expectancyR: (expectancyR >= 0 ? '+' : '') + expectancyR.toFixed(2) + 'R'
     };
   }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
 
@@ -737,8 +746,24 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         </div>
       </div>
 
-      {/* Row 2: Analytical Ratios & MAE Drawdowns */}
+      {/* Row 2: Analytical Ratios & Profitability Metrics */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border/10">
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Profit Factor
+          </span>
+          <span className={cn("text-xs font-black font-mono tracking-tight truncate", Number(stats.profitFactor) >= 1.0 ? "text-green" : "text-red")}>
+            {stats.profitFactor}
+          </span>
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
+            Expectancy / Trade
+          </span>
+          <span className={cn("text-xs font-black font-mono tracking-tight truncate", stats.expectancyR.startsWith('+') ? "text-green" : "text-red")}>
+            {stats.expectancyR}
+          </span>
+        </div>
         <div className="flex flex-col min-w-0">
           <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
             Sharpe Ratio
@@ -747,28 +772,12 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
             {stats.sharpeRatio}
           </span>
         </div>
-        <div className="flex flex-col min-w-0">
+        <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0">
           <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
             Sortino Ratio
           </span>
           <span className="text-xs font-black font-mono tracking-tight text-accent truncate">
             {stats.sortinoRatio}
-          </span>
-        </div>
-        <div className="flex flex-col min-w-0">
-          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
-            Win MAE (Avg)
-          </span>
-          <span className="text-xs font-black font-mono tracking-tight text-dim truncate">
-            {Number(stats.avgWinMae).toFixed(2)}R
-          </span>
-        </div>
-        <div className="flex flex-col items-start sm:items-end text-left sm:text-right min-w-0">
-          <span className="text-[7.5px] text-dim font-black uppercase tracking-widest leading-none mb-1 flex items-center gap-1">
-            Loss MAE (Avg)
-          </span>
-          <span className="text-xs font-black font-mono tracking-tight text-red truncate">
-            {Number(stats.avgLossMae).toFixed(2)}R
           </span>
         </div>
       </div>

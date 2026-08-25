@@ -248,7 +248,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       <div className="flex flex-col gap-2.5">
         <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-dim leading-none">
           <div className="flex items-center gap-1 min-w-0">
-            <span className="text-dim/60">Live Mark:</span>
+            <span className="text-dim/80">Live Mark:</span>
             <span className="font-mono text-text/90 font-bold">{fmtUSD(mark)}</span>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
@@ -266,7 +266,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 </span>
               </Tooltip>
             )}
-            <span className="text-dim/50">Exit Guard:</span>
+            <span className="text-dim/80">Exit Guard:</span>
             <span className={cn(
               "px-1.5 py-0.5 rounded text-[8px] font-mono font-black uppercase tracking-tighter shrink-0",
               isSignalWinning

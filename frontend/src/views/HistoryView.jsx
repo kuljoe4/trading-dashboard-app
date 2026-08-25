@@ -374,6 +374,7 @@ TradeItem.displayName = 'TradeItem'
 
 // Interactive High-Performance RR Win Rate & Simulated P&L Calculator
 export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initialStartingBalance = 10000 }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
   const [targetRr, setTargetRr] = useState(2.0);
   const [projectedTrades, setProjectedTrades] = useState(50);
   const [startingBalance, setStartingBalance] = useState(initialStartingBalance);
@@ -622,14 +623,33 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
       {/* Responsive Header Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
+      <div className="flex items-center justify-between gap-3 w-full cursor-pointer select-none" onClick={() => setIsExpanded(prev => !prev)}>
         <div className="flex flex-col min-w-0">
-          <span className="text-[10px] text-dim font-black uppercase tracking-widest truncate">Predictive RR Target Calculator</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-dim font-black uppercase tracking-widest truncate">Predictive RR Target Calculator</span>
+            <span className="text-[9px] text-dim/70 font-bold bg-background/50 border border-border/40 px-1.5 py-0.5 rounded">
+              {isExpanded ? 'Hide' : 'Show'}
+            </span>
+          </div>
           <span className="text-[8.5px] text-dim/60 font-medium mt-0.5 leading-tight">Simulate win rate and P&L at custom Reward-to-Risk ratios</span>
         </div>
 
-        {/* Dynamic starting balance input & Target badge container */}
-        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap justify-between sm:justify-end shrink-0">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setIsExpanded(prev => !prev); }}
+          className="p-1 rounded hover:bg-border/30 text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none cursor-pointer shrink-0"
+          aria-label={isExpanded ? 'Collapse calculator' : 'Expand calculator'}
+        >
+          <svg className={cn("w-4 h-4 transition-transform duration-200", isExpanded && "transform rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+
+      {isExpanded && (
+      <>
+      {/* Configuration Controls Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-end gap-3 w-full shrink-0 border-b border-border/30 pb-3">
           <div className="flex items-center gap-1.5 bg-background/30 px-2 py-1 rounded border border-border/30">
             <input
               type="checkbox"
@@ -689,7 +709,6 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           <div className="bg-accent/10 border border-accent/20 px-2 py-1 rounded text-[10px] text-accent font-black font-mono shrink-0">
             {Number(targetRr).toFixed(1)}R Target
           </div>
-        </div>
       </div>
 
       <div className="flex items-center gap-3 sm:gap-4 w-full">
@@ -892,6 +911,8 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 });

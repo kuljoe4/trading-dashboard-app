@@ -2250,7 +2250,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
                 {renderField('Discovery Mode', 'discovery_mode', 'text', ['volume', 'change_pct'])}
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
-                {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                <Tooltip content="Number of recent candles evaluated for price momentum percentage change. Shorter lookback captures immediate price velocity, while longer lookback filters short-term wicks.">
+                  {renderField('Momentum Lookback', 'scan_lookback', 'number', null, { min: 1, max: 100 })}
+                </Tooltip>
+                <Tooltip content="CRITICAL FOR TARGET EXITS: Evaluates average candle range expansion over recent candles. A higher number of candles (e.g. recommended 48) is advised so volatility measurement is smooth and trades have sufficient price room to reach profit targets (TP/RR) and absorb spread/fees rather than stalling in consolidation.">
+                  {renderField('Volatility Lookback', 'volatility_lookback', 'number', null, { min: 1, max: 100 })}
+                </Tooltip>
+                <Tooltip content="Number of recent candles evaluated for consecutive close-to-close directional consistency. Ensures momentum moves have solid trend confirmation instead of single-wick noise.">
+                  {renderField('Trend Lookback', 'trend_lookback', 'number', null, { min: 2, max: 100 })}
+                </Tooltip>
                 <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
                   {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
                 </Tooltip>

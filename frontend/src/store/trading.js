@@ -9,10 +9,10 @@ const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 
 // Anti-flicker metric resolver: prevents transient 0/null/undefined payloads from zero-resetting active store values
-const resolveNonZeroMetric = (nextVal, currentVal, sessionActive) => {
+const resolveNonZeroMetric = (nextVal, currentVal, isResuming = false) => {
   if (nextVal !== undefined && nextVal !== null) {
     const num = toNumber(nextVal);
-    if (num !== 0 || !sessionActive || currentVal === 0) return num;
+    if (num !== 0 || !isResuming || currentVal === 0) return num;
     return currentVal;
   }
   return currentVal ?? 0;
@@ -117,7 +117,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   return res;
 }
 
-export const normalizeTrade = (t = {}, pt = null) => {
+export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
   if (!t || typeof t !== 'object') return null;
   const p = pt || {};
 
@@ -142,19 +142,40 @@ export const normalizeTrade = (t = {}, pt = null) => {
     const exit_ts_ms = exit_ts ? new Date(exit_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
     const entry_ts_ms = entry_ts ? new Date(entry_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
 
+    const rawPnl = t.pnl !== undefined ? toNumber(t.pnl) : p.pnl;
+    const pnl = resolveNonZeroMetric(rawPnl, p.pnl, isResuming);
+
+    const rawRr = t.rr !== undefined ? toNumber(t.rr) : p.rr;
+    const rr = resolveNonZeroMetric(rawRr, p.rr, isResuming);
+
+    const rawMaxRr = (t.max_rr !== undefined && t.max_rr !== null) ? toNumber(t.max_rr) : (t.max_rr_achieved !== undefined ? toNumber(t.max_rr_achieved) : p.max_rr);
+    const max_rr = resolveNonZeroMetric(rawMaxRr, p.max_rr, isResuming);
+
+    const rawMaxRrAchieved = (t.max_rr_achieved !== undefined && t.max_rr_achieved !== null) ? toNumber(t.max_rr_achieved) : (t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr_achieved);
+    const max_rr_achieved = resolveNonZeroMetric(rawMaxRrAchieved, p.max_rr_achieved, isResuming);
+
+    const rawEstPnl = t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize;
+    const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize, isResuming);
+
+    const rawExitRr = t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr;
+    const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr, isResuming);
+
+    const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved;
+    const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved, isResuming);
+
     return {
       ...p, ...t,
-      pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl,
+      pnl,
       pnl_pct: t.pnl_pct !== undefined ? toNumber(t.pnl_pct) : (p.pnl_pct !== undefined ? toNumber(p.pnl_pct) : calculatedPnlPct),
-      rr: t.rr !== undefined ? toNumber(t.rr) : p.rr,
+      rr,
       current_price: t.current_price !== undefined ? toNumber(t.current_price) : p.current_price,
       sl_price: t.sl_price !== undefined ? toNumber(t.sl_price) : p.sl_price,
-      max_rr: (t.max_rr !== undefined && t.max_rr !== null) ? toNumber(t.max_rr) : (t.max_rr_achieved !== undefined ? toNumber(t.max_rr_achieved) : p.max_rr),
-      max_rr_achieved: (t.max_rr_achieved !== undefined && t.max_rr_achieved !== null) ? toNumber(t.max_rr_achieved) : (t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr_achieved),
-      est_pnl_to_realize: t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize,
+      max_rr,
+      max_rr_achieved,
+      est_pnl_to_realize,
       est_pnl_source: t.est_pnl_source !== undefined ? t.est_pnl_source : p.est_pnl_source,
-      exit_rr: t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr,
-      min_rr_achieved: t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved,
+      exit_rr,
+      min_rr_achieved,
       entry_price: t.entry_price !== undefined ? toNumber(t.entry_price) : p.entry_price,
       qty: t.qty !== undefined ? toNumber(t.qty) : p.qty,
       exit_signals_status: sigStatus || p.exit_signals_status || {},
@@ -187,8 +208,25 @@ export const normalizeTrade = (t = {}, pt = null) => {
   const exit_ts_ms = exit_ts ? new Date(exit_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
   const entry_ts_ms = entry_ts ? new Date(entry_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
 
+  const rawPnl = t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0;
+  const pnl = resolveNonZeroMetric(rawPnl, p.pnl ?? 0, isResuming);
+
+  const rawRr = t.rr !== undefined ? toNumber(t.rr) : p.rr ?? 0;
+  const rr = resolveNonZeroMetric(rawRr, p.rr ?? 0, isResuming);
+
   const maxRrVal = toNumber(t.max_rr ?? t.max_rr_achieved ?? p.max_rr ?? p.max_rr_achieved ?? 0);
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl: t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0, pnl_pct: pnlPct, rr: (t.rr !== undefined) ? toNumber(t.rr) : p.rr ?? 0, max_rr: maxRrVal, est_pnl_to_realize: t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize ?? 0, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr: t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr ?? 0, min_rr_achieved: t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: maxRrVal, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f, exit_ts_ms, entry_ts_ms };
+  const max_rr = resolveNonZeroMetric(maxRrVal, p.max_rr ?? p.max_rr_achieved ?? 0, isResuming);
+
+  const rawEstPnl = t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize ?? 0;
+  const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize ?? 0, isResuming);
+
+  const rawExitRr = t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr ?? 0;
+  const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr ?? 0, isResuming);
+
+  const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0;
+  const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved ?? 0, isResuming);
+
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl, pnl_pct: pnlPct, rr, max_rr, est_pnl_to_realize, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr, min_rr_achieved, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: max_rr, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f, exit_ts_ms, entry_ts_ms };
 }
 
 const deepMerge = (target, source) => {
@@ -511,10 +549,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // Prevent metrics (P&L, balance, risk, SL used) from dropping to 0 or resetting
     // when backend emits transient zero/null/uninitialized state during reconnection or tab un-throttling.
     if (sessionCurrentlyActive && updates.status !== 'stopped' && updates.running !== false) {
-       merged.totalPnl = resolveNonZeroMetric(nextPnl, st.totalPnl, true);
-       merged.balance = resolveNonZeroMetric(updates.balance, st.balance, true);
-       merged.totalRiskPct = resolveNonZeroMetric(updates.totalRiskPct, st.totalRiskPct, true);
-       merged.totalSlUsed = resolveNonZeroMetric(updates.totalSlUsed, st.totalSlUsed, true);
+       merged.totalPnl = resolveNonZeroMetric(nextPnl, st.totalPnl, isResuming);
+       merged.balance = resolveNonZeroMetric(updates.balance, st.balance, isResuming);
+       merged.totalRiskPct = resolveNonZeroMetric(updates.totalRiskPct, st.totalRiskPct, isResuming);
+       merged.totalSlUsed = resolveNonZeroMetric(updates.totalSlUsed, st.totalSlUsed, isResuming);
     }
 
     if (isResuming && sessionCurrentlyActive) {
@@ -526,7 +564,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        // 2. Collection Persistence: hold trades/scanner results until non-empty data arrives
        if (Array.isArray(updates.activeTrades)) {
          if (updates.activeTrades.length > 0 || currentActiveTrades.length === 0) {
-           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), isResuming)).filter(Boolean);
          } else {
            merged.activeTrades = currentActiveTrades;
          }
@@ -545,15 +583,15 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        }
 
        if (Array.isArray(updates.tradeHistory)) {
-         merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
+         merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, isResuming)).filter(Boolean);
        } else if (currentTradeHistory.length > 0) {
          merged.tradeHistory = currentTradeHistory;
        }
     } else {
        // Normal merge with normalization when NOT in resumption window
-       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), false)).filter(Boolean);
        if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
-       if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t)).filter(Boolean);
+       if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, false)).filter(Boolean);
     }
 
     if (updates.config) merged.config = deepMerge(st.config, updates.config);
@@ -683,7 +721,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           else if (Array.isArray(d.activeTrades)) {
             if (d.activeTrades.length > 0) {
               const m = new Map(currentActiveTrades.map(t => [t.symbol, t]));
-              nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol))).filter(Boolean);
+              nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol), isResuming)).filter(Boolean);
             } else if (!isResuming) {
               // Authoritative clear when not in resumption window
               nt = [];
@@ -695,7 +733,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           // This allows session-specific updates without wiping global history.
           let nextHistory = currentTradeHistory;
           if (d.history && Array.isArray(d.history) && d.history.length > 0) {
-            const incoming = d.history.map(t => normalizeTrade(t)).filter(Boolean);
+            const incoming = d.history.map(t => normalizeTrade(t, null, isResuming)).filter(Boolean);
             const m = new Map(currentTradeHistory.map(t => [t.id, t]));
             incoming.forEach(t => m.set(t.id, t));
             nextHistory = Array.from(m.values()).sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0));
@@ -714,10 +752,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [],
             strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {},
             strategyId: d.strategyId || st.strategyId,
-            balance: resolveNonZeroMetric(d.balance, st.balance, nextActiveSession),
-            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, nextActiveSession),
-            totalRiskPct: resolveNonZeroMetric(d.totalRiskPct, st.totalRiskPct, nextActiveSession),
-            totalSlUsed: resolveNonZeroMetric(d.totalSlUsed, st.totalSlUsed, nextActiveSession),
+            balance: resolveNonZeroMetric(d.balance, st.balance, isResuming),
+            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, isResuming),
+            totalRiskPct: resolveNonZeroMetric(d.totalRiskPct, st.totalRiskPct, isResuming),
+            totalSlUsed: resolveNonZeroMetric(d.totalSlUsed, st.totalSlUsed, isResuming),
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
@@ -755,7 +793,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           if (Array.isArray(d.trades)) {
             if (d.trades.length > 0) {
               const m = new Map(currentActiveTrades.map(t => [t.id, t]));
-              d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p); if (n) m.set(t.id, n); });
+              d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p, isResuming); if (n) m.set(t.id, n); });
               if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
               nt = Array.from(m.values());
             } else if (!isResuming) {
@@ -779,11 +817,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
           return {
             lastAuthoritativeUpdateTs: nowTs,
-            balance: resolveNonZeroMetric(d.balance, st.balance, st.sessionActive),
-            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, st.sessionActive),
-            totalRiskPct: resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, st.sessionActive),
-            totalSlUsed: resolveNonZeroMetric(d.total_sl_used, st.totalSlUsed, st.sessionActive),
-            totalEstPnlToRealize: resolveNonZeroMetric(d.total_est_pnl_to_realize, st.totalEstPnlToRealize, st.sessionActive),
+            balance: resolveNonZeroMetric(d.balance, st.balance, isResuming),
+            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, isResuming),
+            totalRiskPct: resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, isResuming),
+            totalSlUsed: resolveNonZeroMetric(d.total_sl_used, st.totalSlUsed, isResuming),
+            totalEstPnlToRealize: resolveNonZeroMetric(d.total_est_pnl_to_realize, st.totalEstPnlToRealize, isResuming),
             entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,

@@ -197,25 +197,36 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
   });
 
   describe('getFidelityTick', () => {
-    it('should skip stripping if trade is already _thin and not in focus', () => {
-      const thinTrade = { id: 't1', symbol: 'BTC', _thin: true, extra: 'should stay' };
+    it('should strip _sig_json from thin trades for low-fidelity clients', () => {
+      const thinTrade = { id: 't1', symbol: 'BTC', _thin: true, _sig_json: '{"s1":true}', extra: 'should stay' };
       const payload = { type: 'tick', trades: [thinTrade] };
       const client = { focusMode: false };
 
       const result = service.getFidelityTick(payload, client);
-      expect(result.trades[0]).toBe(thinTrade);
+      expect(result.trades[0]._sig_json).toBeUndefined();
       expect(result.trades[0].extra).toBe('should stay');
     });
 
-    it('should perform stripping if trade is NOT thin', () => {
-        const fatTrade = { id: 't1', symbol: 'BTC', strategy_config: {} };
-        const payload = { type: 'tick', trades: [fatTrade] };
-        const client = { focusMode: false };
+    it('should perform stripping of _sig_json and strategy_config if trade is NOT thin', () => {
+      const fatTrade = { id: 't1', symbol: 'BTC', _sig_json: '{"s1":true}', strategy_config: {} };
+      const payload = { type: 'tick', trades: [fatTrade] };
+      const client = { focusMode: false };
 
-        const result = service.getFidelityTick(payload, client);
-        expect(result.trades[0].strategy_config).toBeUndefined();
-        expect(result.trades[0]._thin).toBe(true);
-      });
+      const result = service.getFidelityTick(payload, client);
+      expect(result.trades[0].strategy_config).toBeUndefined();
+      expect(result.trades[0]._sig_json).toBeUndefined();
+      expect(result.trades[0]._thin).toBe(true);
+    });
+
+    it('should preserve full trade including _sig_json if client is focused on that specific trade ID', () => {
+      const trade = { id: 't1', symbol: 'BTC', _sig_json: '{"s1":true}', strategy_config: { k: 'v' } };
+      const payload = { type: 'tick', trades: [trade] };
+      const client = { focusMode: true, focusTradeId: 't1' };
+
+      const result = service.getFidelityTick(payload, client);
+      expect(result.trades[0]._sig_json).toBe('{"s1":true}');
+      expect(result.trades[0].strategy_config).toEqual({ k: 'v' });
+    });
   });
 
   describe('serializeStrategyGateStates & paused_strategies optimizations', () => {

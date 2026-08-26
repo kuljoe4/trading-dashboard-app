@@ -358,7 +358,10 @@ export class EngineBroadcasterService {
           return trade;
         }
 
-        if (isThin && !isMidFidelity) return trade;
+        if (isThin && !isMidFidelity) {
+          const { _sig_json, ...cleanThinTrade } = trade;
+          return cleanThinTrade;
+        }
 
         // Strip heavy diagnostics for everyone else
         const {
@@ -366,6 +369,7 @@ export class EngineBroadcasterService {
           live_rr_sequence,
           exit_rr_sequence,
           exit_signals_status,
+          _sig_json,
           sl_adjustments,
           tp_mode,
           tp_ratio,

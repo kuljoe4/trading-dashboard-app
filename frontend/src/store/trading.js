@@ -497,27 +497,39 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];
     const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
 
+    // BOLT: Anti-Flicker & Metric Retention Guard across all updates.
+    // Prevent metrics (P&L, balance, risk, SL used) from dropping to 0 or resetting
+    // when backend emits transient zero/null/uninitialized state during reconnection or tab un-throttling.
+    if (sessionCurrentlyActive && updates.status !== 'stopped' && updates.running !== false) {
+       if (nextPnl === 0 && st.totalPnl !== 0) merged.totalPnl = st.totalPnl;
+       if (updates.balance === 0 && st.balance !== 0) merged.balance = st.balance;
+       if (updates.totalRiskPct === 0 && st.totalRiskPct !== 0) merged.totalRiskPct = st.totalRiskPct;
+       if (updates.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
+    }
+
     if (isResuming && sessionCurrentlyActive) {
        // 1. Session Persistence Guard: ignore sessionActive: false unless backend explicitly says 'stopped'
        if (updates.sessionActive === false && updates.status !== 'stopped' && updates.running !== false) {
           merged.sessionActive = true;
        }
 
-       // 2. Metric Persistence: prevent flickering to 0 while backend reconciles
-       if (nextPnl === 0 && st.totalPnl !== 0) merged.totalPnl = st.totalPnl;
-       if (updates.balance === 0 && st.balance !== 0) merged.balance = st.balance;
-       if (updates.totalRiskPct === 0 && st.totalRiskPct !== 0) merged.totalRiskPct = st.totalRiskPct;
-       if (updates.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
-
-       // 3. Collection Persistence: hold trades/scanner results until non-empty data arrives
+       // 2. Collection Persistence: hold trades/scanner results until non-empty data arrives
        if (Array.isArray(updates.activeTrades)) {
-         merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+         if (updates.activeTrades.length > 0 || currentActiveTrades.length === 0) {
+           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol))).filter(Boolean);
+         } else {
+           merged.activeTrades = currentActiveTrades;
+         }
        } else if (currentActiveTrades.length > 0) {
          merged.activeTrades = currentActiveTrades;
        }
 
        if (Array.isArray(updates.scannerResults)) {
-         merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+         if (updates.scannerResults.length > 0 || currentScannerResults.length === 0) {
+           merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+         } else {
+           merged.scannerResults = currentScannerResults;
+         }
        } else if (currentScannerResults.length > 0) {
          merged.scannerResults = currentScannerResults;
        }
@@ -683,16 +695,17 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const nextPnl = d.totalPnl ?? d.total_pnl;
           const totalPnl = (isResuming && nextPnl === 0 && st.totalPnl !== 0) ? st.totalPnl : (nextPnl ?? st.totalPnl);
 
+          // Clear isSyncingOnResume after status is processed and valid data is hydrated
           return {
             sessionActive: d.running ?? d.status === 'started',
             sessionPaused: d.paused ?? st.sessionPaused,
             pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [],
             strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {},
             strategyId: d.strategyId || st.strategyId,
-            balance: d.balance ?? st.balance,
+            balance: (d.balance === 0 && st.balance !== 0) ? st.balance : (d.balance ?? st.balance),
             totalPnl,
-            totalRiskPct: d.totalRiskPct ?? st.totalRiskPct,
-            totalSlUsed: d.totalSlUsed ?? st.totalSlUsed,
+            totalRiskPct: (d.totalRiskPct === 0 && st.totalRiskPct !== 0) ? st.totalRiskPct : (d.totalRiskPct ?? st.totalRiskPct),
+            totalSlUsed: (d.totalSlUsed === 0 && st.totalSlUsed !== 0) ? st.totalSlUsed : (d.totalSlUsed ?? st.totalSlUsed),
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,

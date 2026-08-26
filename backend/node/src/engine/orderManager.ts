@@ -2054,16 +2054,46 @@ export class OrderManagerService {
     let exitTriggered = false;
     let exitSignalType: string | undefined;
 
+    const satisfiedActiveKeys = Object.keys(statuses).filter(k => statuses[k].fired && statuses[k].active);
+
     if (logic === 'any') {
-      exitTriggered = firedCount > 0;
+      exitTriggered = satisfiedActiveKeys.length > 0;
       if (exitTriggered) {
-        exitSignalType = Object.keys(statuses).find(k => statuses[k].fired && statuses[k].active);
+        exitSignalType = satisfiedActiveKeys[0];
       }
-    } else {
+    } else if (logic === 'all') {
       // 'all' logic: all signals must be active AND fired
-      exitTriggered = firedCount === allEnabled && activeCount === allEnabled;
+      exitTriggered = satisfiedActiveKeys.length === allEnabled;
       if (exitTriggered) {
         exitSignalType = 'combined';
+      }
+    } else if (logic === 'combo') {
+      const requiredConfigured = config.required_exit_signals || [];
+      let requiredSet: string[] = [];
+      let optionalSet: string[] = [];
+
+      if (requiredConfigured.length > 0) {
+        requiredSet = config.exit_signals.filter(s => requiredConfigured.includes(s));
+        optionalSet = config.exit_signals.filter(s => !requiredConfigured.includes(s));
+      } else {
+        const baseSignals = config.exit_signals.filter(s => {
+          const lastUnderscore = s.lastIndexOf('_');
+          return lastUnderscore <= 0;
+        });
+        if (baseSignals.length > 0 && baseSignals.length < config.exit_signals.length) {
+          requiredSet = baseSignals;
+          optionalSet = config.exit_signals.filter(s => !baseSignals.includes(s));
+        } else {
+          requiredSet = [config.exit_signals[0]];
+          optionalSet = config.exit_signals.slice(1);
+        }
+      }
+
+      const reqSatisfied = requiredSet.every(s => satisfiedActiveKeys.includes(s));
+      const optSatisfied = optionalSet.length === 0 || optionalSet.some(s => satisfiedActiveKeys.includes(s));
+      exitTriggered = reqSatisfied && optSatisfied;
+      if (exitTriggered) {
+        exitSignalType = 'combo';
       }
     }
 

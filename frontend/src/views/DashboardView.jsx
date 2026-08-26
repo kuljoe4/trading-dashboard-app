@@ -2,6 +2,20 @@ import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { formatDuration } from '../lib/formatters'
+
+const formatTimeAgo = (ts) => {
+  if (!ts) return 'ago';
+  const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  if (isNaN(ms) || ms <= 0) return 'ago';
+  const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.floor(diffHr / 24);
+  return `${diffDays}d ago`;
+};
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
@@ -1544,11 +1558,13 @@ export function DashboardView({ initialStrategy }) {
                   if (!lastTrade) return null;
                   const prevBalance = balance - (lastTrade.pnl || 0);
                   const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  const tradeTs = lastTrade.exit_ts_ms || lastTrade.exit_ts || lastTrade.updated_at || lastTrade.entry_ts;
+                  const timeAgoStr = formatTimeAgo(tradeTs);
                   return (
                     <div className="flex items-center gap-1">
                       {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
                       <span className={pnlClass(lastTrade.pnl)}>
-                        {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%) Last
+                        {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%) {timeAgoStr}
                       </span>
                     </div>
                   );

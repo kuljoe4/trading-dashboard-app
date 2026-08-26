@@ -286,6 +286,7 @@ const defaultConfig = {
   discovery_mode: 'volume',
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
+  required_signals: [],
   tp_mode: 'fixed',
   tp_ratio: CONFIG_LIMITS.TP_RATIO_DEFAULT,
   live_rr_sequence: [1, 2, 4],

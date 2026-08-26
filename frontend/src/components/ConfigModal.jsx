@@ -279,6 +279,9 @@ const ExitSignalCard = React.memo(({
   delays,
   actions,
   timeframes,
+  isComboMode,
+  isRequired,
+  onToggleRequired,
   onToggle,
   onAddLayer,
   onRemoveLayer,
@@ -303,6 +306,25 @@ const ExitSignalCard = React.memo(({
           <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
         </Switch.Root>
       </div>
+
+      {active && isComboMode && (
+        <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
+          <span className="text-[9px] font-black uppercase text-dim tracking-wider">Condition Role</span>
+          <button
+            type="button"
+            onClick={() => onToggleRequired(key)}
+            className={cn(
+              "px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none",
+              isRequired
+                ? "bg-red text-white shadow-sm"
+                : "bg-surface text-dim border border-border/50 hover:text-text"
+            )}
+            aria-label={`Set ${label} exit role to ${isRequired ? 'Optional' : 'Required'}`}
+          >
+            {isRequired ? '⚡ REQUIRED (AND)' : '⚪ OPTIONAL (ANY)'}
+          </button>
+        </div>
+      )}
 
       {active && (
         <div className="space-y-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -491,6 +513,9 @@ const EntrySignalCard = React.memo(({
   active,
   layers,
   timeframes,
+  isComboMode,
+  isRequired,
+  onToggleRequired,
   onToggle,
   onAddLayer,
   onRemoveLayer,
@@ -514,6 +539,25 @@ const EntrySignalCard = React.memo(({
           <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
         </Switch.Root>
       </div>
+
+      {active && isComboMode && (
+        <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
+          <span className="text-[9px] font-black uppercase text-dim tracking-wider">Condition Role</span>
+          <button
+            type="button"
+            onClick={() => onToggleRequired(key)}
+            className={cn(
+              "px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+              isRequired
+                ? "bg-accent text-white shadow-sm"
+                : "bg-surface text-dim border border-border/50 hover:text-text"
+            )}
+            aria-label={`Set ${label} role to ${isRequired ? 'Optional' : 'Required'}`}
+          >
+            {isRequired ? '⚡ REQUIRED (AND)' : '⚪ OPTIONAL (ANY)'}
+          </button>
+        </div>
+      )}
 
       {active && (
         <div className="space-y-3 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -1157,6 +1201,8 @@ const flattenConfig = (config) => {
       engulfing_lookback: config.engulfing_lookback || 1,
       engulfing_streak: config.engulfing_streak || 1,
       engulfing_sequential: config.engulfing_sequential !== false,
+      required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
+      required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
     };
 
     // Dynamically map all params (including suffixes) directly to flattened keys
@@ -1493,6 +1539,26 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         }
       }
       return next;
+    });
+  }, []);
+
+  const handleToggleRequiredEntry = React.useCallback((sigKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const currentReq = prev.required_signals || [];
+      const isReq = currentReq.includes(sigKey);
+      const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
+      return { ...prev, required_signals: nextReq };
+    });
+  }, []);
+
+  const handleToggleRequiredExit = React.useCallback((sigKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const currentReq = prev.required_exit_signals || [];
+      const isReq = currentReq.includes(sigKey);
+      const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
+      return { ...prev, required_exit_signals: nextReq };
     });
   }, []);
 
@@ -2412,11 +2478,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'strategy_entry'}
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_entry' ? null : 'strategy_entry')}
             >
-              <div className="flex justify-end mb-4">
-                <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
-                 </div>
+              <div className="flex flex-col gap-2 mb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Entry Signal Logic</span>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL (AND)</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'combo' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'combo')}>COMBO</button>
+                  </div>
+                </div>
+                {cfg.signal_logic === 'combo' && (
+                  <div className="p-2.5 bg-accent/5 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-wider flex items-center gap-2 text-left">
+                    <Zap size={13} className="shrink-0 text-accent" />
+                    <span>COMBO Mode: Position enters when ALL <strong>Required (AND)</strong> signals fire + at least ONE <strong>Optional (ANY)</strong> signal fires.</span>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {SIGNALS.map((signal) => (
@@ -2424,6 +2500,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     key={signal[0]}
                     signal={signal}
                     active={(cfg.enabled_signals || []).includes(signal[0])}
+                    isComboMode={cfg.signal_logic === 'combo'}
+                    isRequired={(cfg.required_signals || []).includes(signal[0])}
+                    onToggleRequired={handleToggleRequiredEntry}
                     layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
                     timeframes={cfg.signal_timeframes || {}}
                     onToggle={handleToggleEntrySignal}
@@ -2686,11 +2765,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   onChange={(v) => setField('exit_signals_override_ratchet', v)}
                 />
               </div>
-              <div className="flex justify-end mb-4">
-                 <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL</button>
-                 </div>
+              <div className="flex flex-col gap-2 mb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Signal Logic</span>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL (AND)</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'combo' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'combo')}>COMBO</button>
+                  </div>
+                </div>
+                {cfg.exit_signal_logic === 'combo' && (
+                  <div className="p-2.5 bg-red/5 border border-red/20 rounded-xl text-[9px] font-bold text-red uppercase tracking-wider flex items-center gap-2 text-left">
+                    <Zap size={13} className="shrink-0 text-red" />
+                    <span>COMBO Mode: Exit triggers when ALL <strong>Required (AND)</strong> exit signals fire + at least ONE <strong>Optional (ANY)</strong> exit signal fires.</span>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {SIGNALS.map((signal) => (
@@ -2698,6 +2787,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     key={signal[0]}
                     signal={signal}
                     active={(cfg.exit_signals || []).includes(signal[0])}
+                    isComboMode={cfg.exit_signal_logic === 'combo'}
+                    isRequired={(cfg.required_exit_signals || []).includes(signal[0])}
+                    onToggleRequired={handleToggleRequiredExit}
                     layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
                     delays={cfg.exit_signal_delays || {}}
                     actions={cfg.exit_signal_actions || {}}

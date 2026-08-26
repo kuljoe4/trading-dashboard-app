@@ -211,6 +211,35 @@ export class SignalEngineService {
     }
 
     const logic = purpose === 'exit' ? (config.exit_signal_logic || 'any') : (config.signal_logic || 'all');
+    const requiredConfigured = purpose === 'exit' ? (config.required_exit_signals || []) : (config.required_signals || []);
+
+    let requiredSet: string[] = [];
+    let optionalSet: string[] = [];
+
+    if (logic === 'combo') {
+      if (requiredConfigured.length > 0) {
+        requiredSet = activeSignals.filter(s => requiredConfigured.includes(s));
+        optionalSet = activeSignals.filter(s => !requiredConfigured.includes(s));
+      } else {
+        const baseSignals = activeSignals.filter(s => {
+          let base = s;
+          const lastUnderscore = s.lastIndexOf('_');
+          if (lastUnderscore > 0) {
+            const potentialBase = s.substring(0, lastUnderscore);
+            if (this.signalHandlers[potentialBase]) base = potentialBase;
+          }
+          return s === base;
+        });
+        if (baseSignals.length > 0 && baseSignals.length < activeSignals.length) {
+          requiredSet = baseSignals;
+          optionalSet = activeSignals.filter(s => !baseSignals.includes(s));
+        } else {
+          requiredSet = [activeSignals[0]];
+          optionalSet = activeSignals.slice(1);
+        }
+      }
+    }
+
     const candles = this.klineStore.getRawCandles(symbol, interval);
 
     // Warm-up check for technical indicators
@@ -286,19 +315,22 @@ export class SignalEngineService {
         const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
+        if (fired) firedSignals.push(signalType);
+        else failedSignals.push(signalType);
+
         if (!minimal) {
           if (typeof result !== 'boolean') details[signalType] = { ...result, metric: result.metric || baseSignalType };
-          if (fired) firedSignals.push(signalType);
-          else failedSignals.push(signalType);
         } else {
           // Early exit if logic is satisfied
           if (fired && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };
           if (!fired && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+          if (!fired && logic === 'combo' && requiredSet.includes(signalType)) return { allFired: false, firedSignals: [], reason: 'minimal' };
         }
       } catch (error) {
         this.logger.warn(`Signal ${signalType} error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
         if (minimal) {
           if (logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+          if (logic === 'combo' && requiredSet.includes(signalType)) return { allFired: false, firedSignals: [], reason: 'minimal' };
         } else {
           failedSignals.push(signalType);
         }
@@ -306,20 +338,29 @@ export class SignalEngineService {
     }
 
     if (minimal) {
-      // If we finished the loop in minimal mode:
-      // - any: none fired -> false
-      // - all: all fired -> true
+      if (logic === 'combo') {
+        const optionalSatisfied = optionalSet.length === 0 || optionalSet.some(s => firedSignals.includes(s));
+        return { allFired: optionalSatisfied, firedSignals: [], reason: 'minimal' };
+      }
       return { allFired: logic === 'all', firedSignals: [], reason: 'minimal' };
     }
 
-    const allFired = logic === 'any'
-      ? firedSignals.length > 0
-      : failedSignals.length === 0;
+    let allFired = false;
+    if (logic === 'any') {
+      allFired = firedSignals.length > 0;
+    } else if (logic === 'all') {
+      allFired = failedSignals.length === 0;
+    } else if (logic === 'combo') {
+      const requiredSatisfied = requiredSet.every(s => firedSignals.includes(s));
+      const optionalSatisfied = optionalSet.length === 0 || optionalSet.some(s => firedSignals.includes(s));
+      allFired = requiredSatisfied && optionalSatisfied;
+    }
 
-    const reason =
-      `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
-      (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
-      (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
+    const reason = logic === 'combo'
+      ? `Combo (${requiredSet.join(' AND ')} [Req] + ${optionalSet.join(' OR ')} [Opt]): ${firedSignals.length}/${activeSignals.length} fired`
+      : `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
+        (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
+        (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
 
     return { allFired, firedSignals, reason, details };
   }

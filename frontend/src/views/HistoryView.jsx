@@ -631,15 +631,68 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
 
     const total = trades.length || 1;
     return [
-      { label: '≤ 0 R', count: rangeMinusToZero, pct: ((rangeMinusToZero / total) * 100).toFixed(1), pnl: pnlMinusToZero, color: 'text-red bg-red/10 border-red/20' },
-      { label: '0 to 0.25 R', count: rangeZeroToQuarter, pct: ((rangeZeroToQuarter / total) * 100).toFixed(1), pnl: pnlZeroToQuarter, color: 'text-dim bg-background/20 border-border/20' },
-      { label: '0.25 to 0.5 R', count: rangeQuarterToHalf, pct: ((rangeQuarterToHalf / total) * 100).toFixed(1), pnl: pnlQuarterToHalf, color: 'text-amber bg-amber/10 border-amber/20' },
-      { label: '0.5 to 1 R', count: rangeHalfToOne, pct: ((rangeHalfToOne / total) * 100).toFixed(1), pnl: pnlHalfToOne, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
-      { label: '1 to 2 R', count: rangeOneToTwo, pct: ((rangeOneToTwo / total) * 100).toFixed(1), pnl: pnlOneToTwo, color: 'text-accent bg-accent/10 border-accent/20' },
-      { label: '2 to 3 R', count: rangeTwoToThree, pct: ((rangeTwoToThree / total) * 100).toFixed(1), pnl: pnlTwoToThree, color: 'text-green bg-green/10 border-green/20' },
-      { label: '3R +', count: rangeThreePlus, pct: ((rangeThreePlus / total) * 100).toFixed(1), pnl: pnlThreePlus, color: 'text-purple bg-purple/10 border-purple/20' },
+      { label: '≤ 0 R', count: rangeMinusToZero, pct: Number(((rangeMinusToZero / total) * 100).toFixed(1)), pnl: pnlMinusToZero, color: 'text-red bg-red/10 border-red/20' },
+      { label: '0 to 0.25 R', count: rangeZeroToQuarter, pct: Number(((rangeZeroToQuarter / total) * 100).toFixed(1)), pnl: pnlZeroToQuarter, color: 'text-dim bg-background/20 border-border/20' },
+      { label: '0.25 to 0.5 R', count: rangeQuarterToHalf, pct: Number(((rangeQuarterToHalf / total) * 100).toFixed(1)), pnl: pnlQuarterToHalf, color: 'text-amber bg-amber/10 border-amber/20' },
+      { label: '0.5 to 1 R', count: rangeHalfToOne, pct: Number(((rangeHalfToOne / total) * 100).toFixed(1)), pnl: pnlHalfToOne, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+      { label: '1 to 2 R', count: rangeOneToTwo, pct: Number(((rangeOneToTwo / total) * 100).toFixed(1)), pnl: pnlOneToTwo, color: 'text-accent bg-accent/10 border-accent/20' },
+      { label: '2 to 3 R', count: rangeTwoToThree, pct: Number(((rangeTwoToThree / total) * 100).toFixed(1)), pnl: pnlTwoToThree, color: 'text-green bg-green/10 border-green/20' },
+      { label: '3R +', count: rangeThreePlus, pct: Number(((rangeThreePlus / total) * 100).toFixed(1)), pnl: pnlThreePlus, color: 'text-purple bg-purple/10 border-purple/20' },
     ];
   }, [trades]);
+
+  const distributionRecommendations = useMemo(() => {
+    if (!trades || trades.length === 0) return null;
+    const total = trades.length;
+
+    const [subZero, zeroToQuarter, quarterToHalf, halfToOne, oneToTwo, twoToThree, threePlus] = exitRrDistribution;
+    const subHalfPct = zeroToQuarter.pct + quarterToHalf.pct;
+    const subHalfPnl = zeroToQuarter.pnl + quarterToHalf.pnl;
+
+    const runnerCount = twoToThree.count + threePlus.count;
+    const runnerPnl = twoToThree.pnl + threePlus.pnl;
+
+    const recs = [];
+
+    // Rule 1: High concentration in sub-0.5R exits (early exit leakage / premature ratcheting)
+    if (subHalfPct >= 30) {
+      recs.push({
+        id: 'sub_half_leakage',
+        type: 'warning',
+        title: 'High Early Exit Concentration',
+        text: `${subHalfPct.toFixed(1)}% of trades exit under 0.5R (${fmtUSD(subHalfPnl)} total). Consider relaxing early ratchet thresholds or widening stop loss distances to prevent micro-whipsaws.`
+      });
+    }
+
+    // Rule 2: Sub-zero / Loss bucket dominance
+    if (subZero.pct >= 50) {
+      recs.push({
+        id: 'loss_dominance',
+        type: 'danger',
+        title: 'High Loss Ratio Detected',
+        text: `${subZero.pct.toFixed(1)}% of trades closed at or below breakeven (${fmtUSD(subZero.pnl)}). Consider tightening entry filters or enabling knife catch auto-ratchet.`
+      });
+    }
+
+    // Rule 3: Runner capture efficiency
+    if (runnerCount > 0 && runnerPnl > 0) {
+      recs.push({
+        id: 'strong_runners',
+        type: 'success',
+        title: 'Strong Runner Capture',
+        text: `${runnerCount} trades (${((runnerCount / total) * 100).toFixed(1)}%) reached 2R+ producing ${fmtUSD(runnerPnl)}. Strategy benefits from trailing stop continuation.`
+      });
+    } else if (subZero.pct < 40 && runnerCount === 0) {
+      recs.push({
+        id: 'missing_runners',
+        type: 'info',
+        title: 'Sub-Optimal Peak Capture',
+        text: `0 trades reached 2R+ target exits. Consider testing trailing exit indicators (e.g. Supertrend SL or Dual EMA) to capture larger trend moves.`
+      });
+    }
+
+    return recs;
+  }, [trades, exitRrDistribution]);
 
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
@@ -870,6 +923,35 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
             </div>
           ))}
         </div>
+
+        {/* Dynamic Distribution Recommendations Banner */}
+        {distributionRecommendations && distributionRecommendations.length > 0 && (
+          <div className="mt-2.5 flex flex-col gap-2">
+            {distributionRecommendations.map(rec => (
+              <div
+                key={rec.id}
+                className={cn(
+                  "p-2.5 rounded-xl border flex items-start gap-2.5 text-[9px] font-medium leading-relaxed",
+                  rec.type === 'warning' && "bg-amber/5 border-amber/20 text-amber/90",
+                  rec.type === 'danger' && "bg-red/5 border-red/20 text-red/90",
+                  rec.type === 'success' && "bg-green/5 border-green/20 text-green/90",
+                  rec.type === 'info' && "bg-accent/5 border-accent/20 text-accent/90"
+                )}
+              >
+                <div className="mt-0.5 shrink-0">
+                  {rec.type === 'warning' && <AlertTriangle size={13} className="text-amber" />}
+                  {rec.type === 'danger' && <AlertTriangle size={13} className="text-red" />}
+                  {rec.type === 'success' && <CheckCircle2 size={13} className="text-green" />}
+                  {rec.type === 'info' && <Info size={13} className="text-accent" />}
+                </div>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <span className="font-black uppercase tracking-wider text-[8.5px]">{rec.title}</span>
+                  <span className="text-text/80">{rec.text}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Projection Modeling Sub-card */}

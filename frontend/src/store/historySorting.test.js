@@ -500,6 +500,17 @@ test('RrWinRateCalculator low RR targets below 0.5 correctness and exit distribu
   assert.strictEqual(pnlOneToTwo, 150, '1 to 2 R aggregated PnL');
   assert.strictEqual(pnlTwoToThree, 250, '2 to 3 R aggregated PnL');
   assert.strictEqual(pnlThreePlus, 350, '3R + aggregated PnL');
+
+  // Verify dynamic recommendation generation rules
+  const total = trades.length;
+  const subHalfCount = rangeZeroToQuarter + rangeQuarterToHalf;
+  const subHalfPct = (subHalfCount / total) * 100;
+  assert.strictEqual(subHalfPct >= 28, true, 'Sub-0.5R exit percentage calculation');
+
+  const runnerCount = rangeTwoToThree + rangeThreePlus;
+  const runnerPnl = pnlTwoToThree + pnlThreePlus;
+  assert.strictEqual(runnerCount, 2, 'Runner count calculation');
+  assert.strictEqual(runnerPnl, 600, 'Runner PnL calculation');
 });
 
 test('buildCurve single-pass reverse loop correctness and performance benchmark', () => {

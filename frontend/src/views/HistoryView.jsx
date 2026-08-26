@@ -218,13 +218,18 @@ const price = (value) => {
 
 const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || item.strategy_config?.strategy_label || 'Momentum Strategy'
 
+// BOLT OPTIMIZATION: Single-pass reverse loop allocation avoids transient array spreading [...safeTrades], .reverse(), and .map() chaining
 const buildCurve = (trades = []) => {
   const safeTrades = Array.isArray(trades) ? trades : [];
-  let pnl = 0
-  return [...safeTrades].reverse().map((trade) => {
-    pnl += safeNum(trade.pnl)
-    return { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl }
-  })
+  const len = safeTrades.length;
+  const result = new Array(len);
+  let pnl = 0;
+  for (let i = len - 1; i >= 0; i--) {
+    const trade = safeTrades[i];
+    pnl += safeNum(trade.pnl);
+    result[len - 1 - i] = { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl };
+  }
+  return result;
 }
 
 // Modern TradeItem Component with outcome vertical strip and interactive hover effects
@@ -974,9 +979,16 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
 
+  // BOLT OPTIMIZATION: Loop-fused single-pass set population (no intermediate .map() array allocations)
   const variantsCount = useMemo(() => {
-    const labels = new Set(trades.map(t => strategyLabel(t)));
-    labels.delete(label); // remove baseline
+    const labels = new Set();
+    const len = trades.length;
+    for (let i = 0; i < len; i++) {
+      const l = strategyLabel(trades[i]);
+      if (l !== label) {
+        labels.add(l);
+      }
+    }
     return labels.size;
   }, [trades, label]);
 

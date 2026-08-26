@@ -29,6 +29,12 @@ export const SignalGauge = React.memo(({
   const numValue = Number(value) || 0
   const numThreshold = Number(threshold) || 0
 
+  const isDualEma = !!(
+    (label && (label.toLowerCase().includes('dual') || label.toLowerCase().includes('cross'))) ||
+    (unit && (unit.toLowerCase().includes('dual') || unit.toLowerCase().includes('ema'))) ||
+    thresholdIsPrice
+  );
+
   // Calculate progress/convergence using centralized direction-aware helper
   const progress = calculateProximity({
     value,
@@ -36,7 +42,8 @@ export const SignalGauge = React.memo(({
     fired,
     active,
     insufficientData,
-    threshold_is_price: thresholdIsPrice
+    threshold_is_price: thresholdIsPrice,
+    is_indicator_pair: isDualEma
   }, markPrice, entryPrice, isLong, type === 'exit');
 
   const getStatus = () => {
@@ -100,6 +107,29 @@ export const SignalGauge = React.memo(({
           </div>
         </div>
       </div>
+
+      {/* Dual EMA / Indicator-Pair Aligned Markers & Design Tokens */}
+      {isDualEma && !insufficientData && numValue > 0 && numThreshold > 0 && (
+        <div className="mb-2.5 px-2 py-1.5 bg-background/60 rounded-lg border border-white/5 flex items-center justify-between font-mono text-[9px]">
+          <div className="flex items-center gap-1.5">
+            <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider">
+              FAST EMA
+            </span>
+            <span className="font-bold text-text/90">{price(numValue)}</span>
+          </div>
+
+          <div className="text-[8px] text-dim/60 font-black tracking-widest px-1">
+            Δ {price(Math.abs(numValue - numThreshold))}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-purple bg-purple/10 border border-purple/20 px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider">
+              SLOW EMA
+            </span>
+            <span className="font-bold text-text/90">{price(numThreshold)}</span>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-1.5">
         <div className="flex justify-between items-end px-1">

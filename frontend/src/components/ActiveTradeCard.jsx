@@ -248,15 +248,15 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         </div>
       </div>
 
-      {/* Mini Price Runway & Live Target Gauges */}
-      <div className="flex flex-col gap-2.5">
+      {/* Tactical Map Price Runway & Live Target Gauges */}
+      <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between text-[9px] font-black uppercase tracking-widest text-dim leading-none">
           <div className="flex items-center gap-1 min-w-0">
-            <span className="text-dim/80">Live Mark:</span>
+            <span className="text-dim/80">LIVE MARK:</span>
             <span className="font-mono text-text/90 font-bold">{fmtUSD(mark)}</span>
             {entry > 0 && mark > 0 && (
               <span className={cn("font-mono text-[8px] font-black", markPercent >= 0 ? "text-green" : "text-red")}>
-                ({markPercent >= 0 ? '+' : ''}{markPercent.toFixed(2)}%)
+                {markPercent >= 0 ? '▲ +' : '▼ '}{markPercent.toFixed(2)}%
               </span>
             )}
           </div>
@@ -289,187 +289,159 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           </div>
         </div>
 
-        <div className="relative pt-1 pb-1">
-          {/* Progress Bar Container */}
+        {/* Tactical Map Track Area with Stem & Pennant Overhead Space */}
+        <div className="relative pt-6 pb-2 min-h-[52px]">
+          {/* Main Track Bar */}
           <div
-            className="h-1.5 w-full bg-border/40 rounded-full relative overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
+            className="h-2 w-full rounded-full relative overflow-hidden bg-surface border border-white/5 shadow-[inset_0_1px_3px_rgba(0,0,0,0.3)]"
             role="progressbar"
             aria-valuenow={Math.round(progress)}
             aria-valuemin="0"
             aria-valuemax="100"
             aria-valuetext={ariaText}
           >
-            {/* Underwater Risk Zone (Left of Entry) */}
+            {/* Waterline Zone Tinting: Loss Zone (Left of Entry) */}
             <div
-              className="absolute top-0 bottom-0 left-0 bg-red/10 transition-all duration-500"
+              className="absolute top-0 bottom-0 left-0 bg-[#ff2a55]/20 transition-all duration-300"
               style={{ width: `${entryMarkPos}%` }}
             />
 
-            {/* Above-Water Profit Zone (Right of Entry) */}
+            {/* Waterline Zone Tinting: Profit Zone (Right of Entry) */}
             <div
-              className="absolute top-0 bottom-0 right-0 bg-green/10 transition-all duration-500"
+              className="absolute top-0 bottom-0 right-0 bg-[#00e5a0]/18 transition-all duration-300"
               style={{ left: `${entryMarkPos}%` }}
             />
 
-            {/* Entry Point Marker (Zero-Waterline Divider) */}
-            <div
-              className="absolute top-0 bottom-0 w-px bg-white/60 z-20 transition-all duration-500"
-              style={{ left: `${entryMarkPos}%` }}
-              aria-hidden="true"
-            />
-
-            {/* Current SL Marker */}
-            {sl > 0 && (
-              <Tooltip content={
-                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Current Stop Loss</div>
-                  <div className="text-dim">
-                    SL R: <span className="text-text font-mono font-semibold">{slR >= 0 ? '+' : ''}{slR.toFixed(2)}R</span>
-                  </div>
-                  <div className="text-dim">
-                    SL %: <span className="text-text font-mono font-semibold">{slPercent >= 0 ? '+' : ''}{slPercent.toFixed(2)}%</span>
-                  </div>
-                  <div className="text-dim">
-                    Price: <span className="text-text font-mono font-semibold">{fmtUSD(sl)}</span>
-                  </div>
-                </div>
-              }>
-                <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-red/80 z-20 cursor-help transition-all duration-500"
-                  style={{ left: `${slPos}%` }}
-                />
-              </Tooltip>
-            )}
-
-            {/* Progress Bar Fill */}
+            {/* Progress Fill */}
             <div
               className={cn(
-                "h-full rounded-full transition-all duration-500 shadow-[0_0_10px_rgba(0,0,0,0.2)]",
-                trade.pnl >= 0 ? "bg-green" : "bg-red"
+                "h-full rounded-full transition-all duration-300 opacity-90 shadow-[0_0_8px_rgba(0,0,0,0.3)]",
+                trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
               )}
               style={{ width: `${progress}%` }}
             />
-
-            {/* Peak Target Marker */}
-            {maxRr > 0 && (
-              <Tooltip content={
-                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Peak Target Achieved</div>
-                  <div className="text-dim">
-                    Multiplier: <span className="text-text font-mono font-semibold">{maxRr.toFixed(2)}R</span>
-                  </div>
-                  <div className="text-dim">
-                    Price: <span className="text-text font-mono font-semibold">{fmtUSD(peakPrice)}</span>
-                  </div>
-                  {isPeakBeyondTarget && (
-                    <div className="text-purple text-[10px] font-semibold mt-1">
-                      ▲ Trailed beyond target!
-                    </div>
-                  )}
-                </div>
-              }>
-                <div
-                  className="absolute top-0 bottom-0 flex flex-col items-center justify-center z-20 cursor-help transition-all duration-500 w-1 -ml-0.5"
-                  style={{ left: `${peakPos}%` }}
-                >
-                  <div className="h-full w-px border-l border-dashed border-purple/60" />
-                </div>
-              </Tooltip>
-            )}
-
-            {/* TP Marker if explicit TP is configured */}
-            {tp > 0 && (
-              <Tooltip content={
-                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Take Profit Target</div>
-                  <div className="text-dim">
-                    Target R: <span className="text-text font-mono font-semibold">+{tpR.toFixed(2)}R</span>
-                  </div>
-                  <div className="text-dim">
-                    Price: <span className="text-text font-mono font-semibold">{fmtUSD(tp)}</span>
-                  </div>
-                </div>
-              }>
-                <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-green/80 z-20 cursor-help transition-all duration-500"
-                  style={{ left: `${tpPos}%` }}
-                />
-              </Tooltip>
-            )}
-
-            {/* O(1) Gauge Marker Collision Detection */}
-            {(() => {
-              const isEstCollidingWithMark = Math.abs(estPos - progress) < 3.5;
-              const isEstCollidingWithPeak = Math.abs(estPos - peakPos) < 3.5;
-              const isPeakCollidingWithMark = Math.abs(peakPos - progress) < 3.0;
-
-              return (
-                <>
-                  {/* Winning Est. Target Marker with Collision Offset */}
-                  {trade.est_pnl_to_realize !== undefined && (
-                    <Tooltip content={
-                      <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                        <div className="font-bold border-b border-white/5 pb-1 mb-1 flex items-center justify-between gap-4">
-                          <span>Est. Exit Target</span>
-                          <span className={cn("font-mono font-black", pnlClass(trade.est_pnl_to_realize))}>
-                            {fmtUSD(trade.est_pnl_to_realize)}
-                          </span>
-                        </div>
-                        <div className="text-dim">
-                          Source: <span className="text-text font-semibold">{estLabel}</span>
-                        </div>
-                        <div className="text-dim">
-                          Price: <span className="text-text font-mono font-semibold">{fmtUSD(estPrice)}</span>
-                        </div>
-                        {(isEstCollidingWithMark || isEstCollidingWithPeak) && (
-                          <div className="text-[9px] text-accent/80 font-mono mt-0.5 pt-0.5 border-t border-white/5">
-                            ⚡ Marker shifted slightly to prevent visual overlap
-                          </div>
-                        )}
-                      </div>
-                    }>
-                      <div
-                        className={cn(
-                          "absolute -ml-1.5 w-3 h-3 rotate-45 border-2 border-purple bg-background shadow-[0_0_8px_rgba(168,85,247,0.5)] z-40 cursor-help transition-all duration-300 hover:scale-125",
-                          isEstCollidingWithMark ? "top-[-5px]" : "top-1/2 -translate-y-1/2"
-                        )}
-                        style={{ left: `${estPos}%` }}
-                      />
-                    </Tooltip>
-                  )}
-
-                  {/* Glowing Price Handle/Thumb showing current Mark location */}
-                  <div
-                    className={cn(
-                      "absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-3 rounded-full border-2 bg-surface shadow-md z-30 transition-all duration-300",
-                      trade.pnl >= 0 ? "border-green" : "border-red",
-                      isPeakCollidingWithMark && "ring-2 ring-purple/40"
-                    )}
-                    style={{ left: `${progress}%` }}
-                  />
-                </>
-              );
-            })()}
           </div>
+
+          {/* Overlaid Tactical Map Indicators */}
+
+          {/* Waterline Seam Line & Top Dot at Entry */}
+          <div
+            className="absolute top-5 bottom-1.5 w-0.5 bg-white z-20 pointer-events-none transition-all duration-300 flex flex-col items-center -ml-[1px]"
+            style={{ left: `${entryMarkPos}%` }}
+            aria-hidden="true"
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-white -mt-1 shadow-[0_0_6px_rgba(255,255,255,0.8)]" />
+          </div>
+
+          {/* Current Stop Loss Marker */}
+          {sl > 0 && (
+            <Tooltip content={
+              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+                <div className="font-bold border-b border-white/5 pb-1 mb-1">Current Stop Loss</div>
+                <div className="text-dim">SL R: <span className="text-text font-mono font-semibold">{slR >= 0 ? '+' : ''}{slR.toFixed(2)}R</span></div>
+                <div className="text-dim">SL %: <span className="text-text font-mono font-semibold">{slPercent >= 0 ? '+' : ''}{slPercent.toFixed(2)}%</span></div>
+                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(sl)}</span></div>
+              </div>
+            }>
+              <div
+                className="absolute top-5 bottom-1.5 w-0.5 bg-red z-20 cursor-help transition-all duration-300 -ml-[1px]"
+                style={{ left: `${slPos}%` }}
+              />
+            </Tooltip>
+          )}
+
+          {/* Peak Line & Labeled Pennant Flag */}
+          {maxRr > 0 && (
+            <Tooltip content={
+              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+                <div className="font-bold border-b border-white/5 pb-1 mb-1">Peak Target Achieved</div>
+                <div className="text-dim">Multiplier: <span className="text-text font-mono font-semibold">{maxRr.toFixed(2)}R</span></div>
+                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(peakPrice)}</span></div>
+                {isPeakBeyondTarget && (
+                  <div className="text-purple text-[10px] font-semibold mt-1">▲ Trailed beyond target!</div>
+                )}
+              </div>
+            }>
+              <div
+                className="absolute top-1 bottom-1.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                style={{ left: `${peakPos}%` }}
+              >
+                <div className="px-1 py-0.2 bg-purple/20 border border-purple/40 text-purple text-[7px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5">
+                  PEAK
+                </div>
+                <div className="flex-1 w-px border-l border-dashed border-purple/70" />
+              </div>
+            </Tooltip>
+          )}
+
+          {/* Take Profit Target Line */}
+          {tp > 0 && (
+            <Tooltip content={
+              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+                <div className="font-bold border-b border-white/5 pb-1 mb-1">Take Profit Target</div>
+                <div className="text-dim">Target R: <span className="text-text font-mono font-semibold">+{tpR.toFixed(2)}R</span></div>
+                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(tp)}</span></div>
+              </div>
+            }>
+              <div
+                className="absolute top-5 bottom-1.5 w-0.5 bg-green z-20 cursor-help transition-all duration-300 -ml-[1px]"
+                style={{ left: `${tpPos}%` }}
+              />
+            </Tooltip>
+          )}
+
+          {/* Est-Target Stem & Overhead Diamond */}
+          {trade.est_pnl_to_realize !== undefined && (
+            <Tooltip content={
+              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+                <div className="font-bold border-b border-white/5 pb-1 mb-1 flex items-center justify-between gap-4">
+                  <span>Est. Exit Target</span>
+                  <span className={cn("font-mono font-black", pnlClass(trade.est_pnl_to_realize))}>
+                    {fmtUSD(trade.est_pnl_to_realize)}
+                  </span>
+                </div>
+                <div className="text-dim">Source: <span className="text-text font-semibold">{estLabel}</span></div>
+                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(estPrice)}</span></div>
+              </div>
+            }>
+              <div
+                className="absolute top-0 bottom-1.5 z-30 cursor-help transition-all duration-300 flex flex-col items-center -ml-[5px]"
+                style={{ left: `${estPos}%` }}
+              >
+                <div className="w-2.5 h-2.5 rotate-45 border-2 border-emerald-400 bg-background shadow-[0_0_8px_rgba(52,211,153,0.6)] mb-0.5" />
+                <div className="flex-1 w-0.5 bg-emerald-400/80" />
+              </div>
+            </Tooltip>
+          )}
+
+          {/* Glowing Live Mark Thumb */}
+          <div
+            className={cn(
+              "absolute top-[21px] -ml-[5px] w-3 h-3 rounded-full border-2 bg-surface shadow-[0_0_10px_rgba(0,0,0,0.5)] z-40 transition-all duration-300 pointer-events-none",
+              trade.pnl >= 0 ? "border-[#00e5a0] shadow-[#00e5a0]/40" : "border-[#ff2a55] shadow-[#ff2a55]/40"
+            )}
+            style={{ left: `${progress}%` }}
+          />
         </div>
 
+        {/* Bottom Metadata Grid */}
         <div className="flex justify-between text-[9px] font-bold text-dim uppercase tracking-widest font-mono">
           <div className="flex flex-col items-start leading-tight">
-            <span className="text-red/60">SL</span>
-            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(sl)}</span>
-            <span className="text-[8px] opacity-40">
+            <span className="text-red/80 font-black">STOP LOSS</span>
+            <span className="font-bold text-text/90 font-mono mt-0.5">{fmtUSD(sl)}</span>
+            <span className="text-[8px] opacity-60">
               {slR >= 0 ? `+${slR.toFixed(2)}R` : `${slR.toFixed(2)}R`} · {slPercent >= 0 ? `+${slPercent.toFixed(2)}%` : `${slPercent.toFixed(2)}%`}
             </span>
           </div>
           <div className="flex flex-col items-center text-center leading-tight">
-            <span className="text-text/30">Entry</span>
-            <span className="font-bold text-text/60 font-mono mt-0.5">{fmtUSD(entry)}</span>
-            <span className="text-[8px] opacity-40">0.00R</span>
+            <span className="text-dim/80 font-black">ENTRY</span>
+            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(entry)}</span>
+            <span className="text-[8px] opacity-60">0.00R</span>
           </div>
           <div className="flex flex-col items-end leading-tight text-right">
-            <span className="text-green/60">{rightSlotLabel}</span>
-            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(rightSlotPrice)}</span>
-            <span className="text-[8px] opacity-40">+{rightSlotR.toFixed(2)}R</span>
+            <span className={cn("font-black", rightSlotLabel.toUpperCase() === 'PEAK' ? 'text-purple/90' : 'text-green/80')}>{rightSlotLabel}</span>
+            <span className="font-bold text-text/90 font-mono mt-0.5">{fmtUSD(rightSlotPrice)}</span>
+            <span className="text-[8px] opacity-60">+{rightSlotR.toFixed(2)}R</span>
           </div>
         </div>
       </div>

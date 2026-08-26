@@ -665,7 +665,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     let lsu = 0;
     ws.onmessage = (e) => {
       if (get().isThrottled) return;
+      const nowTs = Date.now();
       const d = JSON.parse(e.data);
+
       if (d.type === 'status' || d.type === 'session') {
         if (get().isSyncingOnResume) {
           console.log(`[Store] Received status/session update. Clearing isSyncingOnResume.`);
@@ -706,6 +708,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const nextPnl = d.totalPnl ?? d.total_pnl;
 
           return {
+            lastAuthoritativeUpdateTs: nowTs,
             sessionActive: nextActiveSession,
             sessionPaused: d.paused ?? st.sessionPaused,
             pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [],
@@ -775,6 +778,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const nextPnl = d.total_pnl;
 
           return {
+            lastAuthoritativeUpdateTs: nowTs,
             balance: resolveNonZeroMetric(d.balance, st.balance, st.sessionActive),
             totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, st.sessionActive),
             totalRiskPct: resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, st.sessionActive),
@@ -792,19 +796,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const n = normalizeLog(d);
         if (!n) return st;
         const logs = st.logs || [];
-        return { logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
+        return { lastAuthoritativeUpdateTs: nowTs, logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
       });
       else if (d.type === 'scanner') {
-        const now = Date.now(); if (now - lsu < 200) return; lsu = now;
-        if (get().isSyncingOnResume) {
-          console.log(`[Store] Received scanner update. Clearing isSyncingOnResume.`);
-        }
+        if (nowTs - lsu < 200) return; lsu = nowTs;
         set(st => {
           const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];
           // BOLT OPTIMIZATION: Use Map for O(1) lookup during normalization to achieve O(N+M) complexity.
           const prevMap = new Map(currentScannerResults.map(r => [r.symbol, r]));
           return {
-            isSyncingOnResume: false,
+            lastAuthoritativeUpdateTs: nowTs,
             scannerResults: (d.opportunities || []).map(o => {
               const sym = String(o.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
               const p = prevMap.get(sym);
@@ -846,9 +847,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         });
       } else if (d.type === 'trade_event') {
         const t = d.trade ? normalizeTrade(d.trade) : null;
-        if (get().isSyncingOnResume) {
-          console.log(`[Store] Received trade_event. Clearing isSyncingOnResume.`);
-        }
         set(st => {
           let nextActive = st.activeTrades;
           if (d.event === 'closed') {
@@ -862,7 +860,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
           const tradeHistory = st.tradeHistory || [];
           return {
-            isSyncingOnResume: false,
+            lastAuthoritativeUpdateTs: nowTs,
             activeTrades: nextActive,
             tradeHistory: d.event === 'closed' && t ? [t, ...tradeHistory].slice(0, 50) : tradeHistory,
             entryCount: d.stats?.entryCount ?? st.entryCount,
@@ -870,11 +868,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           };
         });
       } else if (d.type === 'gate') {
-        if (get().isSyncingOnResume) {
-          console.log(`[Store] Received gate update. Clearing isSyncingOnResume.`);
-        }
         set(st => ({
-          isSyncingOnResume: false,
+          lastAuthoritativeUpdateTs: nowTs,
           gateState: d.gateState, gateReason: d.reason, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, scannerPaused: d.scannerPaused
         }));
       }

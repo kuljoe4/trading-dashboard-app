@@ -69,58 +69,51 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     }
   }
 
-  // BOLT: Direction-aware Price Runway.
-  // We orient the runway so SL is always 0% and TP (or 3R) is 100%.
-  // Entry point is dynamically calculated.
-  let progress = 50
-  let entryMarkPos = 50
-  let estPos = 0
-  let peakPos = 0
-
-  // Calculate Peak Price position
-  const maxRr = Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0);
+  // Dynamic R-Multiple Price Runway Model (Zero Synthetic Targets)
   const initialSl = Number(trade.initial_sl || sl || 0);
-  const risk = Math.abs(entry - initialSl);
-  const peakPrice = isLong ? (entry + maxRr * risk) : (entry - maxRr * risk);
+  const rawRiskUnit = Math.abs(entry - initialSl);
+  const riskUnit = rawRiskUnit > 0 ? rawRiskUnit : (entry > 0 ? entry * 0.01 : 1);
 
-  let ariaText = `Trade status for ${trade.symbol}`
-  if (entry && mark && sl) {
-    const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss'
-    const rrValue = Number(trade.rr || 0).toFixed(2)
+  const getR = (price) => {
+    if (!price || !isFinite(price) || !entry) return 0;
+    return isLong ? (price - entry) / riskUnit : (entry - price) / riskUnit;
+  };
 
-    if (tp) {
-      const totalRange = Math.abs(tp - sl)
-      const distFromSl = Math.abs(mark - sl)
-      progress = totalRange > 0 ? Math.max(0, Math.min(100, (distFromSl / totalRange) * 100)) : 50
-      entryMarkPos = totalRange > 0 ? Math.max(0, Math.min(100, (Math.abs(entry - sl) / totalRange) * 100)) : 50
+  const maxRr = Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0);
+  const peakR = Math.max(0, maxRr);
+  const slR = getR(sl);
+  const markR = getR(mark);
+  const tpR = tp > 0 ? getR(tp) : 0;
 
-      const distFromSlEst = Math.abs(estPrice - sl)
-      estPos = totalRange > 0 ? Math.max(0, Math.min(100, (distFromSlEst / totalRange) * 100)) : 0
+  // Scale target dynamically: if explicit TP exists, anchor to max(tpR, peakR, markR);
+  // otherwise, anchor dynamically to max(1.5, peakR, markR) without synthetic fallbacks.
+  const targetR = tp > 0 ? Math.max(0.5, tpR, peakR, markR) : Math.max(1.5, peakR, markR);
+  const bufferR = Math.max(0.2, targetR * 0.1);
+  const rightEdgeR = targetR + bufferR;
+  const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1);
+  const totalRangeR = rightEdgeR - leftEdgeR;
 
-      const distFromSlPeak = Math.abs(peakPrice - sl)
-      peakPos = totalRange > 0 ? (distFromSlPeak / totalRange) * 100 : 0
+  const pos = (price) => {
+    if (!totalRangeR || totalRangeR <= 0) return 50;
+    const r = getR(price);
+    const frac = (r - leftEdgeR) / totalRangeR;
+    return Math.max(0, Math.min(100, frac * 100));
+  };
 
-      ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Price is ${Math.round(progress)}% of the way from Stop Loss to Take Profit.`
-    } else {
-      // Without TP, we use a reference of 3R profit for the 100% mark
-      const distToSl = Math.abs(entry - sl)
-      const targetProfitPrice = isLong ? (entry + distToSl * 3) : (entry - distToSl * 3)
-      const totalRange = Math.abs(targetProfitPrice - sl)
+  const progress = pos(mark);
+  const entryMarkPos = pos(entry);
+  const slPos = pos(sl);
+  const tpPos = tp > 0 ? pos(tp) : null;
+  const estPos = pos(estPrice);
+  const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit);
+  const peakPos = pos(peakPrice);
+  const isPeakBeyondTarget = tp > 0 && peakR > tpR;
 
-      progress = totalRange > 0 ? Math.max(0, Math.min(100, (Math.abs(mark - sl) / totalRange) * 100)) : 50
-      entryMarkPos = totalRange > 0 ? (Math.abs(entry - sl) / totalRange) * 100 : 50
+  const rightLabelPrice = tp > 0 ? tp : (isLong ? entry + targetR * riskUnit : entry - targetR * riskUnit);
 
-      estPos = totalRange > 0 ? Math.max(0, Math.min(100, (Math.abs(estPrice - sl) / totalRange) * 100)) : 0
-
-      const distFromSlPeak = Math.abs(peakPrice - sl)
-      peakPos = totalRange > 0 ? (distFromSlPeak / totalRange) * 100 : 0
-
-      ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Price is ${Math.round(progress)}% of the way from Stop Loss to 3R target.`
-    }
-  }
-
-  const isPeakBeyondTarget = peakPos > 100;
-  const clampedPeakPos = Math.max(0, Math.min(100, peakPos));
+  const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss';
+  const rrValue = Number(trade.rr || 0).toFixed(2);
+  const ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Live mark is at ${Math.round(progress)}% of runway scale.`;
 
   const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee)
 
@@ -283,7 +276,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="relative pt-1 pb-1">
           {/* Progress Bar Container */}
           <div
-            className="h-2 w-full bg-border/40 rounded-full relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
+            className="h-1.5 w-full bg-border/40 rounded-full relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
             role="progressbar"
             aria-valuenow={Math.round(progress)}
             aria-valuemin="0"
@@ -296,6 +289,26 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               style={{ left: `${entryMarkPos}%` }}
               aria-hidden="true"
             />
+
+            {/* Current SL Marker */}
+            {sl > 0 && (
+              <Tooltip content={
+                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Current Stop Loss</div>
+                  <div className="text-dim">
+                    SL R: <span className="text-text font-mono font-semibold">{slR.toFixed(2)}R</span>
+                  </div>
+                  <div className="text-dim">
+                    Price: <span className="text-text font-mono font-semibold">{fmtUSD(sl)}</span>
+                  </div>
+                </div>
+              }>
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-red/60 z-20 cursor-help"
+                  style={{ left: `${slPos}%` }}
+                />
+              </Tooltip>
+            )}
 
             {/* Progress Bar Fill */}
             <div
@@ -319,32 +332,45 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                   </div>
                   {isPeakBeyondTarget && (
                     <div className="text-purple text-[10px] font-semibold mt-1">
-                      ▲ Trailed beyond original TP frame!
+                      ▲ Trailed beyond target!
                     </div>
                   )}
                 </div>
               }>
                 <div
-                  className={cn(
-                    "absolute top-0 bottom-0 flex flex-col items-center justify-center z-20 cursor-help transition-all duration-500",
-                    isPeakBeyondTarget ? "w-4 -mr-2" : "w-1 -ml-0.5"
-                  )}
-                  style={{ left: `${clampedPeakPos}%` }}
+                  className="absolute top-0 bottom-0 flex flex-col items-center justify-center z-20 cursor-help transition-all duration-500 w-1 -ml-0.5"
+                  style={{ left: `${peakPos}%` }}
                 >
-                  {isPeakBeyondTarget ? (
-                    <span className="text-[10px] font-black text-purple/40 animate-pulse leading-none">▶</span>
-                  ) : (
-                    <div className="h-full w-px border-l border-dashed border-purple/30" />
-                  )}
+                  <div className="h-full w-px border-l border-dashed border-purple/60" />
                 </div>
+              </Tooltip>
+            )}
+
+            {/* TP Marker if explicit TP is configured */}
+            {tp > 0 && (
+              <Tooltip content={
+                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Take Profit Target</div>
+                  <div className="text-dim">
+                    Target R: <span className="text-text font-mono font-semibold">{targetR.toFixed(2)}R</span>
+                  </div>
+                  <div className="text-dim">
+                    Price: <span className="text-text font-mono font-semibold">{fmtUSD(tp)}</span>
+                  </div>
+                </div>
+              }>
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-green/60 z-20 cursor-help"
+                  style={{ left: `${tpPos}%` }}
+                />
               </Tooltip>
             )}
 
             {/* O(1) Gauge Marker Collision Detection */}
             {(() => {
               const isEstCollidingWithMark = Math.abs(estPos - progress) < 3.5;
-              const isEstCollidingWithPeak = Math.abs(estPos - clampedPeakPos) < 3.5;
-              const isPeakCollidingWithMark = Math.abs(clampedPeakPos - progress) < 3.0;
+              const isEstCollidingWithPeak = Math.abs(estPos - peakPos) < 3.5;
+              const isPeakCollidingWithMark = Math.abs(peakPos - progress) < 3.0;
 
               return (
                 <>
@@ -400,16 +426,17 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           <div className="flex flex-col items-start leading-tight">
             <span className="text-red/60">SL</span>
             <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(sl)}</span>
-            <span className="text-[8px] opacity-40">-{entry ? Number((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
+            <span className="text-[8px] opacity-40">{slR >= 0 ? `+${slR.toFixed(2)}R` : `${slR.toFixed(2)}R`}</span>
           </div>
           <div className="flex flex-col items-center text-center leading-tight">
             <span className="text-text/30">Entry</span>
             <span className="font-bold text-text/60 font-mono mt-0.5">{fmtUSD(entry)}</span>
+            <span className="text-[8px] opacity-40">0.00R</span>
           </div>
           <div className="flex flex-col items-end leading-tight text-right">
-            <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
-            <span className="font-bold text-text/80 font-mono mt-0.5">{tp ? fmtUSD(tp) : fmtUSD(isLong ? entry + Math.abs(entry - sl) * 3 : entry - Math.abs(entry - sl) * 3)}</span>
-            <span className="text-[8px] opacity-40">+{tp && entry ? Number((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '3.0R'}</span>
+            <span className="text-green/60">{tp > 0 ? 'TP' : 'Scale'}</span>
+            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(rightLabelPrice)}</span>
+            <span className="text-[8px] opacity-40">{targetR >= 0 ? `+${targetR.toFixed(2)}R` : `${targetR.toFixed(2)}R`}</span>
           </div>
         </div>
       </div>

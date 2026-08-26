@@ -69,7 +69,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     }
   }
 
-  // R-Multiple Fixed-Axis Price Runway Model
+  // Dynamic R-Multiple Price Runway Model (Zero Synthetic Targets)
   const initialSl = Number(trade.initial_sl || sl || 0);
   const rawRiskUnit = Math.abs(entry - initialSl);
   const riskUnit = rawRiskUnit > 0 ? rawRiskUnit : (entry > 0 ? entry * 0.01 : 1);
@@ -79,15 +79,17 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     return isLong ? (price - entry) / riskUnit : (entry - price) / riskUnit;
   };
 
-  const targetPrice = tp > 0 ? tp : (isLong ? entry + riskUnit * 3 : entry - riskUnit * 3);
-  const targetR = Math.max(0.5, getR(targetPrice));
   const maxRr = Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0);
   const peakR = Math.max(0, maxRr);
   const slR = getR(sl);
   const markR = getR(mark);
+  const tpR = tp > 0 ? getR(tp) : 0;
 
-  const bufferR = Math.max(0.3, targetR * 0.15);
-  const rightEdgeR = Math.max(targetR, peakR) + bufferR;
+  // Scale target dynamically: if explicit TP exists, anchor to max(tpR, peakR, markR);
+  // otherwise, anchor dynamically to max(1.5, peakR, markR) without synthetic fallbacks.
+  const targetR = tp > 0 ? Math.max(0.5, tpR, peakR, markR) : Math.max(1.5, peakR, markR);
+  const bufferR = Math.max(0.2, targetR * 0.1);
+  const rightEdgeR = targetR + bufferR;
   const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1);
   const totalRangeR = rightEdgeR - leftEdgeR;
 
@@ -101,11 +103,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const progress = pos(mark);
   const entryMarkPos = pos(entry);
   const slPos = pos(sl);
-  const tpPos = pos(targetPrice);
+  const tpPos = tp > 0 ? pos(tp) : null;
   const estPos = pos(estPrice);
   const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit);
   const peakPos = pos(peakPrice);
-  const isPeakBeyondTarget = peakR > targetR;
+  const isPeakBeyondTarget = tp > 0 && peakR > tpR;
+
+  const rightLabelPrice = tp > 0 ? tp : (isLong ? entry + targetR * riskUnit : entry - targetR * riskUnit);
 
   const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss';
   const rrValue = Number(trade.rr || 0).toFixed(2);
@@ -272,7 +276,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="relative pt-1 pb-1">
           {/* Progress Bar Container */}
           <div
-            className="h-2 w-full bg-border/40 rounded-full relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
+            className="h-1.5 w-full bg-border/40 rounded-full relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
             role="progressbar"
             aria-valuenow={Math.round(progress)}
             aria-valuemin="0"
@@ -422,16 +426,17 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           <div className="flex flex-col items-start leading-tight">
             <span className="text-red/60">SL</span>
             <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(sl)}</span>
-            <span className="text-[8px] opacity-40">-{entry ? Number((Math.abs(entry - sl) / entry) * 100).toFixed(1) : 0}%</span>
+            <span className="text-[8px] opacity-40">{slR >= 0 ? `+${slR.toFixed(2)}R` : `${slR.toFixed(2)}R`}</span>
           </div>
           <div className="flex flex-col items-center text-center leading-tight">
             <span className="text-text/30">Entry</span>
             <span className="font-bold text-text/60 font-mono mt-0.5">{fmtUSD(entry)}</span>
+            <span className="text-[8px] opacity-40">0.00R</span>
           </div>
           <div className="flex flex-col items-end leading-tight text-right">
-            <span className="text-green/60">{tp ? 'TP' : '3R'}</span>
-            <span className="font-bold text-text/80 font-mono mt-0.5">{tp ? fmtUSD(tp) : fmtUSD(isLong ? entry + Math.abs(entry - sl) * 3 : entry - Math.abs(entry - sl) * 3)}</span>
-            <span className="text-[8px] opacity-40">+{tp && entry ? Number((Math.abs(tp - entry) / entry) * 100).toFixed(1) : '3.0R'}</span>
+            <span className="text-green/60">{tp > 0 ? 'TP' : 'Scale'}</span>
+            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(rightLabelPrice)}</span>
+            <span className="text-[8px] opacity-40">{targetR >= 0 ? `+${targetR.toFixed(2)}R` : `${targetR.toFixed(2)}R`}</span>
           </div>
         </div>
       </div>

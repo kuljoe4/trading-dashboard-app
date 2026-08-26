@@ -69,7 +69,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     }
   }
 
-  // Dynamic R-Multiple Price Runway Model with Proximity Auto-Zoom
+  // Dynamic R-Multiple Price Runway Model (Zero Synthetic Targets)
   const initialSl = Number(trade.initial_sl || sl || 0);
   const rawRiskUnit = Math.abs(entry - initialSl);
   const riskUnit = rawRiskUnit > 0 ? rawRiskUnit : (entry > 0 ? entry * 0.01 : 1);
@@ -83,22 +83,23 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakR = Math.max(0, maxRr);
   const slR = getR(sl);
   const markR = getR(mark);
-  const estR = getR(estPrice);
   const tpR = tp > 0 ? getR(tp) : 0;
 
-  // Find active span across all key markers
-  const minActiveR = Math.min(-1, slR, markR, estR);
-  const maxActiveR = Math.max(0, markR, peakR, tpR);
-  const activeSpanR = maxActiveR - minActiveR;
+  // Signed percentage calculations
+  const slPercent = (entry > 0 && sl > 0)
+    ? (isLong ? ((sl - entry) / entry) * 100 : ((entry - sl) / entry) * 100)
+    : 0;
 
-  // Auto-Zoom: Enforce minimum view span for clear visual separation when markers are close together
-  const viewSpanR = Math.max(1.2, activeSpanR);
-  const paddingR = Math.max(0.1, viewSpanR * 0.08);
+  const markPercent = (entry > 0 && mark > 0)
+    ? (isLong ? ((mark - entry) / entry) * 100 : ((entry - mark) / entry) * 100)
+    : 0;
 
-  const leftEdgeR = minActiveR - paddingR;
-  const rightEdgeR = maxActiveR + paddingR;
+  // Scale target dynamically: derived from structural targets (tpR / peakR) without markR jitter.
+  const targetR = tp > 0 ? Math.max(0.5, tpR, peakR) : Math.max(1.5, peakR);
+  const bufferR = Math.max(0.2, targetR * 0.1);
+  const rightEdgeR = targetR + bufferR;
+  const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1);
   const totalRangeR = rightEdgeR - leftEdgeR;
-  const targetR = tp > 0 ? tpR : maxActiveR;
 
   const pos = (price) => {
     if (!totalRangeR || totalRangeR <= 0) return 50;
@@ -116,7 +117,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakPos = pos(peakPrice);
   const isPeakBeyondTarget = tp > 0 && peakR > tpR;
 
-  const rightLabelPrice = tp > 0 ? tp : (isLong ? entry + targetR * riskUnit : entry - targetR * riskUnit);
+  // Right slot label & pricing resolution
+  const rightSlotLabel = tp > 0 ? 'TP' : (peakR > 0 ? 'Peak' : 'Target');
+  const rightSlotPrice = tp > 0 ? tp : (peakR > 0 ? peakPrice : (isLong ? entry + 1.5 * riskUnit : entry - 1.5 * riskUnit));
+  const rightSlotR = tp > 0 ? tpR : (peakR > 0 ? peakR : 1.5);
 
   const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss';
   const rrValue = Number(trade.rr || 0).toFixed(2);
@@ -250,6 +254,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           <div className="flex items-center gap-1 min-w-0">
             <span className="text-dim/80">Live Mark:</span>
             <span className="font-mono text-text/90 font-bold">{fmtUSD(mark)}</span>
+            {entry > 0 && mark > 0 && (
+              <span className={cn("font-mono text-[8px] font-black", markPercent >= 0 ? "text-green" : "text-red")}>
+                ({markPercent >= 0 ? '+' : ''}{markPercent.toFixed(2)}%)
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             {hasCrossedSignal && (
@@ -283,16 +292,28 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="relative pt-1 pb-1">
           {/* Progress Bar Container */}
           <div
-            className="h-1.5 w-full bg-border/40 rounded-full relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
+            className="h-1.5 w-full bg-border/40 rounded-full relative overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.15)]"
             role="progressbar"
             aria-valuenow={Math.round(progress)}
             aria-valuemin="0"
             aria-valuemax="100"
             aria-valuetext={ariaText}
           >
-            {/* Entry Point Marker */}
+            {/* Underwater Risk Zone (Left of Entry) */}
             <div
-              className="absolute top-0 bottom-0 w-px bg-white/50 z-20"
+              className="absolute top-0 bottom-0 left-0 bg-red/10 transition-all duration-500"
+              style={{ width: `${entryMarkPos}%` }}
+            />
+
+            {/* Above-Water Profit Zone (Right of Entry) */}
+            <div
+              className="absolute top-0 bottom-0 right-0 bg-green/10 transition-all duration-500"
+              style={{ left: `${entryMarkPos}%` }}
+            />
+
+            {/* Entry Point Marker (Zero-Waterline Divider) */}
+            <div
+              className="absolute top-0 bottom-0 w-px bg-white/60 z-20 transition-all duration-500"
               style={{ left: `${entryMarkPos}%` }}
               aria-hidden="true"
             />
@@ -303,7 +324,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
                   <div className="font-bold border-b border-white/5 pb-1 mb-1">Current Stop Loss</div>
                   <div className="text-dim">
-                    SL R: <span className="text-text font-mono font-semibold">{slR.toFixed(2)}R</span>
+                    SL R: <span className="text-text font-mono font-semibold">{slR >= 0 ? '+' : ''}{slR.toFixed(2)}R</span>
+                  </div>
+                  <div className="text-dim">
+                    SL %: <span className="text-text font-mono font-semibold">{slPercent >= 0 ? '+' : ''}{slPercent.toFixed(2)}%</span>
                   </div>
                   <div className="text-dim">
                     Price: <span className="text-text font-mono font-semibold">{fmtUSD(sl)}</span>
@@ -311,7 +335,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 </div>
               }>
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-red/60 z-20 cursor-help"
+                  className="absolute top-0 bottom-0 w-0.5 bg-red/80 z-20 cursor-help transition-all duration-500"
                   style={{ left: `${slPos}%` }}
                 />
               </Tooltip>
@@ -359,7 +383,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
                   <div className="font-bold border-b border-white/5 pb-1 mb-1">Take Profit Target</div>
                   <div className="text-dim">
-                    Target R: <span className="text-text font-mono font-semibold">{targetR.toFixed(2)}R</span>
+                    Target R: <span className="text-text font-mono font-semibold">+{tpR.toFixed(2)}R</span>
                   </div>
                   <div className="text-dim">
                     Price: <span className="text-text font-mono font-semibold">{fmtUSD(tp)}</span>
@@ -367,7 +391,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 </div>
               }>
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-green/60 z-20 cursor-help"
+                  className="absolute top-0 bottom-0 w-0.5 bg-green/80 z-20 cursor-help transition-all duration-500"
                   style={{ left: `${tpPos}%` }}
                 />
               </Tooltip>
@@ -433,7 +457,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           <div className="flex flex-col items-start leading-tight">
             <span className="text-red/60">SL</span>
             <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(sl)}</span>
-            <span className="text-[8px] opacity-40">{slR >= 0 ? `+${slR.toFixed(2)}R` : `${slR.toFixed(2)}R`}</span>
+            <span className="text-[8px] opacity-40">
+              {slR >= 0 ? `+${slR.toFixed(2)}R` : `${slR.toFixed(2)}R`} · {slPercent >= 0 ? `+${slPercent.toFixed(2)}%` : `${slPercent.toFixed(2)}%`}
+            </span>
           </div>
           <div className="flex flex-col items-center text-center leading-tight">
             <span className="text-text/30">Entry</span>
@@ -441,9 +467,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <span className="text-[8px] opacity-40">0.00R</span>
           </div>
           <div className="flex flex-col items-end leading-tight text-right">
-            <span className="text-green/60">{tp > 0 ? 'TP' : 'Scale'}</span>
-            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(rightLabelPrice)}</span>
-            <span className="text-[8px] opacity-40">{targetR >= 0 ? `+${targetR.toFixed(2)}R` : `${targetR.toFixed(2)}R`}</span>
+            <span className="text-green/60">{rightSlotLabel}</span>
+            <span className="font-bold text-text/80 font-mono mt-0.5">{fmtUSD(rightSlotPrice)}</span>
+            <span className="text-[8px] opacity-40">+{rightSlotR.toFixed(2)}R</span>
           </div>
         </div>
       </div>

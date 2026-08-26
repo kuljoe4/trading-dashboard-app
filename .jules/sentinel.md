@@ -164,8 +164,3 @@
 **Vulnerability:** Outgoing REST requests initiated during application initialization/startup (specifically `fetchInitialTickers` in `MarketFeedService`) lacked a timeout signal, exposing the application to permanent hangs or self-inflicted Denial of Service (DoS) during cold boots if the exchange REST gateway is unresponsive or rate-limiting.
 **Learning:** All startup REST/HTTP queries must have bounded execution guarantees to protect the event loop and ensure successful bootstrap sequences under unstable network/gateway conditions.
 **Prevention:** Always couple startup `fetch` requests with explicit timeout signals (e.g. `AbortSignal.timeout(5000)`) and robust `try/catch` handlers that allow the system to proceed gracefully if the external dependency is slow or unreachable.
-
-## 2026-08-26 - Parameter Type Confusion Hardening
-**Vulnerability:** `@Param()` route parameters (`id` in `getTrade` and `updateTradeConfig`, `symbol` in `closeTradeManually`) in `SessionController` evaluated string length and regex constraints without explicit `typeof param !== 'string'` guards, risking type confusion vulnerabilities or runtime exceptions when Express/NestJS query/param parser coercion produces array or object inputs.
-**Learning:** Route and query parameters in Express/NestJS controllers that bypass DTO validation must enforce strict primitive string type assertions before accessing string properties (like `.length`) or evaluating regular expressions.
-**Prevention:** Always check `typeof param !== 'string'` in custom parameter validation guards in NestJS controllers before invoking string methods or regex testing.

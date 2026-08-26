@@ -132,8 +132,8 @@ export class SessionController {
   async getTrade(@Param("id") id: string) {
     // SENTINEL: Input validation to ensure 'id' is a valid UUID or Binance symbol format.
     // Prevents potential probing attacks or malformed input issues.
-    // SENTINEL: Enforce type safety and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and type confusion.
-    if (!id || typeof id !== "string" || id.length > 50) {
+    // SENTINEL: Enforce maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse.
+    if (!id || id.length > 50) {
       throw new BadRequestException("Invalid trade ID or symbol format");
     }
     const isUuid =
@@ -154,8 +154,8 @@ export class SessionController {
     @Body() body: UpdateTradeConfigDto,
     @Req() req: Request,
   ) {
-    // SENTINEL: Enforce type safety and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and type confusion.
-    if (!id || typeof id !== "string" || id.length > 50) {
+    // SENTINEL: Enforce maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse.
+    if (!id || id.length > 50) {
       throw new BadRequestException("Invalid trade ID or symbol format");
     }
     const isUuid =
@@ -209,8 +209,8 @@ export class SessionController {
     @Req() req: Request,
   ) {
     // Basic input hardening: ensure symbol matches expected Binance format
-    // SENTINEL: Enforce type safety and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and type confusion.
-    if (!symbol || typeof symbol !== "string" || symbol.length > 50 || !/^[A-Z0-9]{3,20}$/.test(symbol)) {
+    // SENTINEL: Enforce maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse.
+    if (!symbol || symbol.length > 50 || !/^[A-Z0-9]{3,20}$/.test(symbol)) {
       throw new BadRequestException("Invalid symbol format");
     }
     const clientIp =

@@ -59,12 +59,13 @@ export const Sidebar = ({ selected }) => {
         {NAV_ITEMS.map(item => (
           <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
             <button
+              type="button"
               onClick={() => window.location.hash = `#${item.path}`}
               onMouseEnter={() => preloadView(item.path)}
-              aria-label={`${item.label}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
+              aria-label={`${item.label}${item.path === '/trades' && activeTrades?.length > 0 ? ` (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : ''}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
               aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
-                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                 isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0",
                 isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
               )}
@@ -89,10 +90,11 @@ export const Sidebar = ({ selected }) => {
 
         <Tooltip content={collapsed ? "Market Scanner [S]" : null} side="right">
           <button
+            type="button"
             onClick={triggerScanner}
             aria-label="Market Scanner [S]"
             className={cn(
-              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
               isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
             )}
           >
@@ -108,10 +110,11 @@ export const Sidebar = ({ selected }) => {
 
         <Tooltip content={!isExpanded ? "Keyboard Shortcuts [?]" : null} side="right">
           <button
+            type="button"
             onClick={() => window.dispatchEvent(new Event('toggle-shortcuts'))}
             aria-label="Keyboard Shortcuts [?]"
             className={cn(
-              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-dim hover:text-text hover:bg-white/5 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-dim hover:text-text hover:bg-white/5 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
               isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
             )}
           >
@@ -137,9 +140,10 @@ export const Sidebar = ({ selected }) => {
 
       <Tooltip content={collapsed ? "Expand sidebar" : "Collapse sidebar"} side="right">
         <button
+          type="button"
           onClick={toggleSidebar}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-[60] shadow-md transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          className="absolute -right-4 top-8 w-8 h-8 bg-surface border border-border rounded-full flex items-center justify-center text-dim hover:text-text z-[60] shadow-md transition-transform active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
         >
           {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
@@ -194,11 +198,13 @@ export const BottomNav = ({ selected }) => {
         ].map(item => (
           <button
             key={item.path}
+            type="button"
             onClick={() => window.location.hash = `#${item.path}`}
             onMouseEnter={() => preloadView(item.path)}
+            aria-label={item.path === '/trades' && activeTrades?.length > 0 ? `${item.label} (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : item.label}
             aria-current={isActive(item.path) ? 'page' : undefined}
             className={cn(
-              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
               isActive(item.path) ? "text-accent" : "text-dim hover:text-text"
             )}
           >

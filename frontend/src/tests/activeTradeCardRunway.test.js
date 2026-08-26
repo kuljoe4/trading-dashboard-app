@@ -21,20 +21,13 @@ function computeRunwayPositions(trade) {
   const peakR = Math.max(0, maxRr)
   const slR = getR(sl)
   const markR = getR(mark)
-  const estR = getR(trade.est_price || sl)
   const tpR = tp > 0 ? getR(tp) : 0
 
-  const minActiveR = Math.min(-1, slR, markR, estR)
-  const maxActiveR = Math.max(0, markR, peakR, tpR)
-  const activeSpanR = maxActiveR - minActiveR
-
-  const viewSpanR = Math.max(1.2, activeSpanR)
-  const paddingR = Math.max(0.1, viewSpanR * 0.08)
-
-  const leftEdgeR = minActiveR - paddingR
-  const rightEdgeR = maxActiveR + paddingR
+  const targetR = tp > 0 ? Math.max(0.5, tpR, peakR, markR) : Math.max(1.5, peakR, markR)
+  const bufferR = Math.max(0.2, targetR * 0.1)
+  const rightEdgeR = targetR + bufferR
+  const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1)
   const totalRangeR = rightEdgeR - leftEdgeR
-  const targetR = tp > 0 ? tpR : maxActiveR
 
   const pos = (price) => {
     if (!totalRangeR || totalRangeR <= 0) return 50
@@ -54,8 +47,6 @@ function computeRunwayPositions(trade) {
   return {
     riskUnit,
     targetR,
-    activeSpanR,
-    viewSpanR,
     rightEdgeR,
     leftEdgeR,
     progress,
@@ -82,28 +73,29 @@ test('R-multiple Price Runway: LONG position initial state with explicit TP', ()
   const res = computeRunwayPositions(trade)
   assert.equal(res.riskUnit, 5)
   assert.equal(res.targetR, 3)
+  assert.equal(res.leftEdgeR, -1)
+  assert.ok(res.rightEdgeR >= 3.3)
+
   assert.ok(res.entryMarkPos > res.slPos)
   assert.ok(res.tpPos > res.entryMarkPos)
   assert.equal(res.progress, res.entryMarkPos)
 })
 
-test('Proximity Auto-Zoom: Enforces minimum view span when markers are tightly clustered', () => {
+test('R-multiple Price Runway: Open-ended trailing trade without explicit TP (zero synthetic TP)', () => {
   const trade = {
     direction: 'LONG',
     entry_price: 100,
     initial_sl: 95,
-    sl_price: 100, // Breakeven
+    sl_price: 100,
     tp_price: 0,
-    mark_price: 100.2, // Small movement +0.04R
-    max_rr: 0.04
+    mark_price: 105,
+    max_rr: 1.0
   }
 
   const res = computeRunwayPositions(trade)
-  assert.ok(res.activeSpanR <= 1.1)
-  assert.ok(res.viewSpanR >= 1.2, 'Auto-zooms to minimum view span')
-  // Distance between entry and mark is amplified on screen for visual clarity
-  const distOnBar = res.progress - res.entryMarkPos
-  assert.ok(distOnBar > 2.0, 'Provides clear visual separation between close markers')
+  assert.equal(res.tpPos, null)
+  assert.equal(res.targetR, 1.5) // Default open-ended floor
+  assert.ok(res.progress > res.entryMarkPos)
 })
 
 test('R-multiple Price Runway: Trailing SL past entry does NOT invert entry and mark', () => {

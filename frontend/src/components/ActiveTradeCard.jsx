@@ -69,7 +69,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     }
   }
 
-  // Dynamic R-Multiple Price Runway Model (Zero Synthetic Targets)
+  // Dynamic R-Multiple Price Runway Model with Proximity Auto-Zoom
   const initialSl = Number(trade.initial_sl || sl || 0);
   const rawRiskUnit = Math.abs(entry - initialSl);
   const riskUnit = rawRiskUnit > 0 ? rawRiskUnit : (entry > 0 ? entry * 0.01 : 1);
@@ -83,15 +83,22 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakR = Math.max(0, maxRr);
   const slR = getR(sl);
   const markR = getR(mark);
+  const estR = getR(estPrice);
   const tpR = tp > 0 ? getR(tp) : 0;
 
-  // Scale target dynamically: if explicit TP exists, anchor to max(tpR, peakR, markR);
-  // otherwise, anchor dynamically to max(1.5, peakR, markR) without synthetic fallbacks.
-  const targetR = tp > 0 ? Math.max(0.5, tpR, peakR, markR) : Math.max(1.5, peakR, markR);
-  const bufferR = Math.max(0.2, targetR * 0.1);
-  const rightEdgeR = targetR + bufferR;
-  const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1);
+  // Find active span across all key markers
+  const minActiveR = Math.min(-1, slR, markR, estR);
+  const maxActiveR = Math.max(0, markR, peakR, tpR);
+  const activeSpanR = maxActiveR - minActiveR;
+
+  // Auto-Zoom: Enforce minimum view span for clear visual separation when markers are close together
+  const viewSpanR = Math.max(1.2, activeSpanR);
+  const paddingR = Math.max(0.1, viewSpanR * 0.08);
+
+  const leftEdgeR = minActiveR - paddingR;
+  const rightEdgeR = maxActiveR + paddingR;
   const totalRangeR = rightEdgeR - leftEdgeR;
+  const targetR = tp > 0 ? tpR : maxActiveR;
 
   const pos = (price) => {
     if (!totalRangeR || totalRangeR <= 0) return 50;

@@ -69,7 +69,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     }
   }
 
-  // Dynamic R-Multiple Price Runway Model (Zero Synthetic Targets)
+  // Dynamic R-Multiple Price Runway Model with Proximity Auto-Zoom
   const initialSl = Number(trade.initial_sl || sl || 0);
   const rawRiskUnit = Math.abs(entry - initialSl);
   const riskUnit = rawRiskUnit > 0 ? rawRiskUnit : (entry > 0 ? entry * 0.01 : 1);
@@ -83,6 +83,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakR = Math.max(0, maxRr);
   const slR = getR(sl);
   const markR = getR(mark);
+  const estR = getR(estPrice);
   const tpR = tp > 0 ? getR(tp) : 0;
 
   // Signed percentage calculations
@@ -100,6 +101,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const rightEdgeR = targetR + bufferR;
   const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1);
   const totalRangeR = rightEdgeR - leftEdgeR;
+  const targetR = tp > 0 ? tpR : maxActiveR;
 
   const pos = (price) => {
     if (!totalRangeR || totalRangeR <= 0) return 50;

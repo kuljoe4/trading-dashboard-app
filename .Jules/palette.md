@@ -53,3 +53,7 @@
 ## 2026-08-15 - Keyboard Shortcut Cheatsheet Interactivity and Accessibility Standard
 **Learning:** Displaying shortcut keys inside a static modal list misses an opportunity to turn the cheatsheet into an interactive command palette. Converting shortcut rows into semantic `<button>` elements equipped with `aria-label` descriptions (including action label and keys), hover highlights, and `focus-visible:ring-2` focus indicators allows users to either press the hotkey or click the shortcut row directly to execute actions (like view navigation or search focusing).
 **Action:** Always render shortcut rows in cheatsheet modals as interactive `<button>` elements with clear `aria-label` strings and action handlers.
+
+## 2026-08-16 - Navigation Active Position Context & Button Semantics Standard
+**Learning:** Navigation buttons (such as bottom bar tabs or sidebar navigation buttons) that render visual notification badges (like active position counts) often fail to communicate those badge updates to screen reader users if the `aria-label` is static. Dynamically incorporating active position counts into the `aria-label` (e.g. "Trades (2 active positions)") alongside explicit `type="button"` and `cursor-pointer` declarations provides complete auditory parity and standard button semantics across both desktop and mobile viewports.
+**Action:** Ensure navigation items with badge indicators dynamically enrich their `aria-label` strings with badge context for screen readers.

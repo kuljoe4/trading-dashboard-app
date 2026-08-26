@@ -594,34 +594,50 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     let rangeTwoToThree = 0;
     let rangeThreePlus = 0;
 
+    let pnlMinusToZero = 0;
+    let pnlZeroToQuarter = 0;
+    let pnlQuarterToHalf = 0;
+    let pnlHalfToOne = 0;
+    let pnlOneToTwo = 0;
+    let pnlTwoToThree = 0;
+    let pnlThreePlus = 0;
+
     trades.forEach(t => {
       const err = Number(t.exit_rr ?? 0);
+      const pnl = safeNum(t.pnl);
       if (err <= 0) {
         rangeMinusToZero++;
+        pnlMinusToZero += pnl;
       } else if (err > 0 && err <= 0.25) {
         rangeZeroToQuarter++;
+        pnlZeroToQuarter += pnl;
       } else if (err > 0.25 && err <= 0.5) {
         rangeQuarterToHalf++;
+        pnlQuarterToHalf += pnl;
       } else if (err > 0.5 && err <= 1.0) {
         rangeHalfToOne++;
+        pnlHalfToOne += pnl;
       } else if (err > 1.0 && err <= 2.0) {
         rangeOneToTwo++;
+        pnlOneToTwo += pnl;
       } else if (err > 2.0 && err <= 3.0) {
         rangeTwoToThree++;
+        pnlTwoToThree += pnl;
       } else {
         rangeThreePlus++;
+        pnlThreePlus += pnl;
       }
     });
 
     const total = trades.length || 1;
     return [
-      { label: '≤ 0 R', count: rangeMinusToZero, pct: ((rangeMinusToZero / total) * 100).toFixed(1), color: 'text-red bg-red/10 border-red/20' },
-      { label: '0 to 0.25 R', count: rangeZeroToQuarter, pct: ((rangeZeroToQuarter / total) * 100).toFixed(1), color: 'text-dim bg-background/20 border-border/20' },
-      { label: '0.25 to 0.5 R', count: rangeQuarterToHalf, pct: ((rangeQuarterToHalf / total) * 100).toFixed(1), color: 'text-amber bg-amber/10 border-amber/20' },
-      { label: '0.5 to 1 R', count: rangeHalfToOne, pct: ((rangeHalfToOne / total) * 100).toFixed(1), color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
-      { label: '1 to 2 R', count: rangeOneToTwo, pct: ((rangeOneToTwo / total) * 100).toFixed(1), color: 'text-accent bg-accent/10 border-accent/20' },
-      { label: '2 to 3 R', count: rangeTwoToThree, pct: ((rangeTwoToThree / total) * 100).toFixed(1), color: 'text-green bg-green/10 border-green/20' },
-      { label: '3R +', count: rangeThreePlus, pct: ((rangeThreePlus / total) * 100).toFixed(1), color: 'text-purple bg-purple/10 border-purple/20' },
+      { label: '≤ 0 R', count: rangeMinusToZero, pct: ((rangeMinusToZero / total) * 100).toFixed(1), pnl: pnlMinusToZero, color: 'text-red bg-red/10 border-red/20' },
+      { label: '0 to 0.25 R', count: rangeZeroToQuarter, pct: ((rangeZeroToQuarter / total) * 100).toFixed(1), pnl: pnlZeroToQuarter, color: 'text-dim bg-background/20 border-border/20' },
+      { label: '0.25 to 0.5 R', count: rangeQuarterToHalf, pct: ((rangeQuarterToHalf / total) * 100).toFixed(1), pnl: pnlQuarterToHalf, color: 'text-amber bg-amber/10 border-amber/20' },
+      { label: '0.5 to 1 R', count: rangeHalfToOne, pct: ((rangeHalfToOne / total) * 100).toFixed(1), pnl: pnlHalfToOne, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
+      { label: '1 to 2 R', count: rangeOneToTwo, pct: ((rangeOneToTwo / total) * 100).toFixed(1), pnl: pnlOneToTwo, color: 'text-accent bg-accent/10 border-accent/20' },
+      { label: '2 to 3 R', count: rangeTwoToThree, pct: ((rangeTwoToThree / total) * 100).toFixed(1), pnl: pnlTwoToThree, color: 'text-green bg-green/10 border-green/20' },
+      { label: '3R +', count: rangeThreePlus, pct: ((rangeThreePlus / total) * 100).toFixed(1), pnl: pnlThreePlus, color: 'text-purple bg-purple/10 border-purple/20' },
     ];
   }, [trades]);
 
@@ -846,6 +862,10 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               </div>
               <div className="w-full bg-background/30 rounded-full h-1 overflow-hidden mt-0.5">
                 <div className={cn("h-full rounded-full", dist.color.split(' ')[0].replace('text-', 'bg-'))} style={{ width: `${dist.pct}%` }} />
+              </div>
+              <div className="flex justify-between items-center text-[8px] font-mono font-bold mt-0.5 pt-0.5 border-t border-border/10">
+                <span className="text-dim/60 text-[7px] uppercase tracking-wider">PnL</span>
+                <span className={cn("font-black", pnlClass(dist.pnl))}>{fmtUSD(dist.pnl)}</span>
               </div>
             </div>
           ))}

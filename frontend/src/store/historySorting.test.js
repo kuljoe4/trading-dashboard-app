@@ -470,6 +470,66 @@ test('RrWinRateCalculator low RR targets below 0.5 correctness and exit distribu
   assert.strictEqual(rangeThreePlus, 1, '3R + count');
 });
 
+test('buildCurve single-pass reverse loop correctness and performance benchmark', () => {
+  const safeNum = (v) => (v == null || isNaN(v) ? 0 : Number(v));
+
+  const originalImpl = (trades = []) => {
+    const safeTrades = Array.isArray(trades) ? trades : [];
+    let pnl = 0;
+    return [...safeTrades].reverse().map((trade) => {
+      pnl += safeNum(trade.pnl);
+      return { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl };
+    });
+  };
+
+  const optimizedImpl = (trades = []) => {
+    const safeTrades = Array.isArray(trades) ? trades : [];
+    const len = safeTrades.length;
+    const result = new Array(len);
+    let pnl = 0;
+    for (let i = len - 1; i >= 0; i--) {
+      const trade = safeTrades[i];
+      pnl += safeNum(trade.pnl);
+      result[len - 1 - i] = { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl };
+    }
+    return result;
+  };
+
+  const mockTrades = Array.from({ length: 500 }, (_, i) => ({
+    pnl: (i % 2 === 0 ? 1 : -1) * (i * 2.5),
+    exit_ts: '2026-07-20T10:00:00.000Z'
+  }));
+
+  // 1. Correctness
+  const resOriginal = originalImpl(mockTrades);
+  const resOptimized = optimizedImpl(mockTrades);
+  assert.deepStrictEqual(resOptimized, resOriginal, 'Optimized buildCurve output must match original exactly.');
+
+  // 2. Performance Benchmark
+  const iterations = 10000;
+  originalImpl(mockTrades);
+  optimizedImpl(mockTrades);
+
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalImpl(mockTrades);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedImpl(mockTrades);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (buildCurve cumulative curve computation, List size: ${mockTrades.length} trades, ${iterations} iterations):`);
+  console.log(`  - Original [...spread].reverse().map(): ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Pre-allocated reverse loop: ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                    ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});
+
 test('Search Filter Symbol check performance benchmark', () => {
   const listSize = 500;
   const mockTrades = Array.from({ length: listSize }, () => ({

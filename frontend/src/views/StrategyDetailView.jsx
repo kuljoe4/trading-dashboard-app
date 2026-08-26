@@ -76,6 +76,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const signalsCount = strategyConfig.enabled_signals?.length || 0
   const firedCount = signalResult.firedSignals?.length || 0
   const signalLogic = strategyConfig.signal_logic || 'all'
+  const requiredSignals = strategyConfig.required_signals || []
+  const reqLabels = (strategyConfig.enabled_signals || []).filter(s => requiredSignals.includes(s)).map(s => SIGNAL_LABELS[s] || s)
+  const optLabels = (strategyConfig.enabled_signals || []).filter(s => !requiredSignals.includes(s)).map(s => SIGNAL_LABELS[s] || s)
+
+  const conditionFormula = signalLogic === 'combo'
+    ? `${reqLabels.length > 0 ? `[Req: ${reqLabels.join(' AND ')}]` : '[Req: Base]'} AND ${optLabels.length > 0 ? `[Any: ${optLabels.join(' | ')}]` : '[Any]'}`
+    : signalLogic === 'all' ? 'Match All (AND)' : 'Match Any (OR)'
 
   const isStrategyPaused = pausedStrategies?.includes(s.strategy_label) || sessionPaused;
 
@@ -182,8 +189,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         {strategyConfig.enabled_signals && strategyConfig.enabled_signals.length > 0 && (
           <div className="bg-surface/30 border border-border/40 p-4 rounded-2xl mb-5 text-left">
             <div className="flex justify-between items-center mb-3">
-              <div className="text-[10px] font-black text-dim uppercase tracking-widest">
-                Technical Signal Checklist ({bestOpp.symbol})
+              <div className="flex flex-col text-left">
+                <div className="text-[10px] font-black text-dim uppercase tracking-widest">
+                  Technical Signal Checklist ({bestOpp.symbol})
+                </div>
+                <div className="text-[9px] font-mono font-bold text-accent uppercase tracking-wider mt-0.5">
+                  Formula: {conditionFormula}
+                </div>
               </div>
               <div className={cn(
                 "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border shadow-sm",

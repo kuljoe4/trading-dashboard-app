@@ -499,10 +499,21 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
   const satisfiedCount = entries.filter(([_, s]) => s.fired && s.active).length
   const totalCount = entries.length
   const allFired = satisfiedCount === totalCount
-  const criteriaMet = logic === 'all' ? allFired : satisfiedCount > 0;
+
+  const reqExitSignals = trade.strategy_config?.required_exit_signals || trade.required_exit_signals || [];
+  const reqSatisfied = reqExitSignals.length > 0
+    ? reqExitSignals.every(k => status[k]?.fired && status[k]?.active)
+    : entries.filter(([k]) => !k.includes('_')).every(([_, s]) => s.fired && s.active);
+  const optSet = reqExitSignals.length > 0
+    ? entries.filter(([k]) => !reqExitSignals.includes(k))
+    : entries.filter(([k]) => k.includes('_'));
+  const optSatisfied = optSet.length === 0 || optSet.some(([_, s]) => s.fired && s.active);
+
+  const comboSatisfied = reqSatisfied && optSatisfied;
+  const criteriaMet = logic === 'all' ? allFired : logic === 'combo' ? comboSatisfied : satisfiedCount > 0;
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col">
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col text-left">
       <div className="flex items-center justify-between mb-2 md:mb-5">
         <div className="flex flex-col gap-0.5">
           <SectionLabel className={cn("mb-0 flex items-center gap-1.5", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
@@ -511,7 +522,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
             <span className="md:hidden inline">{criteriaMet ? 'EXIT' : satisfiedCount > 0 ? 'RISK' : 'WAIT'}</span>
           </SectionLabel>
           <div className="text-[7px] md:text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
-            {logic === 'all' ? 'Match All' : 'Match Any'}
+            {logic === 'all' ? 'Match All (AND)' : logic === 'combo' ? 'Match Combo (AND + ANY)' : 'Match Any (OR)'}
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-end">

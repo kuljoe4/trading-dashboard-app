@@ -249,6 +249,20 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.trailing_stop_distance_pct, 1.5)
     assert.deepEqual(sanitized.signal_timeframes, { ema: '5m' })
   })
+
+  it('preserves combo signal logic and required signal lists', () => {
+    const config = {
+      signal_logic: 'combo',
+      required_signals: ['macd_pbc'],
+      exit_signal_logic: 'combo',
+      required_exit_signals: ['macd_fade']
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.strictEqual(sanitized.signal_logic, 'combo')
+    assert.deepEqual(sanitized.required_signals, ['macd_pbc'])
+    assert.strictEqual(sanitized.exit_signal_logic, 'combo')
+    assert.deepEqual(sanitized.required_exit_signals, ['macd_fade'])
+  })
 })
 
 describe('presetsAPI', () => {

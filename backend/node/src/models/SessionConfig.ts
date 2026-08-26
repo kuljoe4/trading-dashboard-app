@@ -175,9 +175,17 @@ export class SessionConfig {
   @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   enabled_signals?: string[] = ['momentum_pct'];
 
-  @IsEnum(['any', 'all'])
+  @IsEnum(['any', 'all', 'combo'])
   @IsOptional()
-  signal_logic?: 'any' | 'all' = 'all';
+  signal_logic?: 'any' | 'all' | 'combo' = 'all';
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
+  required_signals?: string[] = [];
 
   @IsObject()
   @IsOptional()
@@ -289,9 +297,17 @@ export class SessionConfig {
   @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   exit_signals?: string[] = [];
 
-  @IsEnum(['any', 'all'])
+  @IsEnum(['any', 'all', 'combo'])
   @IsOptional()
-  exit_signal_logic?: 'any' | 'all' = 'any';
+  exit_signal_logic?: 'any' | 'all' | 'combo' = 'any';
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
+  required_exit_signals?: string[] = [];
 
   @IsBoolean()
   @IsOptional()

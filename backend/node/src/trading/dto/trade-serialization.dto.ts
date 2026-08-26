@@ -25,7 +25,8 @@ export interface TradeSerializationDto {
   exit_rr_sequence?: number[];
   tp_mode?: 'fixed' | 'exp_rr_seq';
   tp_ratio?: number;
-  exit_signal_logic?: 'any' | 'all';
+  signal_logic?: 'any' | 'all' | 'combo';
+  exit_signal_logic?: 'any' | 'all' | 'combo';
   strategy_config?: Partial<SessionConfig>;
   entry_daily_change_pct?: number;
   initial_risk_usdt?: number;

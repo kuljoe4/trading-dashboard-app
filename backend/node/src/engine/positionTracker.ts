@@ -538,10 +538,10 @@ export class PositionTrackerService {
 
       const hasCloseAction = firedActiveKeys.some(k => !actions[k] || actions[k] === 'close');
 
-      if (hasCloseAction || config.exit_signal_logic === 'all') {
+      if (hasCloseAction || config.exit_signal_logic === 'all' || config.exit_signal_logic === 'combo') {
         trade.exit_signal_type = exitSignalType;
-        if (exitSignalType === 'combined') {
-          trade.exit_signal_reason = `All signals fired: ${config.exit_signals?.join(', ')}`;
+        if (exitSignalType === 'combined' || exitSignalType === 'combo') {
+          trade.exit_signal_reason = `Combo exit signals triggered: ${config.exit_signals?.join(', ')}`;
         } else {
           const status = trade.exit_signals_status?.[exitSignalType || ''];
           trade.exit_signal_reason = status?.description || `Signal ${exitSignalType} fired`;

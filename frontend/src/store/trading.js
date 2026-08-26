@@ -8,6 +8,16 @@ const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) 
 const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 
+// Anti-flicker metric resolver: prevents transient 0/null/undefined payloads from zero-resetting active store values
+const resolveNonZeroMetric = (nextVal, currentVal, sessionActive) => {
+  if (nextVal !== undefined && nextVal !== null) {
+    const num = toNumber(nextVal);
+    if (num !== 0 || !sessionActive || currentVal === 0) return num;
+    return currentVal;
+  }
+  return currentVal ?? 0;
+};
+
 const getObjectSource = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {});
 
 export const normalizeOpportunity = (o = {}, prev = null) => {
@@ -501,10 +511,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // Prevent metrics (P&L, balance, risk, SL used) from dropping to 0 or resetting
     // when backend emits transient zero/null/uninitialized state during reconnection or tab un-throttling.
     if (sessionCurrentlyActive && updates.status !== 'stopped' && updates.running !== false) {
-       if (nextPnl === 0 && st.totalPnl !== 0) merged.totalPnl = st.totalPnl;
-       if (updates.balance === 0 && st.balance !== 0) merged.balance = st.balance;
-       if (updates.totalRiskPct === 0 && st.totalRiskPct !== 0) merged.totalRiskPct = st.totalRiskPct;
-       if (updates.totalSlUsed === 0 && st.totalSlUsed !== 0) merged.totalSlUsed = st.totalSlUsed;
+       merged.totalPnl = resolveNonZeroMetric(nextPnl, st.totalPnl, true);
+       merged.balance = resolveNonZeroMetric(updates.balance, st.balance, true);
+       merged.totalRiskPct = resolveNonZeroMetric(updates.totalRiskPct, st.totalRiskPct, true);
+       merged.totalSlUsed = resolveNonZeroMetric(updates.totalSlUsed, st.totalSlUsed, true);
     }
 
     if (isResuming && sessionCurrentlyActive) {
@@ -692,20 +702,19 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
+          const nextActiveSession = d.running ?? d.status === 'started';
           const nextPnl = d.totalPnl ?? d.total_pnl;
-          const totalPnl = (isResuming && nextPnl === 0 && st.totalPnl !== 0) ? st.totalPnl : (nextPnl ?? st.totalPnl);
 
-          // Clear isSyncingOnResume after status is processed and valid data is hydrated
           return {
-            sessionActive: d.running ?? d.status === 'started',
+            sessionActive: nextActiveSession,
             sessionPaused: d.paused ?? st.sessionPaused,
             pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [],
             strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {},
             strategyId: d.strategyId || st.strategyId,
-            balance: (d.balance === 0 && st.balance !== 0) ? st.balance : (d.balance ?? st.balance),
-            totalPnl,
-            totalRiskPct: (d.totalRiskPct === 0 && st.totalRiskPct !== 0) ? st.totalRiskPct : (d.totalRiskPct ?? st.totalRiskPct),
-            totalSlUsed: (d.totalSlUsed === 0 && st.totalSlUsed !== 0) ? st.totalSlUsed : (d.totalSlUsed ?? st.totalSlUsed),
+            balance: resolveNonZeroMetric(d.balance, st.balance, nextActiveSession),
+            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, nextActiveSession),
+            totalRiskPct: resolveNonZeroMetric(d.totalRiskPct, st.totalRiskPct, nextActiveSession),
+            totalSlUsed: resolveNonZeroMetric(d.totalSlUsed, st.totalSlUsed, nextActiveSession),
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
@@ -764,10 +773,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           }
 
           const nextPnl = d.total_pnl;
-          const totalPnl = (isResuming && nextPnl === 0 && st.totalPnl !== 0) ? st.totalPnl : (nextPnl ?? st.totalPnl);
 
           return {
-            balance: d.balance ?? st.balance, totalPnl, totalRiskPct: d.total_risk_pct ?? st.totalRiskPct, totalSlUsed: d.total_sl_used ?? st.totalSlUsed, totalEstPnlToRealize: d.total_est_pnl_to_realize ?? st.totalEstPnlToRealize, entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            balance: resolveNonZeroMetric(d.balance, st.balance, st.sessionActive),
+            totalPnl: resolveNonZeroMetric(nextPnl, st.totalPnl, st.sessionActive),
+            totalRiskPct: resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, st.sessionActive),
+            totalSlUsed: resolveNonZeroMetric(d.total_sl_used, st.totalSlUsed, st.sessionActive),
+            totalEstPnlToRealize: resolveNonZeroMetric(d.total_est_pnl_to_realize, st.totalEstPnlToRealize, st.sessionActive),
+            entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor,

@@ -559,14 +559,24 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
   // Pre-allocate 5 slots to prevent layout shift
   const placeholders = Array.from({ length: Math.max(0, 5 - top.length) })
 
+  const weights = config?.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+  const momW = Math.round((weights.momentum ?? 0.5) * 100);
+  const volW = Math.round((weights.volatility ?? 0.3) * 100);
+  const trendW = Math.round((weights.trend ?? 0.2) * 100);
+
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col">
+    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col text-left">
       <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
         <div className="flex flex-col">
           <SectionLabel className="mb-0">
             <Zap size={14} className="text-accent" /> Live Scanner
           </SectionLabel>
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Opportunities</span>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Top 5 Opportunities</span>
+            <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded">
+              Weights {momW}:{volW}:{trendW}
+            </span>
+          </div>
         </div>
         <button
           className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"

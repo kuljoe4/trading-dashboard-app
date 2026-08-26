@@ -569,13 +569,12 @@ export class EngineBroadcasterService {
     const mode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
     const startingBalance = (mode === 'paper') ? config?.paper_starting_balance : config?.live_starting_balance;
 
-    // Calculate realized PnL by summing closed trades to ensure accuracy even if live_starting_balance is unset
+    // WISP OPTIMIZATION: Eliminate O(N) closed trades array iteration loop on the high-frequency broadcast tick path.
+    // Instead of looping through up to 500 closed trades every 500ms tick, retrieve pre-accumulated realized PnL
+    // directly from this.sessionState.stats.totalPnl in O(1) time.
     let realizedPnl = 0;
     if (this.sessionState.closedTrades && this.sessionState.closedTrades.length > 0) {
-      for (const t of this.sessionState.closedTrades) {
-        realizedPnl += Number(t.pnl || 0);
-      }
-      realizedPnl = roundEight(realizedPnl);
+      realizedPnl = roundEight(this.sessionState.stats?.totalPnl ?? 0);
     } else {
       realizedPnl = roundEight(balance - (startingBalance ?? balance));
     }

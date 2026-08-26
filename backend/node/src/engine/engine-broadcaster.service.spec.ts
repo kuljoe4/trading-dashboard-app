@@ -277,4 +277,48 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
       expect(totalMs).toBeGreaterThan(0);
     });
   });
+
+  describe('realizedPnl broadcastTick O(1) optimization', () => {
+    it('should correctly calculate total_pnl using pre-accumulated sessionState.stats.totalPnl without looping', () => {
+      const closedTrades: any[] = [];
+      let expectedPnlSum = 0;
+      for (let i = 0; i < 50; i++) {
+        const pnlVal = 10.5;
+        closedTrades.push({ id: `ct_${i}`, pnl: pnlVal, symbol: 'BTCUSDT' });
+        expectedPnlSum += pnlVal;
+      }
+
+      sessionState.closedTrades = closedTrades;
+      sessionState.stats = { entryCount: 50, hitCount: 50, totalPnl: expectedPnlSum };
+      sessionState.getBalance.mockReturnValue(10000);
+      (service as any).lastTickTime = 0; // force broadcast
+
+      service.broadcastTick([], { paper_mode: true, paper_starting_balance: 10000 } as any, [], false, () => [], () => ({}));
+
+      const broadcastPayload = broadcastService.broadcast.mock.calls[0][1];
+      expect(broadcastPayload.total_pnl).toBe(525);
+    });
+
+    it('benchmark: broadcastTick realizedPnl optimization across 10,000 ticks with 500 closed trades', () => {
+      const closedTrades: any[] = [];
+      for (let i = 0; i < 500; i++) {
+        closedTrades.push({ id: `t_${i}`, pnl: 2.5, symbol: 'SOLUSDT' });
+      }
+
+      sessionState.closedTrades = closedTrades;
+      sessionState.stats = { entryCount: 500, hitCount: 500, totalPnl: 1250 };
+      sessionState.getBalance.mockReturnValue(11250);
+
+      const iterations = 10000;
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        (service as any).lastTickTime = 0; // force broadcast
+        service.broadcastTick([], { paper_mode: true, paper_starting_balance: 10000 } as any, [], false, () => [], () => ({}));
+      }
+      const totalMs = performance.now() - start;
+
+      console.log(`[BENCHMARK] broadcastTick O(1) realizedPnl ${iterations} ticks (500 trades each): ${totalMs.toFixed(2)}ms (${(totalMs / iterations).toFixed(4)}ms/tick)`);
+      expect(totalMs).toBeGreaterThan(0);
+    });
+  });
 });

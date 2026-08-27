@@ -3,7 +3,7 @@ import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck, RefreshCw, Clock } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 
@@ -130,7 +130,27 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const rrValue = Number(trade.rr || 0).toFixed(2);
   const ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Live mark is at ${Math.round(progress)}% of runway scale.`;
 
-  const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee)
+  const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee);
+
+  // Track recent mark price movement for trailing waterfall animation
+  const prevMarkRef = React.useRef(mark);
+  const [trail, setTrail] = React.useState(null);
+
+  React.useEffect(() => {
+    if (prevMarkRef.current !== mark && mark > 0 && prevMarkRef.current > 0) {
+      const oldPos = pos(prevMarkRef.current);
+      const newPos = pos(mark);
+      if (Math.abs(oldPos - newPos) > 0.05) {
+        setTrail({
+          start: Math.min(oldPos, newPos),
+          width: Math.abs(oldPos - newPos),
+          isUp: mark >= prevMarkRef.current,
+          key: Date.now()
+        });
+      }
+    }
+    prevMarkRef.current = mark;
+  }, [mark]);
 
   return (
     <motion.div
@@ -420,6 +440,29 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </div>
             </Tooltip>
           )}
+
+          {/* Trailing Movement Trail (To/From Waterfall Fade Cue) */}
+          <AnimatePresence>
+            {trail && (
+              <motion.div
+                key={trail.key}
+                initial={{ opacity: 0.8, scaleY: 1 }}
+                animate={{ opacity: 0, scaleY: 0.4 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.8, ease: "easeOut" }}
+                className={cn(
+                  "absolute top-[10px] h-[6px] rounded-full pointer-events-none z-30 blur-[0.5px]",
+                  trail.isUp
+                    ? "bg-gradient-to-r from-transparent via-[#00e5a0]/80 to-[#00e5a0]"
+                    : "bg-gradient-to-r from-[#ff2a55] via-[#ff2a55]/80 to-transparent"
+                )}
+                style={{
+                  left: `${trail.start}%`,
+                  width: `${Math.max(1.5, trail.width)}%`
+                }}
+              />
+            )}
+          </AnimatePresence>
 
           {/* Glowing Compact Live Mark Thumb with Waterfall Fade Cue Ring */}
           <div

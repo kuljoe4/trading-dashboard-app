@@ -199,4 +199,29 @@ describe('Anti-Whipsaw Protection Unit Tests', () => {
       expect.anything()
     );
   });
+
+  it('should deduplicate anti-whipsaw log and alert emissions across consecutive scanner passes', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1m';
+    config.paper_mode = true;
+
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'ONTUSDT';
+    closedTrade.entry_ts = new Date(1500);
+    closedTrade.exit_ts = new Date(2050);
+    sessionState.closedTrades = [closedTrade];
+
+    const opportunities = [{ symbol: 'ONTUSDT', direction: 'LONG', score: 1 }];
+
+    // Pass 1
+    await executionService.processEntries(opportunities, config, 'MyStrategy');
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(broadcastService.broadcast).toHaveBeenCalledTimes(1);
+
+    // Pass 2 immediately after (same gating window)
+    await executionService.processEntries(opportunities, config, 'MyStrategy');
+    // Call counts should remain 1 because emissions were deduplicated for this window
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(broadcastService.broadcast).toHaveBeenCalledTimes(1);
+  });
 });

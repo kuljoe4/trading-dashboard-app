@@ -898,10 +898,23 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           }
 
           const tradeHistory = st.tradeHistory || [];
+          let updatedHistory = tradeHistory;
+          if (d.event === 'closed') {
+            const closedTradeObj = t || (d.trade ? normalizeTrade(d.trade) : null) || {
+              symbol: d.symbol,
+              pnl: d.pnl ?? 0,
+              exit_reason: d.reason || 'Closed',
+              exit_ts: Date.now()
+            };
+            if (d.reason && closedTradeObj) {
+              closedTradeObj.exit_reason = d.reason;
+            }
+            updatedHistory = [closedTradeObj, ...tradeHistory.filter(x => x.id !== closedTradeObj.id)].slice(0, 50);
+          }
           return {
             lastAuthoritativeUpdateTs: nowTs,
             activeTrades: nextActive,
-            tradeHistory: d.event === 'closed' && t ? [t, ...tradeHistory].slice(0, 50) : tradeHistory,
+            tradeHistory: updatedHistory,
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount
           };

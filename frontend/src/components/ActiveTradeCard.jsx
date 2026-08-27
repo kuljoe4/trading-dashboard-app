@@ -165,7 +165,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-xl p-2.5 md:p-3 flex flex-col gap-2 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        "bg-surface border border-border/40 rounded-xl p-2 sm:p-2.5 md:p-3 flex flex-col gap-1.5 sm:gap-2 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0).toFixed(2)}R`}
@@ -177,11 +177,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
            </div>
         </div>
       )}
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap leading-none">
-          <span className="text-xs md:text-sm font-black font-mono tracking-tight shrink-0 text-text leading-none">{trade.symbol || '---'}</span>
-          <CopyButton value={trade.symbol} className="opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1.5" />
-          <span className={cn("text-[8px] md:text-[9px] font-black px-1 py-0.5 rounded border uppercase shrink-0 leading-none", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
+      <div className="flex items-center justify-between gap-1.5 min-w-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1 flex-wrap leading-none">
+          <span className="text-xs sm:text-sm font-black font-mono tracking-tight shrink-0 text-text leading-none">{trade.symbol || '---'}</span>
+          <CopyButton value={trade.symbol} className="hidden sm:inline-flex opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1.5" />
+          <span className={cn("text-[7.5px] sm:text-[8px] md:text-[9px] font-black px-1 py-0.5 rounded border uppercase shrink-0 leading-none", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
             {isLong ? '▲' : '▼'} {trade.direction || '---'}
           </span>
           <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono leading-none">
@@ -190,13 +190,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           {trade.strategy_label && config && (
             trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
               <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none">
+                <span className="hidden sm:inline-flex bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none">
                   Base
                 </span>
               </Tooltip>
             ) : (
               <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none">
+                <span className="hidden sm:inline-flex bg-purple/10 text-purple border border-purple/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none">
                   Variant
                 </span>
               </Tooltip>
@@ -208,53 +208,53 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </span>
           )}
           {trade.is_knife && (
-            <span className="text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 leading-none">
+            <span className="text-[7.5px] sm:text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 leading-none shrink-0">
               🔪 KNIFE
             </span>
           )}
           {trade.strategy_config?.is_nominal_overshoot && (
-            <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. This forces a higher actual risk percentage than configured. Exercise caution.">
-              <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm">
-                SCALED RISK
+            <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. Exercise caution.">
+              <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm shrink-0">
+                SCALED
               </span>
             </Tooltip>
           )}
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <MonitoredBadge className="opacity-80 scale-90 -ml-0.5" />
+            <MonitoredBadge className="opacity-80 scale-90 -ml-0.5 hidden sm:inline-flex" />
           )}
           {trade.strategy_config?.trailing_stop_enabled && (
-            <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 animate-pulse leading-none">
+            <span className="hidden sm:inline-flex bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded items-center gap-0.5 animate-pulse leading-none">
               Trailing
             </span>
           )}
           {trade.initial_sl > 0 && Math.abs(trade.sl_price - trade.initial_sl) > 0.0000001 && (
             <Tooltip content={`Stop Loss moved from original entry protection level: ${fmtUSD(trade.initial_sl)} ➔ ${fmtUSD(trade.sl_price)}`}>
-              <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help">
+              <span className="hidden sm:inline-flex bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded items-center gap-0.5 leading-none cursor-help">
                 SL Moved
               </span>
             </Tooltip>
           )}
           {trade.entry_ts && (
-            <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none">
-              <Clock size={9} className="text-accent" /> {duration}
+            <span className="bg-accent/10 border border-accent/25 text-accent text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0">
+              <Clock size={8} className="text-accent" /> {duration}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <div className="flex flex-col items-end leading-none">
             <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}>
               <span
-                className="text-[9px] md:text-[10px] font-black font-mono text-dim uppercase tracking-widest cursor-help flex items-center gap-0.5 leading-none"
+                className="text-[8.5px] sm:text-[9px] md:text-[10px] font-black font-mono text-dim uppercase tracking-widest cursor-help flex items-center gap-0.5 leading-none"
                 aria-label={`Live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, Peak risk-to-reward is ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}
               >
-                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[8px] text-accent/80 font-black tracking-normal leading-none" aria-hidden="true">({Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R)</span>
+                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[7.5px] sm:text-[8px] text-accent/80 font-black tracking-normal leading-none" aria-hidden="true">({Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R)</span>
               </span>
             </Tooltip>
             {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
               <Tooltip content={`Commission: ${fmtUSD(-safeNum(trade.realized_fee))} | Funding: ${fmtUSD(-safeNum(trade.funding_fee))}`}>
                 <div className={cn(
-                  "text-[7.5px] font-black font-mono uppercase tracking-tighter cursor-help border-b border-dotted leading-none mt-0.5",
+                  "text-[7px] sm:text-[7.5px] font-black font-mono uppercase tracking-tighter cursor-help border-b border-dotted leading-none mt-0.5",
                   netFee > 0 ? "text-red/40 border-red/10" : "text-green/40 border-green/10"
                 )}>
                   {fmtUSD(-netFee)}
@@ -264,7 +264,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           </div>
           <Tooltip content="Live P&L including commission and funding">
             <div className={cn(
-              "text-sm md:text-base lg:text-lg font-black font-mono tracking-tighter leading-none cursor-help border-b border-dotted border-white/5",
+              "text-xs sm:text-sm md:text-base lg:text-lg font-black font-mono tracking-tighter leading-none cursor-help border-b border-dotted border-white/5",
               trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
             )}>
               {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
@@ -446,15 +446,15 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             {trail && (
               <motion.div
                 key={trail.key}
-                initial={{ opacity: 0.9, scaleY: 1 }}
-                animate={{ opacity: 0, scaleY: 0.3 }}
+                initial={{ opacity: 0.95, scaleY: 1 }}
+                animate={{ opacity: 0, scaleY: 0.2 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 5.0, ease: [0.16, 1, 0.3, 1] }}
+                transition={{ duration: 9.0, ease: [0.16, 1, 0.3, 1] }}
                 className={cn(
-                  "absolute top-[10px] h-[6px] rounded-full pointer-events-none z-30 blur-[0.5px]",
+                  "absolute top-[11px] h-[5px] rounded-full pointer-events-none z-30 blur-[0.4px]",
                   trail.isUp
-                    ? "bg-gradient-to-r from-transparent via-[#00f0ff]/80 to-[#00f0ff] shadow-[0_0_8px_rgba(0,240,255,0.6)]"
-                    : "bg-gradient-to-r from-[#f59e0b] via-[#f59e0b]/80 to-transparent shadow-[0_0_8px_rgba(245,158,11,0.6)]"
+                    ? "bg-gradient-to-r from-transparent via-[#00f0ff]/90 to-[#00f0ff] shadow-[0_0_10px_rgba(0,240,255,0.8)]"
+                    : "bg-gradient-to-r from-[#f59e0b] via-[#f59e0b]/90 to-transparent shadow-[0_0_10px_rgba(245,158,11,0.8)]"
                 )}
                 style={{
                   left: `${trail.start}%`,
@@ -464,48 +464,44 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </AnimatePresence>
 
-          {/* Glowing Compact Live Mark Thumb with Waterfall Fade Cue Ring */}
+          {/* Sleek Tiny Dot Live Mark Indicator */}
           <div
             className={cn(
-              "absolute top-[11px] -ml-[5px] w-3 h-3 rounded-full border-2 bg-surface shadow-[0_0_8px_rgba(0,0,0,0.6)] z-40 transition-all duration-300 pointer-events-none flex items-center justify-center",
-              trade.pnl >= 0 ? "border-[#00e5a0] shadow-[#00e5a0]/60" : "border-[#ff2a55] shadow-[#ff2a55]/60"
+              "absolute top-[12px] -ml-[3px] w-1.5 h-1.5 rounded-full z-40 transition-all duration-300 pointer-events-none flex items-center justify-center",
+              trade.pnl >= 0 ? "bg-[#00e5a0] shadow-[0_0_8px_#00e5a0]" : "bg-[#ff2a55] shadow-[0_0_8px_#ff2a55]"
             )}
             style={{ left: `${progress}%` }}
           >
             {/* Waterfall Fade Cue Outer Aura Ring */}
             <div className={cn(
-              "absolute -inset-1 rounded-full animate-ping opacity-35 pointer-events-none",
-              trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
-            )} />
-            <div className={cn(
-              "w-1 h-1 rounded-full",
+              "absolute -inset-0.5 rounded-full animate-ping opacity-30 pointer-events-none",
               trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
             )} />
           </div>
         </div>
 
         {/* Bottom Metadata Grid */}
-        <div className="flex justify-between text-[8px] font-bold text-dim uppercase tracking-widest font-mono leading-none">
-          <div className="flex items-center gap-1">
-            <span className="text-red/80 font-black">SL</span>
-            <span className="font-bold text-text/90 font-mono">{fmtUSD(sl)}</span>
-            <span className="text-[7.5px] font-mono text-red/90">
+        <div className="flex justify-between items-center text-[7.5px] sm:text-[8px] font-bold text-dim uppercase tracking-widest font-mono leading-none pt-0.5">
+          <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
+            <span className="text-red/80 font-black shrink-0">SL</span>
+            <span className="font-bold text-text/90 font-mono truncate">{fmtUSD(sl)}</span>
+            <span className="text-[7px] sm:text-[7.5px] font-mono text-red/90 shrink-0">
               ({slPercent >= 0 ? `+${slPercent.toFixed(1)}%` : `${slPercent.toFixed(1)}%`})
             </span>
             {initialSl > 0 && Math.abs(sl - initialSl) > 0.0000001 && (
-              <span className="text-[7px] text-amber/80 font-mono" title={`Initial SL: ${fmtUSD(initialSl)} (${initialSlPercent >= 0 ? '+' : ''}${initialSlPercent.toFixed(1)}%)`}>
+              <span className="hidden sm:inline-block text-[7px] text-amber/80 font-mono shrink-0" title={`Initial SL: ${fmtUSD(initialSl)} (${initialSlPercent >= 0 ? '+' : ''}${initialSlPercent.toFixed(1)}%)`}>
                 [{initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(1)}%]
               </span>
             )}
           </div>
-          <div className="flex items-center gap-1 text-center">
-            <span className="text-dim/80 font-black">ENTRY</span>
-            <span className="font-bold text-text/80 font-mono">{fmtUSD(entry)}</span>
+          <div className="flex items-center gap-0.5 sm:gap-1 text-center min-w-0 px-1">
+            <span className="text-dim/80 font-black shrink-0">ENTRY</span>
+            <span className="font-bold text-text/80 font-mono truncate">{fmtUSD(entry)}</span>
           </div>
-          <div className="flex items-center gap-1 text-right">
-            <span className={cn("font-black", rightSlotLabel.toUpperCase() === 'PEAK' ? 'text-purple/90' : 'text-green/80')}>{rightSlotLabel}</span>
-            <span className="font-bold text-text/90 font-mono">{fmtUSD(rightSlotPrice)}</span>
-            <span className="text-[7.5px] opacity-60 font-mono">(+{rightSlotR.toFixed(2)}R)</span>
+          <div className="flex items-center gap-0.5 sm:gap-1 text-right min-w-0">
+            <span className={cn("font-black shrink-0", rightSlotLabel.toUpperCase() === 'PEAK' ? 'text-purple/90' : 'text-green/80')}>{rightSlotLabel}</span>
+            <span className="font-bold text-text/90 font-mono truncate">{fmtUSD(rightSlotPrice)}</span>
+            <span className="text-[7px] sm:text-[7.5px] opacity-60 font-mono shrink-0">(+{rightSlotR.toFixed(2)}R)</span>
           </div>
         </div>
       </div>

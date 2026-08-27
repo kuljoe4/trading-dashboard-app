@@ -869,7 +869,16 @@ export class TradingSessionService implements OnApplicationShutdown {
         // Check if strategy gating is active
         const gateInfo = this.sessionState.strategyGateStates ? this.sessionState.strategyGateStates.get(label) : null;
         const isGated = ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo?.gateState || '');
-        if (isGated) {
+
+        // Allow gated scan evaluating candidate entries if allow_knife_when_gated is active and 0 active knife trades exist
+        const activeKnifeTradesCount = this.positionTracker.activeList().filter(t => t.is_knife).length;
+        const allowKnifeGatedBypass = (sc.allow_knife_when_gated ?? false) && activeKnifeTradesCount === 0;
+
+        if (isGated && allowKnifeGatedBypass) {
+          this.logger.log(`[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`);
+        }
+
+        if (isGated && !allowKnifeGatedBypass) {
           this.logger.debug(`Strategy ${label} is gated (${gateInfo?.gateState}). Skipping entries.`);
           continue;
         }

@@ -74,8 +74,12 @@ export class RiskEngineService {
       return { canEnter: false, reason: `Global Total SL ${Number(totalSlUsed || 0).toFixed(2)} USDT >= guard ${globalSlGuard} USDT` };
     }
 
+    // Check if gated knife trade bypass applies: when allow_knife_when_gated is active and 0 active knife trades exist
+    const activeKnifeCount = activeTrades.filter(t => t.is_knife && t.status === 'OPEN').length;
+    const isKnifeGatedBypass = (config.allow_knife_when_gated ?? false) && activeKnifeCount === 0;
+
     // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)
-    if (activeTradesCountForStrategy + enteringCount >= maxOpenTrades) {
+    if (!isKnifeGatedBypass && activeTradesCountForStrategy + enteringCount >= maxOpenTrades) {
       const maxOpenMsg = isBaseStrategy ? `Global max open trades (${maxOpenTrades}) reached` : `Strategy max open trades (${maxOpenTrades}) reached`;
       return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
     }

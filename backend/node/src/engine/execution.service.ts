@@ -236,6 +236,25 @@ export class ExecutionService {
         }
 
         if (hasClosedForSymbol) {
+          // Check if candidate opportunity is a knife trade prior to anti-whipsaw checks
+          let isCandidateKnife = false;
+          if (symbolConfig.anti_whipsaw_allow_knife) {
+            try {
+              const knifeCheck = this.signalEngine.knifeCatchSignal(
+                opp.symbol,
+                symbolConfig,
+                symbolConfig.scan_interval || '1m',
+                opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+                'entry',
+                undefined,
+                true
+              );
+              isCandidateKnife = typeof knifeCheck === 'boolean' ? knifeCheck : knifeCheck.fired;
+            } catch (e) {
+              this.logger.debug(`Knife check for anti-whipsaw bypass skipped for ${opp.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+
           let sameCandleGated = false;
           let gatedTimeframe = '';
           let gateReason = '';
@@ -250,6 +269,20 @@ export class ExecutionService {
               for (let i = 0; i < closedTrades.length; i++) {
                 const t = closedTrades[i];
                 if (t.symbol === opp.symbol) {
+                  // If anti_whipsaw_allow_knife is active, candidate is knife, and closed trade was a knife trade, bypass gating
+                  if (symbolConfig.anti_whipsaw_allow_knife && isCandidateKnife && t.is_knife) {
+                    const bypassMsg = `[Anti-Whipsaw Bypass] ${opp.symbol}: Knife re-entry allowed for closed knife trade.`;
+                    this.logger.log(bypassMsg);
+                    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
+                    this.broadcastService.broadcast('alert', {
+                      level: 'info',
+                      title: 'Anti-Whipsaw Knife Bypass',
+                      message: bypassMsg,
+                      symbol: opp.symbol
+                    });
+                    continue;
+                  }
+
                   if (t.entry_ts) {
                     const entryTsMs = typeof t.entry_ts === 'number' ? t.entry_ts : (t.entry_ts instanceof Date ? t.entry_ts.getTime() : new Date(t.entry_ts).getTime());
                     if (entryTsMs >= currentCandleStart) {

@@ -199,6 +199,7 @@ export class EngineBroadcasterService {
         direction,
         entry_price: roundTo(entry, 8),
         qty: roundTo(trade.qty ?? 0, 8),
+        is_knife: trade.is_knife ?? false,
         exit_signals_status: trade.exit_signals_status || {},
         sl_adjustments: trade.sl_adjustments || [],
         entry_daily_change_pct: trade.entry_daily_change_pct,
@@ -218,6 +219,7 @@ export class EngineBroadcasterService {
     return {
       ...trade,
       direction,
+      is_knife: trade.is_knife ?? false,
       entry_daily_change_pct: trade.entry_daily_change_pct,
       initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
       risk_usdt: trade.risk_usdt ?? 0,
@@ -316,6 +318,7 @@ export class EngineBroadcasterService {
       direction,
       entry_price: roundTo(entry, 8),
       qty: roundTo(trade.qty ?? 0, 8),
+      is_knife: trade.is_knife ?? false,
       entry_daily_change_pct: trade.entry_daily_change_pct,
       close_attempts: trade.close_attempts,
       close_blocked: trade.close_blocked,

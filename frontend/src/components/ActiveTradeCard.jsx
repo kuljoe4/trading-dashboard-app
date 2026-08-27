@@ -136,6 +136,17 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const prevMarkRef = React.useRef(mark);
   const [trail, setTrail] = React.useState(null);
 
+  // Value change tracking for dynamic marker highlights
+  const prevSlRef = React.useRef(sl);
+  const prevMaxRrRef = React.useRef(maxRr);
+  const prevEstRef = React.useRef(estPrice);
+  const prevTpRef = React.useRef(tp);
+
+  const [slHighlight, setSlHighlight] = React.useState(false);
+  const [peakHighlight, setPeakHighlight] = React.useState(false);
+  const [estHighlight, setEstHighlight] = React.useState(false);
+  const [tpHighlight, setTpHighlight] = React.useState(false);
+
   React.useEffect(() => {
     if (prevMarkRef.current !== mark && mark > 0 && prevMarkRef.current > 0) {
       const oldPos = pos(prevMarkRef.current);
@@ -151,6 +162,46 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     }
     prevMarkRef.current = mark;
   }, [mark]);
+
+  React.useEffect(() => {
+    if (prevSlRef.current !== sl && sl > 0 && prevSlRef.current > 0) {
+      setSlHighlight(true);
+      const timer = setTimeout(() => setSlHighlight(false), 3000);
+      prevSlRef.current = sl;
+      return () => clearTimeout(timer);
+    }
+    prevSlRef.current = sl;
+  }, [sl]);
+
+  React.useEffect(() => {
+    if (prevMaxRrRef.current !== maxRr && maxRr > 0) {
+      setPeakHighlight(true);
+      const timer = setTimeout(() => setPeakHighlight(false), 3000);
+      prevMaxRrRef.current = maxRr;
+      return () => clearTimeout(timer);
+    }
+    prevMaxRrRef.current = maxRr;
+  }, [maxRr]);
+
+  React.useEffect(() => {
+    if (prevEstRef.current !== estPrice && estPrice > 0) {
+      setEstHighlight(true);
+      const timer = setTimeout(() => setEstHighlight(false), 3000);
+      prevEstRef.current = estPrice;
+      return () => clearTimeout(timer);
+    }
+    prevEstRef.current = estPrice;
+  }, [estPrice]);
+
+  React.useEffect(() => {
+    if (prevTpRef.current !== tp && tp > 0) {
+      setTpHighlight(true);
+      const timer = setTimeout(() => setTpHighlight(false), 3000);
+      prevTpRef.current = tp;
+      return () => clearTimeout(timer);
+    }
+    prevTpRef.current = tp;
+  }, [tp]);
 
   return (
     <motion.div
@@ -190,15 +241,25 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           {trade.strategy_label && config && (
             trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
               <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                <span className="hidden sm:inline-flex bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none">
-                  Base
-                </span>
+                <motion.span
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none flex items-center gap-0.5"
+                >
+                  <span className="sm:hidden font-mono text-[7px] font-extrabold">B</span>
+                  <span className="hidden sm:inline">Base</span>
+                </motion.span>
               </Tooltip>
             ) : (
               <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                <span className="hidden sm:inline-flex bg-purple/10 text-purple border border-purple/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none">
-                  Variant
-                </span>
+                <motion.span
+                  initial={{ scale: 0.9, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  className="bg-purple/10 text-purple border border-purple/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none flex items-center gap-0.5"
+                >
+                  <span className="sm:hidden font-mono text-[7px] font-extrabold">V</span>
+                  <span className="hidden sm:inline">Variant</span>
+                </motion.span>
               </Tooltip>
             )
           )}
@@ -208,29 +269,37 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </span>
           )}
           {trade.is_knife && (
-            <span className="text-[7.5px] sm:text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 leading-none shrink-0">
+            <motion.span
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              className="text-[7.5px] sm:text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 leading-none shrink-0"
+            >
               🔪 KNIFE
-            </span>
+            </motion.span>
           )}
           {trade.strategy_config?.is_nominal_overshoot && (
             <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. Exercise caution.">
-              <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm shrink-0">
-                SCALED
+              <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm shrink-0 flex items-center gap-0.5">
+                ⚡ <span className="sm:hidden">SCALED</span><span className="hidden sm:inline">SCALED RISK</span>
               </span>
             </Tooltip>
           )}
           {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <MonitoredBadge className="opacity-80 scale-90 -ml-0.5 hidden sm:inline-flex" />
+            <MonitoredBadge className="opacity-80 scale-90 -ml-0.5" />
           )}
           {trade.strategy_config?.trailing_stop_enabled && (
-            <span className="hidden sm:inline-flex bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded items-center gap-0.5 animate-pulse leading-none">
-              Trailing
-            </span>
+            <Tooltip content="Dynamic trailing stop active for this position">
+              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 animate-pulse leading-none shrink-0 cursor-help">
+                <RefreshCw size={7} className="animate-spin text-purple-400" />
+                <span className="hidden sm:inline">Trailing</span>
+              </span>
+            </Tooltip>
           )}
           {trade.initial_sl > 0 && Math.abs(trade.sl_price - trade.initial_sl) > 0.0000001 && (
             <Tooltip content={`Stop Loss moved from original entry protection level: ${fmtUSD(trade.initial_sl)} ➔ ${fmtUSD(trade.sl_price)}`}>
-              <span className="hidden sm:inline-flex bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded items-center gap-0.5 leading-none cursor-help">
-                SL Moved
+              <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0">
+                <ShieldCheck size={7} className="text-amber" />
+                <span className="hidden sm:inline">SL Moved</span>
               </span>
             </Tooltip>
           )}
@@ -242,30 +311,21 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <div className="flex flex-col items-end leading-none">
-            <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}>
-              <span
-                className="text-[8.5px] sm:text-[9px] md:text-[10px] font-black font-mono text-dim uppercase tracking-widest cursor-help flex items-center gap-0.5 leading-none"
-                aria-label={`Live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, Peak risk-to-reward is ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}
-              >
-                {Number(trade.rr || 0).toFixed(2)}R <span className="text-[7.5px] sm:text-[8px] text-accent/80 font-black tracking-normal leading-none" aria-hidden="true">({Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R)</span>
-              </span>
+          {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
+            <Tooltip content={`Commission: ${fmtUSD(-safeNum(trade.realized_fee))} | Funding: ${fmtUSD(-safeNum(trade.funding_fee))}`}>
+              <div className={cn(
+                "text-[7px] sm:text-[7.5px] font-black font-mono uppercase tracking-tighter cursor-help border-b border-dotted leading-none",
+                netFee > 0 ? "text-red/40 border-red/10" : "text-green/40 border-green/10"
+              )}>
+                {fmtUSD(-netFee)}
+              </div>
             </Tooltip>
-            {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
-              <Tooltip content={`Commission: ${fmtUSD(-safeNum(trade.realized_fee))} | Funding: ${fmtUSD(-safeNum(trade.funding_fee))}`}>
-                <div className={cn(
-                  "text-[7px] sm:text-[7.5px] font-black font-mono uppercase tracking-tighter cursor-help border-b border-dotted leading-none mt-0.5",
-                  netFee > 0 ? "text-red/40 border-red/10" : "text-green/40 border-green/10"
-                )}>
-                  {fmtUSD(-netFee)}
-                </div>
-              </Tooltip>
-            )}
-          </div>
+          )}
           <Tooltip content="Live P&L including commission and funding">
             <div className={cn(
-              "text-xs sm:text-sm md:text-base lg:text-lg font-black font-mono tracking-tighter leading-none cursor-help border-b border-dotted border-white/5",
-              trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
+              "text-xs sm:text-sm md:text-base lg:text-lg font-black font-mono tracking-tighter leading-none cursor-help border-b border-dotted border-white/5 transition-all duration-500",
+              trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim',
+              trail && "scale-105 text-accent animate-pulse"
             )}>
               {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
             </div>
@@ -278,9 +338,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-dim leading-none">
           <div className="flex items-center gap-1 min-w-0">
             <span className="text-dim/80">MARK:</span>
-            <span className="font-mono text-text/90 font-bold">{fmtUSD(mark)}</span>
             {entry > 0 && mark > 0 && (
-              <span className={cn("font-mono text-[7.5px] font-black", markPercent >= 0 ? "text-green" : "text-red")}>
+              <span className={cn(
+                "font-mono text-[7.5px] font-black transition-all duration-500 px-1 py-0.2 rounded",
+                markPercent >= 0 ? "text-green bg-green/5" : "text-red bg-red/5",
+                trail && "scale-105 font-extrabold animate-pulse"
+              )}>
                 {markPercent >= 0 ? '▲ +' : '▼ '}{markPercent.toFixed(2)}%
               </span>
             )}
@@ -371,7 +434,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </div>
             }>
               <div
-                className="absolute top-3.5 bottom-0.5 w-0.5 bg-red z-20 cursor-help transition-all duration-300 -ml-[1px]"
+                className={cn(
+                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-500 -ml-[1px]",
+                  slHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_10px_#00f0ff] animate-pulse" : "w-0.5 bg-red"
+                )}
                 style={{ left: `${slPos}%` }}
               />
             </Tooltip>
@@ -390,10 +456,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </div>
             }>
               <div
-                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-500 flex flex-col items-center -ml-[1px]"
                 style={{ left: `${peakPos}%` }}
               >
-                <div className="px-0.5 py-0 bg-purple/20 border border-purple/40 text-purple text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none">
+                <div className={cn(
+                  "px-0.5 py-0 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-500",
+                  peakHighlight ? "bg-purple text-white shadow-[0_0_12px_rgba(168,85,247,0.9)] scale-125 animate-pulse" : "bg-purple/20 border border-purple/40 text-purple"
+                )}>
                   PEAK
                 </div>
                 <div className="flex-1 w-px border-l border-dashed border-purple/70" />
@@ -411,7 +480,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </div>
             }>
               <div
-                className="absolute top-3.5 bottom-0.5 w-0.5 bg-green z-20 cursor-help transition-all duration-300 -ml-[1px]"
+                className={cn(
+                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-500 -ml-[1px]",
+                  tpHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_10px_#00f0ff] animate-pulse" : "w-0.5 bg-green"
+                )}
                 style={{ left: `${tpPos}%` }}
               />
             </Tooltip>
@@ -432,10 +504,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </div>
             }>
               <div
-                className="absolute top-0 bottom-0.5 z-30 cursor-help transition-all duration-300 flex flex-col items-center -ml-[4px]"
+                className="absolute top-0 bottom-0.5 z-30 cursor-help transition-all duration-500 flex flex-col items-center -ml-[4px]"
                 style={{ left: `${estPos}%` }}
               >
-                <div className="w-2 h-2 rotate-45 border border-emerald-400 bg-background shadow-[0_0_6px_rgba(52,211,153,0.6)] mb-0.5" />
+                <div className={cn(
+                  "w-2 h-2 rotate-45 border bg-background mb-0.5 transition-all duration-500",
+                  estHighlight ? "border-[#00f0ff] shadow-[0_0_12px_#00f0ff] scale-125 animate-pulse" : "border-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]"
+                )} />
                 <div className="flex-1 w-0.5 bg-emerald-400/80" />
               </div>
             </Tooltip>
@@ -464,18 +539,36 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </AnimatePresence>
 
-          {/* Sleek Tiny Dot Live Mark Indicator */}
+          {/* Sleek Tiny Ultra-Bright Live Mark Indicator with Movement Color Shift & Side Arc */}
           <div
             className={cn(
-              "absolute top-[12px] -ml-[3px] w-1.5 h-1.5 rounded-full z-40 transition-all duration-300 pointer-events-none flex items-center justify-center",
-              trade.pnl >= 0 ? "bg-[#00e5a0] shadow-[0_0_8px_#00e5a0]" : "bg-[#ff2a55] shadow-[0_0_8px_#ff2a55]"
+              "absolute top-[11px] -ml-[3.5px] w-2 h-2 rounded-full z-40 transition-all duration-200 pointer-events-none flex items-center justify-center shadow-lg",
+              trail
+                ? (trail.isUp
+                    ? "bg-[#00f0ff] shadow-[0_0_12px_#00f0ff] scale-110"
+                    : "bg-[#f59e0b] shadow-[0_0_12px_#f59e0b] scale-110")
+                : (trade.pnl >= 0
+                    ? "bg-[#00e5a0] shadow-[0_0_10px_#00e5a0]"
+                    : "bg-[#ff2a55] shadow-[0_0_10px_#ff2a55]")
             )}
             style={{ left: `${progress}%` }}
           >
-            {/* Waterfall Fade Cue Outer Aura Ring */}
+            {/* Trail Direction Arc Ring Segment */}
             <div className={cn(
-              "absolute -inset-0.5 rounded-full animate-ping opacity-30 pointer-events-none",
-              trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
+              "absolute -inset-1 rounded-full border-2 border-transparent transition-all duration-300 pointer-events-none",
+              trail
+                ? (trail.isUp
+                    ? "border-l-[#00f0ff] border-t-[#00f0ff] shadow-[0_0_8px_#00f0ff] animate-pulse"
+                    : "border-r-[#f59e0b] border-b-[#f59e0b] shadow-[0_0_8px_#f59e0b] animate-pulse")
+                : (trade.pnl >= 0
+                    ? "border-l-[#00e5a0] border-t-[#00e5a0] opacity-40"
+                    : "border-r-[#ff2a55] border-b-[#ff2a55] opacity-40")
+            )} />
+            <div className={cn(
+              "absolute -inset-0.5 rounded-full animate-ping opacity-35 pointer-events-none",
+              trail
+                ? (trail.isUp ? "bg-[#00f0ff]" : "bg-[#f59e0b]")
+                : (trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]")
             )} />
           </div>
         </div>
@@ -483,25 +576,41 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         {/* Bottom Metadata Grid */}
         <div className="flex justify-between items-center text-[7.5px] sm:text-[8px] font-bold text-dim uppercase tracking-widest font-mono leading-none pt-0.5">
           <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
-            <span className="text-red/80 font-black shrink-0">SL</span>
-            <span className="font-bold text-text/90 font-mono truncate">{fmtUSD(sl)}</span>
-            <span className="text-[7px] sm:text-[7.5px] font-mono text-red/90 shrink-0">
-              ({slPercent >= 0 ? `+${slPercent.toFixed(1)}%` : `${slPercent.toFixed(1)}%`})
+            <span className="text-red font-black shrink-0">SL</span>
+            <span className={cn(
+              "font-black font-mono truncate transition-all duration-500",
+              slPercent >= 0 ? "text-green" : "text-red",
+              slHighlight && "scale-110 text-[#00f0ff] animate-pulse"
+            )}>
+              {slPercent >= 0 ? `+${slPercent.toFixed(1)}%` : `${slPercent.toFixed(1)}%`}
             </span>
             {initialSl > 0 && Math.abs(sl - initialSl) > 0.0000001 && (
-              <span className="hidden sm:inline-block text-[7px] text-amber/80 font-mono shrink-0" title={`Initial SL: ${fmtUSD(initialSl)} (${initialSlPercent >= 0 ? '+' : ''}${initialSlPercent.toFixed(1)}%)`}>
-                [{initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(1)}%]
-              </span>
+              <Tooltip content={`Initial SL Protection Level: ${initialSlPercent >= 0 ? '+' : ''}${initialSlPercent.toFixed(2)}%`}>
+                <span className="text-amber font-mono shrink-0 cursor-help">
+                  [{initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(1)}%]
+                </span>
+              </Tooltip>
             )}
           </div>
           <div className="flex items-center gap-0.5 sm:gap-1 text-center min-w-0 px-1">
             <span className="text-dim/80 font-black shrink-0">ENTRY</span>
-            <span className="font-bold text-text/80 font-mono truncate">{fmtUSD(entry)}</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-white/80 shadow-[0_0_4px_rgba(255,255,255,0.8)] inline-block" />
           </div>
-          <div className="flex items-center gap-0.5 sm:gap-1 text-right min-w-0">
-            <span className={cn("font-black shrink-0", rightSlotLabel.toUpperCase() === 'PEAK' ? 'text-purple/90' : 'text-green/80')}>{rightSlotLabel}</span>
-            <span className="font-bold text-text/90 font-mono truncate">{fmtUSD(rightSlotPrice)}</span>
-            <span className="text-[7px] sm:text-[7.5px] opacity-60 font-mono shrink-0">(+{rightSlotR.toFixed(2)}R)</span>
+          <div className="flex items-center gap-1 text-right min-w-0">
+            <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}>
+              <span className={cn(
+                "font-black font-mono cursor-help flex items-center gap-0.5 transition-all duration-300",
+                (trail || peakHighlight) && "scale-105 text-accent animate-pulse"
+              )}>
+                <span className="text-accent">{Number(trade.rr || 0).toFixed(2)}R</span>
+                <span className={cn(
+                  "text-dim/70 text-[7px] sm:text-[7.5px] transition-all duration-500",
+                  peakHighlight && "text-purple font-extrabold animate-pulse"
+                )}>
+                  ({Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R Peak)
+                </span>
+              </span>
+            </Tooltip>
           </div>
         </div>
       </div>

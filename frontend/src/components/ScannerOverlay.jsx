@@ -962,8 +962,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             <div className="text-[13px] text-dim font-bold uppercase tracking-widest">No matching symbols</div>
             <p className="text-[11px] text-dim/60 mt-1">Try adjusting your filter or search for another pair.</p>
             <button
-              onClick={() => setSearch('')}
-              className="mt-6 px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
+              type="button"
+              onClick={() => {
+                setSearch('');
+                searchInputRef.current?.focus();
+              }}
+              className="mt-6 px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
             >
               Clear Filter
             </button>

@@ -166,7 +166,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   React.useEffect(() => {
     if (prevSlRef.current !== sl && sl > 0 && prevSlRef.current > 0) {
       setSlHighlight(true);
-      const timer = setTimeout(() => setSlHighlight(false), 3000);
+      const timer = setTimeout(() => setSlHighlight(false), 600);
       prevSlRef.current = sl;
       return () => clearTimeout(timer);
     }
@@ -176,7 +176,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   React.useEffect(() => {
     if (prevMaxRrRef.current !== maxRr && maxRr > 0) {
       setPeakHighlight(true);
-      const timer = setTimeout(() => setPeakHighlight(false), 3000);
+      const timer = setTimeout(() => setPeakHighlight(false), 600);
       prevMaxRrRef.current = maxRr;
       return () => clearTimeout(timer);
     }
@@ -186,7 +186,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   React.useEffect(() => {
     if (prevEstRef.current !== estPrice && estPrice > 0) {
       setEstHighlight(true);
-      const timer = setTimeout(() => setEstHighlight(false), 3000);
+      const timer = setTimeout(() => setEstHighlight(false), 600);
       prevEstRef.current = estPrice;
       return () => clearTimeout(timer);
     }
@@ -196,7 +196,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   React.useEffect(() => {
     if (prevTpRef.current !== tp && tp > 0) {
       setTpHighlight(true);
-      const timer = setTimeout(() => setTpHighlight(false), 3000);
+      const timer = setTimeout(() => setTpHighlight(false), 600);
       prevTpRef.current = tp;
       return () => clearTimeout(timer);
     }
@@ -323,9 +323,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           )}
           <Tooltip content="Live P&L including commission and funding">
             <div className={cn(
-              "text-xs sm:text-sm md:text-base lg:text-lg font-black font-mono tracking-tighter leading-none cursor-help border-b border-dotted border-white/5 transition-all duration-500",
+              "text-xs sm:text-sm md:text-base lg:text-lg font-black font-mono tracking-tighter leading-none cursor-help border-b border-dotted border-white/5 transition-all duration-300",
               trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim',
-              trail && "scale-105 text-accent animate-pulse"
+              trail && "scale-105"
             )}>
               {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
             </div>
@@ -340,9 +340,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <span className="text-dim/80">MARK:</span>
             {entry > 0 && mark > 0 && (
               <span className={cn(
-                "font-mono text-[7.5px] font-black transition-all duration-500 px-1 py-0.2 rounded",
-                markPercent >= 0 ? "text-green bg-green/5" : "text-red bg-red/5",
-                trail && "scale-105 font-extrabold animate-pulse"
+                "font-mono text-[7.5px] font-black transition-all duration-300 px-1 py-0.2 rounded",
+                markPercent >= 0 ? "text-green bg-green/5" : "text-red bg-red/5"
               )}>
                 {markPercent >= 0 ? '▲ +' : '▼ '}{markPercent.toFixed(2)}%
               </span>
@@ -435,8 +434,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             }>
               <div
                 className={cn(
-                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-500 -ml-[1px]",
-                  slHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_10px_#00f0ff] animate-pulse" : "w-0.5 bg-red"
+                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-300 -ml-[1px]",
+                  slHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" : "w-0.5 bg-red"
                 )}
                 style={{ left: `${slPos}%` }}
               />
@@ -456,12 +455,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </div>
             }>
               <div
-                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-500 flex flex-col items-center -ml-[1px]"
+                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
                 style={{ left: `${peakPos}%` }}
               >
                 <div className={cn(
-                  "px-0.5 py-0 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-500",
-                  peakHighlight ? "bg-purple text-white shadow-[0_0_12px_rgba(168,85,247,0.9)] scale-125 animate-pulse" : "bg-purple/20 border border-purple/40 text-purple"
+                  "px-0.5 py-0 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300",
+                  peakHighlight ? "bg-purple text-white shadow-[0_0_10px_rgba(168,85,247,0.9)] scale-110" : "bg-purple/20 border border-purple/40 text-purple"
                 )}>
                   PEAK
                 </div>
@@ -481,8 +480,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             }>
               <div
                 className={cn(
-                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-500 -ml-[1px]",
-                  tpHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_10px_#00f0ff] animate-pulse" : "w-0.5 bg-green"
+                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-300 -ml-[1px]",
+                  tpHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" : "w-0.5 bg-green"
                 )}
                 style={{ left: `${tpPos}%` }}
               />
@@ -504,32 +503,32 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </div>
             }>
               <div
-                className="absolute top-0 bottom-0.5 z-30 cursor-help transition-all duration-500 flex flex-col items-center -ml-[4px]"
+                className="absolute top-0 bottom-0.5 z-30 cursor-help transition-all duration-300 flex flex-col items-center -ml-[4px]"
                 style={{ left: `${estPos}%` }}
               >
                 <div className={cn(
-                  "w-2 h-2 rotate-45 border bg-background mb-0.5 transition-all duration-500",
-                  estHighlight ? "border-[#00f0ff] shadow-[0_0_12px_#00f0ff] scale-125 animate-pulse" : "border-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]"
+                  "w-2 h-2 rotate-45 border bg-background mb-0.5 transition-all duration-300",
+                  estHighlight ? "border-[#00f0ff] shadow-[0_0_10px_#00f0ff] scale-110" : "border-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]"
                 )} />
                 <div className="flex-1 w-0.5 bg-emerald-400/80" />
               </div>
             </Tooltip>
           )}
 
-          {/* Trailing Movement Trail (To/From Waterfall Fade Cue - Distinct Cyan/Amber Color Coding & Ultra-Slow Dissolve) */}
+          {/* Trailing Movement Trail (To/From Waterfall Fade Cue - Standard Fast 2.5s Dissolve) */}
           <AnimatePresence>
             {trail && (
               <motion.div
                 key={trail.key}
-                initial={{ opacity: 0.95, scaleY: 1 }}
-                animate={{ opacity: 0, scaleY: 0.2 }}
+                initial={{ opacity: 0.85, scaleY: 1 }}
+                animate={{ opacity: 0, scaleY: 0.3 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 9.0, ease: [0.16, 1, 0.3, 1] }}
+                transition={{ duration: 2.5, ease: 'easeOut' }}
                 className={cn(
-                  "absolute top-[11px] h-[5px] rounded-full pointer-events-none z-30 blur-[0.4px]",
+                  "absolute top-[11px] h-[4px] rounded-full pointer-events-none z-30 blur-[0.3px]",
                   trail.isUp
-                    ? "bg-gradient-to-r from-transparent via-[#00f0ff]/90 to-[#00f0ff] shadow-[0_0_10px_rgba(0,240,255,0.8)]"
-                    : "bg-gradient-to-r from-[#f59e0b] via-[#f59e0b]/90 to-transparent shadow-[0_0_10px_rgba(245,158,11,0.8)]"
+                    ? "bg-gradient-to-r from-transparent via-[#00f0ff]/80 to-[#00f0ff] shadow-[0_0_6px_rgba(0,240,255,0.6)]"
+                    : "bg-gradient-to-r from-[#f59e0b] via-[#f59e0b]/80 to-transparent shadow-[0_0_6px_rgba(245,158,11,0.6)]"
                 )}
                 style={{
                   left: `${trail.start}%`,
@@ -539,37 +538,27 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </AnimatePresence>
 
-          {/* Sleek Tiny Ultra-Bright Live Mark Indicator with Movement Color Shift & Side Arc */}
+          {/* Tiny Ultra-Bright Live Mark Indicator Dot (6px) with Brief Highlight */}
           <div
             className={cn(
-              "absolute top-[11px] -ml-[3.5px] w-2 h-2 rounded-full z-40 transition-all duration-200 pointer-events-none flex items-center justify-center shadow-lg",
+              "absolute top-[12px] -ml-[3px] w-1.5 h-1.5 rounded-full z-40 transition-colors duration-300 pointer-events-none flex items-center justify-center",
               trail
                 ? (trail.isUp
-                    ? "bg-[#00f0ff] shadow-[0_0_12px_#00f0ff] scale-110"
-                    : "bg-[#f59e0b] shadow-[0_0_12px_#f59e0b] scale-110")
+                    ? "bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]"
+                    : "bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]")
                 : (trade.pnl >= 0
-                    ? "bg-[#00e5a0] shadow-[0_0_10px_#00e5a0]"
-                    : "bg-[#ff2a55] shadow-[0_0_10px_#ff2a55]")
+                    ? "bg-[#00e5a0] shadow-[0_0_6px_#00e5a0]"
+                    : "bg-[#ff2a55] shadow-[0_0_6px_#ff2a55]")
             )}
             style={{ left: `${progress}%` }}
           >
-            {/* Trail Direction Arc Ring Segment */}
-            <div className={cn(
-              "absolute -inset-1 rounded-full border-2 border-transparent transition-all duration-300 pointer-events-none",
-              trail
-                ? (trail.isUp
-                    ? "border-l-[#00f0ff] border-t-[#00f0ff] shadow-[0_0_8px_#00f0ff] animate-pulse"
-                    : "border-r-[#f59e0b] border-b-[#f59e0b] shadow-[0_0_8px_#f59e0b] animate-pulse")
-                : (trade.pnl >= 0
-                    ? "border-l-[#00e5a0] border-t-[#00e5a0] opacity-40"
-                    : "border-r-[#ff2a55] border-b-[#ff2a55] opacity-40")
-            )} />
-            <div className={cn(
-              "absolute -inset-0.5 rounded-full animate-ping opacity-35 pointer-events-none",
-              trail
-                ? (trail.isUp ? "bg-[#00f0ff]" : "bg-[#f59e0b]")
-                : (trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]")
-            )} />
+            {/* Brief Direction Arc Segment */}
+            {trail && (
+              <div className={cn(
+                "absolute -inset-1 rounded-full border border-transparent transition-all duration-300 pointer-events-none",
+                trail.isUp ? "border-l-[#00f0ff] border-t-[#00f0ff]" : "border-r-[#f59e0b] border-b-[#f59e0b]"
+              )} />
+            )}
           </div>
         </div>
 
@@ -578,9 +567,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
             <span className="text-red font-black shrink-0">SL</span>
             <span className={cn(
-              "font-black font-mono truncate transition-all duration-500",
+              "font-black font-mono truncate transition-all duration-300",
               slPercent >= 0 ? "text-green" : "text-red",
-              slHighlight && "scale-110 text-[#00f0ff] animate-pulse"
+              slHighlight && "text-[#00f0ff] font-extrabold"
             )}>
               {slPercent >= 0 ? `+${slPercent.toFixed(1)}%` : `${slPercent.toFixed(1)}%`}
             </span>
@@ -598,14 +587,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           </div>
           <div className="flex items-center gap-1 text-right min-w-0">
             <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}>
-              <span className={cn(
-                "font-black font-mono cursor-help flex items-center gap-0.5 transition-all duration-300",
-                (trail || peakHighlight) && "scale-105 text-accent animate-pulse"
-              )}>
-                <span className="text-accent">{Number(trade.rr || 0).toFixed(2)}R</span>
+              <span className="font-black font-mono cursor-help flex items-center gap-0.5 transition-all duration-300">
+                <span className={cn("text-accent transition-colors duration-300", trail && "text-[#00f0ff]")}>
+                  {Number(trade.rr || 0).toFixed(2)}R
+                </span>
                 <span className={cn(
-                  "text-dim/70 text-[7px] sm:text-[7.5px] transition-all duration-500",
-                  peakHighlight && "text-purple font-extrabold animate-pulse"
+                  "text-dim/70 text-[7px] sm:text-[7.5px] transition-colors duration-300",
+                  peakHighlight && "text-purple font-extrabold"
                 )}>
                   ({Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R Peak)
                 </span>

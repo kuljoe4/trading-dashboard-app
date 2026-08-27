@@ -875,7 +875,14 @@ export class TradingSessionService implements OnApplicationShutdown {
         const allowKnifeGatedBypass = (sc.allow_knife_when_gated ?? false) && activeKnifeTradesCount === 0;
 
         if (isGated && allowKnifeGatedBypass) {
-          this.logger.log(`[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`);
+          const bypassMsg = `[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`;
+          this.logger.log(bypassMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
+          this.broadcast('alert', {
+            level: 'info',
+            title: 'Gated Knife Entry Allowed',
+            message: bypassMsg
+          });
         }
 
         if (isGated && !allowKnifeGatedBypass) {

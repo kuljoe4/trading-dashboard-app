@@ -109,13 +109,13 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
       expect(trade.risk_usdt).toBe(0);
     });
 
-    it('should release risk lock when release_risk_on_est_pnl_be is active and live PnL is in profit', () => {
+    it('should release risk lock when release_risk_on_est_pnl_be is active and estimated floor exit PnL is at or above breakeven', () => {
       const trade: Partial<Trade> = {
         symbol: 'SOLUSDT',
         direction: 'LONG',
         entry_price: 100,
         initial_sl: 90,
-        current_sl: 90, // SL still underwater
+        current_sl: 100, // SL ratcheted to breakeven (est exit floor PnL = 0)
         qty: 1,
         risk_usdt: 10,
       };
@@ -124,19 +124,19 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
         release_risk_on_est_pnl_be: true,
       };
 
-      // Live mark price is 110 (+$10 profit)
+      // Live mark price is 110
       tracker.refreshTradeRisk(trade as Trade, true, 110, config as SessionConfig);
 
       expect(trade.risk_usdt).toBe(0);
     });
 
-    it('should re-lock risk when trade pulls back underwater after releasing risk on est PnL', () => {
+    it('should re-lock risk when trade pulls back and estimated floor exit PnL is underwater', () => {
       const trade: Partial<Trade> = {
         symbol: 'SOLUSDT',
         direction: 'LONG',
         entry_price: 100,
         initial_sl: 90,
-        current_sl: 90,
+        current_sl: 90, // Underwater SL (-10)
         qty: 1,
         risk_usdt: 0, // Currently released
       };
@@ -145,7 +145,7 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
         release_risk_on_est_pnl_be: true,
       };
 
-      // Live mark price pulls back to 95 (-$5 loss relative to entry)
+      // Live mark price pulls back to 95 (-$5 loss)
       tracker.refreshTradeRisk(trade as Trade, true, 95, config as SessionConfig);
 
       expect(trade.risk_usdt).toBe(10); // Re-locked initial risk

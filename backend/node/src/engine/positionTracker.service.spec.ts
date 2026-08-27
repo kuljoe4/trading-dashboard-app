@@ -740,8 +740,19 @@ describe('PositionTrackerService', () => {
         release_risk_on_est_pnl_be: true,
       } as SessionConfig;
 
-      // Estimated PnL is +10 (above breakeven 0)
-      trade.est_pnl_to_realize = 10;
+      // Exit signal threshold is 105 (estimated exit floor PnL = +50 above breakeven 0)
+      trade.exit_signals_status = {
+        ema_cross: {
+          fired: true,
+          active: true,
+          threshold: 105,
+          threshold_is_price: true,
+          remaining_delay: 0,
+          label: 'EMA Cross',
+          value: 105,
+          unit: 'USDT',
+        },
+      };
       service.refreshTradeRisk(trade, false, 105, config);
 
       expect(trade.risk_usdt).toBe(0);

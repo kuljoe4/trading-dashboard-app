@@ -781,7 +781,7 @@ export class PositionTrackerService {
       trade.est_pnl_to_realize = estPnl;
     }
 
-    if (activeConfig?.release_risk_on_est_pnl_be && (livePnl >= 0 || (estPnl !== undefined && estPnl >= 0))) {
+    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0) {
       isBreakevenOrBetter = true;
     }
 

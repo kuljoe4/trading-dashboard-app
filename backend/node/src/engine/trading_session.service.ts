@@ -78,6 +78,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private inFlightExchangeCloses: Set<string> = new Set();
   private lastFullReconciliationTs = 0;
   private lastWatchdogTs = 0;
+  private loggedKnifeBypassMap: Map<string, number> = new Map();
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -875,14 +876,16 @@ export class TradingSessionService implements OnApplicationShutdown {
         const allowKnifeGatedBypass = (sc.allow_knife_when_gated ?? false) && activeKnifeTradesCount === 0;
 
         if (isGated && allowKnifeGatedBypass) {
-          const bypassMsg = `[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`;
-          this.logger.log(bypassMsg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
-          this.broadcast('alert', {
-            level: 'info',
-            title: 'Gated Knife Entry Allowed',
-            message: bypassMsg
-          });
+          const nowTs = Date.now();
+          const lastLogged = this.loggedKnifeBypassMap.get(label) || 0;
+          if (nowTs - lastLogged > 60000) {
+            this.loggedKnifeBypassMap.set(label, nowTs);
+            const bypassMsg = `[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`;
+            this.logger.log(bypassMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
+          } else {
+            this.logger.debug(`[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`);
+          }
         }
 
         if (isGated && !allowKnifeGatedBypass) {

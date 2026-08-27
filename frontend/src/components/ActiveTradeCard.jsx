@@ -441,20 +441,20 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           )}
 
-          {/* Trailing Movement Trail (To/From Waterfall Fade Cue) */}
+          {/* Trailing Movement Trail (To/From Waterfall Fade Cue - Distinct Cyan/Amber Color Coding & Ultra-Slow Dissolve) */}
           <AnimatePresence>
             {trail && (
               <motion.div
                 key={trail.key}
-                initial={{ opacity: 0.8, scaleY: 1 }}
-                animate={{ opacity: 0, scaleY: 0.4 }}
+                initial={{ opacity: 0.9, scaleY: 1 }}
+                animate={{ opacity: 0, scaleY: 0.3 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
+                transition={{ duration: 5.0, ease: [0.16, 1, 0.3, 1] }}
                 className={cn(
                   "absolute top-[10px] h-[6px] rounded-full pointer-events-none z-30 blur-[0.5px]",
                   trail.isUp
-                    ? "bg-gradient-to-r from-transparent via-[#00e5a0]/80 to-[#00e5a0]"
-                    : "bg-gradient-to-r from-[#ff2a55] via-[#ff2a55]/80 to-transparent"
+                    ? "bg-gradient-to-r from-transparent via-[#00f0ff]/80 to-[#00f0ff] shadow-[0_0_8px_rgba(0,240,255,0.6)]"
+                    : "bg-gradient-to-r from-[#f59e0b] via-[#f59e0b]/80 to-transparent shadow-[0_0_8px_rgba(245,158,11,0.6)]"
                 )}
                 style={{
                   left: `${trail.start}%`,

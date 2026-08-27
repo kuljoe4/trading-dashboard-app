@@ -30,6 +30,7 @@ export interface TradeSerializationDto {
   signal_logic?: 'any' | 'all' | 'combo';
   exit_signal_logic?: 'any' | 'all' | 'combo';
   strategy_config?: Partial<SessionConfig>;
+  is_knife?: boolean;
   entry_daily_change_pct?: number;
   initial_risk_usdt?: number;
   risk_usdt?: number;
@@ -65,6 +66,7 @@ export interface TickTradeDto {
   direction: 'LONG' | 'SHORT';
   entry_price: number;
   qty: number;
+  is_knife?: boolean;
   entry_daily_change_pct?: number;
   close_attempts?: number;
   close_blocked?: boolean;

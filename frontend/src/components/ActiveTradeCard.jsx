@@ -464,18 +464,36 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </AnimatePresence>
 
-          {/* Sleek Tiny Dot Live Mark Indicator */}
+          {/* Sleek Tiny Ultra-Bright Live Mark Indicator with Movement Color Shift & Side Arc */}
           <div
             className={cn(
-              "absolute top-[12px] -ml-[3px] w-1.5 h-1.5 rounded-full z-40 transition-all duration-300 pointer-events-none flex items-center justify-center",
-              trade.pnl >= 0 ? "bg-[#00e5a0] shadow-[0_0_8px_#00e5a0]" : "bg-[#ff2a55] shadow-[0_0_8px_#ff2a55]"
+              "absolute top-[11px] -ml-[3.5px] w-2 h-2 rounded-full z-40 transition-all duration-200 pointer-events-none flex items-center justify-center shadow-lg",
+              trail
+                ? (trail.isUp
+                    ? "bg-[#00f0ff] shadow-[0_0_12px_#00f0ff] scale-110"
+                    : "bg-[#f59e0b] shadow-[0_0_12px_#f59e0b] scale-110")
+                : (trade.pnl >= 0
+                    ? "bg-[#00e5a0] shadow-[0_0_10px_#00e5a0]"
+                    : "bg-[#ff2a55] shadow-[0_0_10px_#ff2a55]")
             )}
             style={{ left: `${progress}%` }}
           >
-            {/* Waterfall Fade Cue Outer Aura Ring */}
+            {/* Trail Direction Arc Ring Segment */}
             <div className={cn(
-              "absolute -inset-0.5 rounded-full animate-ping opacity-30 pointer-events-none",
-              trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
+              "absolute -inset-1 rounded-full border-2 border-transparent transition-all duration-300 pointer-events-none",
+              trail
+                ? (trail.isUp
+                    ? "border-l-[#00f0ff] border-t-[#00f0ff] shadow-[0_0_8px_#00f0ff] animate-pulse"
+                    : "border-r-[#f59e0b] border-b-[#f59e0b] shadow-[0_0_8px_#f59e0b] animate-pulse")
+                : (trade.pnl >= 0
+                    ? "border-l-[#00e5a0] border-t-[#00e5a0] opacity-40"
+                    : "border-r-[#ff2a55] border-b-[#ff2a55] opacity-40")
+            )} />
+            <div className={cn(
+              "absolute -inset-0.5 rounded-full animate-ping opacity-35 pointer-events-none",
+              trail
+                ? (trail.isUp ? "bg-[#00f0ff]" : "bg-[#f59e0b]")
+                : (trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]")
             )} />
           </div>
         </div>

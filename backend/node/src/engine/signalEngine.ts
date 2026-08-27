@@ -312,7 +312,7 @@ export class SignalEngineService {
           ? this.klineStore.getRawCandles(symbol, signalInterval)
           : candles;
 
-        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal);
+        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal, signalType);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
         if (fired) firedSignals.push(signalType);

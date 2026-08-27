@@ -5,6 +5,8 @@ export interface TradeSerializationDto {
   symbol: string;
   strategy_label: string;
   current_price: number;
+  mark_price?: number;
+  last_price?: number;
   sl_price: number;
   tp_price: number | null;
   pnl: number;
@@ -49,6 +51,8 @@ export interface TickTradeDto {
   symbol: string;
   strategy_label: string;
   current_price: number;
+  mark_price?: number;
+  last_price?: number;
   sl_price: number;
   tp_price: number | null;
   pnl: number;

@@ -302,6 +302,8 @@ export class EngineBroadcasterService {
       symbol: trade.symbol,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       current_price: roundTo(current, 8),
+      mark_price: roundTo(current, 8),
+      last_price: roundTo(current, 8),
       sl_price: roundTo(trade.current_sl, 8),
       tp_price: roundTo(trade.tp, 8),
       pnl: roundTo(pnlValue, 2),

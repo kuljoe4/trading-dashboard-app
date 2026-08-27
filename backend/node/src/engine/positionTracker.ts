@@ -83,6 +83,14 @@ export class PositionTrackerService {
     return Array.from(this.inFlightEntries.keys());
   }
 
+  getPositionSymbols(): string[] {
+    const set = new Set<string>();
+    for (const t of this.trades.values()) set.add(t.symbol);
+    for (const s of this.enteringSymbols) set.add(s);
+    for (const s of this.inFlightEntries.keys()) set.add(s);
+    return Array.from(set);
+  }
+
   getInFlightEntry(symbol: string): Trade | undefined {
     return this.inFlightEntries.get(symbol);
   }

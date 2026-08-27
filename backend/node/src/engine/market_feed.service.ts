@@ -77,7 +77,7 @@ export class MarketFeedService {
     signature: string;
   } | null = null;
 
-  private getWatchlistConfigSignature(config: SessionConfig): string {
+  private getWatchlistConfigSignature(config: SessionConfig, activeSymbolList: string[]): string {
     return JSON.stringify({
       smart: config.smart_watchlist_enabled,
       size: config.watchlist_size,
@@ -86,6 +86,7 @@ export class MarketFeedService {
       threshold: config.scan_pct_threshold,
       sensitivity: config.smart_watchlist_sensitivity,
       excluded: config.excluded_symbols || [],
+      active: activeSymbolList.sort(),
     });
   }
 
@@ -577,9 +578,17 @@ export class MarketFeedService {
 
       if (config.global_scanner_enabled !== false && !suppressScanner) {
         let symbols: string[];
-        if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
-        else {
-          const signature = this.getWatchlistConfigSignature(config);
+        const activeSymbolList = activeTrades.map(t => t.symbol);
+        const activeExcludedSet = new Set<string>(activeSymbolList);
+        if (config.excluded_symbols && Array.isArray(config.excluded_symbols)) {
+          config.excluded_symbols.forEach(s => activeExcludedSet.add(s));
+        }
+        const combinedExcluded = Array.from(activeExcludedSet);
+
+        if (config.symbols && config.symbols.length > 0) {
+          symbols = config.symbols.filter(s => !activeSymbolList.includes(s));
+        } else {
+          const signature = this.getWatchlistConfigSignature(config, activeSymbolList);
           const now = Date.now();
           const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -604,7 +613,7 @@ export class MarketFeedService {
               const tickers = this.tickerCache.getLatestTickers();
               const smartCandidates = tickers
                 .filter(t => {
-                  if (config.excluded_symbols?.includes(t.symbol)) return false;
+                  if (activeExcludedSet.has(t.symbol)) return false;
                   if (this.getSymbolFilters(t.symbol) === undefined) return false;
 
                   // Estimate momentum if open_24h is available
@@ -622,23 +631,23 @@ export class MarketFeedService {
               // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
               const discoveryMode = config.discovery_mode || 'volume';
               const topSymbols = discoveryMode === 'change_pct'
-                ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
-                : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+                ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+                : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
               const volumeSymbols = topSymbols.map(t => t.symbol);
 
-              symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
+              symbols = Array.from(new Set([...symbols, ...volumeSymbols])).filter(s => !activeExcludedSet.has(s));
             } else {
               const discoveryMode = config.discovery_mode || 'volume';
               const top = discoveryMode === 'change_pct'
-                ? await this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
-                : await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+                ? await this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
+                : await this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
               const slicedTop = top.slice(offset);
 
               // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
               // that appear in miniTicker stream but are not tradable by the bot.
               symbols = slicedTop
                 .map((t: any) => t.symbol)
-                .filter(s => this.getSymbolFilters(s) !== undefined);
+                .filter(s => this.getSymbolFilters(s) !== undefined && !activeExcludedSet.has(s));
             }
 
             // Save to cache

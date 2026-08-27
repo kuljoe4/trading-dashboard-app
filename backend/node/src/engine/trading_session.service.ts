@@ -770,13 +770,14 @@ export class TradingSessionService implements OnApplicationShutdown {
 
       const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs();
+      const activePositionSymbols = this.positionTracker.getPositionSymbols();
       const opportunitiesBySignature = new Map<string, any[]>();
       let primaryOpportunities: any[] = [];
       this.monitoringService.setLoopStage("SCANNING");
       for (const sc of strategyConfigs) {
         const sig = this.scanSignature(sc);
         if (!opportunitiesBySignature.has(sig))
-          opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc));
+          opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc, activePositionSymbols));
         if (primaryOpportunities.length === 0)
           primaryOpportunities = opportunitiesBySignature.get(sig) || [];
       }

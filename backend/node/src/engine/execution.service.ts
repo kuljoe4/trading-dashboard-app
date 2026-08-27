@@ -275,7 +275,15 @@ export class ExecutionService {
           }
 
           if (sameCandleGated) {
-            this.logger.debug(`${opp.symbol}: Entry skipped - a trade was already ${gateReason} to prevent whipsawing.`);
+            const gateMsg = `[Anti-Whipsaw] ${opp.symbol}: Entry skipped - a trade was already ${gateReason}.`;
+            this.logger.debug(gateMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: gateMsg, level: 'info' });
+            this.broadcastService.broadcast('alert', {
+              level: 'info',
+              title: 'Anti-Whipsaw Protection',
+              message: gateMsg,
+              symbol: opp.symbol
+            });
             continue;
           }
         }

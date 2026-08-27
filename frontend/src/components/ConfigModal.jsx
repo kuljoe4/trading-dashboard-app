@@ -1189,6 +1189,12 @@ const flattenConfig = (config) => {
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
       trailing_stop_enabled: !!config.trailing_stop_enabled,
       trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+      knife_trailing_enabled: config.knife_trailing_enabled !== false,
+      knife_trailing_distance_pct: config.knife_trailing_distance_pct !== undefined ? config.knife_trailing_distance_pct : 0.5,
+      knife_auto_ratchet_be_rr: config.knife_auto_ratchet_be_rr !== undefined ? config.knife_auto_ratchet_be_rr : 0.5,
+      knife_auto_ratchet_lock_rr: config.knife_auto_ratchet_lock_rr !== undefined ? config.knife_auto_ratchet_lock_rr : 1.0,
+      anti_whipsaw_allow_knife: !!config.anti_whipsaw_allow_knife,
+      allow_knife_when_gated: !!config.allow_knife_when_gated,
       release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
@@ -1249,6 +1255,9 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'max_single_trade_risk_pct',
       'smart_watchlist_sensitivity',
       'trailing_stop_distance_pct',
+      'knife_trailing_distance_pct',
+      'knife_auto_ratchet_be_rr',
+      'knife_auto_ratchet_lock_rr',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
@@ -2802,6 +2811,64 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     engulfingMode={cfg.engulfing_mode}
                   />
                 ))}
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="strategy_knife"
+              icon={Zap}
+              title="Knife Catch & Risk Bypass"
+              subtitle="Velocity ROC trailing, auto-ratchet & gating bypass"
+              isOpen={openSectionId === 'strategy_knife'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_knife' ? null : 'strategy_knife')}
+            >
+              <div className="space-y-4">
+                <div className="p-4 bg-amber/5 border border-amber/20 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-amber/10 flex items-center justify-center text-amber">
+                      <Zap size={20} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold">Knife Trailing Stop</div>
+                      <div className="text-[10px] text-dim font-medium uppercase">High-frequency velocity ROC trailing stop</div>
+                    </div>
+                  </div>
+                  <Toggle value={cfg.knife_trailing_enabled !== false} onChange={(v) => setField('knife_trailing_enabled', v)} color="bg-amber" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <Tooltip content="Dynamic trailing distance (%) applied strictly to high-velocity Knife Catch trades on fast ticks.">
+                    {renderField('Knife Trailing Distance (%)', 'knife_trailing_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                  </Tooltip>
+                  <Tooltip content="Target R:R threshold where Stop Loss instantly ratchets to Breakeven (0.0R) upon price crossing velocity threshold.">
+                    {renderField('Auto-Ratchet Breakeven (RR)', 'knife_auto_ratchet_be_rr', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                  </Tooltip>
+                  <Tooltip content="Target R:R threshold where Stop Loss instantly ratchets to Lock Profit (0.5R or configured) upon price expansion.">
+                    {renderField('Auto-Ratchet Lock Profit (RR)', 'knife_auto_ratchet_lock_rr', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                  </Tooltip>
+                </div>
+
+                <div className="pt-4 border-t border-border/40 space-y-3">
+                  <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-amber/20 transition-all">
+                    <div className="flex flex-col text-left">
+                      <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
+                        <Zap size={12} /> Allow Knife Re-entry (Anti-Whipsaw Bypass)
+                      </span>
+                      <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">If a trade was closed by Knife Catch engine, allow re-entering the symbol in the same candle provided the candidate is still a Knife Catch trade.</p>
+                    </div>
+                    <Toggle value={cfg.anti_whipsaw_allow_knife === true} onChange={(v) => setField('anti_whipsaw_allow_knife', v)} color="bg-amber" />
+                  </div>
+
+                  <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-amber/20 transition-all">
+                    <div className="flex flex-col text-left">
+                      <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
+                        <Zap size={12} /> Allow 1 Knife Trade When Gated
+                      </span>
+                      <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Allow entering up to 1 Knife Catch trade even when strategy gating is active (e.g. max open trades, SL guard, or rolling period limits), provided 0 active knife trades exist.</p>
+                    </div>
+                    <Toggle value={cfg.allow_knife_when_gated === true} onChange={(v) => setField('allow_knife_when_gated', v)} color="bg-amber" />
+                  </div>
+                </div>
               </div>
             </CollapsibleSection>
 

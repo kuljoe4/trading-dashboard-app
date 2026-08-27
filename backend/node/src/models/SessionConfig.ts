@@ -532,6 +532,14 @@ export class SessionConfig {
 
   @IsBoolean()
   @IsOptional()
+  anti_whipsaw_allow_knife?: boolean = false;
+
+  @IsBoolean()
+  @IsOptional()
+  allow_knife_when_gated?: boolean = false;
+
+  @IsBoolean()
+  @IsOptional()
   force_risk_release?: boolean = false;
 
   @IsBoolean()

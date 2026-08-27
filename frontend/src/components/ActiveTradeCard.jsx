@@ -86,6 +86,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const tpR = tp > 0 ? getR(tp) : 0;
 
   // Signed percentage calculations
+  const initialSlPercent = (entry > 0 && initialSl > 0)
+    ? (isLong ? ((initialSl - entry) / entry) * 100 : ((entry - initialSl) / entry) * 100)
+    : 0;
+
   const slPercent = (entry > 0 && sl > 0)
     ? (isLong ? ((sl - entry) / entry) * 100 : ((entry - sl) / entry) * 100)
     : 0;
@@ -292,9 +296,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
         {/* Tactical Map Track Area with Stem & Pennant Overhead Space - Ultra High Density */}
         <div className="relative pt-3.5 pb-0.5 min-h-[30px]">
-          {/* Main Thinner Track Bar (2.5px height) */}
+          {/* Main Thinner Track Bar (4px height) */}
           <div
-            className="h-[2.5px] w-full rounded-full relative overflow-hidden bg-surface border border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
+            className="h-[4px] w-full rounded-full relative overflow-hidden bg-surface border border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
             role="progressbar"
             aria-valuenow={Math.round(progress)}
             aria-valuemin="0"
@@ -337,11 +341,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           {/* Current Stop Loss Marker */}
           {sl > 0 && (
             <Tooltip content={
-              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
+              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
                 <div className="font-bold border-b border-white/5 pb-1 mb-1">Current Stop Loss</div>
-                <div className="text-dim">SL R: <span className="text-text font-mono font-semibold">{slR >= 0 ? '+' : ''}{slR.toFixed(2)}R</span></div>
-                <div className="text-dim">SL %: <span className="text-text font-mono font-semibold">{slPercent >= 0 ? '+' : ''}{slPercent.toFixed(2)}%</span></div>
-                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(sl)}</span></div>
+                <div className="text-dim">Current SL: <span className="text-text font-mono font-semibold">{fmtUSD(sl)} ({slPercent >= 0 ? '+' : ''}{slPercent.toFixed(2)}%)</span></div>
+                {initialSl > 0 && (
+                  <div className="text-dim">Initial SL: <span className="text-amber font-mono font-semibold">{fmtUSD(initialSl)} ({initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(2)}%)</span></div>
+                )}
+                <div className="text-dim">SL R-Multiple: <span className="text-text font-mono font-semibold">{slR >= 0 ? '+' : ''}{slR.toFixed(2)}R</span></div>
               </div>
             }>
               <div
@@ -415,14 +421,24 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           )}
 
-          {/* Glowing Compact Live Mark Thumb */}
+          {/* Glowing Compact Live Mark Thumb with Waterfall Fade Cue Ring */}
           <div
             className={cn(
-              "absolute top-[12px] -ml-[4px] w-2.5 h-2.5 rounded-full border-2 bg-surface shadow-[0_0_8px_rgba(0,0,0,0.6)] z-40 transition-all duration-300 pointer-events-none",
-              trade.pnl >= 0 ? "border-[#00e5a0] shadow-[#00e5a0]/50" : "border-[#ff2a55] shadow-[#ff2a55]/50"
+              "absolute top-[11px] -ml-[5px] w-3 h-3 rounded-full border-2 bg-surface shadow-[0_0_8px_rgba(0,0,0,0.6)] z-40 transition-all duration-300 pointer-events-none flex items-center justify-center",
+              trade.pnl >= 0 ? "border-[#00e5a0] shadow-[#00e5a0]/60" : "border-[#ff2a55] shadow-[#ff2a55]/60"
             )}
             style={{ left: `${progress}%` }}
-          />
+          >
+            {/* Waterfall Fade Cue Outer Aura Ring */}
+            <div className={cn(
+              "absolute -inset-1 rounded-full animate-ping opacity-35 pointer-events-none",
+              trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
+            )} />
+            <div className={cn(
+              "w-1 h-1 rounded-full",
+              trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
+            )} />
+          </div>
         </div>
 
         {/* Bottom Metadata Grid */}
@@ -430,9 +446,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           <div className="flex items-center gap-1">
             <span className="text-red/80 font-black">SL</span>
             <span className="font-bold text-text/90 font-mono">{fmtUSD(sl)}</span>
-            <span className="text-[7.5px] opacity-60 font-mono">
-              ({slR >= 0 ? `+${slR.toFixed(2)}R` : `${slR.toFixed(2)}R`})
+            <span className="text-[7.5px] font-mono text-red/90">
+              ({slPercent >= 0 ? `+${slPercent.toFixed(1)}%` : `${slPercent.toFixed(1)}%`})
             </span>
+            {initialSl > 0 && Math.abs(sl - initialSl) > 0.0000001 && (
+              <span className="text-[7px] text-amber/80 font-mono" title={`Initial SL: ${fmtUSD(initialSl)} (${initialSlPercent >= 0 ? '+' : ''}${initialSlPercent.toFixed(1)}%)`}>
+                [{initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(1)}%]
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1 text-center">
             <span className="text-dim/80 font-black">ENTRY</span>

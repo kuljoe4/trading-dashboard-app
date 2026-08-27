@@ -47,6 +47,18 @@ export class ExecutionService {
     this.entryCooldowns.set(`${mode}:${symbol}`, Date.now() + minutes * 60 * 1000);
   }
 
+  private getTimeframeMs(tf: string): number {
+    if (!tf) return 60 * 1000;
+    const match = tf.toLowerCase().match(/^(\d+)([mhd])$/);
+    if (!match) return 60 * 1000;
+    const num = parseInt(match[1], 10);
+    const unit = match[2];
+    if (unit === 'm') return num * 60 * 1000;
+    if (unit === 'h') return num * 60 * 60 * 1000;
+    if (unit === 'd') return num * 24 * 60 * 60 * 1000;
+    return 60 * 1000;
+  }
+
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
 
@@ -93,9 +105,22 @@ export class ExecutionService {
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
 
-            // SRE: Immediate cooldown on exit (Issue 3). Uses config.min_trade_interval_min || 2m.
+            // SRE: Immediate cooldown on exit strictly per-symbol.
+            // Uses max of config.min_trade_interval_min and all active strategy candle timeframe durations (e.g. 60m for 1h candle).
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-            const cooldownMin = config.min_trade_interval_min || 2;
+            let maxTfMs = this.getTimeframeMs(tradeConfig.scan_interval || '1m');
+            if (tradeConfig.enabled_signals) {
+              for (const sig of tradeConfig.enabled_signals) {
+                const tf = tradeConfig.signal_timeframes?.[sig];
+                if (tf && tf !== 'default') {
+                  const ms = this.getTimeframeMs(tf);
+                  if (ms > maxTfMs) maxTfMs = ms;
+                }
+              }
+            }
+            const tfCooldownMin = Math.ceil(maxTfMs / (60 * 1000));
+            const configuredMin = tradeConfig.min_trade_interval_min || 2;
+            const cooldownMin = Math.max(configuredMin, tfCooldownMin);
             this.setCooldown(trade.symbol, mode, cooldownMin);
 
             const analytics = this.analyticsService.calculateAnalytics(
@@ -211,20 +236,36 @@ export class ExecutionService {
         if (hasClosedForSymbol) {
           let sameCandleGated = false;
           let gatedTimeframe = '';
+          let gateReason = '';
 
           for (const tf of uniqueTimeframes) {
             const tfCandles = this.klineStore.getRawCandles(opp.symbol, tf);
+            const tfDurationMs = this.getTimeframeMs(tf);
+
             if (tfCandles.length > 0) {
               const currentCandleStart = tfCandles[tfCandles.length - 1].time;
 
               for (let i = 0; i < closedTrades.length; i++) {
                 const t = closedTrades[i];
-                if (t.symbol === opp.symbol && t.entry_ts) {
-                  const entryTsMs = typeof t.entry_ts === 'number' ? t.entry_ts : (t.entry_ts instanceof Date ? t.entry_ts.getTime() : new Date(t.entry_ts).getTime());
-                  if (entryTsMs >= currentCandleStart) {
-                    sameCandleGated = true;
-                    gatedTimeframe = tf;
-                    break;
+                if (t.symbol === opp.symbol) {
+                  if (t.entry_ts) {
+                    const entryTsMs = typeof t.entry_ts === 'number' ? t.entry_ts : (t.entry_ts instanceof Date ? t.entry_ts.getTime() : new Date(t.entry_ts).getTime());
+                    if (entryTsMs >= currentCandleStart) {
+                      sameCandleGated = true;
+                      gatedTimeframe = tf;
+                      gateReason = `entered during the current ${tf} candle period`;
+                      break;
+                    }
+                  }
+
+                  if (t.exit_ts) {
+                    const exitTsMs = typeof t.exit_ts === 'number' ? t.exit_ts : (t.exit_ts instanceof Date ? t.exit_ts.getTime() : new Date(t.exit_ts).getTime());
+                    if (exitTsMs >= currentCandleStart || Date.now() < exitTsMs + tfDurationMs) {
+                      sameCandleGated = true;
+                      gatedTimeframe = tf;
+                      gateReason = `exited during the current ${tf} candle period or within its ${Math.ceil(tfDurationMs / 60000)}m timeframe delay`;
+                      break;
+                    }
                   }
                 }
               }
@@ -234,7 +275,7 @@ export class ExecutionService {
           }
 
           if (sameCandleGated) {
-            this.logger.debug(`${opp.symbol}: Entry skipped - a trade was already entered during the current ${gatedTimeframe} candle period to prevent whipsawing.`);
+            this.logger.debug(`${opp.symbol}: Entry skipped - a trade was already ${gateReason} to prevent whipsawing.`);
             continue;
           }
         }

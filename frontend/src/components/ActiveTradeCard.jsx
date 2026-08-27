@@ -184,6 +184,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 Recon
               </span>
             )}
+          {trade.is_knife && (
+            <span className="text-[9px] bg-amber/15 text-amber font-black border border-amber/30 px-1.5 py-0.5 rounded tracking-wider uppercase flex items-center gap-1">
+              🔪 KNIFE CATCH
+            </span>
+          )}
             {trade.strategy_config?.is_nominal_overshoot && (
               <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. This forces a higher actual risk percentage than configured. Exercise caution.">
                 <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm">

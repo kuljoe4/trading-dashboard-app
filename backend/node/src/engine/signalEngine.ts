@@ -66,6 +66,7 @@ export class SignalEngineService {
     macd_fade: this.macdFadeSignal.bind(this),
     macd_pbc: this.macdPbcSignal.bind(this),
     supertrend: this.supertrendSignal.bind(this),
+    knife_catch: this.knifeCatchSignal.bind(this),
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
@@ -170,6 +171,10 @@ export class SignalEngineService {
         const periodVal = resolveParam(signalType, baseType, 'supertrend_period', '10');
         const period = parseInt(String(periodVal), 10);
         maxReq = Math.max(maxReq, period * 5);
+      } else if (baseType === 'knife_catch') {
+        const lookbackVal = resolveParam(signalType, baseType, 'knife_lookback', '3');
+        const lookback = parseInt(String(lookbackVal), 10);
+        maxReq = Math.max(maxReq, lookback + 1);
       }
     };
 
@@ -2005,6 +2010,67 @@ export class SignalEngineService {
     this.supertrendCache.set(cacheKey, result);
 
     return result;
+  }
+
+  /**
+   * Knife Catch Signal: Quantifies rapid Rate-Of-Change (ROC) acceleration and wick rejection
+   */
+  public knifeCatchSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side: 'LONG' | 'SHORT' = 'LONG',
+    purpose: 'entry' | 'exit' = 'entry',
+    candles?: Candle[],
+    minimal = false,
+    signalType = 'knife_catch'
+  ): boolean | SignalDetail {
+    const klines = candles || this.klineStore.getRawCandles(symbol, interval);
+    const len = klines.length;
+
+    if (len < 3) {
+      if (minimal) return false;
+      return { fired: false, value: 0, threshold: 0, unit: '%', metric: 'ROC', description: 'Insufficient data' };
+    }
+
+    const params = config.signal_params || {};
+    const rocThreshold = parseFloat(String(this.resolveSignalParam(params, signalType, 'knife_catch', 'knife_roc_threshold', '2.0')));
+    const wickPctThreshold = parseFloat(String(this.resolveSignalParam(params, signalType, 'knife_catch', 'knife_wick_pct', '30.0')));
+    const lookback = parseInt(String(this.resolveSignalParam(params, signalType, 'knife_catch', 'knife_lookback', '3')), 10);
+
+    const curr = klines[len - 1];
+    const prevIndex = Math.max(0, len - 1 - lookback);
+    const baseCandle = klines[prevIndex];
+
+    if (!baseCandle || baseCandle.close <= 0) {
+      if (minimal) return false;
+      return { fired: false, value: 0, threshold: rocThreshold, unit: '%', metric: 'ROC', description: 'Invalid candle data' };
+    }
+
+    const roc = Math.abs((curr.close - baseCandle.close) / baseCandle.close) * 100;
+    const range = curr.high - curr.low;
+    let wickPct = 0;
+
+    if (range > 0) {
+      const lowerWick = Math.min(curr.open, curr.close) - curr.low;
+      const upperWick = curr.high - Math.max(curr.open, curr.close);
+      wickPct = side === 'LONG' ? (lowerWick / range) * 100 : (upperWick / range) * 100;
+    }
+
+    const fired = roc >= rocThreshold && wickPct >= wickPctThreshold;
+
+    if (minimal) return fired;
+
+    return {
+      fired,
+      value: roundTo(roc, 2),
+      threshold: rocThreshold,
+      unit: '%',
+      metric: 'ROC %',
+      description: fired
+        ? `Knife Catch triggered: ROC ${roc.toFixed(2)}% >= ${rocThreshold}%, Wick ${wickPct.toFixed(1)}% >= ${wickPctThreshold}%`
+        : `ROC ${roc.toFixed(2)}% / Wick ${wickPct.toFixed(1)}%`,
+    };
   }
 
   /**

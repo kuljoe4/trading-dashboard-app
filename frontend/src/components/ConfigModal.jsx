@@ -71,6 +71,7 @@ const SIGNALS = [
   ['macd_fade', 'MACD Fade', 'Phase 5 momentum exit when histogram weakens.'],
   ['macd_pbc', 'MACD PBC', 'Premium Pullback-to-Continuation pullback entry.'],
   ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
+  ['knife_catch', 'Knife Catch', 'Velocity ROC & wick rejection burst entry.'],
 ]
 
 const getBaseSignalType = (signalType) => {

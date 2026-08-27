@@ -82,6 +82,7 @@ export class ExecutionService {
         if (!currentPrice) continue;
 
         const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+        await this.positionTracker.checkKnifeTrailingStop(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkTrailingStop(trade.symbol, currentPrice, tradeConfig);
 
@@ -490,6 +491,9 @@ export class ExecutionService {
 
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
+            if (signalResult.firedSignals?.includes('knife_catch') || signalResult.details?.knife_catch?.fired) {
+              trade.is_knife = true;
+            }
             this.positionTracker.addTrade(trade);
             this.sessionState.updateStatsOnEntry(trade.id, trade.strategy_label);
 

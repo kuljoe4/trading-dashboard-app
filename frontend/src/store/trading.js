@@ -584,7 +584,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        }
 
        if (Array.isArray(updates.tradeHistory)) {
-         merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, isResuming)).filter(Boolean);
+         // Merge incoming tradeHistory with local real-time closed trade updates to avoid losing WebSocket tradeHistory prepends
+         const incomingMap = new Map(updates.tradeHistory.map(t => [t.id, t]));
+         const localUnmatched = currentTradeHistory.filter(lt => !incomingMap.has(lt.id));
+         merged.tradeHistory = [...updates.tradeHistory.map(t => normalizeTrade(t, null, isResuming)).filter(Boolean), ...localUnmatched].slice(0, 50);
        } else if (currentTradeHistory.length > 0) {
          merged.tradeHistory = currentTradeHistory;
        }

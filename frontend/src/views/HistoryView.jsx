@@ -1331,18 +1331,13 @@ export const HistoryView = () => {
   };
 
   const searchInputRef = React.useRef(null)
-  const mobileSearchInputRef = React.useRef(null)
 
   // Hotkey listener: '/' to focus search input
   useEffect(() => {
     const handleGlobalKeyDown = (e) => {
       if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault();
-        if (window.innerWidth < 640) {
-          mobileSearchInputRef.current?.focus();
-        } else {
-          searchInputRef.current?.focus();
-        }
+        searchInputRef.current?.focus();
       }
     };
     window.addEventListener('keydown', handleGlobalKeyDown);
@@ -2003,8 +1998,12 @@ export const HistoryView = () => {
                     <div className="text-[13px] text-dim font-bold uppercase tracking-widest">No matching sessions found</div>
                     <p className="text-[11px] text-dim/60 mt-1 mb-6">Try a different search term or clear the filter.</p>
                     <button
-                      onClick={() => setSearch('')}
-                      className="px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                      type="button"
+                      onClick={() => {
+                        setSearch('');
+                        searchInputRef.current?.focus();
+                      }}
+                      className="px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                     >
                       Clear Search
                     </button>

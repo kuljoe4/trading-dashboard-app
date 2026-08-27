@@ -339,8 +339,10 @@ export class PositionTrackerService {
     const prevIndex = this.rrSequenceIndex.get(symbol) ?? -1;
 
     if (currentIndex >= 0) {
-      // Get target RR for this milestone
-      const exitRr = exitRrSequence[currentIndex] ?? 0;
+      // Get target RR for this milestone (fallback to last valid element if sequence length mismatched)
+      const exitRr = exitRrSequence[currentIndex] !== undefined
+        ? exitRrSequence[currentIndex]
+        : (exitRrSequence.length > 0 ? exitRrSequence[exitRrSequence.length - 1] : 0);
 
       // Calculate new SL based on target RR
       let targetSl: number;
@@ -366,6 +368,7 @@ export class PositionTrackerService {
         // SRE: Ratchet Race Guard. If an exchange-side mutation is already in flight for this symbol,
         // skip evaluation to prevent redundant overlapping requests.
         if (this.orderManager.isRatcheting(symbol)) {
+           this.logger.debug(`[SL Ratchet] Mutex lock active for ${symbol}, deferring ratchet evaluation.`);
            return;
         }
 
@@ -390,34 +393,44 @@ export class PositionTrackerService {
       const buffer = currentPrice * (bufferPct / 100);
       if (trade.direction === 'LONG') {
         if (newSl >= currentPrice - buffer) {
-          const msg = `[Trailing Guard] Long SL ${Number(newSl || 0).toFixed(5)} capped at ${ Number(currentPrice - buffer).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
+          const cappedSl = currentPrice - buffer;
+          const msg = `[Trailing Guard] Long SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
           this.logger.warn(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
-          newSl = currentPrice - buffer;
+          newSl = cappedSl;
+        }
+        // SAFETY: Never let trailing guard buffer push newSl below existing trade.current_sl!
+        if (trade.current_sl && trade.current_sl > 0 && newSl < trade.current_sl) {
+          newSl = trade.current_sl;
         }
       } else {
         if (newSl <= currentPrice + buffer) {
-          const msg = `[Trailing Guard] Short SL ${Number(newSl || 0).toFixed(5)} capped at ${ Number(currentPrice + buffer).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
+          const cappedSl = currentPrice + buffer;
+          const msg = `[Trailing Guard] Short SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
           this.logger.warn(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
-          newSl = currentPrice + buffer;
+          newSl = cappedSl;
+        }
+        // SAFETY: Never let trailing guard buffer push newSl above existing trade.current_sl for short!
+        if (trade.current_sl && trade.current_sl > 0 && newSl > trade.current_sl) {
+          newSl = trade.current_sl;
         }
       }
 
       // Only move SL deeper into profit (stricter protection)
-      // PERFORMANCE: Apply a minimum delta guard (0.01% of entry) to reduce order-count rate limit pressure.
-      const minDelta = trade.entry_price * 0.0001;
-
+      // For discrete milestone ratchets / catch-ups, compare against current_sl using micro-epsilon
+      // so tiny float differences or minDelta don't block reaching target breakeven/milestone SL.
       let shouldUpdate = false;
       if (trade.direction === 'LONG' && newSl) {
-        // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
-        shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+        shouldUpdate = newSl > trade.current_sl + 0.00000001;
       } else if (trade.direction === 'SHORT' && newSl) {
-        shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+        shouldUpdate = newSl < trade.current_sl - 0.00000001;
       }
 
       if (shouldUpdate) {
         const prevSl = trade.current_sl;
+
+        this.logger.log(`[SL Ratchet] Initiating ratchet for ${symbol}: ${prevSl} → ${newSl} (Milestone ${currentIndex}, Target RR: ${exitRr})`);
 
         // Acknowledge-then-Update: Update exchange first in live mode
         const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
@@ -440,20 +453,24 @@ export class PositionTrackerService {
            // Notify of trade state change for persistence
            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         } else {
-           this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back due to exchange failure.`);
+           this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
         }
       } else {
-        // Active Trade Milestone State Committing & Synchronizing:
-        // Even if we skip the exchange SL adjustment because it's not deeper in profit,
-        // we must still advance and commit the local milestone sequence index and emit TRADE_UPDATED.
-        this.rrSequenceIndex.set(symbol, currentIndex);
-        trade.rr_sequence_index = currentIndex;
-        trade.updated_at = new Date();
+        // Check if current SL is ALREADY at or beyond target SL for this milestone
+        const targetDelta = trade.entry_price * 0.0001;
+        const isSlAtOrBeyondTarget = trade.direction === 'LONG'
+          ? (trade.current_sl >= targetSl - Math.max(0.00000001, targetDelta))
+          : (trade.current_sl <= targetSl + Math.max(0.00000001, targetDelta));
 
-        // Recalculate locked P&L and risk release for the newly committed milestone
-        this.refreshTradeRisk(trade, false, currentPrice, config);
-
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        if (isSlAtOrBeyondTarget) {
+          this.rrSequenceIndex.set(symbol, currentIndex);
+          trade.rr_sequence_index = currentIndex;
+          trade.updated_at = new Date();
+          this.refreshTradeRisk(trade, false, currentPrice, config);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        } else {
+          this.logger.warn(`[SL Ratchet] ${symbol} milestone ${currentIndex} reached (Peak RR: ${Number(trade.max_rr_achieved).toFixed(2)}), but SL adjustment was constrained (current_sl: ${trade.current_sl}, targetSl: ${targetSl}, newSl: ${newSl}). Retrying on next tick.`);
+        }
       }
     }
   }
@@ -734,6 +751,12 @@ export class PositionTrackerService {
         : trade.current_sl <= trade.entry_price + tolerance;
     } else if (trade.initial_sl > 0) {
       // If current_sl is 0 (removed on runtime) but initial_sl > 0, the SL was removed while in profit
+      isBreakevenOrBetter = true;
+    }
+
+    // Milestone Check: If milestone index 0 or higher has been reached (0 = breakeven milestone or higher),
+    // mark breakeven risk release as active to avoid risk lock retention due to minor floating-point tick offsets.
+    if ((trade.rr_sequence_index ?? -1) >= 0) {
       isBreakevenOrBetter = true;
     }
 

@@ -150,5 +150,55 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
 
       expect(trade.risk_usdt).toBe(10); // Re-locked initial risk
     });
+
+    it('should release risk lock when rr_sequence_index >= 0 even if exchange rounding placed current_sl 1 tick below entry', () => {
+      const trade: Partial<Trade> = {
+        symbol: 'ADAUSDT',
+        direction: 'LONG',
+        entry_price: 1.0000,
+        initial_sl: 0.9500,
+        current_sl: 0.9999, // 1 tick below entry due to exchange floor rounding
+        qty: 100,
+        risk_usdt: 5.0,
+        rr_sequence_index: 0, // Milestone 0 (breakeven) reached
+      };
+
+      tracker.refreshTradeRisk(trade as Trade, true);
+
+      expect(trade.risk_usdt).toBe(0);
+    });
+
+    it('should not degrade current_sl when trailing guard buffer caps new target SL below current_sl', async () => {
+      const trade: Partial<Trade> = {
+        id: 't-guard',
+        symbol: 'BTCUSDT',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 99.5, // Already ratcheted close to entry
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 1.5,
+        rr_sequence_index: 0,
+        live_rr_sequence: [0.5, 1.0],
+        exit_rr_sequence: [0.0, 0.5],
+      };
+
+      tracker.addTrade(trade as Trade);
+
+      // Market drops near SL to 99.8 with 0.5% buffer (buffer = 0.499)
+      // Capped SL = 99.8 - 0.499 = 99.301, which is BELOW current_sl (99.5)
+      const config: Partial<SessionConfig> = {
+        live_rr_sequence: [0.5, 1.0],
+        exit_rr_sequence: [0.0, 0.5],
+        trailing_guard_buffer_pct: 0.5,
+      };
+
+      await tracker.checkRrSequenceAdjustments('BTCUSDT', 99.8, config as SessionConfig);
+
+      // Verify that updateStopLoss was NOT called to lower SL
+      expect(mockOrderManager.updateStopLoss).not.toHaveBeenCalled();
+      expect(trade.current_sl).toBe(99.5);
+    });
   });
 });

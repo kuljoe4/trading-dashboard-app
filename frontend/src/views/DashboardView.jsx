@@ -1089,9 +1089,9 @@ export function DashboardView({ initialStrategy }) {
   }, [sessionList, tradeHistory]);
 
   // BOLT OPTIMIZATION: Loop-fused single-pass traversal (no intermediate array allocations)
-  // Combines activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, and totalActivePnl
-  // to avoid redundant iterations and allocation of three separate map states.
-  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl } = useMemo(() => {
+  // Combines activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, and maxRR
+  // to avoid redundant iterations and eliminate callback closure allocations on high-frequency ticks.
+  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;
     const pnlMap = { [strategyLabel]: 0 };
     const estPnlMap = { [strategyLabel]: 0 };
@@ -1105,6 +1105,7 @@ export function DashboardView({ initialStrategy }) {
       countMap[label] = 0;
     }
 
+    let maxRrAchieved = 0;
     const trades = activeTrades || [];
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
@@ -1114,6 +1115,11 @@ export function DashboardView({ initialStrategy }) {
         pnlMap[label] += pnlVal;
         estPnlMap[label] += safeNum(t.est_pnl_to_realize);
         countMap[label]++;
+
+        const rrVal = Number(t.max_rr ?? t.max_rr_achieved ?? 0);
+        if (rrVal > maxRrAchieved) {
+          maxRrAchieved = rrVal;
+        }
       }
     }
 
@@ -1128,11 +1134,10 @@ export function DashboardView({ initialStrategy }) {
       activePnlMap: pnlMap,
       activeEstPnlToRealizeMap: estPnlMap,
       activeTradeCountsMap: countMap,
-      totalActivePnl: totPnl
+      totalActivePnl: totPnl,
+      maxRR: maxRrAchieved
     };
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
-
-  const maxRR = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0), [activeTrades])
 
   const monitoredSymbolsSet = useMemo(() => {
     const set = new Set();

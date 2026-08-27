@@ -127,8 +127,9 @@ function originalActiveMaps(activeTrades, currentStrategyLabel, strategyVariants
   })();
 
   const totalActivePnl = Object.values(activePnlMap || {}).reduce((acc, val) => acc + val, 0);
+  const maxRR = (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0);
 
-  return { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl };
+  return { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, maxRR };
 }
 
 // Optimized Active Maps calculation using Loop Fusion & Single-Pass traversal
@@ -145,6 +146,7 @@ function optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariant
     countMap[label] = 0;
   }
 
+  let maxRrAchieved = 0;
   const trades = activeTrades || [];
   for (let i = 0; i < trades.length; i++) {
     const t = trades[i];
@@ -154,6 +156,11 @@ function optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariant
       pnlMap[label] += pnlVal;
       estPnlMap[label] += Number(t.est_pnl_to_realize || 0);
       countMap[label]++;
+
+      const rrVal = Number(t.max_rr ?? t.max_rr_achieved ?? 0);
+      if (rrVal > maxRrAchieved) {
+        maxRrAchieved = rrVal;
+      }
     }
   }
 
@@ -167,7 +174,8 @@ function optimizedActiveMaps(activeTrades, currentStrategyLabel, strategyVariant
     activePnlMap: pnlMap,
     activeEstPnlToRealizeMap: estPnlMap,
     activeTradeCountsMap: countMap,
-    totalActivePnl: totPnl
+    totalActivePnl: totPnl,
+    maxRR: maxRrAchieved
   };
 }
 
@@ -178,11 +186,11 @@ test('Active maps calculation: correctness of original and loop-fused optimized 
     { strategy_label: 'Breakout 5m' }
   ];
   const activeTrades = [
-    { symbol: 'BTCUSDT', strategy_label: 'Momentum Strategy', pnl: 25.50, est_pnl_to_realize: 30.00 },
-    { symbol: 'ETHUSDT', strategy_label: 'EMA Cross 1h', pnl: -10.20, est_pnl_to_realize: -5.00 },
-    { symbol: 'SOLUSDT', strategy_label: 'Breakout 5m', pnl: 45.00, est_pnl_to_realize: 50.00 },
-    { symbol: 'ADAUSDT', strategy_label: 'Momentum Strategy', pnl: 5.00, est_pnl_to_realize: 5.00 },
-    { symbol: 'XRPUSDT', strategy_label: 'Unknown Strategy Override', pnl: 12.00, est_pnl_to_realize: 15.00 } // Should fall back to Momentum Strategy
+    { symbol: 'BTCUSDT', strategy_label: 'Momentum Strategy', pnl: 25.50, est_pnl_to_realize: 30.00, max_rr_achieved: 1.5 },
+    { symbol: 'ETHUSDT', strategy_label: 'EMA Cross 1h', pnl: -10.20, est_pnl_to_realize: -5.00, max_rr: 2.8 },
+    { symbol: 'SOLUSDT', strategy_label: 'Breakout 5m', pnl: 45.00, est_pnl_to_realize: 50.00, max_rr_achieved: 0.5 },
+    { symbol: 'ADAUSDT', strategy_label: 'Momentum Strategy', pnl: 5.00, est_pnl_to_realize: 5.00, max_rr: 0.2 },
+    { symbol: 'XRPUSDT', strategy_label: 'Unknown Strategy Override', pnl: 12.00, est_pnl_to_realize: 15.00, max_rr_achieved: 1.1 } // Should fall back to Momentum Strategy
   ];
 
   const originalResult = originalActiveMaps(activeTrades, currentStrategyLabel, strategyVariants);
@@ -192,6 +200,7 @@ test('Active maps calculation: correctness of original and loop-fused optimized 
   assert.strictEqual(optimizedResult.totalActivePnl, 77.30);
   assert.strictEqual(optimizedResult.activeTradeCountsMap['Momentum Strategy'], 3); // BTC + ADA + XRP fallback
   assert.strictEqual(optimizedResult.activePnlMap['EMA Cross 1h'], -10.20);
+  assert.strictEqual(optimizedResult.maxRR, 2.8);
 });
 
 test('Active maps calculation: performance benchmark', () => {

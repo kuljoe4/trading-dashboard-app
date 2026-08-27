@@ -1198,7 +1198,15 @@ export class MarketFeedService {
       return;
     }
     
-    const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
+    let requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
+    if (this.sessionState.config?.strategy_variants) {
+      for (const variant of this.sessionState.config.strategy_variants) {
+        if ((variant as any).enabled !== false) {
+          const variantWarmup = this.signalEngine.getRequiredWarmup({ ...this.sessionState.config, ...variant } as SessionConfig);
+          if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
+        }
+      }
+    }
 
     // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
     let existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);

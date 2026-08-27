@@ -41,6 +41,16 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
     return Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
   }, [trades]);
 
+  const knifeTrades = useMemo(() => trades?.filter(t => t.is_knife) || [], [trades]);
+  const knifeCount = knifeTrades.length;
+  const knifeAccPnl = useMemo(() => {
+    let sum = 0;
+    for (let i = 0; i < knifeTrades.length; i++) {
+      sum += safeNum(knifeTrades[i].pnl);
+    }
+    return sum;
+  }, [knifeTrades]);
+
   // SEC: Rules of Hooks require all useX hooks to be declared above any early return statement
   if (!session) return null;
 
@@ -143,6 +153,28 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                       </span>
                     </div>
                   </div>
+
+                  {/* Knife Catch Performance Card */}
+                  {knifeCount > 0 && (
+                    <div className="bg-amber/5 border border-amber/20 rounded-xl p-3.5 sm:p-4 flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-amber font-black text-xs uppercase tracking-tight flex items-center gap-1">
+                            🔪 Knife Catch Performance
+                          </span>
+                        </div>
+                        <span className="text-[9px] text-dim font-bold uppercase tracking-wider">
+                          {knifeCount} {knifeCount === 1 ? 'trade' : 'trades'} executed with velocity ROC & wick rejection
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="text-[8px] text-dim font-black uppercase tracking-widest">Acc. PnL</span>
+                        <span className={cn("text-xs sm:text-sm font-black font-mono tracking-tight", pnlClass(knifeAccPnl))}>
+                          {fmtUSD(knifeAccPnl)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Active Variants details */}
                   <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
@@ -262,6 +294,11 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
               <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
                 {trade.direction}
               </span>
+              {trade.is_knife && (
+                <span className="text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1.5 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 shrink-0 leading-none">
+                  🔪 KNIFE
+                </span>
+              )}
               {showStrategy && (
                 <div className="flex items-center gap-1.5">
                   <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-black px-1.5 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase truncate max-w-[100px]">

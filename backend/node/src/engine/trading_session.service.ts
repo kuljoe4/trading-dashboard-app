@@ -878,13 +878,14 @@ export class TradingSessionService implements OnApplicationShutdown {
         if (isGated && allowKnifeGatedBypass) {
           const nowTs = Date.now();
           const lastLogged = this.loggedKnifeBypassMap.get(label) || 0;
+          const gateReasonDetail = gateInfo?.gateReason ? `: "${gateInfo.gateReason}"` : '';
           if (nowTs - lastLogged > 60000) {
             this.loggedKnifeBypassMap.set(label, nowTs);
-            const bypassMsg = `[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`;
+            const bypassMsg = `[Knife Engine] Strategy "${label}" is gated (${gateInfo?.gateState}${gateReasonDetail}). No position opened yet — candidate opportunities are being evaluated for potential Knife Catch entry because 'allow_knife_when_gated' is active (0 active knife trades).`;
             this.logger.log(bypassMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
           } else {
-            this.logger.debug(`[Knife Engine] Strategy ${label} is gated (${gateInfo?.gateState}) but Knife Catch entry evaluation is allowed.`);
+            this.logger.debug(`[Knife Engine] Strategy "${label}" is gated (${gateInfo?.gateState}${gateReasonDetail}). Candidate opportunities are being evaluated for Knife Catch entry.`);
           }
         }
 

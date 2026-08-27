@@ -82,6 +82,7 @@ export class ExecutionService {
         if (!currentPrice) continue;
 
         const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+        await this.positionTracker.checkKnifeTrailingStop(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkTrailingStop(trade.symbol, currentPrice, tradeConfig);
 
@@ -490,6 +491,34 @@ export class ExecutionService {
 
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
+
+            // Evaluate if entry candle is a knife / velocity burst
+            // 1. Direct knife_catch signal check
+            let isKnifeTrade = signalResult.firedSignals?.includes('knife_catch') || signalResult.details?.knife_catch?.fired || false;
+
+            // 2. Proactive entry candle ROC check for other entry strategies
+            if (!isKnifeTrade) {
+              try {
+                const knifeRes = this.signalEngine.knifeCatchSignal(
+                  opp.symbol,
+                  symbolConfig,
+                  symbolConfig.scan_interval || '1m',
+                  opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+                  'entry',
+                  undefined,
+                  true
+                );
+                isKnifeTrade = typeof knifeRes === 'boolean' ? knifeRes : knifeRes.fired;
+              } catch (e) {
+                this.logger.debug(`Proactive knife detection check skipped for ${opp.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+              }
+            }
+
+            if (isKnifeTrade) {
+              trade.is_knife = true;
+              this.logger.log(`[Knife Engine] ${opp.symbol} tagged as IS_KNIFE trade on entry. High-frequency velocity trailing & auto-ratchet engaged.`);
+            }
+
             this.positionTracker.addTrade(trade);
             this.sessionState.updateStatsOnEntry(trade.id, trade.strategy_label);
 

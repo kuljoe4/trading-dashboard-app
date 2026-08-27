@@ -865,6 +865,96 @@ export class PositionTrackerService {
     return bestIndex;
   }
 
+  async checkKnifeTrailingStop(
+    symbol: string,
+    currentPrice: number,
+    config: SessionConfig,
+  ): Promise<void> {
+    const trade = this.trades.get(symbol);
+    if (!trade || trade.status !== 'OPEN' || !trade.is_knife) return;
+
+    const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+    const knifeTrailingEnabled = activeConfig.knife_trailing_enabled ?? true;
+    if (!knifeTrailingEnabled) return;
+
+    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+    if (risk <= 0) return;
+
+    const reward = trade.direction === 'LONG' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
+    const liveRr = reward / risk;
+
+    // High-velocity Auto-Ratchet Evaluation
+    const beRr = activeConfig.knife_auto_ratchet_be_rr ?? 0.5;
+    const lockRr = activeConfig.knife_auto_ratchet_lock_rr ?? 1.0;
+
+    let targetSl = trade.current_sl;
+    let ratchetReason = '';
+
+    if (liveRr >= lockRr) {
+      const lockedSl = trade.direction === 'LONG' ? trade.entry_price + (risk * 0.5) : trade.entry_price - (risk * 0.5);
+      if ((trade.direction === 'LONG' && lockedSl > targetSl) || (trade.direction === 'SHORT' && lockedSl < targetSl)) {
+        targetSl = lockedSl;
+        ratchetReason = 'knife_auto_ratchet_lock_0.5R';
+      }
+    } else if (liveRr >= beRr) {
+      const beSl = trade.entry_price;
+      if ((trade.direction === 'LONG' && beSl > targetSl) || (trade.direction === 'SHORT' && beSl < targetSl)) {
+        targetSl = beSl;
+        ratchetReason = 'knife_auto_ratchet_be';
+      }
+    }
+
+    // High-frequency trailing distance evaluation
+    const distancePct = activeConfig.knife_trailing_distance_pct || 0.5;
+    const distance = currentPrice * (distancePct / 100);
+    const trailSl = trade.direction === 'LONG' ? currentPrice - distance : currentPrice + distance;
+
+    if (trade.direction === 'LONG' && trailSl > targetSl) {
+      targetSl = trailSl;
+      if (!ratchetReason) ratchetReason = 'knife_trailing';
+    } else if (trade.direction === 'SHORT' && trailSl < targetSl) {
+      targetSl = trailSl;
+      if (!ratchetReason) ratchetReason = 'knife_trailing';
+    }
+
+    if (targetSl <= 0 || isNaN(targetSl) || !isFinite(targetSl)) return;
+
+    const filtered = this.orderManager.applyFilters(symbol, targetSl, trade.qty, {
+      priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+      skipNotionalCheck: true
+    });
+    let newSl = filtered.price;
+
+    const bufferPct = activeConfig.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+    const buffer = currentPrice * (bufferPct / 100);
+    if (trade.direction === 'LONG') {
+      newSl = Math.min(newSl, currentPrice - buffer);
+    } else {
+      newSl = Math.max(newSl, currentPrice + buffer);
+    }
+
+    const minDelta = trade.entry_price * 0.0001;
+    let shouldUpdate = false;
+    if (trade.direction === 'LONG') {
+      shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+    } else {
+      shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+    }
+
+    if (shouldUpdate && !this.orderManager.isRatcheting(symbol)) {
+      const prevSl = trade.current_sl;
+      const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+      if (updateRes.success) {
+        const finalSl = updateRes.price || newSl;
+        trade.current_sl = finalSl;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
+        this.logSlAdjustment(trade, prevSl, finalSl, -4, !!updateRes.price && updateRes.price !== newSl);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
+    }
+  }
+
   async checkTrailingStop(
     symbol: string,
     currentPrice: number,

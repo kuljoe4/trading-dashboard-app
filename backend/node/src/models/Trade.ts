@@ -119,6 +119,8 @@ export class Trade {
 
   is_reconciliation?: boolean;
 
+  is_knife?: boolean;
+
   illiquid_blocked?: boolean;
 
   _sig_json?: string;

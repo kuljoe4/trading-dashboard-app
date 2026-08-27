@@ -63,6 +63,13 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       );
       expect(mockSessionService.getTrade).not.toHaveBeenCalled();
     });
+
+    it('should reject non-string input (array/object) to prevent HPP type confusion', async () => {
+      await expect(controller.getTrade(['BTCUSDT'] as any)).rejects.toThrow(
+        new BadRequestException('Invalid trade ID or symbol format')
+      );
+      expect(mockSessionService.getTrade).not.toHaveBeenCalled();
+    });
   });
 
   describe('updateTradeConfig Input Hardening', () => {
@@ -82,6 +89,14 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       const massiveParam = 'B'.repeat(51);
       const mockReq = { ip: '127.0.0.1', headers: {} } as any;
       await expect(controller.updateTradeConfig(massiveParam, {}, mockReq)).rejects.toThrow(
+        new BadRequestException('Invalid trade ID or symbol format')
+      );
+      expect(mockSessionService.updateTradeConfig).not.toHaveBeenCalled();
+    });
+
+    it('should reject non-string input (array/object) to prevent HPP type confusion', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      await expect(controller.updateTradeConfig(['123e4567-e89b-12d3-a456-426614174000'] as any, {}, mockReq)).rejects.toThrow(
         new BadRequestException('Invalid trade ID or symbol format')
       );
       expect(mockSessionService.updateTradeConfig).not.toHaveBeenCalled();
@@ -131,6 +146,14 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       const badSymbol = 'BTC; DROP TABLE trades;';
       const mockReq = { ip: '127.0.0.1', headers: {} } as any;
       await expect(controller.closeTradeManually(badSymbol, mockReq)).rejects.toThrow(
+        new BadRequestException('Invalid symbol format')
+      );
+      expect(mockSessionService.closeTradeManually).not.toHaveBeenCalled();
+    });
+
+    it('should reject non-string symbol input (array/object) to prevent HPP type confusion', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      await expect(controller.closeTradeManually(['BTCUSDT'] as any, mockReq)).rejects.toThrow(
         new BadRequestException('Invalid symbol format')
       );
       expect(mockSessionService.closeTradeManually).not.toHaveBeenCalled();

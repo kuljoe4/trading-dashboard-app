@@ -24,6 +24,7 @@ export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
   // BOLT: Mode-aware cooldowns to ensure Live mode failures don't block Paper mode testing
   private entryCooldowns: Map<string, number> = new Map();
+  private loggedAntiWhipsawMap: Map<string, number> = new Map();
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -277,13 +278,24 @@ export class ExecutionService {
           if (sameCandleGated) {
             const gateMsg = `[Anti-Whipsaw] ${opp.symbol}: Entry skipped - a trade was already ${gateReason}.`;
             this.logger.debug(gateMsg);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: gateMsg, level: 'info' });
-            this.broadcastService.broadcast('alert', {
-              level: 'info',
-              title: 'Anti-Whipsaw Protection',
-              message: gateMsg,
-              symbol: opp.symbol
-            });
+
+            const nowTs = Date.now();
+            const logKey = `${opp.symbol}:${gatedTimeframe}`;
+            const lastLoggedExpiry = this.loggedAntiWhipsawMap.get(logKey) || 0;
+
+            if (nowTs > lastLoggedExpiry) {
+              // Deduplicate alert & decision log emission once per gating window
+              const tfDurationMs = this.getTimeframeMs(gatedTimeframe);
+              this.loggedAntiWhipsawMap.set(logKey, nowTs + tfDurationMs);
+
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: gateMsg, level: 'info' });
+              this.broadcastService.broadcast('alert', {
+                level: 'info',
+                title: 'Anti-Whipsaw Protection',
+                message: gateMsg,
+                symbol: opp.symbol
+              });
+            }
             continue;
           }
         }

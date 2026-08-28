@@ -1180,6 +1180,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               )}>
                 ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
+              {trade.is_knife && (
+                <div className="bg-amber/15 text-amber border border-amber/30 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1">
+                  🔪 KNIFE
+                </div>
+              )}
               {trade.is_reconciliation && (
                 <div className="bg-amber/10 text-amber border border-amber/20 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5">
                   <Activity size={12} /> Reconciled

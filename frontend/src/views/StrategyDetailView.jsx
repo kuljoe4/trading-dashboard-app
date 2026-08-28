@@ -9,7 +9,7 @@ import {
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3
+  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2
 } from 'lucide-react'
 import { EquityCurve } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
@@ -40,6 +40,8 @@ const SIGNAL_LABELS = {
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
+  const [isPausing, setIsPausing] = useState(false)
+  const [closingMap, setClosingMap] = useState({})
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -133,17 +135,31 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
            {/* Strategy Control Actions (Pause/Resume & Edit Configuration) */}
            {sessionActive && (
              <button
-               onClick={() => onPause(s.strategy_label)}
+               type="button"
+               disabled={isPausing}
+               aria-busy={isPausing}
+               aria-disabled={isPausing}
+               onClick={async () => {
+                 if (isPausing) return;
+                 setIsPausing(true);
+                 try {
+                   await onPause(s.strategy_label);
+                 } finally {
+                   setIsPausing(false);
+                 }
+               }}
                className={cn(
-                 "px-2.5 py-1 rounded border text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
-                 isStrategyPaused
-                   ? "bg-green/10 text-green border-green/20 hover:bg-green/20"
-                   : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20"
+                 "px-2.5 py-1 rounded border text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
+                 isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
+                   isStrategyPaused
+                     ? "bg-green/10 text-green border-green/20 hover:bg-green/20 active:scale-95 cursor-pointer"
+                     : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20 active:scale-95 cursor-pointer"
+                 )
                )}
-               aria-label={isStrategyPaused ? "Resume strategy" : "Pause strategy"}
+               aria-label={isPausing ? (isStrategyPaused ? "Resuming strategy..." : "Pausing strategy...") : (isStrategyPaused ? "Resume strategy" : "Pause strategy")}
              >
-               {isStrategyPaused ? <Play size={10} fill="currentColor" /> : <Pause size={10} fill="currentColor" />}
-               {isStrategyPaused ? "Resume" : "Pause"}
+               {isPausing ? <Loader2 size={10} className="animate-spin text-accent" /> : (isStrategyPaused ? <Play size={10} fill="currentColor" /> : <Pause size={10} fill="currentColor" />)}
+               {isPausing ? (isStrategyPaused ? "Resuming..." : "Pausing...") : (isStrategyPaused ? "Resume" : "Pause")}
              </button>
            )}
 

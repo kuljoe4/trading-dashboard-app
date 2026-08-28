@@ -3137,9 +3137,74 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               {cfg.tp_mode === 'exp_rr_seq' && (
                 <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
-                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
-                    <span>RR Milestone (Target)</span>
-                    <span>Adjust SL to (R)</span>
+                  <div className="flex justify-between items-center text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
+                    <div className="flex items-center gap-2">
+                      <span>RR Milestone (Target)</span>
+                      <span>→ Adjust SL (R)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Tooltip content="Copy RR Milestones to Clipboard">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const l = Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0];
+                            const ex = Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0];
+                            const text = l.map((trig, idx) => `${trig} -> ${ex[idx] ?? 0}`).join('\n');
+                            navigator.clipboard.writeText(text);
+                            addAlert({ level: 'info', title: 'Milestones Copied', message: 'RR Milestones copied to clipboard.' });
+                          }}
+                          className="px-2 py-1 bg-surface border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                          aria-label="Copy RR Milestones to Clipboard"
+                        >
+                          <Copy size={10} /> Copy
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Paste RR Milestones (e.g., 1 -> 0, 2 -> 1, 4 -> 2 or 1,2,4)">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const text = await navigator.clipboard.readText();
+                              if (!text) return;
+                              const lines = text.split(/[\r\n]+/);
+                              const parsedPairs = [];
+                              lines.forEach(line => {
+                                const trimmed = line.trim();
+                                if (!trimmed) return;
+                                if (trimmed.includes('->') || trimmed.includes(':') || trimmed.includes(',')) {
+                                  const parts = trimmed.split(/->|:|,/);
+                                  const trig = parseFloat(parts[0]);
+                                  const ex = parseFloat(parts[1] ?? '0');
+                                  if (!isNaN(trig)) {
+                                    parsedPairs.push({ trigger: trig, exit: isNaN(ex) ? 0 : ex });
+                                  }
+                                } else {
+                                  const val = parseFloat(trimmed);
+                                  if (!isNaN(val)) {
+                                    parsedPairs.push({ trigger: val, exit: Math.max(0, val - 1) });
+                                  }
+                                }
+                              });
+                              if (parsedPairs.length > 0) {
+                                parsedPairs.sort((a, b) => a.trigger - b.trigger);
+                                setCfg(prev => ({
+                                  ...prev,
+                                  live_rr_sequence: parsedPairs.map(p => p.trigger),
+                                  exit_rr_sequence: parsedPairs.map(p => p.exit)
+                                }));
+                                addAlert({ level: 'success', title: 'Milestones Imported', message: `Imported ${parsedPairs.length} RR milestones.` });
+                              }
+                            } catch (err) {
+                              addAlert({ level: 'warn', title: 'Paste Failed', message: 'Could not read clipboard. Please grant permission or check input.' });
+                            }
+                          }}
+                          className="px-2 py-1 bg-surface border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                          aria-label="Paste RR Milestones from Clipboard"
+                        >
+                          <ClipboardPaste size={10} /> Paste
+                        </button>
+                      </Tooltip>
+                    </div>
                   </div>
                   {sequence.map(([live, exit], i) => (
                     <div key={i} className="flex items-center gap-3">

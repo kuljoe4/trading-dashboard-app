@@ -224,7 +224,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter }) => {
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -247,8 +247,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
 
   const handlePauseClick = React.useCallback((e) => {
     e.stopPropagation();
+    if (isPausing) return;
     onPause(s.strategy_label);
-  }, [onPause, s.strategy_label]);
+  }, [onPause, s.strategy_label, isPausing]);
 
   const activeCount = s.activeTradeCount || 0;
   const maxOpen = config.max_open_trades || 5;
@@ -345,17 +346,20 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                 <Edit3 size={12.5} />
               </button>
             </Tooltip>
-            <Tooltip content={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}>
+            <Tooltip content={isPausing ? (paused ? "Resuming Strategy..." : "Pausing Strategy...") : (paused ? "Resume Strategy Engine" : "Pause Strategy Engine")}>
               <button
                 type="button"
                 onClick={handlePauseClick}
+                disabled={isPausing}
+                aria-busy={isPausing}
+                aria-disabled={isPausing}
                 className={cn(
-                  "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
-                  paused ? "hover:bg-green/10 text-green" : "hover:bg-amber/10 text-amber"
+                  "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isPausing ? "cursor-wait opacity-60 text-dim" : (paused ? "hover:bg-green/10 text-green cursor-pointer" : "hover:bg-amber/10 text-amber cursor-pointer")
                 )}
-                aria-label={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}
+                aria-label={isPausing ? (paused ? "Resuming Strategy Engine" : "Pausing Strategy Engine") : (paused ? "Resume Strategy Engine" : "Pause Strategy Engine")}
               >
-                {paused ? <Play size={12.5} fill="currentColor" /> : <Pause size={12.5} fill="currentColor" />}
+                {isPausing ? <Loader2 size={12.5} className="animate-spin text-accent" /> : (paused ? <Play size={12.5} fill="currentColor" /> : <Pause size={12.5} fill="currentColor" />)}
               </button>
             </Tooltip>
           </div>
@@ -993,6 +997,7 @@ export function DashboardView({ initialStrategy }) {
   const [editingVariantIndex, setEditingVariantIndex] = useState(null)
   const [confirmStop, setConfirmStop] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState(null)
+  const [pausingMap, setPausingMap] = useState({})
 
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
@@ -1282,6 +1287,15 @@ export function DashboardView({ initialStrategy }) {
   }, [config, isEditMode, strategyId, editingVariantIndex, updateConfig, setSessionActive, addAlert, fetchSessions, setSyncing]);
 
   const togglePause = React.useCallback(async (strategyLabel) => {
+    const key = strategyLabel || '__session__';
+    if (pausingMap[key]) {
+      console.log(`[Strategy Engine] Pause toggle already in flight for key: ${key}, ignoring duplicate trigger.`);
+      return;
+    }
+
+    setPausingMap(prev => ({ ...prev, [key]: true }));
+    console.log(`[Strategy Engine] Dispatching pause toggle request for strategy: ${key}`);
+
     try {
       const isTargetPaused = strategyLabel
         ? pausedStrategies.includes(strategyLabel)
@@ -1297,11 +1311,18 @@ export function DashboardView({ initialStrategy }) {
           ? `Engine is now actively scanning for opportunities on ${label.toLowerCase()}.`
           : `Scanning and entry logic suspended for ${label.toLowerCase()}.`
       });
+      console.log(`[Strategy Engine] Successfully toggled pause state for strategy: ${key}`);
     } catch (e) {
-      console.error('Pause toggle failed:', e);
+      console.error('[Strategy Engine] Pause toggle failed:', e);
       addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle pause state.' });
+    } finally {
+      setPausingMap(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
     }
-  }, [sessionPaused, pausedStrategies, addAlert]);
+  }, [sessionPaused, pausedStrategies, addAlert, pausingMap]);
 
   const handleResumeLast = React.useCallback(async () => {
     if (!lastSession) return;
@@ -1930,6 +1951,7 @@ export function DashboardView({ initialStrategy }) {
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
                             paused={pausedStrategies.includes(currentStrategy.strategy_label) || sessionPaused}
+                            isPausing={!!pausingMap[currentStrategy.strategy_label]}
                             gateInfo={strategyGateStates[currentStrategy.strategy_label]}
                             onPause={togglePause}
                             onOpenScanner={handleOpenScanner}
@@ -1960,6 +1982,7 @@ export function DashboardView({ initialStrategy }) {
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}
                                 paused={pausedStrategies.includes(label) || sessionPaused}
+                                isPausing={!!pausingMap[label]}
                                 gateInfo={strategyGateStates[label]}
                                 onPause={togglePause}
                                 onOpenScanner={handleOpenScanner}

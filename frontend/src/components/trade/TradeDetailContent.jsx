@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, memo, useRef } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight,
-  Edit3, Sliders, Plus, Trash
+  Edit3, Sliders, Plus, Trash, Copy, ClipboardPaste
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { useTradingStore } from '../../store/trading'
@@ -112,6 +112,71 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
          <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
+          <div className="flex items-center gap-1.5">
+            <Tooltip content="Copy Guard Ladder Milestones to Clipboard">
+              <button
+                type="button"
+                onClick={() => {
+                  const text = triggers.map((trig, idx) => `${trig} -> ${exits[idx] ?? 0}`).join('\n');
+                  navigator.clipboard.writeText(text);
+                  useTradingStore.getState().addAlert({ level: 'info', title: 'Milestones Copied', message: 'Guard Ladder milestones copied to clipboard.' });
+                }}
+                className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                aria-label="Copy Guard Ladder Milestones to Clipboard"
+              >
+                <Copy size={10} /> Copy
+              </button>
+            </Tooltip>
+            {interactiveEnabled && (
+              <Tooltip content="Paste Guard Ladder Milestones (e.g. 1 -> 0, 2 -> 1, 4 -> 2)">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText();
+                      if (!text) return;
+                      const lines = text.split(/[\r\n]+/);
+                      const parsedPairs = [];
+                      lines.forEach(line => {
+                        const trimmed = line.trim();
+                        if (!trimmed) return;
+                        if (trimmed.includes('->') || trimmed.includes(':') || trimmed.includes(',')) {
+                          const parts = trimmed.split(/->|:|,/);
+                          const trig = parseFloat(parts[0]);
+                          const ex = parseFloat(parts[1] ?? '0');
+                          if (!isNaN(trig)) {
+                            parsedPairs.push({ trigger: trig, exit: isNaN(ex) ? 0 : ex });
+                          }
+                        } else {
+                          const val = parseFloat(trimmed);
+                          if (!isNaN(val)) {
+                            parsedPairs.push({ trigger: val, exit: Math.max(0, val - 1) });
+                          }
+                        }
+                      });
+                      if (parsedPairs.length > 0) {
+                        parsedPairs.sort((a, b) => a.trigger - b.trigger);
+                        const payload = {
+                          live_rr_sequence: parsedPairs.map(p => p.trigger),
+                          exit_rr_sequence: parsedPairs.map(p => p.exit)
+                        };
+                        const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+                        if (success) {
+                          useTradingStore.getState().addAlert({ level: 'success', title: 'Milestones Imported', message: `Imported ${parsedPairs.length} milestones to trade.` });
+                        }
+                      }
+                    } catch (err) {
+                      useTradingStore.getState().addAlert({ level: 'warn', title: 'Paste Failed', message: 'Could not read clipboard. Please check formatting.' });
+                    }
+                  }}
+                  className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                  aria-label="Paste Guard Ladder Milestones from Clipboard"
+                >
+                  <ClipboardPaste size={10} /> Paste
+                </button>
+              </Tooltip>
+            )}
+          </div>
       </div>
 
       <div className="relative flex items-center justify-between gap-2 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-3 pt-2 w-full">

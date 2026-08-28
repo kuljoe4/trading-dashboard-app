@@ -59,28 +59,39 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
     signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
       allFired: !!source.signalResult.allFired,
       firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => String(s)) : [],
-      signals: (source.signalResult.signals || source.signalResult.details) && typeof (source.signalResult.signals || source.signalResult.details) === 'object' ? Object.entries(source.signalResult.signals || source.signalResult.details).reduce((acc, [key, s]) => {
-        acc[key] = {
-          ...s,
-          label: String(s.label || key),
-          value: toNumber(s.value),
-          threshold: toNumber(s.threshold),
-          unit: String(s.unit || ''),
-          fired: !!s.fired,
-          active: s.active !== false,
-          remaining_delay: toNumber(s.remaining_delay),
-          config_delay: toNumber(s.config_delay),
-            insufficientData: !!s.insufficientData,
-            streak_start_ts: s.streak_start_ts ? toNumber(s.streak_start_ts) : undefined,
-            streak_end_ts: s.streak_end_ts ? toNumber(s.streak_end_ts) : undefined,
-            slPrice: s.slPrice ? toNumber(s.slPrice) : undefined,
-            pattern_low: s.pattern_low ? toNumber(s.pattern_low) : undefined,
-            pattern_high: s.pattern_high ? toNumber(s.pattern_high) : undefined,
-            body_low: s.body_low ? toNumber(s.body_low) : undefined,
-            body_high: s.body_high ? toNumber(s.body_high) : undefined
-        };
-        return acc;
-      }, {}) : {},
+      signals: (() => {
+        // BOLT OPTIMIZATION: Single-pass for...in loop avoids transient Object.entries() array allocations and repeated property lookups on high-frequency scanner ticks
+        const rawSignals = source.signalResult.signals || source.signalResult.details;
+        const signalsObj = {};
+        if (rawSignals && typeof rawSignals === 'object') {
+          for (const key in rawSignals) {
+            if (Object.prototype.hasOwnProperty.call(rawSignals, key)) {
+              const s = rawSignals[key];
+              if (!s || typeof s !== 'object') continue;
+              signalsObj[key] = {
+                ...s,
+                label: String(s.label || key),
+                value: toNumber(s.value),
+                threshold: toNumber(s.threshold),
+                unit: String(s.unit || ''),
+                fired: !!s.fired,
+                active: s.active !== false,
+                remaining_delay: toNumber(s.remaining_delay),
+                config_delay: toNumber(s.config_delay),
+                insufficientData: !!s.insufficientData,
+                streak_start_ts: s.streak_start_ts ? toNumber(s.streak_start_ts) : undefined,
+                streak_end_ts: s.streak_end_ts ? toNumber(s.streak_end_ts) : undefined,
+                slPrice: s.slPrice ? toNumber(s.slPrice) : undefined,
+                pattern_low: s.pattern_low ? toNumber(s.pattern_low) : undefined,
+                pattern_high: s.pattern_high ? toNumber(s.pattern_high) : undefined,
+                body_low: s.body_low ? toNumber(s.body_low) : undefined,
+                body_high: s.body_high ? toNumber(s.body_high) : undefined
+              };
+            }
+          }
+        }
+        return signalsObj;
+      })(),
       reason: String(source.signalResult.reason || '').substring(0, 200)
     } : undefined
   };

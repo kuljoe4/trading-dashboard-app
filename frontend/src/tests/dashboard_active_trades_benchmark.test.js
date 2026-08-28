@@ -24,6 +24,11 @@ test('Dashboard active trades loop fusion benchmark', () => {
 
   const ITERATIONS = 100_000;
 
+  // Warmup JIT
+  for (let iter = 0; iter < 5_000; iter++) {
+    const maxRR = (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0);
+  }
+
   // Pattern 1: Separate useMemos (current approach)
   const startOriginal = performance.now();
   for (let iter = 0; iter < ITERATIONS; iter++) {

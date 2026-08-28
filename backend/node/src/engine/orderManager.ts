@@ -1689,7 +1689,10 @@ export class OrderManagerService {
     }
 
     // SRE: Immunity check. If we are currently banned, don't try to ratchet
-    if (this.sessionState.isBanned()) return { success: false };
+    if (this.sessionState.isBanned()) {
+       this.logger.warn(`[SL Ratchet] Ratchet blocked for ${trade.symbol}: IP is currently banned.`);
+       return { success: false };
+    }
 
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     this.ratchetLocks.set(trade.symbol, true);

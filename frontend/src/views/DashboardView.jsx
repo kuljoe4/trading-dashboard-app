@@ -1596,18 +1596,12 @@ export function DashboardView({ initialStrategy }) {
                   const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
                   const tradeTs = lastTrade.exit_ts_ms || lastTrade.exit_ts || lastTrade.updated_at || lastTrade.entry_ts;
                   const timeAgoStr = formatTimeAgo(tradeTs);
-                  const reasonLabel = lastTrade.exit_reason || lastTrade.reason || '';
                   return (
                     <div className="flex items-center gap-1 flex-wrap">
                       {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
                       <span className={pnlClass(lastTrade.pnl)}>
                         {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
                       </span>
-                      {reasonLabel && (
-                        <span className="text-[9px] font-bold text-dim uppercase tracking-wider bg-white/5 border border-border/40 px-1 py-0.2 rounded">
-                          {reasonLabel}
-                        </span>
-                      )}
                       <span className="text-dim text-[10px]">{timeAgoStr}</span>
                     </div>
                   );

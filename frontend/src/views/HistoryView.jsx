@@ -623,15 +623,19 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
   }, [trades, targetRr, startingBalance, projectedTrades, usePctRisk, riskPct, useCompounding]);
 
   const exitRrDistribution = useMemo(() => {
-    let rangeMinusToZero = 0;
-    let rangeZeroToQuarter = 0;
-    let rangeQuarterToHalf = 0;
-    let rangeHalfToOne = 0;
-    let rangeOneToTwo = 0;
-    let rangeTwoToThree = 0;
-    let rangeThreePlus = 0;
+    let rangeSubOne = 0;          // < -0.5 R
+    let rangeHalfToZero = 0;      // -0.5 to -0.25 R
+    let rangeQuarterToZero = 0;   // -0.25 to 0 R
+    let rangeZeroToQuarter = 0;   // 0 to 0.25 R
+    let rangeQuarterToHalf = 0;   // 0.25 to 0.5 R
+    let rangeHalfToOne = 0;       // 0.5 to 1 R
+    let rangeOneToTwo = 0;        // 1 to 2 R
+    let rangeTwoToThree = 0;      // 2 to 3 R
+    let rangeThreePlus = 0;       // 3R +
 
-    let pnlMinusToZero = 0;
+    let pnlSubOne = 0;
+    let pnlHalfToZero = 0;
+    let pnlQuarterToZero = 0;
     let pnlZeroToQuarter = 0;
     let pnlQuarterToHalf = 0;
     let pnlHalfToOne = 0;
@@ -642,9 +646,15 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     trades.forEach(t => {
       const err = Number(t.exit_rr ?? 0);
       const pnl = safeNum(t.pnl);
-      if (err <= 0) {
-        rangeMinusToZero++;
-        pnlMinusToZero += pnl;
+      if (err < -0.5) {
+        rangeSubOne++;
+        pnlSubOne += pnl;
+      } else if (err >= -0.5 && err < -0.25) {
+        rangeHalfToZero++;
+        pnlHalfToZero += pnl;
+      } else if (err >= -0.25 && err <= 0) {
+        rangeQuarterToZero++;
+        pnlQuarterToZero += pnl;
       } else if (err > 0 && err <= 0.25) {
         rangeZeroToQuarter++;
         pnlZeroToQuarter += pnl;
@@ -668,7 +678,9 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
 
     const total = trades.length || 1;
     return [
-      { label: '≤ 0 R', count: rangeMinusToZero, pct: Number(((rangeMinusToZero / total) * 100).toFixed(1)), pnl: pnlMinusToZero, color: 'text-red bg-red/10 border-red/20' },
+      { label: '< -0.5 R', count: rangeSubOne, pct: Number(((rangeSubOne / total) * 100).toFixed(1)), pnl: pnlSubOne, color: 'text-red-500 bg-red-500/10 border-red-500/20' },
+      { label: '-0.5 to -0.25 R', count: rangeHalfToZero, pct: Number(((rangeHalfToZero / total) * 100).toFixed(1)), pnl: pnlHalfToZero, color: 'text-red-400 bg-red-400/10 border-red-400/20' },
+      { label: '-0.25 to 0 R', count: rangeQuarterToZero, pct: Number(((rangeQuarterToZero / total) * 100).toFixed(1)), pnl: pnlQuarterToZero, color: 'text-amber-500 bg-amber-500/10 border-amber-500/20' },
       { label: '0 to 0.25 R', count: rangeZeroToQuarter, pct: Number(((rangeZeroToQuarter / total) * 100).toFixed(1)), pnl: pnlZeroToQuarter, color: 'text-dim bg-background/20 border-border/20' },
       { label: '0.25 to 0.5 R', count: rangeQuarterToHalf, pct: Number(((rangeQuarterToHalf / total) * 100).toFixed(1)), pnl: pnlQuarterToHalf, color: 'text-amber bg-amber/10 border-amber/20' },
       { label: '0.5 to 1 R', count: rangeHalfToOne, pct: Number(((rangeHalfToOne / total) * 100).toFixed(1)), pnl: pnlHalfToOne, color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
@@ -682,7 +694,10 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     if (!trades || trades.length === 0) return null;
     const total = trades.length;
 
-    const [subZero, zeroToQuarter, quarterToHalf, halfToOne, oneToTwo, twoToThree, threePlus] = exitRrDistribution;
+    const [subHalfLoss, halfToQuarterLoss, quarterToZeroLoss, zeroToQuarter, quarterToHalf, halfToOne, oneToTwo, twoToThree, threePlus] = exitRrDistribution;
+    const totalSubZeroPct = subHalfLoss.pct + halfToQuarterLoss.pct + quarterToZeroLoss.pct;
+    const totalSubZeroPnl = subHalfLoss.pnl + halfToQuarterLoss.pnl + quarterToZeroLoss.pnl;
+
     const subHalfPct = zeroToQuarter.pct + quarterToHalf.pct;
     const subHalfPnl = zeroToQuarter.pnl + quarterToHalf.pnl;
 
@@ -702,12 +717,12 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     }
 
     // Rule 2: Sub-zero / Loss bucket dominance
-    if (subZero.pct >= 50) {
+    if (totalSubZeroPct >= 50) {
       recs.push({
         id: 'loss_dominance',
         type: 'danger',
         title: 'High Loss Ratio Detected',
-        text: `${subZero.pct.toFixed(1)}% of trades closed at or below breakeven (${fmtUSD(subZero.pnl)}). Consider tightening entry filters or enabling knife catch auto-ratchet.`
+        text: `${totalSubZeroPct.toFixed(1)}% of trades closed at or below breakeven (${fmtUSD(totalSubZeroPnl)}). Consider tightening entry filters or enabling knife catch auto-ratchet.`
       });
     }
 
@@ -825,20 +840,20 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
       <div className="flex items-center gap-3 sm:gap-4 w-full">
         <input
           type="range"
-          min="0.1"
+          min="-1.0"
           max="6.0"
           step="0.1"
           value={targetRr}
           onChange={(e) => setTargetRr(Number(e.target.value))}
           aria-label="Target Risk-to-Reward Ratio"
-          aria-valuemin="0.1"
+          aria-valuemin="-1.0"
           aria-valuemax="6.0"
           aria-valuenow={targetRr}
           className="flex-1 accent-accent cursor-ew-resize h-1.5 bg-border rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         <div className="flex items-center gap-1.5 shrink-0">
           <button
-            onClick={() => setTargetRr(prev => Math.max(0.1, Number((prev <= 0.5 ? prev - 0.1 : prev - 0.5).toFixed(1))))}
+            onClick={() => setTargetRr(prev => Math.max(-1.0, Number((prev <= 0.5 ? prev - 0.1 : prev - 0.5).toFixed(1))))}
             aria-label="Decrease target Risk-to-Reward ratio"
             className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
@@ -1065,6 +1080,15 @@ RrWinRateCalculator.displayName = 'RrWinRateCalculator';
 // Premium Glassmorphic SessionGroup with Controlled Toggle, glows, and stacked win/loss distribution sparkline
 const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [isMounting, setIsMounting] = useState(false);
+
+  useEffect(() => {
+    if (expanded) {
+      setIsMounting(true);
+      const timer = setTimeout(() => setIsMounting(false), 80);
+      return () => clearTimeout(timer);
+    }
+  }, [expanded]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -1293,28 +1317,37 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-t border-border/10"
           >
-            <div className="p-4 space-y-4 bg-background/20">
-              {trades && trades.length > 0 && (
-                <RrWinRateCalculator trades={trades} startingBalance={session.balance || 10000} />
-              )}
-
-              {curve.length >= 2 && (
-                <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
-                  <React.Suspense fallback={<ChartSkeleton height={180} />}>
-                    <EquityCurve data={curve} height={180} />
-                  </React.Suspense>
+            {isMounting ? (
+              <div className="p-6 space-y-4 bg-background/20">
+                <div className="flex items-center justify-center gap-2 py-8 text-dim">
+                  <Loader2 size={18} className="animate-spin text-accent" />
+                  <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">Loading Session Analytics & Trades...</span>
                 </div>
-              )}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {(!trades || trades.length === 0) ? (
-                  <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
-                ) : (
-                  trades.map((trade) => (
-                    <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
-                  ))
-                )}
               </div>
-            </div>
+            ) : (
+              <div className="p-4 space-y-4 bg-background/20">
+                {trades && trades.length > 0 && (
+                  <RrWinRateCalculator trades={trades} startingBalance={session.balance || 10000} />
+                )}
+
+                {curve.length >= 2 && (
+                  <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
+                    <React.Suspense fallback={<ChartSkeleton height={180} />}>
+                      <EquityCurve data={curve} height={180} />
+                    </React.Suspense>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(!trades || trades.length === 0) ? (
+                    <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
+                  ) : (
+                    trades.map((trade) => (
+                      <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

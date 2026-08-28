@@ -714,6 +714,7 @@ ManualMonitorInput.displayName = 'ManualMonitorInput'
 const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) => {
   const [name, setName] = useState(defaultName || '');
   const inputId = useId();
+  const inputRef = useRef(null);
 
   useEffect(() => {
     if (defaultName) setName(defaultName);
@@ -724,14 +725,32 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
       <VisuallyHidden>
         <label htmlFor={inputId}>Preset Name</label>
       </VisuallyHidden>
-      <input
-        id={inputId}
-        type="text"
-        placeholder="Preset name (e.g. Scalp High Vol)"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-      />
+      <div className="relative flex-1 group">
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="text"
+          placeholder="Preset name (e.g. Scalp High Vol)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+        />
+        {name && (
+          <Tooltip content="Clear Preset Name">
+            <button
+              type="button"
+              onClick={() => {
+                setName('');
+                inputRef.current?.focus();
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+              aria-label="Clear Preset Name"
+            >
+              <X size={16} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
       <Tooltip
         content={
           isSaving

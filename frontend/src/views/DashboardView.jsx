@@ -1004,7 +1004,7 @@ export function DashboardView({ initialStrategy }) {
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    updateStats, analytics,
+    updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
     nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory
@@ -1050,6 +1050,9 @@ export function DashboardView({ initialStrategy }) {
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
     analytics: state.analytics,
+    stats: state.stats,
+    lastUdsBalanceReason: state.lastUdsBalanceReason,
+    lastUdsBalanceTs: state.lastUdsBalanceTs,
     effectivePeriodMs: state.effectivePeriodMs,
     isSyncingOnResume: state.isSyncingOnResume,
     nextSlotTs: state.nextSlotTs,
@@ -1583,26 +1586,57 @@ export function DashboardView({ initialStrategy }) {
               <StatCard
                 label="Account Balance"
                 value={`$${balance.toLocaleString()}`}
-                tooltipText="Total available funds in the trading account."
+                tooltipText={(() => {
+                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : config?.live_starting_balance) || 10000;
+                  const netFunding = stats?.totalFundingFee || 0;
+                  const netComm = stats?.totalRealizedFee || 0;
+                  const reasonText = lastUdsBalanceReason ? `Latest UDS Reason: ${lastUdsBalanceReason}` : 'Real-time UDS Balance Sync Active';
+                  return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} | Commission: ${fmtUSD(-netComm)} | ${reasonText}`;
+                })()}
                 ariaLabel={(() => {
-                  if (!lastTrade) return undefined;
+                  if (!lastTrade) return `Account Balance: $${balance.toLocaleString()}`;
                   const prevBalance = balance - (lastTrade.pnl || 0);
                   const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
-                  return `Account Balance: $${balance.toLocaleString()}. Last trade profit and loss was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)}, representing a ${balPctChange >= 0 ? 'positive' : 'negative'} ${Math.abs(balPctChange || 0).toFixed(2)} percent change of account balance.`;
+                  return `Account Balance: $${balance.toLocaleString()}. Last trade PnL was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)} (${Math.abs(balPctChange || 0).toFixed(2)}%).`;
                 })()}
                 subValue={(() => {
-                  if (!lastTrade) return null;
-                  const prevBalance = balance - (lastTrade.pnl || 0);
-                  const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
-                  const tradeTs = lastTrade.exit_ts_ms || lastTrade.exit_ts || lastTrade.updated_at || lastTrade.entry_ts;
-                  const timeAgoStr = formatTimeAgo(tradeTs);
+                  const netFunding = stats?.totalFundingFee || 0;
+                  const netComm = stats?.totalRealizedFee || 0;
+                  const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
+                  const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0) || (lastTrade?.updated_at ? new Date(lastTrade.updated_at).getTime() : 0) || (lastTrade?.entry_ts ? new Date(lastTrade.entry_ts).getTime() : 0);
+                  const latestEventTs = Math.max(tradeTs || 0, lastUdsBalanceTs || 0);
+                  const timeAgoStr = formatTimeAgo(latestEventTs);
+
                   return (
-                    <div className="flex items-center gap-1 flex-wrap">
-                      {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
-                      <span className={pnlClass(lastTrade.pnl)}>
-                        {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
-                      </span>
-                      <span className="text-dim text-[10px]">{timeAgoStr}</span>
+                    <div className="flex flex-col gap-1 text-[10px]">
+                      {lastTrade && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
+                          <span className={pnlClass(lastTrade.pnl)}>
+                            {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
+                          </span>
+                          <span className="text-dim text-[9px]">{timeAgoStr}</span>
+                        </div>
+                      )}
+                      {!lastTrade && latestEventTs > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap text-dim text-[9px]">
+                          <span>Updated {timeAgoStr}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
+                        <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)}</span></span>
+                        <span>•</span>
+                        <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)}</span></span>
+                        {lastUdsBalanceReason && (
+                          <>
+                            <span>•</span>
+                            <span className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase">
+                              ⚡ {lastUdsBalanceReason}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}

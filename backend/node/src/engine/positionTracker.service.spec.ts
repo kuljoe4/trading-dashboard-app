@@ -660,6 +660,7 @@ describe('PositionTrackerService', () => {
         qty: 0.1,
         status: 'OPEN',
         risk_usdt: 100,
+        sl_adjustments: [{ reason: 'OVERRIDE' }],
       } as unknown as Trade;
 
       service.addTrade(longTrade);
@@ -674,6 +675,7 @@ describe('PositionTrackerService', () => {
         qty: 0.1,
         status: 'OPEN',
         risk_usdt: 100,
+        sl_adjustments: [{ reason: 'OVERRIDE' }],
       } as unknown as Trade;
 
       service.addTrade(shortTrade);
@@ -759,7 +761,18 @@ describe('PositionTrackerService', () => {
       expect(service.totalRisk()).toBe(0);
 
       // Estimated PnL drops back to -50 (below breakeven 0)
-      trade.est_pnl_to_realize = -50;
+      trade.exit_signals_status = {
+        ema_cross: {
+          fired: true,
+          active: true,
+          threshold: 95,
+          threshold_is_price: true,
+          remaining_delay: 0,
+          label: 'EMA Cross',
+          value: 95,
+          unit: 'USDT',
+        },
+      };
       service.refreshTradeRisk(trade, false, 95, config);
 
       expect(trade.risk_usdt).toBe(100);

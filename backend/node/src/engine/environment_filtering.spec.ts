@@ -15,12 +15,12 @@ describe('MomentumScannerService Environment Filtering', () => {
 
     tickerCache = {
       getTicker: jest.fn(),
-      topByVolume: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT' }, { symbol: 'TRADABLE' }]),
+      topByVolume: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT' }, { symbol: 'TRADABLEUSDT' }]),
     }
 
     marketFeed = {
         getSymbolFilters: jest.fn((symbol: string) => {
-            if (symbol === 'TRADABLE') return { filters: [] };
+            if (symbol === 'TRADABLEUSDT') return { filters: [] };
             return null;
         })
     }
@@ -45,10 +45,10 @@ describe('MomentumScannerService Environment Filtering', () => {
     const resultBtc = (service as any).scanSymbol('BTCUSDT', '1m', { scan_lookback: 1 })
     expect(resultBtc).toBeNull()
 
-    // TRADABLE has filters
-    const resultTradable = (service as any).scanSymbol('TRADABLE', '1m', { scan_lookback: 1 })
+    // TRADABLEUSDT has filters
+    const resultTradable = (service as any).scanSymbol('TRADABLEUSDT', '1m', { scan_lookback: 1 })
     expect(resultTradable).not.toBeNull()
-    expect(resultTradable.opp.symbol).toBe('TRADABLE')
+    expect(resultTradable.opp.symbol).toBe('TRADABLEUSDT')
   })
 
   it('rejects live orders for symbols without filters in OrderManagerService', async () => {
@@ -82,10 +82,10 @@ describe('MomentumScannerService Environment Filtering', () => {
     expect(result.error).toContain('not tradable');
 
     // Mock getTicker and newOrder to return reasonable price for slippage check
-    (orderManager as any).tickerCache.getTicker = jest.fn().mockReturnValue({ price: 1, symbol: 'TRADABLE' });
+    (orderManager as any).tickerCache.getTicker = jest.fn().mockReturnValue({ price: 1, symbol: 'TRADABLEUSDT' });
     mockRest.newOrder.mockResolvedValue({ data: () => Promise.resolve({ orderId: 'mock', avgPrice: '1', executedQty: '100' }), headers: {} });
     mockRest.newAlgoOrder.mockResolvedValue({ data: () => Promise.resolve({ algoId: 'mock-sl', algoStatus: 'NEW' }), headers: {} });
-    const resultSuccess = await orderManager.enter('sess', 'TRADABLE', 'LONG', 1, 100, 0.5, 2);
+    const resultSuccess = await orderManager.enter('sess', 'TRADABLEUSDT', 'LONG', 1, 100, 0.5, 2);
     // Should be SUCCESS now that we mocked changeInitialLeverage and newOrder correctly
     expect(resultSuccess.status).toBe('SUCCESS');
   })

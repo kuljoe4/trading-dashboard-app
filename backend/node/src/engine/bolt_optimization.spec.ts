@@ -101,7 +101,7 @@ describe('MomentumScannerService Unified Loop Optimization', () => {
   it('correctly slices to MAX_RESULTS and attaches history', () => {
     const config = {
       global_scanner_enabled: true,
-      symbols: Array.from({ length: 20 }, (_, i) => `SYM${i}`),
+      symbols: Array.from({ length: 20 }, (_, i) => `SYM${i}USDT`),
     }
 
     const candles = Array.from({ length: 30 }, (_, idx) => ({

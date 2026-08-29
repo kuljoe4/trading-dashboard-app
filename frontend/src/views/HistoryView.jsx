@@ -1084,15 +1084,6 @@ RrWinRateCalculator.displayName = 'RrWinRateCalculator';
 // Premium Glassmorphic SessionGroup with Controlled Toggle, glows, and stacked win/loss distribution sparkline
 const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [isMounting, setIsMounting] = useState(false);
-
-  useEffect(() => {
-    if (expanded) {
-      setIsMounting(true);
-      const timer = setTimeout(() => setIsMounting(false), 80);
-      return () => clearTimeout(timer);
-    }
-  }, [expanded]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -1321,37 +1312,28 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden border-t border-border/10"
           >
-            {isMounting ? (
-              <div className="p-6 space-y-4 bg-background/20">
-                <div className="flex items-center justify-center gap-2 py-8 text-dim">
-                  <Loader2 size={18} className="animate-spin text-accent" />
-                  <span className="text-[10px] font-black uppercase tracking-widest animate-pulse">Loading Session Analytics & Trades...</span>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 space-y-4 bg-background/20">
-                {trades && trades.length > 0 && (
-                  <RrWinRateCalculator trades={trades} startingBalance={session.balance || 10000} />
-                )}
+            <div className="p-4 space-y-4 bg-background/20">
+              {trades && trades.length > 0 && (
+                <RrWinRateCalculator trades={trades} startingBalance={session.balance || 10000} />
+              )}
 
-                {curve.length >= 2 && (
-                  <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
-                    <React.Suspense fallback={<ChartSkeleton height={180} />}>
-                      <EquityCurve data={curve} height={180} />
-                    </React.Suspense>
-                  </div>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {(!trades || trades.length === 0) ? (
-                    <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
-                  ) : (
-                    trades.map((trade) => (
-                      <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
-                    ))
-                  )}
+              {curve.length >= 2 && (
+                <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
+                  <React.Suspense fallback={<ChartSkeleton height={180} />}>
+                    <EquityCurve data={curve} height={180} />
+                  </React.Suspense>
                 </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {(!trades || trades.length === 0) ? (
+                  <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
+                ) : (
+                  trades.map((trade) => (
+                    <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
+                  ))
+                )}
               </div>
-            )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1558,6 +1540,9 @@ export const HistoryView = () => {
   // Parallel fetch on initial mount for lists (independent of mode) and mode-specific initial analytics
   useEffect(() => {
     setLoading(true)
+    // Preload heavy Analytics module in background to ensure 0ms first-expansion latency
+    import('../components/Analytics').catch(() => {})
+
     Promise.all([
       fetchTradeHistory(),
       fetchLifetimeAnalytics(lifetimeMode),

@@ -853,16 +853,18 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         />
         <div className="flex items-center gap-1.5 shrink-0">
           <button
+            type="button"
             onClick={() => setTargetRr(prev => Math.max(-1.0, Number((prev <= 0.5 ? prev - 0.1 : prev - 0.5).toFixed(1))))}
             aria-label="Decrease target Risk-to-Reward ratio"
-            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
           >
             -
           </button>
           <button
+            type="button"
             onClick={() => setTargetRr(prev => Math.min(6.0, Number((prev < 0.5 ? prev + 0.1 : prev + 0.5).toFixed(1))))}
             aria-label="Increase target Risk-to-Reward ratio"
-            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            className="w-6 h-6 rounded bg-surface border border-border flex items-center justify-center text-[10px] font-bold text-dim hover:text-text active:scale-95 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
           >
             +
           </button>
@@ -1017,8 +1019,9 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           {/* Stepper Input with Keyboard Accessibility */}
           <div className="flex items-center gap-1 bg-background/50 border border-border/50 rounded-lg p-0.5 select-none shrink-0 self-start sm:self-auto">
             <button
+              type="button"
               onClick={() => setProjectedTrades(prev => Math.max(5, prev - 5))}
-              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none"
+              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none cursor-pointer"
               aria-label="Decrease projected trades count"
             >
               -
@@ -1034,8 +1037,9 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
               aria-label="Projected future trades count"
             />
             <button
+              type="button"
               onClick={() => setProjectedTrades(prev => Math.min(1000, prev + 5))}
-              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none"
+              className="w-5 h-5 rounded hover:bg-white/5 flex items-center justify-center text-[10px] font-bold text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent outline-none cursor-pointer"
               aria-label="Increase projected trades count"
             >
               +
@@ -2029,14 +2033,18 @@ export const HistoryView = () => {
             {allSessionsWithTrades.length > 0 && (
               <div className="flex items-center gap-2 self-end sm:self-auto">
                 <button
+                  type="button"
                   onClick={handleExpandAll}
-                  className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                  aria-label="Expand all trading session groups"
+                  className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                 >
                   Expand All
                 </button>
                 <button
+                  type="button"
                   onClick={handleCollapseAll}
-                  className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                  aria-label="Collapse all trading session groups"
+                  className="text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border border-border/50 bg-surface/40 hover:bg-surface hover:text-text text-dim transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                 >
                   Collapse All
                 </button>

@@ -1004,7 +1004,7 @@ export function DashboardView({ initialStrategy }) {
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    updateStats, analytics, stats, lastUdsBalanceReason,
+    updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
     nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory
@@ -1052,6 +1052,7 @@ export function DashboardView({ initialStrategy }) {
     analytics: state.analytics,
     stats: state.stats,
     lastUdsBalanceReason: state.lastUdsBalanceReason,
+    lastUdsBalanceTs: state.lastUdsBalanceTs,
     effectivePeriodMs: state.effectivePeriodMs,
     isSyncingOnResume: state.isSyncingOnResume,
     nextSlotTs: state.nextSlotTs,
@@ -1603,8 +1604,9 @@ export function DashboardView({ initialStrategy }) {
                   const netComm = stats?.totalRealizedFee || 0;
                   const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
                   const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
-                  const tradeTs = lastTrade?.exit_ts_ms || lastTrade?.exit_ts || lastTrade?.updated_at || lastTrade?.entry_ts;
-                  const timeAgoStr = formatTimeAgo(tradeTs);
+                  const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0) || (lastTrade?.updated_at ? new Date(lastTrade.updated_at).getTime() : 0) || (lastTrade?.entry_ts ? new Date(lastTrade.entry_ts).getTime() : 0);
+                  const latestEventTs = Math.max(tradeTs || 0, lastUdsBalanceTs || 0);
+                  const timeAgoStr = formatTimeAgo(latestEventTs);
 
                   return (
                     <div className="flex flex-col gap-1 text-[10px]">
@@ -1615,6 +1617,11 @@ export function DashboardView({ initialStrategy }) {
                             {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
                           </span>
                           <span className="text-dim text-[9px]">{timeAgoStr}</span>
+                        </div>
+                      )}
+                      {!lastTrade && latestEventTs > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap text-dim text-[9px]">
+                          <span>Updated {timeAgoStr}</span>
                         </div>
                       )}
                       <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">

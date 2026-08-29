@@ -346,7 +346,7 @@ const defaultConfig = {
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null,
+  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
   apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
@@ -854,15 +854,18 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const logs = st.logs || [];
         const m = n.msg || '';
         let udsReason = st.lastUdsBalanceReason;
+        let udsTs = st.lastUdsBalanceTs;
         if (m.includes('Reason:') || m.includes('[UDS]')) {
-          if (m.includes('FUNDING_FEE')) udsReason = 'FUNDING_FEE';
-          else if (m.includes('REALIZED_PNL')) udsReason = 'REALIZED_PNL';
-          else if (m.includes('DEPOSIT')) udsReason = 'DEPOSIT';
-          else if (m.includes('WITHDRAW')) udsReason = 'WITHDRAW';
-          else if (m.includes('COMMISSION')) udsReason = 'COMMISSION';
-          else if (m.includes('TRANSFER')) udsReason = 'TRANSFER';
+          let matched = false;
+          if (m.includes('FUNDING_FEE')) { udsReason = 'FUNDING_FEE'; matched = true; }
+          else if (m.includes('REALIZED_PNL')) { udsReason = 'REALIZED_PNL'; matched = true; }
+          else if (m.includes('DEPOSIT')) { udsReason = 'DEPOSIT'; matched = true; }
+          else if (m.includes('WITHDRAW')) { udsReason = 'WITHDRAW'; matched = true; }
+          else if (m.includes('COMMISSION')) { udsReason = 'COMMISSION'; matched = true; }
+          else if (m.includes('TRANSFER')) { udsReason = 'TRANSFER'; matched = true; }
+          if (matched) udsTs = nowTs;
         }
-        return { lastAuthoritativeUpdateTs: nowTs, lastUdsBalanceReason: udsReason, logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
+        return { lastAuthoritativeUpdateTs: nowTs, lastUdsBalanceReason: udsReason, lastUdsBalanceTs: udsTs, logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
       });
       else if (d.type === 'scanner') {
         if (nowTs - lsu < 200) return; lsu = nowTs;

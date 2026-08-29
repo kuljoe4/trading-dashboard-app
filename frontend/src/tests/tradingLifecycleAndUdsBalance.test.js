@@ -56,10 +56,13 @@ test('useTradingStore log normalization extracts UDS balance reason tags', () =>
 
   assert.equal(useTradingStore.getState().lastUdsBalanceReason, 'FUNDING_FEE');
 
-  // Exercise REALIZED_PNL reason update
+  // Exercise REALIZED_PNL reason and timestamp update
+  const nowTs = Date.now();
   useTradingStore.getState().updateStats({
-    lastUdsBalanceReason: 'REALIZED_PNL'
+    lastUdsBalanceReason: 'REALIZED_PNL',
+    lastUdsBalanceTs: nowTs
   });
 
   assert.equal(useTradingStore.getState().lastUdsBalanceReason, 'REALIZED_PNL');
+  assert.equal(useTradingStore.getState().lastUdsBalanceTs, nowTs);
 });

@@ -280,6 +280,7 @@ export class PositionTrackerService {
           trade.binance_stop_order_id = undefined;
           trade.binance_stop_order_type = undefined;
         }
+        this.logSlAdjustment(trade, trade.current_sl, 0, -5);
         trade.current_sl = 0;
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, undefined, config);
@@ -594,9 +595,11 @@ export class PositionTrackerService {
         for (const sigKey of firedActiveKeys) {
           if (actions[sigKey] === 'lock_sl') {
             const sigStatus = statusMap[sigKey];
-            let proposedSlPrice = sigStatus.value; // Value can be the crossover/EMA price
+            let proposedSlPrice = sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0
+              ? sigStatus.threshold
+              : (typeof sigStatus.value === 'number' && sigStatus.value > 0 ? sigStatus.value : currentPrice);
 
-            if (!sigStatus.threshold_is_price || isNaN(proposedSlPrice) || !isFinite(proposedSlPrice) || proposedSlPrice <= 0) {
+            if (isNaN(proposedSlPrice) || !isFinite(proposedSlPrice) || proposedSlPrice <= 0) {
               proposedSlPrice = currentPrice; // Fallback to current price if threshold is not price
             }
 
@@ -749,9 +752,11 @@ export class PositionTrackerService {
       isBreakevenOrBetter = trade.direction === 'LONG'
         ? trade.current_sl >= trade.entry_price - tolerance
         : trade.current_sl <= trade.entry_price + tolerance;
-    } else if (trade.initial_sl > 0) {
-      // If current_sl is 0 (removed on runtime) but initial_sl > 0, the SL was removed while in profit
-      isBreakevenOrBetter = true;
+    } else if (trade.current_sl === 0 && trade.initial_sl > 0) {
+      // If current_sl was set to 0, risk is only released if SL was adjusted in profit / milestone reached
+      if ((trade.rr_sequence_index ?? -1) >= 0 || (trade.sl_adjustments?.length ?? 0) > 0) {
+        isBreakevenOrBetter = true;
+      }
     }
 
     // Milestone Check: If milestone index 0 or higher has been reached (0 = breakeven milestone or higher),
@@ -769,17 +774,25 @@ export class PositionTrackerService {
         : (trade.entry_price - mark) * trade.qty;
     }
 
-    // Dynamic Estimated Floor Exit PnL Re-evaluation
+    // Dynamic Estimated Floor Exit PnL Re-evaluation strictly from Ratchet SL and Exit Signal targets (NOT live unrealized PnL)
     const activeConfig = config || trade.strategy_config;
     let estPnl: number | undefined = undefined;
 
-    if (mark && mark > 0 && trade.entry_price && trade.qty) {
+    if (trade.entry_price && trade.qty) {
       const isLong = trade.direction === 'LONG';
       const slPrice = trade.current_sl || trade.sl_price || 0;
-      let maxEstPnl = slPrice > 0
-        ? (isLong ? (slPrice - trade.entry_price) * trade.qty : (trade.entry_price - slPrice) * trade.qty)
-        : livePnl; // If SL is 0 or removed, floor est PnL at live PnL
 
+      // 1. Calculate PnL guaranteed by ratchet stop loss if SL > 0
+      let ratchetPnl: number | undefined = undefined;
+      if (slPrice > 0) {
+        ratchetPnl = isLong
+          ? (slPrice - trade.entry_price) * trade.qty
+          : (trade.entry_price - slPrice) * trade.qty;
+      }
+
+      let maxEstPnl = ratchetPnl;
+
+      // 2. Evaluate PnL from active exit signals / target thresholds
       if (trade.exit_signals_status) {
         for (const [key, status] of Object.entries(trade.exit_signals_status)) {
           const sigStatus = status as any;
@@ -789,18 +802,18 @@ export class PositionTrackerService {
 
           let sigPnl: number | null = null;
           if (sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
-            sigPnl = isLong ? (sigStatus.threshold - trade.entry_price) * trade.qty : (trade.entry_price - sigStatus.threshold) * trade.qty;
-          } else if (sigStatus.fired && sigStatus.active) {
-            sigPnl = livePnl;
+            sigPnl = isLong
+              ? (sigStatus.threshold - trade.entry_price) * trade.qty
+              : (trade.entry_price - sigStatus.threshold) * trade.qty;
           }
 
-          if (sigPnl !== null && sigPnl > maxEstPnl) {
+          if (sigPnl !== null && (maxEstPnl === undefined || sigPnl > maxEstPnl)) {
             maxEstPnl = sigPnl;
           }
         }
       }
 
-      estPnl = Math.min(maxEstPnl, livePnl);
+      estPnl = maxEstPnl !== undefined ? roundEight(maxEstPnl) : undefined;
       trade.est_pnl_to_realize = estPnl;
     }
 

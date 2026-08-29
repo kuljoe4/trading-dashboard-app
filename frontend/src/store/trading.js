@@ -138,6 +138,9 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
     try { sigStatus = JSON.parse(t._sig_json); } catch (e) {}
   }
 
+  const isTerminal = (t.status !== undefined && t.status !== 'OPEN') || (p.status !== undefined && p.status !== 'OPEN');
+  const isMetricResuming = isResuming && !isTerminal;
+
   const f = `${t.pnl}:${t.rr}:${t.current_price}:${t.sl_price}:${t.close_blocked}:${t.illiquid_blocked}:${t.qty}:${t.max_rr_achieved}`;
   if (p._fingerprint === f && !t._delta && !t._thin && !t._sig_json) return p;
   if (t._delta || t._thin) {
@@ -154,25 +157,25 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
     const entry_ts_ms = entry_ts ? new Date(entry_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
 
     const rawPnl = t.pnl !== undefined ? toNumber(t.pnl) : p.pnl;
-    const pnl = resolveNonZeroMetric(rawPnl, p.pnl, isResuming);
+    const pnl = resolveNonZeroMetric(rawPnl, p.pnl, isMetricResuming);
 
     const rawRr = t.rr !== undefined ? toNumber(t.rr) : p.rr;
-    const rr = resolveNonZeroMetric(rawRr, p.rr, isResuming);
+    const rr = resolveNonZeroMetric(rawRr, p.rr, isMetricResuming);
 
     const rawMaxRr = (t.max_rr !== undefined && t.max_rr !== null) ? toNumber(t.max_rr) : (t.max_rr_achieved !== undefined ? toNumber(t.max_rr_achieved) : p.max_rr);
-    const max_rr = resolveNonZeroMetric(rawMaxRr, p.max_rr, isResuming);
+    const max_rr = resolveNonZeroMetric(rawMaxRr, p.max_rr, isMetricResuming);
 
     const rawMaxRrAchieved = (t.max_rr_achieved !== undefined && t.max_rr_achieved !== null) ? toNumber(t.max_rr_achieved) : (t.max_rr !== undefined ? toNumber(t.max_rr) : p.max_rr_achieved);
-    const max_rr_achieved = resolveNonZeroMetric(rawMaxRrAchieved, p.max_rr_achieved, isResuming);
+    const max_rr_achieved = resolveNonZeroMetric(rawMaxRrAchieved, p.max_rr_achieved, isMetricResuming);
 
     const rawEstPnl = t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize;
-    const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize, isResuming);
+    const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize, isMetricResuming);
 
     const rawExitRr = t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr;
-    const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr, isResuming);
+    const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr, isMetricResuming);
 
     const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved;
-    const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved, isResuming);
+    const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved, isMetricResuming);
 
     return {
       ...p, ...t,
@@ -220,22 +223,22 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
   const entry_ts_ms = entry_ts ? new Date(entry_ts).getTime() : (createdAt ? new Date(createdAt).getTime() : 0);
 
   const rawPnl = t.pnl !== undefined ? toNumber(t.pnl) : p.pnl ?? 0;
-  const pnl = resolveNonZeroMetric(rawPnl, p.pnl ?? 0, isResuming);
+  const pnl = resolveNonZeroMetric(rawPnl, p.pnl ?? 0, isMetricResuming);
 
   const rawRr = t.rr !== undefined ? toNumber(t.rr) : p.rr ?? 0;
-  const rr = resolveNonZeroMetric(rawRr, p.rr ?? 0, isResuming);
+  const rr = resolveNonZeroMetric(rawRr, p.rr ?? 0, isMetricResuming);
 
   const maxRrVal = toNumber(t.max_rr ?? t.max_rr_achieved ?? p.max_rr ?? p.max_rr_achieved ?? 0);
-  const max_rr = resolveNonZeroMetric(maxRrVal, p.max_rr ?? p.max_rr_achieved ?? 0, isResuming);
+  const max_rr = resolveNonZeroMetric(maxRrVal, p.max_rr ?? p.max_rr_achieved ?? 0, isMetricResuming);
 
   const rawEstPnl = t.est_pnl_to_realize !== undefined ? toNumber(t.est_pnl_to_realize) : p.est_pnl_to_realize ?? 0;
-  const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize ?? 0, isResuming);
+  const est_pnl_to_realize = resolveNonZeroMetric(rawEstPnl, p.est_pnl_to_realize ?? 0, isMetricResuming);
 
   const rawExitRr = t.exit_rr !== undefined ? toNumber(t.exit_rr) : p.exit_rr ?? 0;
-  const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr ?? 0, isResuming);
+  const exit_rr = resolveNonZeroMetric(rawExitRr, p.exit_rr ?? 0, isMetricResuming);
 
   const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0;
-  const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved ?? 0, isResuming);
+  const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved ?? 0, isMetricResuming);
 
   return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl, pnl_pct: pnlPct, rr, max_rr, est_pnl_to_realize, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr, min_rr_achieved, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: max_rr, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, _fingerprint: f, exit_ts_ms, entry_ts_ms };
 }
@@ -343,7 +346,7 @@ const defaultConfig = {
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
   activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null,
+  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null,
   apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
@@ -849,7 +852,17 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const n = normalizeLog(d);
         if (!n) return st;
         const logs = st.logs || [];
-        return { lastAuthoritativeUpdateTs: nowTs, logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
+        const m = n.msg || '';
+        let udsReason = st.lastUdsBalanceReason;
+        if (m.includes('Reason:') || m.includes('[UDS]')) {
+          if (m.includes('FUNDING_FEE')) udsReason = 'FUNDING_FEE';
+          else if (m.includes('REALIZED_PNL')) udsReason = 'REALIZED_PNL';
+          else if (m.includes('DEPOSIT')) udsReason = 'DEPOSIT';
+          else if (m.includes('WITHDRAW')) udsReason = 'WITHDRAW';
+          else if (m.includes('COMMISSION')) udsReason = 'COMMISSION';
+          else if (m.includes('TRANSFER')) udsReason = 'TRANSFER';
+        }
+        return { lastAuthoritativeUpdateTs: nowTs, lastUdsBalanceReason: udsReason, logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
       });
       else if (d.type === 'scanner') {
         if (nowTs - lsu < 200) return; lsu = nowTs;

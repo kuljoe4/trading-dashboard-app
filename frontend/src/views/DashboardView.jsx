@@ -1590,14 +1590,19 @@ export function DashboardView({ initialStrategy }) {
                   const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : config?.live_starting_balance) || 10000;
                   const netFunding = stats?.totalFundingFee || 0;
                   const netComm = stats?.totalRealizedFee || 0;
-                  const reasonText = lastUdsBalanceReason ? `Latest UDS Reason: ${lastUdsBalanceReason}` : 'Real-time UDS Balance Sync Active';
-                  return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} | Commission: ${fmtUSD(-netComm)} | ${reasonText}`;
+                  const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
+                  const tradeTimeStr = tradeTs ? `Last Trade: ${formatTimeAgo(tradeTs)}` : 'No closed trades';
+                  const syncTimeStr = lastUdsBalanceTs ? `UDS Sync: ${formatTimeAgo(lastUdsBalanceTs)}` : 'Sync: Active';
+                  const reasonText = lastUdsBalanceReason ? `UDS Reason: ${lastUdsBalanceReason}` : 'Real-time Stream';
+                  return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} | Commission: ${fmtUSD(-netComm)} | ${tradeTimeStr} | ${syncTimeStr} (${reasonText})`;
                 })()}
                 ariaLabel={(() => {
                   if (!lastTrade) return `Account Balance: $${balance.toLocaleString()}`;
                   const prevBalance = balance - (lastTrade.pnl || 0);
                   const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
-                  return `Account Balance: $${balance.toLocaleString()}. Last trade PnL was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)} (${Math.abs(balPctChange || 0).toFixed(2)}%).`;
+                  const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
+                  const tradeTimeAgo = tradeTs ? formatTimeAgo(tradeTs) : '';
+                  return `Account Balance: $${balance.toLocaleString()}. Last trade closed ${tradeTimeAgo} with PnL ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)} (${Math.abs(balPctChange || 0).toFixed(2)}%).`;
                 })()}
                 subValue={(() => {
                   const netFunding = stats?.totalFundingFee || 0;
@@ -1605,8 +1610,8 @@ export function DashboardView({ initialStrategy }) {
                   const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
                   const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
                   const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0) || (lastTrade?.updated_at ? new Date(lastTrade.updated_at).getTime() : 0) || (lastTrade?.entry_ts ? new Date(lastTrade.entry_ts).getTime() : 0);
-                  const latestEventTs = Math.max(tradeTs || 0, lastUdsBalanceTs || 0);
-                  const timeAgoStr = formatTimeAgo(latestEventTs);
+                  const tradeTimeAgo = tradeTs ? formatTimeAgo(tradeTs) : null;
+                  const udsTimeAgo = lastUdsBalanceTs ? formatTimeAgo(lastUdsBalanceTs) : null;
 
                   return (
                     <div className="flex flex-col gap-1 text-[10px]">
@@ -1616,12 +1621,16 @@ export function DashboardView({ initialStrategy }) {
                           <span className={pnlClass(lastTrade.pnl)}>
                             {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
                           </span>
-                          <span className="text-dim text-[9px]">{timeAgoStr}</span>
+                          {tradeTimeAgo && (
+                            <span className="text-dim text-[9px] font-medium" title="Time since last closed trade">
+                              · Trade {tradeTimeAgo}
+                            </span>
+                          )}
                         </div>
                       )}
-                      {!lastTrade && latestEventTs > 0 && (
-                        <div className="flex items-center gap-1 flex-wrap text-dim text-[9px]">
-                          <span>Updated {timeAgoStr}</span>
+                      {!lastTrade && udsTimeAgo && (
+                        <div className="flex items-center gap-1 flex-wrap text-dim text-[9px] font-medium" title="Time since last UDS balance update">
+                          <span>UDS Sync {udsTimeAgo}</span>
                         </div>
                       )}
                       <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
@@ -1631,8 +1640,8 @@ export function DashboardView({ initialStrategy }) {
                         {lastUdsBalanceReason && (
                           <>
                             <span>•</span>
-                            <span className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase">
-                              ⚡ {lastUdsBalanceReason}
+                            <span className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase" title={udsTimeAgo ? `Balance event ${udsTimeAgo}` : 'Latest balance event'}>
+                              ⚡ {lastUdsBalanceReason} {udsTimeAgo && <span className="text-dim font-normal font-sans ml-0.5">({udsTimeAgo})</span>}
                             </span>
                           </>
                         )}

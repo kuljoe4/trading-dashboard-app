@@ -5,21 +5,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { cn, CopyButton, Tooltip, VisuallyHidden } from './ui/primitives'
 
-const HIGHLIGHTS = {
-  positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
-  negative: ['SELL', 'LOSS', 'SL', 'REJECTED', 'ERROR', 'FAILED', 'STOPPED', 'CRITICAL', 'GATED', 'SLEEPING'],
-  neutral: ['MONITORING', 'WARM-UP', 'SYNC', 'LIFECYCLE', 'RECONCILING', 'ADAPTIVE', 'COOLDOWN', 'VARIANT']
-}
+// BOLT OPTIMIZATION: Module-level pre-compiled regexes replace linear .some() array lookups & string transformations per word in log rendering
+const REGEX_POSITIVE = /BUY|PROFIT|TP|HIT|SUCCESS|STARTED|ENTER/i;
+const REGEX_NEGATIVE = /SELL|LOSS|SL|REJECTED|ERROR|FAILED|STOPPED|CRITICAL|GATED|SLEEPING/i;
+const REGEX_NEUTRAL = /MONITORING|WARM-UP|SYNC|LIFECYCLE|RECONCILING|ADAPTIVE|COOLDOWN|VARIANT/i;
 
 const formatMessage = (msg) => {
   if (typeof msg !== 'string') return msg == null ? '' : String(msg);
   if (!msg) return msg;
   const words = msg.split(/(\s+)/);
   return words.map((word, i) => {
-    const clean = word.toUpperCase().trim();
-    if (HIGHLIGHTS.positive.some(h => clean.includes(h))) return <span key={i} className="text-green font-black">{word}</span>;
-    if (HIGHLIGHTS.negative.some(h => clean.includes(h))) return <span key={i} className="text-red font-black">{word}</span>;
-    if (HIGHLIGHTS.neutral.some(h => clean.includes(h))) return <span key={i} className="text-accent font-black">{word}</span>;
+    if (REGEX_POSITIVE.test(word)) return <span key={i} className="text-green font-black">{word}</span>;
+    if (REGEX_NEGATIVE.test(word)) return <span key={i} className="text-red font-black">{word}</span>;
+    if (REGEX_NEUTRAL.test(word)) return <span key={i} className="text-accent font-black">{word}</span>;
     return word;
   });
 }

@@ -236,11 +236,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 };
 
 import { Sidebar, BottomNav } from '../components/Navigation'
-import { lazyWithRetry } from '../lib/lazy'
-// Lazy load heavy analytics components
-const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
-const TODPerformance = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.TODPerformance })))
-const RrOptimizationChart = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.RrOptimizationChart })))
+import { EquityCurve, TODPerformance, RrOptimizationChart } from '../components/Analytics'
 
 const price = (value) => {
   if (value == null || isNaN(Number(value))) return 'None'
@@ -734,7 +730,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         title: 'Strong Runner Capture',
         text: `${runnerCount} trades (${((runnerCount / total) * 100).toFixed(1)}%) reached 2R+ producing ${fmtUSD(runnerPnl)}. Strategy benefits from trailing stop continuation.`
       });
-    } else if (subZero.pct < 40 && runnerCount === 0) {
+    } else if (totalSubZeroPct < 40 && runnerCount === 0) {
       recs.push({
         id: 'missing_runners',
         type: 'info',
@@ -1084,11 +1080,16 @@ RrWinRateCalculator.displayName = 'RrWinRateCalculator';
 // Premium Glassmorphic SessionGroup with Controlled Toggle, glows, and stacked win/loss distribution sparkline
 const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [showAllTrades, setShowAllTrades] = useState(false);
+
+  const handleToggleClick = React.useCallback(() => {
+    if (onToggle) onToggle(session.id);
+  }, [onToggle, session.id]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      onToggle();
+      handleToggleClick();
     }
   }
 
@@ -1110,7 +1111,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
         expectancyStatus: getExpectancyStatus(Number(session.analytics.overallWinRate || 0) / 100, Number(session.analytics.avgWinLossRatio || 0)),
         sharpeStatus: getSharpeStatus(session.analytics.sharpeRatio),
         sortinoStatus: getSortinoStatus(session.analytics.sortinoRatio),
-        curve: session.analytics.cumulativePnL
+        curve: expanded ? (session.analytics.cumulativePnL || []) : []
       };
     }
     const m = calculatePerformanceMetrics(trades, session.balance);
@@ -1130,9 +1131,9 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       expectancyStatus: getExpectancyStatus(m.winRate / 100, winLossRatio),
       sharpeStatus: getSharpeStatus(m.sharpe),
       sortinoStatus: getSortinoStatus(m.sortino),
-      curve: buildCurve(trades)
+      curve: expanded ? buildCurve(trades) : []
     };
-  }, [trades, session]);
+  }, [trades, session, expanded]);
 
   const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
@@ -1180,7 +1181,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   return (
     <div id={`session-${session.id}`} className={cn("bg-surface border border-border rounded-2xl overflow-hidden mb-3.5 lg:mb-4 shadow-sm transition-all hover:border-accent/15 hover:shadow-md scroll-mt-8", borderLeftColor)}>
       <div
-        onClick={onToggle}
+        onClick={handleToggleClick}
         onKeyDown={handleKeyDown}
         role="button"
         tabIndex={0}
@@ -1307,10 +1308,11 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       <AnimatePresence>
         {expanded && (
           <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-t border-border/10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="border-t border-border/10"
           >
             <div className="p-4 space-y-4 bg-background/20">
               {trades && trades.length > 0 && (
@@ -1319,20 +1321,30 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
 
               {curve.length >= 2 && (
                 <div className="bg-surface/40 border border-border/10 rounded-xl p-5 mb-5 shadow-inner overflow-hidden">
-                  <React.Suspense fallback={<ChartSkeleton height={180} />}>
-                    <EquityCurve data={curve} height={180} />
-                  </React.Suspense>
+                  <EquityCurve data={curve} height={180} />
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {(!trades || trades.length === 0) ? (
                   <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
                 ) : (
-                  trades.map((trade) => (
+                  (showAllTrades ? trades : trades.slice(0, 20)).map((trade) => (
                     <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
                   ))
                 )}
               </div>
+
+              {trades && trades.length > 20 && !showAllTrades && (
+                <div className="flex justify-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllTrades(true)}
+                    className="px-4 py-2 bg-surface/60 border border-border/40 hover:border-accent/30 text-accent text-[10px] font-black uppercase tracking-widest rounded-xl transition-all hover:bg-accent/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                  >
+                    Show All {trades.length} Trades (+{trades.length - 20} More)
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -1374,7 +1386,7 @@ export const HistoryView = () => {
     });
   };
 
-  const handleToggleSession = (id) => {
+  const handleToggleSession = React.useCallback((id) => {
     setExpandedSessionIds(prev => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -1384,7 +1396,7 @@ export const HistoryView = () => {
       }
       return next;
     });
-  };
+  }, []);
 
   const searchInputRef = React.useRef(null)
 
@@ -2074,7 +2086,6 @@ export const HistoryView = () => {
                 ) : (
                   sessionsToRender.map((s, i) => (
                     <motion.div
-                      layout
                       key={s.id}
                       initial={{ opacity: 0, y: 20 }}
                       animate={{ opacity: 1, y: 0 }}
@@ -2084,7 +2095,7 @@ export const HistoryView = () => {
                         session={s}
                         trades={s.trades}
                         expanded={expandedSessionIds.has(s.id)}
-                        onToggle={() => handleToggleSession(s.id)}
+                        onToggle={handleToggleSession}
                       />
                     </motion.div>
                   ))

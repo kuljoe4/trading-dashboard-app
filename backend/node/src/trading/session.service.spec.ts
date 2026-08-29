@@ -738,6 +738,31 @@ describe('SessionService Validation', () => {
       };
       await expect(service.updateTradeConfig('trade-id-123', dto)).rejects.toThrow();
     });
+
+    it('should safely ignore prototype pollution keys in deepMerge during updateTradeConfig', async () => {
+      const dto = {
+        strategy_config: JSON.parse('{"__proto__": {"polluted": true}, "constructor": {"prototype": {"polluted": true}}, "max_trades_24h": 15}')
+      };
+
+      const result = await service.updateTradeConfig('trade-id-123', dto);
+      expect(result.status).toBe('updated');
+      expect((({} as any)).polluted).toBeUndefined();
+      expect(result.trade.strategy_config.max_trades_24h).toBe(15);
+    });
+  });
+
+  describe('deepMerge Helper Security', () => {
+    it('prevents prototype pollution when merging malicious objects', () => {
+      const target = { existingKey: 'value' };
+      const source = JSON.parse('{"__proto__": {"polluted": true}, "constructor": {"prototype": {"polluted": true}}, "prototype": {"polluted": true}, "safeKey": "safeValue"}');
+
+      const merged = (service as any).deepMerge(target, source);
+
+      expect((({} as any)).polluted).toBeUndefined();
+      expect(merged.safeKey).toBe('safeValue');
+      expect(merged.existingKey).toBe('value');
+      expect(merged.__proto__).toBe(Object.prototype);
+    });
   });
 
   describe('Manual Position Reconciliation & Adoption', () => {

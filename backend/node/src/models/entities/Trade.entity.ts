@@ -54,6 +54,9 @@ export class TradeEntity {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   risk_usdt: number;
 
+  @Column({ type: 'varchar', nullable: true })
+  risk_lock_reason: string | null;
+
   @Column('decimal', { precision: 20, scale: 8, nullable: true })
   initial_risk_usdt: number | null;
 

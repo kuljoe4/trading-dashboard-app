@@ -430,6 +430,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                   <div className="text-dim">Initial SL: <span className="text-amber font-mono font-semibold">{fmtUSD(initialSl)} ({initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(2)}%)</span></div>
                 )}
                 <div className="text-dim">SL R-Multiple: <span className="text-text font-mono font-semibold">{slR >= 0 ? '+' : ''}{slR.toFixed(2)}R</span></div>
+                <div className="text-dim">Risk Lock: <span className={cn("font-mono font-semibold", trade.risk_usdt === 0 ? "text-green" : "text-amber")}>{trade.risk_usdt === 0 ? "Released" : "Locked"} ({trade.risk_lock_reason || (trade.risk_usdt === 0 ? "SL_AT_BREAKEVEN" : "SL_BELOW_ENTRY")})</span></div>
               </div>
             }>
               <div

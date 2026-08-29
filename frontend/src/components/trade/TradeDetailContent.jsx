@@ -1385,6 +1385,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                        { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
                            { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },
                            {
+                             label: 'Risk Lock State',
+                             value: trade.risk_usdt === 0 ? `Released (${trade.risk_lock_reason || 'BE'})` : `Locked (${fmtUSD(trade.risk_usdt)})`,
+                             color: trade.risk_usdt === 0 ? 'text-green' : 'text-amber',
+                             tooltip: `Risk lock state: ${trade.risk_lock_reason || (trade.risk_usdt === 0 ? 'SL at or above breakeven' : 'Active capital at risk')}`
+                           },
+                           {
                              label: 'Daily Δ at Entry',
                              value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
                              color: pnlClass(trade.entry_daily_change_pct),

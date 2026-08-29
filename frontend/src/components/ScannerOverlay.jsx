@@ -693,8 +693,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       results = results.filter(r => r.symbol.toLowerCase().includes(term))
     }
 
-    // 3. Filter by range
-    if (rangeFilter === 'pos') {
+    // 3. Filter by range and quote asset
+    if (rangeFilter === 'usdt') {
+      results = results.filter(r => (r.symbol || '').toUpperCase().endsWith('USDT'))
+    } else if (rangeFilter === 'non_usdt') {
+      results = results.filter(r => !(r.symbol || '').toUpperCase().endsWith('USDT'))
+    } else if (rangeFilter === 'pos') {
       results = results.filter(r => (r.pct || 0) > 0)
     } else if (rangeFilter === 'neg') {
       results = results.filter(r => (r.pct || 0) < 0)
@@ -889,10 +893,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             <select
               value={rangeFilter}
               onChange={(e) => setRangeFilter(e.target.value)}
-              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-36 transition-colors"
-              aria-label="Filter by 24h change range"
+              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-40 transition-colors"
+              aria-label="Filter by 24h change range or quote pair"
             >
               <option value="all">All Movements</option>
+              <option value="usdt">USDT Pairs Only</option>
+              <option value="non_usdt">Non-USDT Pairs</option>
               <option value="pos">Positive (&gt;0%)</option>
               <option value="neg">Negative (&lt;0%)</option>
               <option value="movers">Movers (&gt;2%)</option>

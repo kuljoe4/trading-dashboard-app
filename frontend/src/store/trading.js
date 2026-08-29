@@ -470,8 +470,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         strategyGateStates: res.data.strategy_gate_states,
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
       });
-      // SRE: Proactively fetch analytics to keep Performance Insights populated
+      // SRE: Proactively fetch analytics and trade history to keep Account Balance last trade and Insights populated
       get().fetchAnalytics();
+      get().fetchTradeHistory('all');
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
       console.error("Manual sync failed", e);
@@ -485,6 +486,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       isThrottled: t,
       isSyncingOnResume
     });
+
+    if (!t) {
+      get().sync();
+      get().fetchTradeHistory('all');
+      get().fetchAnalytics();
+    }
 
     const ws = get().ws;
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -717,6 +724,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         isSyncingOnResume: sessionActive // Start sync feedback on reconnect if session is active
       });
       ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }));
+      get().fetchTradeHistory('all');
+      get().fetchAnalytics();
     };
     let lsu = 0;
     ws.onmessage = (e) => {
@@ -940,6 +949,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               closedTradeObj.exit_reason = d.reason;
             }
             updatedHistory = [closedTradeObj, ...tradeHistory.filter(x => x.id !== closedTradeObj.id)].slice(0, 50);
+            setTimeout(() => {
+              get().fetchAnalytics();
+              get().fetchTradeHistory('all');
+            }, 100);
           }
           return {
             lastAuthoritativeUpdateTs: nowTs,
@@ -1012,6 +1025,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       if (age > 15000 && state.sessionActive) {
          state.isSyncingOnResume = true;
       }
+
+      // Proactively fetch trade history and analytics on rehydration/app startup
+      setTimeout(() => {
+        useTradingStore.getState().fetchTradeHistory('all');
+        useTradingStore.getState().fetchAnalytics();
+      }, 50);
     }
   }
 }))

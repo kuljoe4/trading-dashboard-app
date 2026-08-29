@@ -3530,56 +3530,90 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-presets"
             role="tabpanel"
             aria-labelledby="config-tab-presets"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
-                <SavePresetInput defaultName={loadedPresetName} onSave={(name) => { savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
-              </div>
-              <div className="space-y-4">
-                <SectionHeader icon={RefreshCw} title="Transfer Config" subtitle="Portable strategy definitions" />
-                <div className="grid grid-cols-2 gap-3">
-                  <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-3 border-border hover:bg-accent/5 hover:border-accent/40">
-                    <Download size={16} /> Export JSON
-                  </Btn>
-                  <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
-                    <input type="file" accept=".json" aria-label="Import JSON config file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
-                    <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer">
-                      <Upload size={16} /> Import JSON
-                    </div>
-                  </label>
+            {/* Top Toolbar: Save / Update Controls & Compact Actions */}
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <SavePresetInput
+                    defaultName={loadedPresetName}
+                    onSave={(name) => { savePreset(name); }}
+                    isSaving={isSaving}
+                    success={saveSuccess}
+                  />
                 </div>
-              </div>
-              <div className="space-y-4">
-                <SectionHeader icon={XCircle} title="Reset Slate" subtitle={isEdit ? "Restore original session configuration" : "Prune active custom configurations"} />
-                <Btn
-                  variant="ghost"
-                  onClick={handleClearActiveConfig}
-                  className="w-full flex items-center justify-center gap-2 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-3 text-xs font-bold"
-                  aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
-                >
-                  <RefreshCw size={14} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset to Saved State" : "Clear Active Config"}
-                </Btn>
-              </div>
-            </section>
 
-            {/* Premium, glassmorphic UI/UX notice describing clean slate state management */}
-            <div className="flex items-start gap-3 p-4 rounded-2xl bg-accent/[0.02] border border-border/60 text-xs text-dim shadow-sm backdrop-blur-sm select-none animate-in fade-in duration-300">
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                <Info size={14} />
+                {/* Direct Action Buttons: Update Preset & Save New */}
+                {loadedPresetName && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Tooltip content={`Overwrite active preset "${loadedPresetName}" with current configuration settings`}>
+                      <Btn
+                        variant="primary"
+                        onClick={() => savePreset(loadedPresetName)}
+                        loading={isSaving}
+                        className="px-3.5 py-2.5 text-xs font-bold bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 flex items-center gap-1.5 shrink-0"
+                      >
+                        <RefreshCw size={13} className={cn(isSaving && "animate-spin")} /> Update "{loadedPresetName}"
+                      </Btn>
+                    </Tooltip>
+
+                    <Tooltip content="Save current settings under a new preset name">
+                      <Btn
+                        variant="ghost"
+                        onClick={() => { setPresetName(''); setLoadedPresetName(null); }}
+                        className="px-3 py-2.5 text-xs font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
+                      >
+                        <Plus size={13} /> Save As New
+                      </Btn>
+                    </Tooltip>
+                  </div>
+                )}
               </div>
-              <div className="space-y-1">
-                <h4 className="font-bold text-text/90 flex items-center gap-1.5 leading-none">
-                  Intuitive Preset State Management
-                </h4>
-                <p className="leading-relaxed text-dim/90 font-medium">
-                  To ensure a completely clean slate and prevent configuration pollution, any active loaded preset name and temporary drafts are automatically cleared from memory when a session is closed. Starting a new session will always begin with a fresh configuration.
-                </p>
+
+              {/* Collapsible Utility & Transfer Tools (JSON Export/Import & Reset Slate) */}
+              <div className="pt-2 border-t border-border/30">
+                <CollapsibleSection
+                  id="presets_tools"
+                  icon={Settings2}
+                  title="Export, Import & Reset Tools"
+                  subtitle="Backup JSON strategy definitions or clear active draft"
+                  isOpen={openSectionId === 'presets_tools'}
+                  onToggle={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3">
+                    <Tooltip content="Export complete strategy definition as a downloadable JSON file">
+                      <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-xs font-bold">
+                        <Download size={14} /> Export JSON
+                      </Btn>
+                    </Tooltip>
+
+                    <Tooltip content="Import a strategy definition file from your disk">
+                      <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
+                        <input type="file" accept=".json" aria-label="Import JSON config file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
+                        <div className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer text-text">
+                          <Upload size={14} /> Import JSON
+                        </div>
+                      </label>
+                    </Tooltip>
+
+                    <Tooltip content={isEdit ? "Revert parameter edits back to last saved session state" : "Reset custom strategy parameters to baseline defaults"}>
+                      <Btn
+                        variant="ghost"
+                        onClick={handleClearActiveConfig}
+                        className="flex items-center justify-center gap-2 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-2 text-xs font-bold"
+                        aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
+                      >
+                        <RefreshCw size={13} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset to Saved State" : "Clear Active Config"}
+                      </Btn>
+                    </Tooltip>
+                  </div>
+                </CollapsibleSection>
               </div>
             </div>
 
-            <section className="pt-6 border-t border-border/40 space-y-4">
+            {/* Presets List Section */}
+            <section className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex justify-between items-center w-full sm:w-auto">
                   <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />

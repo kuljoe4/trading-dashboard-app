@@ -102,6 +102,7 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
         current_sl: 0, // SL removed in profit
         qty: 0.1,
         risk_usdt: 10,
+        rr_sequence_index: 0, // Milestone reached
       };
 
       tracker.refreshTradeRisk(trade as Trade, true);

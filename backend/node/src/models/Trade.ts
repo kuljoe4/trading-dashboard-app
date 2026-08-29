@@ -43,6 +43,8 @@ export class Trade {
 
   risk_usdt: number = 0;
 
+  risk_lock_reason?: string;
+
   initial_risk_usdt?: number | null;
 
   status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';

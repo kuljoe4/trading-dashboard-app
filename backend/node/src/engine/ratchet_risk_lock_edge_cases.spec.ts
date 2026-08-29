@@ -91,6 +91,50 @@ describe('Ratchet Catch-up & Risk Lock Release Edge Cases', () => {
       tracker.refreshTradeRisk(trade as Trade, true);
 
       expect(trade.risk_usdt).toBe(0);
+      expect(trade.risk_lock_reason).toBe('SL_AT_BREAKEVEN');
+    });
+
+    it('should NOT release risk lock when first milestone is 0.1R and current_sl remains below entry', () => {
+      const trade: Partial<Trade> = {
+        symbol: 'MILESTONE_01R',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 95, // Ratcheted to 95 (-0.5R, below entry 100)
+        qty: 1,
+        risk_usdt: 10,
+        rr_sequence_index: 0, // First milestone (0.1R) reached!
+        max_rr_achieved: 0.15,
+        live_rr_sequence: [0.1, 0.5, 1.0],
+        exit_rr_sequence: [-0.5, 0.0, 0.5],
+      };
+
+      tracker.refreshTradeRisk(trade as Trade, true);
+
+      // Lock MUST NOT be released because SL (95) is $5 below entry (100)
+      expect(trade.risk_usdt).toBe(5);
+      expect(trade.risk_lock_reason).toBe('SL_BELOW_ENTRY');
+    });
+
+    it('should release risk lock when milestone ratchets current_sl to breakeven or above', () => {
+      const trade: Partial<Trade> = {
+        symbol: 'MILESTONE_BE',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 100, // Ratcheted to breakeven (100)
+        qty: 1,
+        risk_usdt: 10,
+        rr_sequence_index: 0,
+        max_rr_achieved: 0.5,
+        live_rr_sequence: [0.5, 1.0],
+        exit_rr_sequence: [0.0, 0.5],
+      };
+
+      tracker.refreshTradeRisk(trade as Trade, true);
+
+      expect(trade.risk_usdt).toBe(0);
+      expect(trade.risk_lock_reason).toBe('SL_AT_BREAKEVEN');
     });
 
     it('should release risk lock when current_sl is 0 (removed in profit)', () => {

@@ -748,21 +748,23 @@ export class PositionTrackerService {
 
     // SRE: Evaluate whether current_sl is at or better than breakeven
     let isBreakevenOrBetter = false;
+    let lockReason = 'ACTIVE_RISK_LOCKED';
+
     if (trade.current_sl && trade.current_sl > 0) {
       isBreakevenOrBetter = trade.direction === 'LONG'
         ? trade.current_sl >= trade.entry_price - tolerance
         : trade.current_sl <= trade.entry_price + tolerance;
+      if (isBreakevenOrBetter) {
+        lockReason = 'SL_AT_BREAKEVEN';
+      } else {
+        lockReason = 'SL_BELOW_ENTRY';
+      }
     } else if (trade.current_sl === 0 && trade.initial_sl > 0) {
       // If current_sl was set to 0, risk is only released if SL was adjusted in profit / milestone reached
       if ((trade.rr_sequence_index ?? -1) >= 0 || (trade.sl_adjustments?.length ?? 0) > 0) {
         isBreakevenOrBetter = true;
+        lockReason = 'SL_REMOVED_IN_PROFIT';
       }
-    }
-
-    // Milestone Check: If milestone index 0 or higher has been reached (0 = breakeven milestone or higher),
-    // mark breakeven risk release as active to avoid risk lock retention due to minor floating-point tick offsets.
-    if ((trade.rr_sequence_index ?? -1) >= 0) {
-      isBreakevenOrBetter = true;
     }
 
     // Dynamic Mark Price & Unrealized PnL Evaluation
@@ -819,24 +821,30 @@ export class PositionTrackerService {
 
     if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0) {
       isBreakevenOrBetter = true;
+      lockReason = 'EST_PNL_BREAKEVEN';
     }
 
     const isForcedRelease = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;
+    if (isForcedRelease) {
+      lockReason = 'FORCED_RISK_RELEASE';
+    }
 
     if (isBreakevenOrBetter || isForcedRelease) {
       trade.risk_usdt = 0;
+      trade.risk_lock_reason = lockReason;
     } else {
-      const slDistance = Math.abs(trade.entry_price - (trade.initial_sl || trade.current_sl || trade.entry_price));
+      const slDistance = Math.abs(trade.entry_price - (trade.current_sl || trade.initial_sl || trade.entry_price));
       trade.risk_usdt = roundEight(slDistance * (trade.qty || 0));
+      trade.risk_lock_reason = lockReason;
     }
 
     if (!skipTotalRiskUpdate && this.trades.has(trade.symbol)) {
       if (prevRisk > 0 && trade.risk_usdt === 0) {
         this._totalRisk = roundEight(Math.max(0, this._totalRisk - prevRisk));
-        this.logger.log(`[Risk Mitigation] ${trade.symbol} reached breakeven/release. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
+        this.logger.log(`[Risk Mitigation] ${trade.symbol} reached breakeven/release (${lockReason}). Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
       } else if (prevRisk === 0 && trade.risk_usdt > 0) {
         this._totalRisk = roundEight(this._totalRisk + trade.risk_usdt);
-        this.logger.log(`[Risk Mitigation] ${trade.symbol} re-locked risk: ${trade.risk_usdt} USDT. New Total Risk: ${this._totalRisk}`);
+        this.logger.log(`[Risk Mitigation] ${trade.symbol} re-locked risk (${lockReason}): ${trade.risk_usdt} USDT. New Total Risk: ${this._totalRisk}`);
       }
     }
   }

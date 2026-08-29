@@ -442,7 +442,7 @@ describe('PositionTrackerService', () => {
          direction: 'LONG',
          entry_price: 100,
          initial_sl: 80, // 20 points risk
-         current_sl: 95, // Ratcheted to almost entry
+         current_sl: 80,
          qty: 10,
          status: 'OPEN',
          risk_usdt: 200,
@@ -452,7 +452,6 @@ describe('PositionTrackerService', () => {
        expect(service.totalRisk()).toBe(200);
 
        // Qty halved to 5. Risk should be (100 - 80) * 5 = 100.
-       // If it wrongly used current_sl (95), risk would be (100 - 95) * 5 = 25.
        service.handleQuantitySync({ symbol: 'QTY_SYNC_TEST', qty: 5 });
 
        expect(trade.qty).toBe(5);

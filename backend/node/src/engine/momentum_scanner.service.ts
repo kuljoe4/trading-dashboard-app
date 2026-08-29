@@ -93,7 +93,7 @@ export class MomentumScannerService {
         if (config.symbols && config.symbols.length > 0) {
           const syms = config.symbols;
           for (let i = 0; i < syms.length; i++) {
-            if (!activeExcluded.has(syms[i])) {
+            if (syms[i] && syms[i].toUpperCase().endsWith('USDT') && !activeExcluded.has(syms[i])) {
               tasks.set(syms[i], { config, volume_rank: offset + i + 1 });
             }
           }
@@ -105,6 +105,7 @@ export class MomentumScannerService {
           const tickers = this.tickerCache.getLatestTickers();
           const smartCandidates = tickers
             .filter(t => {
+              if (!t.symbol || !t.symbol.toUpperCase().endsWith('USDT')) return false;
               if (activeExcluded.has(t.symbol)) return false;
               if (!this.marketFeed.getSymbolFilters(t.symbol)) return false;
               if (t.open_24h && t.open_24h > 0) {
@@ -126,7 +127,7 @@ export class MomentumScannerService {
             ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
             : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
           topSymbols.forEach((t, i) => {
-             if (!tasks.has(t.symbol) && !activeExcluded.has(t.symbol)) {
+             if (t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !tasks.has(t.symbol) && !activeExcluded.has(t.symbol)) {
                 tasks.set(t.symbol, { config, volume_rank: i + 1 });
              }
           });
@@ -137,7 +138,7 @@ export class MomentumScannerService {
             : this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
           for (let i = offset; i < topSymbols.length; i++) {
             const t = topSymbols[i];
-            if (!activeExcluded.has(t.symbol)) {
+            if (t && t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !activeExcluded.has(t.symbol)) {
               tasks.set(t.symbol, { config, volume_rank: i + 1 });
             }
           }
@@ -216,6 +217,11 @@ export class MomentumScannerService {
     interval: string,
     config: SessionConfig,
   ): { opp: Opportunity, candles: Candle[] } | null {
+    // Enforce USDT quote asset pairing to prevent USDS-M non-USDT errors (-2019/-2010)
+    if (!symbol || !symbol.toUpperCase().endsWith('USDT')) {
+      return null;
+    }
+
     // BOLT OPTIMIZATION: Filter out symbols that are not in the current exchange info (e.g. not on Testnet)
     // before performing any calculations.
     const filters = this.marketFeed.getSymbolFilters(symbol);

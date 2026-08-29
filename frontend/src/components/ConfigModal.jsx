@@ -799,6 +799,12 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
       const matchesSearch = opp.symbol.toLowerCase().includes(searchTerm.toLowerCase());
       if (!matchesSearch) return false;
 
+      if (rangeFilter === 'usdt') {
+        return (opp.symbol || '').toUpperCase().endsWith('USDT');
+      }
+      if (rangeFilter === 'non_usdt') {
+        return !(opp.symbol || '').toUpperCase().endsWith('USDT');
+      }
       if (rangeFilter === 'pos') {
         return (opp.pct || 0) > 0;
       }
@@ -867,6 +873,8 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
           <span className="text-[9px] font-black text-dim uppercase tracking-wider px-1.5">Filters:</span>
           {[
             { id: 'all', label: 'All' },
+            { id: 'usdt', label: 'USDT Pairs' },
+            { id: 'non_usdt', label: 'Non-USDT' },
             { id: 'pos', label: 'Positive' },
             { id: 'neg', label: 'Negative' },
             { id: 'high_mover', label: 'Movers >2%' },

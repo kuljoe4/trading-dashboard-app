@@ -2,7 +2,7 @@ import React from 'react'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck, RefreshCw, Clock } from 'lucide-react'
+import { ShieldCheck, RefreshCw, Clock, Lock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
@@ -128,7 +128,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss';
   const rrValue = Number(trade.rr || 0).toFixed(2);
-  const ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Live mark is at ${Math.round(progress)}% of runway scale.`;
+  const isRiskReleased = trade.risk_usdt === 0;
+  const riskLockText = isRiskReleased ? 'Risk Free (Released)' : `Locked (${fmtUSD(trade.risk_usdt)})`;
+  const ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Risk status: ${riskLockText}. Live mark is at ${Math.round(progress)}% of runway scale.`;
 
   const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee);
 
@@ -281,6 +283,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. Exercise caution.">
               <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm shrink-0 flex items-center gap-0.5">
                 ⚡ <span className="sm:hidden">SCALED</span><span className="hidden sm:inline">SCALED RISK</span>
+              </span>
+            </Tooltip>
+          )}
+          {isRiskReleased && (
+            <Tooltip content={`RISK LOCK RELEASED: Stop loss has ratcheted to breakeven or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Position risk is $0.00.`}>
+              <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm animate-in fade-in duration-300">
+                <Lock size={7} className="text-green shrink-0" />
+                <span>Risk Free</span>
               </span>
             </Tooltip>
           )}

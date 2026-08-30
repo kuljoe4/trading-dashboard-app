@@ -621,3 +621,97 @@ test('Search Filter Symbol check performance benchmark', () => {
   console.log(`  - Optimized symbol.includes(termUpper):         ${optimizedDuration.toFixed(4)} ms`);
   console.log(`  - Execution Speedup:                            ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
 });
+
+test('SessionDetailsModal single-pass trade metrics loop-fusion correctness and benchmark', () => {
+  const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || item.strategy_config?.strategy_label || 'Momentum Strategy';
+  const safeNum = (v) => (v == null || isNaN(v) ? 0 : Number(v));
+
+  const originalMultiPass = (trades) => {
+    const variantPnls = new Map();
+    if (trades) {
+      for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        const label = strategyLabel(t);
+        const pnl = safeNum(t.pnl);
+        variantPnls.set(label, (variantPnls.get(label) || 0) + pnl);
+      }
+    }
+    const activeLabels = Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
+    const knifeTrades = trades?.filter(t => t.is_knife) || [];
+    const knifeCount = knifeTrades.length;
+    let knifeAccPnl = 0;
+    for (let i = 0; i < knifeTrades.length; i++) {
+      knifeAccPnl += safeNum(knifeTrades[i].pnl);
+    }
+    return { variantPnls, activeLabels, knifeCount, knifeAccPnl };
+  };
+
+  const optimizedSinglePass = (trades) => {
+    const map = new Map();
+    const labelsSet = new Set();
+    let knifeCount = 0;
+    let knifeAccPnl = 0;
+
+    if (trades && trades.length > 0) {
+      for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        const label = strategyLabel(t);
+        const pnl = safeNum(t.pnl);
+
+        map.set(label, (map.get(label) || 0) + pnl);
+        labelsSet.add(label);
+
+        if (t.is_knife) {
+          knifeCount++;
+          knifeAccPnl += pnl;
+        }
+      }
+    }
+
+    return {
+      variantPnls: map,
+      activeLabels: Array.from(labelsSet),
+      knifeCount,
+      knifeAccPnl
+    };
+  };
+
+  const mockTrades = Array.from({ length: 200 }, (_, i) => ({
+    pnl: (i % 2 === 0 ? 10 : -5) * (i + 1),
+    is_knife: i % 3 === 0,
+    strategy_label: i % 4 === 0 ? 'Momentum Strategy' : `Variant ${i % 3}`
+  }));
+
+  // 1. Correctness
+  const resOriginal = originalMultiPass(mockTrades);
+  const resOptimized = optimizedSinglePass(mockTrades);
+
+  assert.strictEqual(resOptimized.knifeCount, resOriginal.knifeCount, 'Knife count must match');
+  assert.strictEqual(resOptimized.knifeAccPnl, resOriginal.knifeAccPnl, 'Knife acc PnL must match');
+  assert.deepStrictEqual(resOptimized.activeLabels, resOriginal.activeLabels, 'Active labels must match');
+  assert.deepStrictEqual(Array.from(resOptimized.variantPnls.entries()), Array.from(resOriginal.variantPnls.entries()), 'Variant PnLs must match');
+
+  // 2. Performance Benchmark
+  const iterations = 20000;
+  originalMultiPass(mockTrades);
+  optimizedSinglePass(mockTrades);
+
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalMultiPass(mockTrades);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedSinglePass(mockTrades);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (SessionDetailsModal single-pass trade metrics, List size: ${mockTrades.length} trades, ${iterations} iterations):`);
+  console.log(`  - Original Multi-pass (.map(), .filter(), multiple loops): ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Single-pass (loop-fused useMemo):               ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                                         ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});

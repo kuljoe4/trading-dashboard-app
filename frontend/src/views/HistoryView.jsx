@@ -24,32 +24,38 @@ export const ChartSkeleton = ({ height = 180 }) => (
 
 // Accessible Session Details Modal using Radix Dialog
 export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
-  // PERFORMANCE: Use loop-fused single-pass useMemo to calculate base/variant PnLs in O(N) time with zero array allocations
-  const variantPnls = useMemo(() => {
+  // BOLT OPTIMIZATION: Loop-fused single-pass useMemo aggregates variant PnLs, active strategy labels,
+  // knife trade count, and knife trade accumulated PnL in a single O(N) traversal over trades,
+  // eliminating multiple array allocations (.map(), .filter(), Array.from(new Set())) and GC pressure.
+  const { variantPnls, activeLabels, knifeCount, knifeAccPnl } = useMemo(() => {
     const map = new Map();
-    if (!trades) return map;
-    for (let i = 0; i < trades.length; i++) {
-      const t = trades[i];
-      const label = strategyLabel(t);
-      const pnl = safeNum(t.pnl);
-      map.set(label, (map.get(label) || 0) + pnl);
-    }
-    return map;
-  }, [trades]);
+    const labelsSet = new Set();
+    let knifeCount = 0;
+    let knifeAccPnl = 0;
 
-  const activeLabels = useMemo(() => {
-    return Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
-  }, [trades]);
+    if (trades && trades.length > 0) {
+      for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        const label = strategyLabel(t);
+        const pnl = safeNum(t.pnl);
 
-  const knifeTrades = useMemo(() => trades?.filter(t => t.is_knife) || [], [trades]);
-  const knifeCount = knifeTrades.length;
-  const knifeAccPnl = useMemo(() => {
-    let sum = 0;
-    for (let i = 0; i < knifeTrades.length; i++) {
-      sum += safeNum(knifeTrades[i].pnl);
+        map.set(label, (map.get(label) || 0) + pnl);
+        labelsSet.add(label);
+
+        if (t.is_knife) {
+          knifeCount++;
+          knifeAccPnl += pnl;
+        }
+      }
     }
-    return sum;
-  }, [knifeTrades]);
+
+    return {
+      variantPnls: map,
+      activeLabels: Array.from(labelsSet),
+      knifeCount,
+      knifeAccPnl
+    };
+  }, [trades]);
 
   // SEC: Rules of Hooks require all useX hooks to be declared above any early return statement
   if (!session) return null;

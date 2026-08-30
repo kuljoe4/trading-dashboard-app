@@ -1,6 +1,9 @@
 import 'reflect-metadata';
 import { SessionService } from '../trading/session.service';
 import { SessionConfig } from '../models/SessionConfig';
+import { UpdateTradeConfigDto } from '../trading/dto/session.dto';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { BadRequestException } from '@nestjs/common';
 
 describe('Sentinel: Nested Configuration Gating & Validation', () => {
@@ -99,5 +102,34 @@ describe('Sentinel: Nested Configuration Gating & Validation', () => {
     expect(() => (service as any).validateConfig(invalidConfig)).toThrow(
       'Exit RR sequence must match Live RR sequence length'
     );
+  });
+
+  describe('UpdateTradeConfigDto strategy_config validation', () => {
+    it('should validate strategy_config nested properties when instantiated and validated', async () => {
+      const invalidPayload = {
+        strategy_config: {
+          strategy_label: 'Invalid <script>alert(1)</script>',
+        },
+      };
+
+      const dtoInstance = plainToInstance(UpdateTradeConfigDto, invalidPayload);
+      const errors = await validate(dtoInstance);
+      expect(errors.length).toBeGreaterThan(0);
+      const strategyConfigError = errors.find((e) => e.property === 'strategy_config');
+      expect(strategyConfigError).toBeDefined();
+      expect(strategyConfigError?.children?.length).toBeGreaterThan(0);
+    });
+
+    it('should pass validation when valid strategy_config is provided', async () => {
+      const validPayload = {
+        strategy_config: {
+          strategy_label: 'Safe Strategy Label',
+        },
+      };
+
+      const dtoInstance = plainToInstance(UpdateTradeConfigDto, validPayload);
+      const errors = await validate(dtoInstance);
+      expect(errors.length).toBe(0);
+    });
   });
 });

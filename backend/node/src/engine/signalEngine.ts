@@ -152,6 +152,14 @@ export class SignalEngineService {
         const fast = parseInt(String(fastVal), 10);
         const slow = parseInt(String(slowVal), 10);
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
+
+        const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);
+        if (macdFilter === true || macdFilter === 'true') {
+          const mFast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
+          const mSlow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
+          const mSig = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
+          maxReq = Math.max(maxReq, (Math.max(mFast, mSlow) + mSig) * 2);
+        }
       } else if (baseType === 'engulfing') {
         const lookbackVal = resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1');
         const lookback = parseInt(String(lookbackVal), 10);
@@ -816,7 +824,35 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      const signalTypeKey = arguments[7] || 'ema_dual_cross';
+      const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'ema_dual_macd_filter', false);
+      let macdRejected = false;
+      let macdHistValue = 0;
+
+      if (fired && (macdFilter === true || macdFilter === 'true')) {
+        const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_fast', '12')), 10);
+        const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_slow', '26')), 10);
+        const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_signal', '9')), 10);
+
+        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
+        if (macdRes.histogram && macdRes.histogram.length > 0) {
+          macdHistValue = macdRes.histogram[macdRes.histogram.length - 1];
+          if (side === 'SHORT' && macdHistValue >= 0) {
+            fired = false;
+            macdRejected = true;
+          } else if (side === 'LONG' && macdHistValue <= 0) {
+            fired = false;
+            macdRejected = true;
+          }
+        }
+      }
+
       if (minimal) return fired;
+
+      let description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`;
+      if (macdRejected) {
+        description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${side === 'SHORT' ? 'Red' : 'Green'})`;
+      }
 
       return {
         fired,
@@ -825,7 +861,7 @@ export class SignalEngineService {
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
-        description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
+        description,
         threshold_is_price: true,
         slPrice: roundTo(currSlow, 8),
       };
@@ -898,7 +934,36 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      const signalTypeKey = arguments[7] || 'ema_dual_close';
+      const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'ema_dual_macd_filter', false);
+      let macdRejected = false;
+      let macdHistValue = 0;
+
+      if (fired && (macdFilter === true || macdFilter === 'true')) {
+        const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_fast', '12')), 10);
+        const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_slow', '26')), 10);
+        const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_signal', '9')), 10);
+
+        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
+        const completedIdx = candles.length - 2;
+        if (macdRes.histogram && macdRes.histogram.length > completedIdx) {
+          macdHistValue = macdRes.histogram[completedIdx];
+          if (side === 'SHORT' && macdHistValue >= 0) {
+            fired = false;
+            macdRejected = true;
+          } else if (side === 'LONG' && macdHistValue <= 0) {
+            fired = false;
+            macdRejected = true;
+          }
+        }
+      }
+
       if (minimal) return fired;
+
+      let description = `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`;
+      if (macdRejected) {
+        description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${side === 'SHORT' ? 'Red' : 'Green'})`;
+      }
 
       return {
         fired,
@@ -907,7 +972,7 @@ export class SignalEngineService {
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
-        description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
+        description,
         threshold_is_price: true,
         slPrice: roundTo(slowEma, 8),
       };

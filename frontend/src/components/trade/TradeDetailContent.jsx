@@ -462,6 +462,16 @@ const getSignalInfo = (key, config) => {
       const slow = resolve('exit_ema_slow', resolve('entry_ema_slow', 21));
       params.push({ label: 'Fast', value: fast, key: 'exit_ema_fast', type: 'number' });
       params.push({ label: 'Slow', value: slow, key: 'exit_ema_slow', type: 'number' });
+      const macdFilter = resolve('ema_dual_macd_filter', false);
+      if (macdFilter) {
+        params.push({ label: 'MACD Filter', value: 'Enabled', rawValue: true, key: 'ema_dual_macd_filter', type: 'boolean' });
+        const mFast = resolve('macd_fast', 12);
+        const mSlow = resolve('macd_slow', 26);
+        const mSig = resolve('macd_signal', 9);
+        params.push({ label: 'MACD Fast', value: mFast, key: 'macd_fast', type: 'number' });
+        params.push({ label: 'MACD Slow', value: mSlow, key: 'macd_slow', type: 'number' });
+        params.push({ label: 'MACD Signal', value: mSig, key: 'macd_signal', type: 'number' });
+      }
       break;
     }
     case 'ma': {

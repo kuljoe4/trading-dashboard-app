@@ -101,5 +101,7 @@ export class UpdateTradeConfigDto {
 
   @IsOptional()
   @IsObject()
-  strategy_config?: Record<string, any>;
+  @ValidateNested()
+  @Type(() => SessionConfig)
+  strategy_config?: SessionConfig;
 }

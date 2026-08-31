@@ -10,6 +10,7 @@ import { ApiKeyGuard } from '../lib/api-key.guard';
 import { extractIp } from '../lib/throttle';
 import { AuditLogService } from './audit-log.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
+import { sanitize } from '../lib/logger';
 
 /**
  * Securely masks API keys and secrets.
@@ -107,7 +108,9 @@ export class SettingsController {
       } catch (err: any) {
         results.valid = false;
         const code = err.code || (err.data ? err.data.code : null);
-        const errMsg = err.data?.msg || err.message || 'Verification failed';
+        const rawMsg = err.data?.msg || err.message || 'Verification failed';
+        // SENTINEL: Sanitize error messages to mask sensitive credentials (e.g. API keys, secrets) before returning to response or logging
+        const errMsg = sanitize(rawMsg);
         results.checks.push({
           type: 'live',
           status: 'invalid',
@@ -152,7 +155,9 @@ export class SettingsController {
       } catch (err: any) {
         results.valid = false;
         const code = err.code || (err.data ? err.data.code : null);
-        const errMsg = err.data?.msg || err.message || 'Verification failed';
+        const rawMsg = err.data?.msg || err.message || 'Verification failed';
+        // SENTINEL: Sanitize error messages to mask sensitive credentials (e.g. API keys, secrets) before returning to response or logging
+        const errMsg = sanitize(rawMsg);
         results.checks.push({
           type: 'testnet',
           status: 'invalid',

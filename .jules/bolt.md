@@ -1,3 +1,7 @@
+## 2026-08-31 - [Optimization] EngineBroadcasterService Exit Signals Status for...in Iteration
+**Learning:** Calling `Object.entries(trade.exit_signals_status)` on every high-frequency broadcast tick (500ms) for every active trade creates short-lived `[key, value]` entry tuple arrays that trigger GC pressure under high active trade counts. Replacing `Object.entries` with direct `for...in` loops (with `hasOwnProperty` checks) across `serializeTrade`, `serializeTickTrade`, and `broadcastTick` eliminates key-value entry allocations on tick updates.
+**Action:** Always use direct `for...in` loops with `hasOwnProperty` checks instead of `Object.entries()` when iterating over plain objects in high-frequency broadcast or tick execution loops.
+
 ## 2026-08-29 - [Optimization] Decision Log formatMessage Pre-Compiled Regex Pattern Matching
 **Learning:** Performing per-word string transformations (`.toUpperCase().trim()`) and array searches (`.some()`) inside log rendering loops creates significant string heap allocations and JS execution overhead during high-frequency log updates. Replacing linear array searches with pre-compiled module-level regular expressions (`REGEX_POSITIVE`, `REGEX_NEGATIVE`, `REGEX_NEUTRAL`) eliminates per-word string allocations and yields a measured 2.59x rendering speedup.
 **Action:** Always replace per-word `.some()` array lookups and string transformations with pre-compiled regular expressions for token highlighting in high-frequency rendering components.

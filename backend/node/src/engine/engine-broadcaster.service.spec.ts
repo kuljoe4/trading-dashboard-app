@@ -321,4 +321,81 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
       expect(totalMs).toBeGreaterThan(0);
     });
   });
+
+  describe('exit_signals_status for...in iteration optimization', () => {
+    it('should correctly evaluate exit signals status using for...in loop without Object.entries allocations', () => {
+      const trade = new Trade();
+      trade.id = 't1';
+      trade.symbol = 'BTCUSDT';
+      trade.entry_price = 50000;
+      trade.qty = 0.5;
+      trade.direction = 'LONG';
+      trade.current_sl = 49000;
+      trade.exit_signals_status = {
+        sig1: {
+          fired: true,
+          active: true,
+          label: 'Signal 1',
+          unit: 'USD',
+          value: 52000,
+          threshold_is_price: true,
+          threshold: 52000, // PnL: (52000 - 50000) * 0.5 = 1000
+          remaining_delay: 0,
+        },
+        sig2: {
+          fired: true,
+          active: true,
+          label: 'Signal 2',
+          unit: 'USD',
+          value: 51000,
+          threshold_is_price: true,
+          threshold: 51000, // PnL: (51000 - 50000) * 0.5 = 500
+          remaining_delay: 0,
+        },
+      };
+
+      const config = { strategy_label: 'Test' } as SessionConfig;
+
+      const serialized = (service as any).serializeTrade(trade, config, 51500);
+      expect(serialized.est_pnl_to_realize).toBe(1000);
+      expect(serialized.est_pnl_source).toBe('signal:sig1');
+
+      const tickTrade = service.serializeTickTrade(trade, config, 51500, 750, 1.5);
+      expect(tickTrade.est_pnl_to_realize).toBe(1000);
+      expect(tickTrade.est_pnl_source).toBe('signal:sig1');
+    });
+
+    it('benchmark: exit_signals_status iteration across 100,000 active trade evaluations', () => {
+      const activeTrades: Trade[] = [];
+      for (let i = 0; i < 20; i++) {
+        const t = new Trade();
+        t.id = `trade_${i}`;
+        t.symbol = `SYM_${i}`;
+        t.entry_price = 100 + i;
+        t.qty = 10;
+        t.direction = 'LONG';
+        t.current_sl = 95 + i;
+        t.exit_signals_status = {
+          ema_cross: { fired: false, active: true, label: 'EMA Cross', unit: 'USD', value: 105 + i, threshold_is_price: true, threshold: 105 + i, remaining_delay: 0 },
+          rsi_overbought: { fired: true, active: true, label: 'RSI Overbought', unit: 'USD', value: 110 + i, threshold_is_price: true, threshold: 110 + i, remaining_delay: 0 },
+          macd_histogram: { fired: false, active: true, label: 'MACD Histogram', unit: 'USD', value: 108 + i, threshold_is_price: true, threshold: 108 + i, remaining_delay: 0 },
+        };
+        activeTrades.push(t);
+      }
+
+      tickerCache.getPrice.mockReturnValue(105);
+      sessionState.getBalance.mockReturnValue(10000);
+
+      const iterations = 5000; // 5000 ticks * 20 trades = 100,000 trade exit signal evaluations
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        (service as any).lastTickTime = 0; // force broadcast
+        service.broadcastTick(activeTrades, { paper_mode: true, paper_starting_balance: 10000 } as any, [], false, () => [], () => ({}));
+      }
+      const totalMs = performance.now() - start;
+
+      console.log(`[BENCHMARK] exit_signals_status for...in iteration across 100,000 trade evaluations: ${totalMs.toFixed(2)}ms (${(totalMs / (iterations * 20) * 1000).toFixed(2)}ns/eval)`);
+      expect(totalMs).toBeGreaterThan(0);
+    });
+  });
 });

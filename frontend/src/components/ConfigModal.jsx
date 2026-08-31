@@ -86,7 +86,7 @@ const getBaseSignalType = (signalType) => {
   return signalType;
 };
 
-const getSignalParamsSchema = (sigKey, baseType) => {
+const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) => {
   const suffix = sigKey === baseType ? '' : sigKey.substring(baseType.length); // e.g. '_2'
   const schema = [];
 
@@ -114,13 +114,17 @@ const getSignalParamsSchema = (sigKey, baseType) => {
     addParam('ma_period', 'number', 20, null, { min: 1 }, 'MA Period');
   } else if (['ema', 'ema_cross', 'ema_price_cross', 'ema_close'].includes(baseType)) {
     addParam('ema_period', 'number', 12, null, { min: 1 }, 'EMA Period');
-    addParam('entry_ema_period', 'number', 12, null, { min: 1 }, 'Entry Period');
-    addParam('exit_ema_period', 'number', 12, null, { min: 1 }, 'Exit Period');
+    if (isEntry || (!isEntry && !isExit)) addParam('entry_ema_period', 'number', 12, null, { min: 1 }, 'Entry Period');
+    if (isExit || (!isEntry && !isExit)) addParam('exit_ema_period', 'number', 12, null, { min: 1 }, 'Exit Period');
   } else if (['ema_dual_cross', 'ema_dual_close'].includes(baseType)) {
-    addParam('entry_ema_fast', 'number', 9, null, { min: 1 }, 'Entry Fast');
-    addParam('entry_ema_slow', 'number', 21, null, { min: 1 }, 'Entry Slow');
-    addParam('exit_ema_fast', 'number', 9, null, { min: 1 }, 'Exit Fast');
-    addParam('exit_ema_slow', 'number', 21, null, { min: 1 }, 'Exit Slow');
+    if (isEntry || (!isEntry && !isExit)) {
+      addParam('entry_ema_fast', 'number', 9, null, { min: 1 }, 'Entry Fast');
+      addParam('entry_ema_slow', 'number', 21, null, { min: 1 }, 'Entry Slow');
+    }
+    if (isExit || (!isEntry && !isExit)) {
+      addParam('exit_ema_fast', 'number', 9, null, { min: 1 }, 'Exit Fast');
+      addParam('exit_ema_slow', 'number', 21, null, { min: 1 }, 'Exit Slow');
+    }
     addParam('ema_dual_macd_filter', 'boolean', false, null, {}, 'MACD Filter');
     addParam('macd_fast', 'number', 12, null, { min: 1 }, 'MACD Fast');
     addParam('macd_slow', 'number', 26, null, { min: 1 }, 'MACD Slow');
@@ -2581,7 +2585,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                   uniqueActiveSignals.forEach(sigKey => {
                     const baseType = getBaseSignalType(sigKey);
-                    const schema = getSignalParamsSchema(sigKey, baseType);
+                    const isEntry = entrySignals.includes(sigKey);
+                    const isExit = exitSignals.includes(sigKey);
+                    const schema = getSignalParamsSchema(sigKey, baseType, isEntry, isExit);
                     if (schema.length > 0) {
                       const sigInfo = SIGNALS.find(s => s[0] === baseType);
                       const displayLabel = sigInfo ? sigInfo[1] : baseType;

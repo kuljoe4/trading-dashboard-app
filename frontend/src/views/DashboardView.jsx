@@ -1588,8 +1588,11 @@ export function DashboardView({ initialStrategy }) {
                 value={`$${balance.toLocaleString()}`}
                 tooltipText={(() => {
                   const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : config?.live_starting_balance) || 10000;
-                  const netFunding = stats?.totalFundingFee || 0;
-                  const netComm = stats?.totalRealizedFee || 0;
+                  const allTrades = [...(tradeHistory || []), ...(activeTrades || [])];
+                  const feeFromTrades = allTrades.reduce((acc, t) => acc + (Number(t.realized_fee) || 0), 0);
+                  const fundingFromTrades = allTrades.reduce((acc, t) => acc + (Number(t.funding_fee) || 0), 0);
+                  const netFunding = stats?.totalFundingFee || fundingFromTrades || 0;
+                  const netComm = stats?.totalRealizedFee || feeFromTrades || 0;
                   const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
                   const tradeTimeStr = tradeTs ? `Last Trade: ${formatTimeAgo(tradeTs)}` : 'No closed trades';
                   const syncTimeStr = lastUdsBalanceTs ? `UDS Sync: ${formatTimeAgo(lastUdsBalanceTs)}` : 'Sync: Active';
@@ -1605,8 +1608,11 @@ export function DashboardView({ initialStrategy }) {
                   return `Account Balance: $${balance.toLocaleString()}. Last trade closed ${tradeTimeAgo} with PnL ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)} (${Math.abs(balPctChange || 0).toFixed(2)}%).`;
                 })()}
                 subValue={(() => {
-                  const netFunding = stats?.totalFundingFee || 0;
-                  const netComm = stats?.totalRealizedFee || 0;
+                  const allTrades = [...(tradeHistory || []), ...(activeTrades || [])];
+                  const feeFromTrades = allTrades.reduce((acc, t) => acc + (Number(t.realized_fee) || 0), 0);
+                  const fundingFromTrades = allTrades.reduce((acc, t) => acc + (Number(t.funding_fee) || 0), 0);
+                  const netFunding = stats?.totalFundingFee || fundingFromTrades || 0;
+                  const netComm = stats?.totalRealizedFee || feeFromTrades || 0;
                   const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
                   const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
                   const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0) || (lastTrade?.updated_at ? new Date(lastTrade.updated_at).getTime() : 0) || (lastTrade?.entry_ts ? new Date(lastTrade.entry_ts).getTime() : 0);

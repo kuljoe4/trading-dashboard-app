@@ -102,7 +102,7 @@ test('calculateProximity unit tests', async (t) => {
       fired: false,
       threshold_is_price: true
     };
-    // Spread = 0.2, MaxSpread = 1.0 (1% of 100). Progress = (1 - 0.2/1.0)*100 = 80%
+    // Spread = 0.2 (0.2% relSpread). Progress = 99 / (1 + 118.75 * 0.002) = 80%
     const res = calculateProximity(signal, 99.8, 0, true, true);
     assert.strictEqual(Math.round(res), 80);
   });
@@ -117,8 +117,33 @@ test('calculateProximity unit tests', async (t) => {
       threshold_is_price: true
     };
     // Even when entry is 90 and mark is 105, for an EMA dual cross signal, proximity evaluates Fast EMA vs Slow EMA convergence
-    // Spread = 0.2, MaxSpread = 1.0 -> 80%
+    // Spread = 0.2 (0.2% relSpread) -> ~80%
     const res = calculateProximity(signal, 105, 90, true, true);
     assert.strictEqual(Math.round(res), 80);
+  });
+
+  await t.test('ensures dual params read > 0% no matter how far apart and increase monotonically as they converge', () => {
+    const makeSignal = (val) => ({
+      key: 'ema_dual_cross',
+      value: val,
+      threshold: 100.0,
+      fired: false,
+      threshold_is_price: true
+    });
+
+    // Test wide spreads: 50% spread (val=150), 20% spread (val=120), 10% spread (val=110), 5% spread (val=105), 1% spread (val=101), 0.2% spread (val=100.2)
+    const p50 = calculateProximity(makeSignal(150), 150, 0, true, false);
+    const p20 = calculateProximity(makeSignal(120), 120, 0, true, false);
+    const p10 = calculateProximity(makeSignal(110), 110, 0, true, false);
+    const p5  = calculateProximity(makeSignal(105), 105, 0, true, false);
+    const p1  = calculateProximity(makeSignal(101), 101, 0, true, false);
+    const p02 = calculateProximity(makeSignal(100.2), 100.2, 0, true, false);
+
+    assert.ok(p50 > 0, `p50 (${p50}) should be > 0%`);
+    assert.ok(p20 > p50, `p20 (${p20}) should be > p50 (${p50})`);
+    assert.ok(p10 > p20, `p10 (${p10}) should be > p20 (${p20})`);
+    assert.ok(p5 > p10, `p5 (${p5}) should be > p10 (${p10})`);
+    assert.ok(p1 > p5, `p1 (${p1}) should be > p5 (${p5})`);
+    assert.ok(p02 > p1, `p02 (${p02}) should be > p1 (${p1})`);
   });
 });

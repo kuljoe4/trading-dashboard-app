@@ -79,25 +79,26 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
 
   // Handle price-based signals (including dual EMA cross/close where value is fast EMA/price and threshold is slow EMA/price)
   if (thresholdIsPrice) {
-    if (isExit) {
-      // Check if the signal is an indicator-pair signal (e.g., dual EMA cross/close where value is Fast EMA and threshold is Slow EMA)
-      const isIndicatorPair = !!(
-        signal.is_indicator_pair ||
-        (signal.key && (signal.key.includes('dual') || signal.key.includes('_cross'))) ||
-        (signal.metric && (signal.metric.includes('Dual') || signal.metric.includes('Cross'))) ||
-        (signal.description && signal.description.toLowerCase().includes('crossed'))
-      );
+    // Check if the signal is an indicator-pair signal (e.g., dual EMA cross/close where value is Fast EMA and threshold is Slow EMA)
+    const isIndicatorPair = !!(
+      signal.is_indicator_pair ||
+      (signal.key && (signal.key.includes('dual') || signal.key.includes('_cross'))) ||
+      (signal.metric && (signal.metric.includes('Dual') || signal.metric.includes('Cross'))) ||
+      (signal.description && signal.description.toLowerCase().includes('crossed'))
+    );
 
-      // For dual EMA cross/close or indicator price thresholds, evaluate convergence between value and threshold if it's an indicator pair or if entry is not usable
-      if (isIndicatorPair || entry === 0 || threshold === 0 || threshold === entry) {
-        if (value !== 0 && threshold !== 0) {
-          const spread = Math.abs(value - threshold);
-          const maxSpread = threshold * 0.01; // 1% spread reference
-          const progress = Math.max(0, (1 - spread / maxSpread) * 100);
-          return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-        }
-        return 0;
+    // For dual EMA cross/close or indicator price thresholds, evaluate convergence between value and threshold using continuous smooth rational decay
+    if (isIndicatorPair || (isExit && (entry === 0 || threshold === 0 || threshold === entry))) {
+      if (value !== 0 && threshold !== 0) {
+        const spread = Math.abs(value - threshold);
+        const relSpread = spread / Math.max(Math.abs(value), Math.abs(threshold));
+        const progress = maxVal / (1 + 118.75 * relSpread);
+        return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
       }
+      return 0;
+    }
+
+    if (isExit) {
       const reference = Math.max(1e-8, Math.abs(entry - threshold));
       let progress = 0;
       if (isLong) {

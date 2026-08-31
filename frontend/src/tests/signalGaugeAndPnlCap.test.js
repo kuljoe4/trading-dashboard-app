@@ -13,10 +13,10 @@ test('Signal Gauge & Est PnL Capping Tests', async (t) => {
       threshold_is_price: true
     };
 
-    // Fast EMA (99.5) vs Slow EMA (100.0) -> Spread = 0.5. Reference 1% of 100 = 1.0.
-    // Progress = (1 - 0.5 / 1.0) * 100 = 50%
+    // Fast EMA (99.5) vs Slow EMA (100.0) -> Spread = 0.5 (0.5% relSpread).
+    // Progress = 99 / (1 + 118.75 * 0.005) = 62.1% -> ~62%
     const proximity = calculateProximity(signal, 105, 95, true, true);
-    assert.strictEqual(Math.round(proximity), 50);
+    assert.strictEqual(Math.round(proximity), 62);
   });
 
   await t.test('caps estimated exit PnL at current unrealized live PnL when price pulls back', () => {

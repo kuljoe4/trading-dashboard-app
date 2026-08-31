@@ -142,3 +142,83 @@ describe('SettingsController: updateKeys masked key bypass prevention', () => {
     }));
   });
 });
+
+describe('SettingsController: validateKeys error sanitization', () => {
+  let controller: SettingsController;
+  let binanceClientFactory: any;
+  let repo: any;
+
+  const mockRepo = {
+    findOne: jest.fn(),
+  };
+
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = 'super-secret-encryption-key-for-testing';
+  });
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const mockBinanceClientFactory = {
+      createClient: jest.fn(),
+    };
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [SettingsController],
+      providers: [
+        {
+          provide: getRepositoryToken(SettingsEntity),
+          useValue: mockRepo,
+        },
+        {
+          provide: AuditLogService,
+          useValue: { log: jest.fn() },
+        },
+        {
+          provide: BinanceClientFactory,
+          useValue: mockBinanceClientFactory,
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn() },
+        },
+      ],
+    }).compile();
+
+    controller = module.get<SettingsController>(SettingsController);
+    binanceClientFactory = module.get(BinanceClientFactory);
+    repo = module.get(getRepositoryToken(SettingsEntity));
+  });
+
+  it('should sanitize sensitive error messages containing API keys or secrets during validateKeys', async () => {
+    mockRepo.findOne.mockResolvedValue(null);
+
+    const mockClient = {
+      restAPI: {
+        futuresAccountBalanceV3: jest.fn().mockRejectedValue({
+          message: 'Failed request with api_key=secret_key_123456 and secret=super_secret_password',
+          code: -1022,
+        }),
+      },
+    };
+
+    binanceClientFactory.createClient.mockReturnValue(mockClient);
+
+    const dto = {
+      api_key: 'valid_live_api_key_test_12345',
+      api_secret: 'valid_live_api_secret_test_12345',
+    };
+
+    const result = await controller.validateKeys(dto);
+
+    expect(result.valid).toBe(false);
+    expect(result.checks).toHaveLength(1);
+    expect(result.checks[0].type).toBe('live');
+    expect(result.checks[0].status).toBe('invalid');
+
+    // Sensitive key values must be masked
+    expect(result.checks[0].message).not.toContain('secret_key_123456');
+    expect(result.checks[0].message).not.toContain('super_secret_password');
+    expect(result.checks[0].message).toContain('[MASKED]');
+  });
+});

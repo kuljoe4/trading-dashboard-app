@@ -57,3 +57,7 @@
 ## 2026-08-16 - Navigation Active Position Context & Button Semantics Standard
 **Learning:** Navigation buttons (such as bottom bar tabs or sidebar navigation buttons) that render visual notification badges (like active position counts) often fail to communicate those badge updates to screen reader users if the `aria-label` is static. Dynamically incorporating active position counts into the `aria-label` (e.g. "Trades (2 active positions)") alongside explicit `type="button"` and `cursor-pointer` declarations provides complete auditory parity and standard button semantics across both desktop and mobile viewports.
 **Action:** Ensure navigation items with badge indicators dynamically enrich their `aria-label` strings with badge context for screen readers.
+
+## 2026-08-31 - Confirmation Modal In-Flight Loading Backdrop & Accessible Button Standard
+**Learning:** Confirmation modals performing critical, asynchronous actions (such as emergency position liquidations) create UX and state-integrity risks if backdrop click-to-dismiss handlers or dialog close buttons remain active while requests are in flight. Guarding `onOpenChange` with `!loading`, switching the overlay backdrop to `cursor-wait`, disabling dialog close buttons during `loading={true}`, and supplying explicit `aria-label` and `type="button"` attributes ensures safe-by-default, WCAG-compliant dialog interactions.
+**Action:** Always guard dialog `onOpenChange` state dismissals against in-flight loading operations and enforce explicit button ARIA labels across confirmation modals.

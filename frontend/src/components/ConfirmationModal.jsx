@@ -19,7 +19,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
   }, [isOpen]);
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+    <Dialog.Root open={isOpen} onOpenChange={(open) => !open && !loading && onClose()}>
       <AnimatePresence>
         {isOpen && (
           <Dialog.Portal forceMount>
@@ -28,7 +28,7 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
+                className={cn("fixed inset-0 z-10100 bg-black/80 w-full h-full", loading ? "cursor-wait" : "cursor-pointer")}
               />
             </Dialog.Overlay>
             <Dialog.Content
@@ -50,9 +50,11 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                       <AlertTriangle size={14} />
                     </div>
                     <Tooltip content="Close">
-                      <Dialog.Close asChild>
+                      <Dialog.Close asChild disabled={loading}>
                         <button
-                          className="text-dim hover:text-text p-1 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          type="button"
+                          disabled={loading}
+                          className="text-dim hover:text-text p-1 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                           aria-label="Close dialog"
                         >
                           <X size={14} />
@@ -68,12 +70,14 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
 
                   <div className="flex flex-col-reverse sm:flex-row gap-2">
                     <div className="flex-1">
-                      <Dialog.Close asChild>
+                      <Dialog.Close asChild disabled={loading}>
                         <Btn
                           ref={cancelBtnRef}
+                          type="button"
                           variant="ghost"
                           disabled={loading}
-                          className="w-full h-9 py-1 text-[11px]"
+                          aria-label={`${cancelText} action`}
+                          className="w-full h-9 py-1 text-[11px] cursor-pointer"
                         >
                           {cancelText}
                         </Btn>
@@ -81,14 +85,17 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                     </div>
                     <div className="flex-1">
                       <Btn
+                        type="button"
                         variant={variant}
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          onConfirm();
+                          if (!loading) onConfirm();
                         }}
                         loading={loading}
-                        className="w-full h-9 py-1 text-[11px]"
+                        disabled={loading}
+                        aria-label={`${confirmText} action`}
+                        className="w-full h-9 py-1 text-[11px] cursor-pointer"
                       >
                         {confirmText}
                       </Btn>

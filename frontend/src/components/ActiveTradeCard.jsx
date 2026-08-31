@@ -245,14 +245,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
            </div>
         </div>
       )}
-      <div className="flex items-center justify-between gap-1.5 min-w-0">
-        <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1 flex-wrap leading-none">
+      <div className="flex items-start justify-between gap-1.5 min-w-0 min-h-[22px]">
+        <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1 flex-wrap leading-tight py-0.5">
           <span className="text-xs sm:text-sm font-black font-mono tracking-tight shrink-0 text-text leading-none">{trade.symbol || '---'}</span>
           <CopyButton value={trade.symbol} className="hidden sm:inline-flex opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1.5" />
-          <span className={cn("text-[7.5px] sm:text-[8px] md:text-[9px] font-black px-1 py-0.5 rounded border uppercase shrink-0 leading-none", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
+          <span className={cn("text-[7.5px] sm:text-[8px] md:text-[9px] font-black px-1 py-0.5 rounded border uppercase shrink-0 leading-none h-4 inline-flex items-center", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
             {isLong ? '▲' : '▼'} {trade.direction || '---'}
           </span>
-          <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono leading-none">
+          <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono leading-none h-4 inline-flex items-center">
             {trade.strategy_config?.scan_interval || trade.strategy_config?.interval || config?.scan_interval || '5m'}
           </span>
           {trade.strategy_label && config && (
@@ -261,7 +261,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 <motion.span
                   initial={{ scale: 0.9, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none flex items-center gap-0.5"
+                  className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none h-4 inline-flex items-center gap-0.5"
                 >
                   <span className="sm:hidden font-mono text-[7px] font-extrabold">B</span>
                   <span className="hidden sm:inline">Base</span>
@@ -272,7 +272,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 <motion.span
                   initial={{ scale: 0.9, opacity: 0 }}
                   animate={{ scale: 1, opacity: 1 }}
-                  className="bg-purple/10 text-purple border border-purple/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none flex items-center gap-0.5"
+                  className="bg-purple/10 text-purple border border-purple/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none h-4 inline-flex items-center gap-0.5"
                 >
                   <span className="sm:hidden font-mono text-[7px] font-extrabold">V</span>
                   <span className="hidden sm:inline">Variant</span>
@@ -282,7 +282,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           )}
           {exitSignalProximity > 0 && (
             <Tooltip content={`Exit Signal Trigger Proximity: ${exitSignalProximity}%`}>
-              <span className="bg-surface text-accent border border-accent/30 text-[7px] font-mono font-bold px-1 py-0.5 rounded uppercase flex items-center gap-1 shrink-0">
+              <span className="bg-surface text-accent border border-accent/30 text-[7px] font-mono font-bold px-1 py-0.5 rounded uppercase flex items-center gap-1 shrink-0 h-4 inline-flex">
                 <span className="hidden sm:inline">Exit</span>
                 <div className="w-5 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5">
                   <div
@@ -295,7 +295,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           )}
           {trade.is_reconciliation && (
-            <span className="bg-amber text-black border border-amber text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none">
+            <span className="bg-amber text-black border border-amber text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none h-4 inline-flex items-center">
               Recon
             </span>
           )}
@@ -303,21 +303,21 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <motion.span
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="text-[7.5px] sm:text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 leading-none shrink-0"
+              className="text-[7.5px] sm:text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 leading-none shrink-0 h-4 inline-flex"
             >
               🔪 KNIFE
             </motion.span>
           )}
           {trade.strategy_config?.is_nominal_overshoot && (
             <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. Exercise caution.">
-              <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm shrink-0 flex items-center gap-0.5">
+              <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm shrink-0 flex items-center gap-0.5 h-4 inline-flex">
                 ⚡ <span className="sm:hidden">SCALED</span><span className="hidden sm:inline">SCALED RISK</span>
               </span>
             </Tooltip>
           )}
           {isRiskReleased && (
             <Tooltip content={`RISK LOCK RELEASED: Stop loss has ratcheted to breakeven or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Position risk is $0.00.`}>
-              <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm animate-in fade-in duration-300">
+              <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm animate-in fade-in duration-300 h-4 inline-flex">
                 <Lock size={7} className="text-green shrink-0" />
                 <span>Risk Free</span>
               </span>
@@ -328,7 +328,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           )}
           {trade.strategy_config?.trailing_stop_enabled && (
             <Tooltip content="Dynamic trailing stop active for this position">
-              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 animate-pulse leading-none shrink-0 cursor-help">
+              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 animate-pulse leading-none shrink-0 cursor-help h-4 inline-flex">
                 <RefreshCw size={7} className="animate-spin text-purple-400" />
                 <span className="hidden sm:inline">Trailing</span>
               </span>
@@ -336,20 +336,20 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           )}
           {trade.initial_sl > 0 && Math.abs(trade.sl_price - trade.initial_sl) > 0.0000001 && (
             <Tooltip content={`Stop Loss moved from original entry protection level: ${fmtUSD(trade.initial_sl)} ➔ ${fmtUSD(trade.sl_price)}`}>
-              <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0">
+              <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 h-4 inline-flex">
                 <ShieldCheck size={7} className="text-amber" />
                 <span className="hidden sm:inline">SL Moved</span>
               </span>
             </Tooltip>
           )}
           {trade.entry_ts && (
-            <span className="bg-accent/10 border border-accent/25 text-accent text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0">
+            <span className="bg-accent/10 border border-accent/25 text-accent text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0 h-4 inline-flex">
               <Clock size={8} className="text-accent" /> {duration}
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 pt-0.5">
           {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
             <Tooltip content={`Commission: ${fmtUSD(-safeNum(trade.realized_fee))} | Funding: ${fmtUSD(-safeNum(trade.funding_fee))}`}>
               <div className={cn(

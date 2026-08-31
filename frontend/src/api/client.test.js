@@ -263,6 +263,30 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.exit_signal_logic, 'combo')
     assert.deepEqual(sanitized.required_exit_signals, ['macd_fade'])
   })
+
+  it('preserves MACD Histogram Filter fields inside signal_params for persistence', () => {
+    const config = {
+      enabled_signals: ['ema_dual_cross'],
+      signal_params: {
+        entry_ema_fast: 9,
+        entry_ema_slow: 21,
+        ema_dual_macd_filter: true,
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9
+      }
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.deepEqual(sanitized.enabled_signals, ['ema_dual_cross'])
+    assert.deepEqual(sanitized.signal_params, {
+      entry_ema_fast: 9,
+      entry_ema_slow: 21,
+      ema_dual_macd_filter: true,
+      macd_fast: 12,
+      macd_slow: 26,
+      macd_signal: 9
+    })
+  })
 })
 
 describe('presetsAPI', () => {

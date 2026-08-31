@@ -121,6 +121,10 @@ const getSignalParamsSchema = (sigKey, baseType) => {
     addParam('entry_ema_slow', 'number', 21, null, { min: 1 }, 'Entry Slow');
     addParam('exit_ema_fast', 'number', 9, null, { min: 1 }, 'Exit Fast');
     addParam('exit_ema_slow', 'number', 21, null, { min: 1 }, 'Exit Slow');
+    addParam('ema_dual_macd_filter', 'boolean', false, null, {}, 'MACD Filter');
+    addParam('macd_fast', 'number', 12, null, { min: 1 }, 'MACD Fast');
+    addParam('macd_slow', 'number', 26, null, { min: 1 }, 'MACD Slow');
+    addParam('macd_signal', 'number', 9, null, { min: 1 }, 'MACD Signal');
   } else if (baseType === 'engulfing') {
     addParam('engulfing_lookback', 'number', 1, null, { min: 1, max: 20 }, 'Search Window');
     addParam('engulfing_streak', 'number', 1, null, { min: 1, max: 10 }, 'Required Streak');
@@ -171,6 +175,7 @@ const TOOLTIPS = {
   engulfing_streak: "Required streak: Number of consecutive reversal candles to find within the window.",
   engulfing_sequential: "If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.",
   engulfing_volume_confirm: "When enabled, the engulfing candle MUST have higher volume than the engulfed candle.",
+  ema_dual_macd_filter: "When enabled, requires MACD histogram to be Red (bearish) when fast EMA crosses below slow EMA for SHORT, or Green (bullish) when fast EMA crosses above slow EMA for LONG.",
   macd_fast: "The fast EMA period for MACD line calculation.",
   macd_slow: "The slow EMA period for MACD line calculation.",
   macd_signal: "The signal line EMA period.",

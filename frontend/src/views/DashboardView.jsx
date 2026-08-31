@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
-import { formatDuration } from '../lib/formatters'
+import { formatDuration, calculateProximity } from '../lib/formatters'
 
 const formatTimeAgo = (ts) => {
   if (!ts) return 'ago';

@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
-import { formatDuration, calculateSupertrend } from '../lib/formatters'
+import { formatDuration, calculateSupertrend, calculateProximity } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge, ModalAlertTicker } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'

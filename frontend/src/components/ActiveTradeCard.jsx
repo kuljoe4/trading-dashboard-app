@@ -4,7 +4,7 @@ import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
 import { ShieldCheck, RefreshCw, Clock, Lock } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { formatDuration } from '../lib/formatters'
+import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter }) => {
@@ -133,6 +133,21 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Risk status: ${riskLockText}. Live mark is at ${Math.round(progress)}% of runway scale.`;
 
   const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee);
+
+  const exitSignalProximity = React.useMemo(() => {
+    if (!trade.exit_signals_status) return 0;
+    const statuses = Object.values(trade.exit_signals_status);
+    if (statuses.length === 0) return 0;
+
+    let maxProx = 0;
+    for (const sig of statuses) {
+      if (sig) {
+        const prox = calculateProximity(sig, mark, entry, isLong, true);
+        if (prox > maxProx) maxProx = prox;
+      }
+    }
+    return Math.round(maxProx);
+  }, [trade.exit_signals_status, mark, entry, isLong]);
 
   // Track recent mark price movement for trailing waterfall animation
   const prevMarkRef = React.useRef(mark);
@@ -264,6 +279,20 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 </motion.span>
               </Tooltip>
             )
+          )}
+          {exitSignalProximity > 0 && (
+            <Tooltip content={`Exit Signal Trigger Proximity: ${exitSignalProximity}%`}>
+              <span className="bg-surface text-accent border border-accent/30 text-[7px] font-mono font-bold px-1 py-0.5 rounded uppercase flex items-center gap-1 shrink-0">
+                <span className="hidden sm:inline">Exit</span>
+                <div className="w-5 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5">
+                  <div
+                    className={cn("h-full rounded-full transition-all duration-500", exitSignalProximity > 80 ? "bg-red" : "bg-accent")}
+                    style={{ width: `${exitSignalProximity}%` }}
+                  />
+                </div>
+                <span>{exitSignalProximity}%</span>
+              </span>
+            </Tooltip>
           )}
           {trade.is_reconciliation && (
             <span className="bg-amber text-black border border-amber text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none">

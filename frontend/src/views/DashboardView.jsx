@@ -567,6 +567,29 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
   const momW = Math.round((weights.momentum ?? 0.5) * 100);
   const volW = Math.round((weights.volatility ?? 0.3) * 100);
   const trendW = Math.round((weights.trend ?? 0.2) * 100);
+  const enabledSigs = config?.enabled_signals || [];
+
+  const getOppProximity = (opp) => {
+    if (opp.signalResult?.allFired) return 100;
+    const isLong = opp.pct >= 0;
+    const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / threshold) * 100);
+
+    let sigSum = velocityProgress;
+    let count = 1;
+
+    if (opp.signalResult?.signals) {
+      for (const sigKey of enabledSigs) {
+        const s = opp.signalResult.signals[sigKey];
+        if (s) {
+          const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+          sigSum += prox;
+          count++;
+        }
+      }
+    }
+
+    return Math.round(count > 0 ? sigSum / count : 0);
+  };
 
   return (
     <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col text-left">
@@ -632,7 +655,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                         <InPosBadge className="opacity-60 scale-90 origin-right mt-0.5" />
                       )}
                     </div>
-                    <div className="w-12 flex justify-end">
+                    <div className="w-16 flex flex-col items-end justify-center gap-0.5">
                       {passing ? (
                         opp.signalResult?.allFired ? (
                           <b className="text-[10px] font-black text-green uppercase tracking-wider">TRIGGERED</b>
@@ -642,6 +665,15 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                       ) : (
                         <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAITING</b>
                       )}
+                      <div className="w-12 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5 mt-0.5" title={`Proximity: ${getOppProximity(opp)}%`}>
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-500",
+                            opp.signalResult?.allFired ? "bg-green" : passing ? "bg-amber" : "bg-dim/40"
+                          )}
+                          style={{ width: `${getOppProximity(opp)}%` }}
+                        />
+                      </div>
                     </div>
                   </motion.div>
                 )

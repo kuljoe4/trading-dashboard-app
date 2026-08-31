@@ -6,6 +6,7 @@ import {
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
   ConditionWidget, PnLBars, CopyButton, cn, ViewHeader
 } from '../components/ui/primitives'
+import { SignalGauge } from '../components/ui/SignalGauge'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -222,42 +223,38 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </div>
 
             {/* Checklist Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {/* Velocity (Scanner Threshold) */}
-              <div className={cn(
-                "flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-[11px] font-bold font-mono transition-all",
-                scanMet ? "bg-green/5 border-green/20 text-green" : "bg-background/40 border-border text-dim/60"
-              )}>
-                <div className="flex items-center gap-2 truncate">
-                  <span className={cn("w-2 h-2 rounded-full shrink-0", scanMet ? "bg-green animate-pulse" : "bg-dim/40")} />
-                  <span className="truncate font-sans font-bold text-text/80">Velocity Move</span>
-                </div>
-                <span className="shrink-0 font-black font-mono ml-1">
-                  {bestOpp.symbol !== '---' ? `${Math.abs(bestOpp.pct).toFixed(2)}%` : '---'}
-                </span>
-              </div>
+              <SignalGauge
+                label="Velocity Move"
+                value={Math.abs(bestOpp.pct || 0)}
+                threshold={strategyConfig.scan_pct_threshold || 2.0}
+                unit="%"
+                fired={scanMet}
+                active={scanMet}
+                markPrice={bestOpp.close || 0}
+              />
 
-              {/* Other Signals */}
+              {/* Technical Indicator Signals */}
               {strategyConfig.enabled_signals.map(sig => {
                 const s = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
-                const isFired = s.fired && s.active;
-                const isDelayed = s.remaining_delay > 0 && !isFired;
                 return (
-                  <div key={sig} className={cn(
-                    "flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-[11px] font-bold font-mono transition-all",
-                    isFired ? "bg-green/5 border-green/20 text-green" : s.fired ? "bg-amber/5 border-amber/20 text-amber" : "bg-background/40 border-border text-dim/60"
-                  )}>
-                    <div className="flex items-center gap-2 truncate">
-                      <span className={cn(
-                        "w-2 h-2 rounded-full shrink-0",
-                        isFired ? "bg-green" : isDelayed ? "bg-amber animate-pulse" : s.fired ? "bg-amber" : "bg-dim/40"
-                      )} />
-                      <span className="truncate font-sans font-bold text-text/80">{SIGNAL_LABELS[sig] || sig}</span>
-                    </div>
-                    <span className="shrink-0 font-black font-mono ml-1">
-                      {bestOpp.symbol === '---' ? '---' : s.insufficientData ? 'Collecting' : isFired ? 'Triggered' : isDelayed ? `Delay` : s.fired ? 'Met' : 'Watching'}
-                    </span>
-                  </div>
+                  <SignalGauge
+                    key={sig}
+                    label={SIGNAL_LABELS[sig] || sig}
+                    value={s.value}
+                    threshold={s.threshold}
+                    unit={s.unit}
+                    fired={s.fired}
+                    active={s.active !== false}
+                    remainingDelay={s.remaining_delay || 0}
+                    configDelay={s.config_delay || 0}
+                    insufficientData={s.insufficientData}
+                    thresholdIsPrice={s.threshold_is_price}
+                    isLong={bestOpp.dir === 'long'}
+                    markPrice={bestOpp.close || s.value || 0}
+                    type="entry"
+                  />
                 );
               })}
             </div>

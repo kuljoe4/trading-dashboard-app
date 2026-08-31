@@ -719,8 +719,35 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
         .slice(0, 24);
     }
 
+    const enabledSigs = strategyConfig?.enabled_signals || [];
+    const scanThresh = strategyConfig?.scan_pct_threshold || 2.0;
+
+    const calcOppProximity = (opp) => {
+      if (opp.signalResult?.allFired) return 100;
+      const isLong = opp.pct >= 0;
+      const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
+
+      let sigSum = velocityProgress;
+      let count = 1;
+
+      if (opp.signalResult?.signals) {
+        for (const sigKey of enabledSigs) {
+          const s = opp.signalResult.signals[sigKey];
+          if (s) {
+            const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+            sigSum += prox;
+            count++;
+          }
+        }
+      }
+
+      return Math.round(count > 0 ? sigSum / count : 0);
+    };
+
     // 5. Apply sorting
-    if (sortBy === 'score') {
+    if (sortBy === 'proximity') {
+      results = [...results].sort((a, b) => calcOppProximity(b) - calcOppProximity(a));
+    } else if (sortBy === 'score') {
       results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0))
     } else if (sortBy === 'pct_desc') {
       results = [...results].sort((a, b) => (b.pct || 0) - (a.pct || 0))
@@ -916,6 +943,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               aria-label="Sort options"
             >
               <option value="score">Scanner Score (Default)</option>
+              <option value="proximity">🔥 Proximity (Near Trigger)</option>
               <option value="pct_desc">Change % (High → Low)</option>
               <option value="pct_asc">Change % (Low → High)</option>
               <option value="vol_desc">Volume (High → Low)</option>

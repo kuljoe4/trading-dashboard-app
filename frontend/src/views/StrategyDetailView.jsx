@@ -7,6 +7,7 @@ import {
   ConditionWidget, PnLBars, CopyButton, cn, ViewHeader
 } from '../components/ui/primitives'
 import { SignalGauge } from '../components/ui/SignalGauge'
+import { calculateProximity } from '../lib/formatters'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -41,6 +42,7 @@ const SIGNAL_LABELS = {
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
+  const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
   const [isPausing, setIsPausing] = useState(false)
   const [closingMap, setClosingMap] = useState({})
 
@@ -72,7 +74,46 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
-  const bestOpp = useMemo(() => strategyScannerResults[0] || { symbol: '---', pct: 0, dir: '---' }, [strategyScannerResults])
+  const proximityLeaderboard = useMemo(() => {
+    const list = strategyScannerResults || [];
+    const enabledSigs = strategyConfig.enabled_signals || [];
+    const scanThresh = strategyConfig.scan_pct_threshold || 2.0;
+
+    return list.map(opp => {
+      const isLong = opp.dir === 'long' || opp.pct >= 0;
+      const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
+
+      let sigSum = velocityProgress;
+      let count = 1;
+
+      if (opp.signalResult?.signals) {
+        for (const sigKey of enabledSigs) {
+          const s = opp.signalResult.signals[sigKey];
+          if (s) {
+            const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+            sigSum += prox;
+            count++;
+          }
+        }
+      }
+
+      const avgProximity = count > 0 ? sigSum / count : 0;
+      return {
+        ...opp,
+        proximity: opp.signalResult?.allFired ? 100 : Math.round(avgProximity)
+      };
+    }).sort((a, b) => b.proximity - a.proximity);
+  }, [strategyScannerResults, strategyConfig.enabled_signals, strategyConfig.scan_pct_threshold]);
+
+  const focusedOpp = useMemo(() => {
+    if (selectedFocusSymbol) {
+      const found = strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
+      if (found) return found;
+    }
+    return proximityLeaderboard[0] || strategyScannerResults[0] || { symbol: '---', pct: 0, dir: '---' };
+  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard]);
+
+  const bestOpp = focusedOpp;
   const scanMet = Math.abs(bestOpp.pct) >= strategyConfig.scan_pct_threshold
   const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] }
   const entryMet = scanMet && signalResult.allFired
@@ -201,6 +242,60 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           <ConditionWidget label={`Scanner: % Move (${strategyConfig.scan_interval})`} value={bestOpp.pct} threshold={strategyConfig.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
           <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={bestOpp.symbol !== '---' ? `[${bestOpp.symbol}] ${signalResult.reason || "Awaiting signals"}` : (signalResult.reason || "Waiting for structural signal")} />
         </div>
+
+      {/* Watchlist Proximity Leaderboard */}
+      {proximityLeaderboard.length > 0 && (
+        <div className="mb-5 bg-surface/40 border border-border/40 p-3.5 rounded-2xl text-left">
+          <div className="flex justify-between items-center mb-2.5">
+            <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
+              <Zap size={12} className="text-accent" /> Watchlist Proximity Leaderboard
+            </span>
+            <span className="text-[9px] font-mono text-dim/60 uppercase">Sorted by Proximity %</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+            {proximityLeaderboard.slice(0, 5).map(opp => {
+              const isSelected = focusedOpp.symbol === opp.symbol;
+              const isFired = opp.signalResult?.allFired;
+              return (
+                <button
+                  key={opp.symbol}
+                  type="button"
+                  onClick={() => setSelectedFocusSymbol(opp.symbol)}
+                  className={cn(
+                    "p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    isSelected
+                      ? "bg-accent/10 border-accent text-accent shadow-sm"
+                      : isFired
+                      ? "bg-green/5 border-green/30 text-green"
+                      : "bg-background/40 border-border/60 hover:border-border text-text"
+                  )}
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-black font-mono">{opp.symbol}</span>
+                    <span className={cn(
+                      "text-[9px] font-mono font-bold px-1.5 py-0.5 rounded",
+                      isFired ? "bg-green/20 text-green" : "bg-surface text-dim"
+                    )}>
+                      {opp.proximity}%
+                    </span>
+                  </div>
+
+                  <div className="h-1 bg-background/80 rounded-full overflow-hidden relative border border-white/5">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-500",
+                        isFired ? "bg-green" : opp.proximity > 80 ? "bg-accent" : "bg-dim/50"
+                      )}
+                      style={{ width: `${opp.proximity}%` }}
+                    />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
         {/* Real-time Technical Signal Checklist */}
         {strategyConfig.enabled_signals && strategyConfig.enabled_signals.length > 0 && (

@@ -362,6 +362,13 @@ export const LiveBadge = () => (
   </span>
 )
 
+export const BacktestBadge = () => (
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-cyan-400">
+    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+    Backtest
+  </span>
+)
+
 export const MonitoredBadge = React.memo(({ className, label = "Monitored" }) => (
   <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
     <ShieldCheck size={12} className="text-accent shrink-0" />
@@ -612,6 +619,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
+                  {tradingMode === 'backtest' && <BacktestBadge />}
                   {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
                 </div>
               </div>

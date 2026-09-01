@@ -237,6 +237,10 @@ export const createSessionAPI = (apiInstance = api) => ({
   deleteOrphans: () => apiInstance.delete('/session/trades/orphans'),
   getUntrackedPositions: () => apiInstance.get('/session/untracked-positions'),
   adoptPosition: (symbol, strategyLabel, initialSl, currentSl) => apiInstance.post('/session/adopt-position', { symbol, strategyLabel, initialSl, currentSl }),
+  backtest: (payload) => apiInstance.post('/session/backtest', {
+    ...payload,
+    config: sanitizeSessionConfig(payload.config || {}),
+  }),
 })
 
 export const sessionAPI = createSessionAPI()

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { SessionController } from '../trading/session.controller';
 import { SessionService } from '../trading/session.service';
+import { BacktestService } from '../engine/backtest.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('Sentinel: Parameter and Query Input Hardening', () => {
@@ -16,12 +17,20 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       closeTradeManually: jest.fn().mockResolvedValue({ success: true }),
     };
 
+    const mockBacktestService = {
+      runBacktest: jest.fn().mockResolvedValue({ totalTrades: 0 }),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       controllers: [SessionController],
       providers: [
         {
           provide: SessionService,
           useValue: mockSessionService,
+        },
+        {
+          provide: BacktestService,
+          useValue: mockBacktestService,
         },
         {
           provide: ConfigService,

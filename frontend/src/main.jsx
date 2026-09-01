@@ -32,7 +32,13 @@ const App = () => {
     setSessionActive, updateStats, setThrottled, sync, debugToolsEnabled
   } = store;
 
-  const [hydrated, setHydrated] = useState(useTradingStore.persist.hasHydrated());
+  const [hydrated, setHydrated] = useState(() => {
+    try {
+      return useTradingStore.persist.hasHydrated() || true;
+    } catch {
+      return true;
+    }
+  });
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -50,7 +56,14 @@ const App = () => {
       setHydrated(true);
     }
 
-    return () => unsub();
+    const fallbackTimer = setTimeout(() => {
+      setHydrated(true);
+    }, 500);
+
+    return () => {
+      unsub();
+      clearTimeout(fallbackTimer);
+    };
   }, []);
 
   const isHidden = useVisibility();

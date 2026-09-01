@@ -5,7 +5,7 @@ import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, Visuall
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
-import { settingsAPI, presetsAPI } from '../api/client'
+import { settingsAPI, presetsAPI, sessionAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -1035,6 +1035,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     { id: 'strategy', label: 'Strategy', icon: Zap },
     { id: 'risk', label: 'Risk', icon: ShieldCheck },
     { id: 'env', label: 'Env', icon: Briefcase },
+    { id: 'backtest', label: 'Backtest', icon: TrendingUp },
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
@@ -1095,11 +1096,218 @@ const EnvironmentButton = React.memo(({ mode, isSelected, onClick }) => (
       {isSelected && <CheckCircle2 size={16} className="text-accent" />}
     </div>
     <p className="text-[9px] text-dim font-bold uppercase tracking-widest">
-      {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : 'Real Capital'}
+      {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : mode === 'backtest' ? 'Historical Test' : 'Real Capital'}
     </p>
   </button>
 ))
 EnvironmentButton.displayName = 'EnvironmentButton'
+
+const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave }) => {
+  const [days, setDays] = useState(14);
+  const [startingBalance, setStartingBalance] = useState(10000);
+  const [symbolText, setSymbolSearchText] = useState(() => (cfg.symbols && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
+  const [isRunning, setIsRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const addAlert = useTradingStore(state => state.addAlert);
+
+  const handleRunBacktest = async () => {
+    setIsRunning(true);
+    setError(null);
+    try {
+      const configToRun = buildConfigToSave();
+      const parsedSymbols = symbolText.split(',').map(s => s.trim().toUpperCase()).filter(s => s.endsWith('USDT'));
+      const res = await sessionAPI.backtest({
+        config: configToRun,
+        symbols: parsedSymbols.length > 0 ? parsedSymbols : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+        days: Number(days),
+        startingBalance: Number(startingBalance),
+      });
+
+      if (res && res.data) {
+        setResult(res.data);
+        if (addAlert) {
+          addAlert({
+            level: 'success',
+            title: 'Backtest Completed',
+            message: `Completed in ${res.data.executionTimeMs}ms across ${res.data.totalTrades} trades! Total PnL: ${fmtUSD(res.data.totalPnl)}`,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[Backtest] Run error:', err);
+      const msg = err.response?.data?.message || err.message || 'Backtest failed.';
+      setError(msg);
+      if (addAlert) {
+        addAlert({ level: 'error', title: 'Backtest Error', message: msg });
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <div
+      id="config-panel-backtest"
+      role="tabpanel"
+      aria-labelledby="config-tab-backtest"
+      className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+    >
+      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+              <TrendingUp size={16} />
+            </div>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-tight">Backtesting Workbench</h3>
+              <p className="text-[9px] text-dim font-medium uppercase">Simulate strategy on Binance historical klines</p>
+            </div>
+          </div>
+          <Btn
+            variant="primary"
+            onClick={handleRunBacktest}
+            loading={isRunning}
+            className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+          >
+            {isRunning ? 'Running Simulation...' : 'Run Backtest'}
+          </Btn>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-border/40">
+          <div>
+            <label htmlFor="backtest-days" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Time Horizon (Days)</label>
+            <select
+              id="backtest-days"
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+            >
+              <option value={7}>7 Days (1 Week)</option>
+              <option value={14}>14 Days (2 Weeks)</option>
+              <option value={30}>30 Days (1 Month)</option>
+              <option value={60}>60 Days (2 Months)</option>
+              <option value={90}>90 Days (3 Months)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="backtest-balance" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Starting Capital ($)</label>
+            <input
+              id="backtest-balance"
+              type="number"
+              min={10}
+              step={100}
+              value={startingBalance}
+              onChange={(e) => setStartingBalance(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="backtest-symbols" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Target Symbol(s)</label>
+            <input
+              id="backtest-symbols"
+              type="text"
+              placeholder="BTCUSDT, ETHUSDT..."
+              value={symbolText}
+              onChange={(e) => setSymbolSearchText(e.target.value)}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red/10 border border-red/30 rounded-xl text-xs text-red font-semibold flex items-center gap-2">
+            <XCircle size={14} className="shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+
+      {result && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <StatCard label="Total PnL" value={`${fmtUSD(result.totalPnl)}`} subValue={`${result.pnlPct >= 0 ? '+' : ''}${result.pnlPct}%`} color={result.totalPnl >= 0 ? 'text-green' : 'text-red'} />
+            <StatCard label="Win Rate" value={`${result.winRate}%`} subValue={`${result.wins}W / ${result.losses}L (${result.totalTrades} Total)`} color="text-accent" />
+            <StatCard label="Profit Factor" value={`${result.profitFactor}`} subValue={`Avg Win: $${result.avgWin}`} color="text-purple-400" />
+            <StatCard label="Max Drawdown" value={`${result.maxDrawdownPct}%`} subValue={`$${result.maxDrawdown}`} color="text-red" />
+            <StatCard label="Expectancy" value={`$${result.expectancy}`} subValue={`Avg Trade: $${result.avgTradePnl}`} color="text-text" />
+            <StatCard label="Sharpe Ratio" value={`${result.sharpeRatio}`} subValue={`Fees: $${result.totalFees}`} color="text-text" />
+          </div>
+
+          {result.equityCurve && result.equityCurve.length > 0 && (
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Equity Curve ($)</span>
+                <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
+              </div>
+              <div className="h-28 w-full flex items-end gap-1 pt-2 px-1">
+                {result.equityCurve.map((pt, idx) => {
+                  const minBal = Math.min(...result.equityCurve.map(p => p.equity));
+                  const maxBal = Math.max(...result.equityCurve.map(p => p.equity));
+                  const range = Math.max(1, maxBal - minBal);
+                  const heightPct = Math.max(8, ((pt.equity - minBal) / range) * 100);
+                  const isUp = pt.equity >= result.startingBalance;
+
+                  return (
+                    <Tooltip key={idx} content={`$${pt.equity} (${pt.drawdownPct}% DD)`}>
+                      <div
+                        className={cn(
+                          "flex-1 rounded-t-sm transition-all hover:opacity-100 opacity-70",
+                          isUp ? "bg-accent" : "bg-red"
+                        )}
+                        style={{ height: `${heightPct}%` }}
+                      />
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {result.trades && result.trades.length > 0 && (
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Trade Log ({result.trades.length})</span>
+                <span className="text-[9px] text-dim font-bold">Taker Fee: 0.04% / side</span>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto no-scrollbar space-y-1.5 pr-1">
+                {result.trades.map((t) => {
+                  const isWin = t.pnl >= 0;
+                  return (
+                    <div key={t.id} className="flex items-center justify-between p-2.5 bg-surface/60 border border-border/40 rounded-xl text-xs font-mono">
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider",
+                          t.direction === 'LONG' ? "bg-green/10 text-green" : "bg-red/10 text-red"
+                        )}>
+                          {t.direction}
+                        </span>
+                        <span className="font-bold text-text">{t.symbol}</span>
+                        {t.is_knife && <span className="text-[9px]">🔪</span>}
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-[9px] text-dim/70 truncate max-w-[120px]">{t.exit_reason}</span>
+                        <span className={cn("font-bold font-mono", isWin ? "text-green" : "text-red")}>
+                          {isWin ? '+' : ''}${t.pnl} ({t.pnl_pct}%)
+                        </span>
+                        <span className="text-[9px] text-dim/60 font-mono w-10 text-right">{t.rr}R</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+BacktestWorkbenchPanel.displayName = 'BacktestWorkbenchPanel';
 
 const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant, sessionActive }, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
@@ -3500,8 +3708,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'adv_env'}
               onToggle={() => setOpenSectionId(openSectionId === 'adv_env' ? null : 'adv_env')}
             >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {['paper', 'testnet', 'live'].map(m => (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {['paper', 'testnet', 'live', 'backtest'].map(m => (
                   <EnvironmentButton
                     key={m}
                     mode={m}
@@ -3535,6 +3743,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
         )}
 
+        {section === 'backtest' && (
+          <BacktestWorkbenchPanel
+            cfg={cfg}
+            setField={setField}
+            buildConfigToSave={buildConfigToSave}
+            onSave={onSave}
+          />
+        )}
 
         {section === 'presets' && (
           <div

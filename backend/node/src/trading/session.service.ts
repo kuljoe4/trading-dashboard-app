@@ -1612,7 +1612,7 @@ export class SessionService implements OnModuleInit {
 
   private async finalizeOrphanedTrade(
     trade: TradeEntity,
-    mode: "live" | "paper" | "testnet",
+    mode: "live" | "paper" | "testnet" | "backtest",
     contextPrice?: number,
     contextReason?: string
   ): Promise<Partial<TradeEntity>> {

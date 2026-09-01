@@ -106,7 +106,12 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
         </div>
       }
     >
-      <div className="w-full cursor-help">
+      <div
+        tabIndex={0}
+        role="region"
+        aria-label={`Binance API Weight: ${rateLimit ? `${rateLimit.used_weight_1m} of ${rateLimit.limit} used` : 'Unknown'}`}
+        className="w-full cursor-help rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none p-0.5"
+      >
         <SystemMetric
           icon={Activity}
           label="Rate"

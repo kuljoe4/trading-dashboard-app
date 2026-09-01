@@ -55,5 +55,11 @@ describe("SessionController Query Parameter Validation", () => {
       await expect(controller.getLifetimeAnalytics("invalid" as any)).rejects.toThrow(BadRequestException);
       expect(mockSessionService.getLifetimeAnalytics).not.toHaveBeenCalled();
     });
+
+    it("should reject mode string exceeding maximum length constraint (> 20 chars)", async () => {
+      const longMode = "paper_long_invalid_string_exceeding_twenty_chars" as any;
+      await expect(controller.getLifetimeAnalytics(longMode)).rejects.toThrow(BadRequestException);
+      expect(mockSessionService.getLifetimeAnalytics).not.toHaveBeenCalled();
+    });
   });
 });

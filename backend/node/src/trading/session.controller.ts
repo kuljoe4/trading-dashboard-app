@@ -228,10 +228,13 @@ export class SessionController {
   async getLifetimeAnalytics(
     @Query("mode") mode: "paper" | "testnet" | "live",
   ) {
-    if (mode && (typeof mode !== "string" || !["paper", "testnet", "live"].includes(mode))) {
-      throw new BadRequestException(
-        "Invalid mode. Must be one of: paper, testnet, live",
-      );
+    // SENTINEL: Enforce type safety, maximum length constraint, and whitelisting to prevent ReDoS, HPP type confusion, and invalid query parameters.
+    if (mode) {
+      if (typeof mode !== "string" || mode.length > 20 || !["paper", "testnet", "live"].includes(mode)) {
+        throw new BadRequestException(
+          "Invalid mode. Must be one of: paper, testnet, live",
+        );
+      }
     }
     return this.sessionService.getLifetimeAnalytics(mode || "paper");
   }

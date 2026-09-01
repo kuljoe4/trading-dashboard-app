@@ -61,3 +61,7 @@
 ## 2026-08-31 - Confirmation Modal In-Flight Loading Backdrop & Accessible Button Standard
 **Learning:** Confirmation modals performing critical, asynchronous actions (such as emergency position liquidations) create UX and state-integrity risks if backdrop click-to-dismiss handlers or dialog close buttons remain active while requests are in flight. Guarding `onOpenChange` with `!loading`, switching the overlay backdrop to `cursor-wait`, disabling dialog close buttons during `loading={true}`, and supplying explicit `aria-label` and `type="button"` attributes ensures safe-by-default, WCAG-compliant dialog interactions.
 **Action:** Always guard dialog `onOpenChange` state dismissals against in-flight loading operations and enforce explicit button ARIA labels across confirmation modals.
+
+## 2026-09-01 - Informative System Metrics Tooltip & Keyboard Focus Standard
+**Learning:** Informative dashboard metric elements (such as rate limits or risk level badges) that render tooltips on mouse hover are often completely skipped during keyboard tabbing (`Tab` key) and ignored by screen readers if wrapped in plain, non-focusable `<div>` elements. Adding `tabIndex={0}`, dynamic/descriptive `aria-label` strings, and high-contrast theme focus rings (`focus-visible:ring-2 focus-visible:outline-none`) ensures screen readers announce the exact live values and keyboard users can reveal tooltips on focus.
+**Action:** Always ensure informative metric badges with tooltips feature `tabIndex={0}`, descriptive `aria-label` properties, and theme-aligned focus-visible rings.

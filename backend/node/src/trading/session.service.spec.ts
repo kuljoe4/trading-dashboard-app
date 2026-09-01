@@ -114,6 +114,18 @@ describe('SessionService Validation', () => {
       expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
     });
 
+    it('validates EMA Dual Cross & Dual Close with various parameter key aliases', () => {
+      const config1 = new SessionConfig();
+      config1.enabled_signals = ['ema_dual_cross'];
+      config1.signal_params = { ema_fast: 9, ema_slow: 21 };
+      expect(() => (service as any).validateConfig(config1)).not.toThrow();
+
+      const config2 = new SessionConfig();
+      config2.exit_signals = ['ema_dual_close'];
+      config2.signal_params = { exit_ema_fast: 9, exit_ema_slow: 21 };
+      expect(() => (service as any).validateConfig(config2)).not.toThrow();
+    });
+
     it('throws error if risk per trade exceeds max total risk', () => {
       const config = new SessionConfig();
       config.risk_pct_per_trade = 5;
@@ -613,7 +625,7 @@ describe('SessionService Validation', () => {
       });
     });
 
-    it('should block modification of immutable fields while session is running', async () => {
+    it('should block modification of starting balances while session is running', async () => {
       const sessionId = 'active-session-id';
       const existingSession = {
         id: sessionId,
@@ -632,6 +644,41 @@ describe('SessionService Validation', () => {
 
       const partialConfig = { paper_starting_balance: 20000 } as any;
       await expect(service.updateSession(sessionId, partialConfig)).rejects.toThrow('Cannot modify paper_starting_balance while session is running');
+    });
+
+    it('should allow hot-reloading strategy parameters on active running session with trading_mode in partialConfig', async () => {
+      const sessionId = 'active-running-id';
+      const existingSession = {
+        id: sessionId,
+        tradingMode: 'live',
+        paperMode: false,
+        config: {
+          strategy_label: 'Live Strategy',
+          trading_mode: 'live',
+          paper_mode: false,
+          max_trades_24h: 50,
+          risk_pct_per_trade: 1
+        }
+      };
+
+      mockQueryRunner.manager.findOne.mockResolvedValue(existingSession);
+      (service as any).sessionRunning = true;
+      (service as any).currentSessionId = sessionId;
+
+      const partialConfig = {
+        max_trades_24h: 100,
+        risk_pct_per_trade: 2,
+        trading_mode: 'paper' // Preset or form contains trading_mode: 'paper'
+      } as any;
+
+      const result = await service.updateSession(sessionId, partialConfig);
+
+      expect(result.status).toBe('updated');
+      expect(result.config.max_trades_24h).toBe(100);
+      expect(result.config.risk_pct_per_trade).toBe(2);
+      // Strictly preserves active session running mode 'live'
+      expect(result.config.trading_mode).toBe('live');
+      expect(result.config.paper_mode).toBe(false);
     });
 
     it('should reject updates with extraneous, un-decorated keys inside config', async () => {

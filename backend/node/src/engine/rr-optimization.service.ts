@@ -46,6 +46,11 @@ export interface RrOptimizationResult {
   ratchetProgressionEfficiency?: number;
   avgRatchetOscillations?: number;
 
+  // Frequency Shaping Optimization
+  hitRateRatio?: number;
+  recommendedMaxTradesPerPeriod?: number;
+  recommendedTradesPeriodMin?: number;
+
   // Recommended Strategy Settings
   recommendedMinTradeIntervalMin?: number;
   recommendedExitSignalDelayCandles?: number;
@@ -209,6 +214,9 @@ export class RrOptimizationService {
         ratchetOscillationRate: 0,
         ratchetProgressionEfficiency: 100,
         avgRatchetOscillations: 1.0,
+        hitRateRatio: 1.0,
+        recommendedMaxTradesPerPeriod: 2,
+        recommendedTradesPeriodMin: 60,
         recommendedMinTradeIntervalMin: 15,
         recommendedExitSignalDelayCandles: 1,
         recommendedBreakevenTimeoutCandles: 10,
@@ -257,6 +265,70 @@ export class RrOptimizationService {
     const avgRatchetOscillations = countMilestoneTrades > 0
       ? roundTo(1 + (countOscillationTrades / countMilestoneTrades) * 1.5, 1)
       : 1.0;
+
+    // Hit Rate Trend Ratio Analysis (Recent vs Baseline)
+    const halfIndex = Math.floor(n / 2);
+    let recentWins = 0;
+    let baselineWins = 0;
+
+    for (let i = 0; i < n; i++) {
+      if (tradeData[i].isWin) {
+        if (i >= halfIndex) recentWins++;
+        else baselineWins++;
+      }
+    }
+
+    const recentCount = n - halfIndex;
+    const baselineCount = halfIndex;
+
+    const recentWr = recentCount > 0 ? (recentWins / recentCount) * 100 : 50;
+    const baselineWr = baselineCount > 0 ? (baselineWins / baselineCount) * 100 : 50;
+
+    const hitRateRatio = roundTo(recentWr / Math.max(1, baselineWr), 2);
+
+    // Frequency Shaping Optimization Logic
+    let basePeriod = 60;
+    let baseLimit = 2;
+
+    if (trades.length > 0 && trades[0].strategy_config) {
+      if (trades[0].strategy_config.trades_period_min) basePeriod = trades[0].strategy_config.trades_period_min;
+      if (trades[0].strategy_config.max_trades_per_period) baseLimit = trades[0].strategy_config.max_trades_per_period;
+    }
+
+    let recLimit = baseLimit;
+    let recPeriod = basePeriod;
+    let shapingReasoning = '';
+
+    if (hitRateRatio >= 1.15) {
+      // Increasing Ratio (Expansion Regime: >= 1.15)
+      if (basePeriod <= 60) {
+        recLimit = baseLimit + 1;
+        recPeriod = 60;
+        shapingReasoning = `Hit rate ratio expanded to ${hitRateRatio}x (>= 1.15 upper threshold). Recommends increasing period limit to ${recLimit} trades per 60m period to capitalize on high-performance regime.`;
+      } else {
+        recLimit = baseLimit;
+        recPeriod = Math.max(60, basePeriod - 60);
+        shapingReasoning = `Hit rate ratio expanded to ${hitRateRatio}x (>= 1.15 upper threshold). Recommends reducing period duration by 1 hour (down to ${recPeriod}m) to allow higher entry frequency during high win-rate window.`;
+      }
+    } else if (hitRateRatio <= 0.85) {
+      // Decreasing Ratio (Contraction Regime: <= 0.85)
+      if (basePeriod <= 60) {
+        recLimit = Math.max(1, baseLimit - 1);
+        recPeriod = basePeriod + 60;
+        const minNote = baseLimit <= 1 ? ' (minimum limit floor of 1 trade enforced)' : '';
+        shapingReasoning = `Hit rate ratio contracted to ${hitRateRatio}x (<= 0.85 lower threshold). Recommends increasing period duration by 1 hour (up to ${recPeriod}m) and throttling max trades to ${recLimit}${minNote} to preserve capital during low win-rate window.`;
+      } else {
+        recLimit = Math.max(1, baseLimit - 1);
+        recPeriod = basePeriod;
+        const minNote = baseLimit <= 1 ? ' (minimum limit floor of 1 trade enforced)' : '';
+        shapingReasoning = `Hit rate ratio contracted to ${hitRateRatio}x (<= 0.85 lower threshold). Recommends reducing period limit to ${recLimit} trade(s)${minNote} per ${recPeriod}m period to preserve capital during low win-rate window.`;
+      }
+    } else {
+      // Neutral Ratio (0.85 < Ratio < 1.15)
+      recLimit = baseLimit;
+      recPeriod = basePeriod;
+      shapingReasoning = `Hit rate ratio is stable at ${hitRateRatio}x (within set threshold range 0.85 - 1.15). Recommends maintaining limit of ${recLimit} trades per ${recPeriod}m period.`;
+    }
 
     // Derived Recommendations for Strategy Settings
     const recommendedMinTradeIntervalMin = Math.max(1, Math.min(120, Math.round(avgDurationToBreakevenMs / 60000)));
@@ -449,6 +521,13 @@ export class RrOptimizationService {
           ? `${ratchetOscillationRate}% of milestone trades experienced pullback oscillations. Widening ratchet step spacing (1.0R, 2.5R, 4.5R) prevents routine market noise from triggering premature stop-outs.`
           : `Ratchet oscillation rate is low (${ratchetOscillationRate}%). Standard milestone spacing (0.5R, 1.5R, 3.0R) is effective for current market volatility.`,
         confidence: Math.min(95, Math.max(50, 45 + n)),
+      },
+      {
+        signalType: 'frequency_shaping',
+        parameterName: 'max_trades_per_period / trades_period_min',
+        recommendedValue: `${recLimit} trades / ${recPeriod}m`,
+        reasoning: shapingReasoning,
+        confidence: Math.min(95, Math.max(50, 50 + n)),
       }
     ];
 
@@ -473,6 +552,9 @@ export class RrOptimizationService {
       ratchetOscillationRate,
       ratchetProgressionEfficiency,
       avgRatchetOscillations,
+      hitRateRatio,
+      recommendedMaxTradesPerPeriod: recLimit,
+      recommendedTradesPeriodMin: recPeriod,
       recommendedMinTradeIntervalMin,
       recommendedExitSignalDelayCandles,
       recommendedBreakevenTimeoutCandles,

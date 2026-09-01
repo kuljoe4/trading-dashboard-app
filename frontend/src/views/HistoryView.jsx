@@ -2034,7 +2034,7 @@ export const HistoryView = () => {
                               </div>
                             </div>
                             {currentAnalytics.rrOptimization.ratchetOscillationRate !== undefined && (
-                              <div className="grid grid-cols-2 gap-1 pt-1 text-center">
+                              <div className="grid grid-cols-3 gap-1 pt-1 text-center">
                                 <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30">
                                   <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Ratchet Oscillations</span>
                                   <span className="text-[10px] font-bold font-mono text-accent">
@@ -2047,6 +2047,14 @@ export const HistoryView = () => {
                                     {currentAnalytics.rrOptimization.ratchetProgressionEfficiency}% Efficiency
                                   </span>
                                 </div>
+                                <Tooltip content="Hit Rate Ratio (Recent Win Rate / Baseline Win Rate). Thresholds: Expansion >= 1.15 (+1 trade limit or -60m period), Contraction <= 0.85 (-1 trade limit or +60m period). Minimum trade period limit enforced: 1 trade.">
+                                  <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30 cursor-help tab-focus-ring" tabIndex={0} role="region" aria-label="Frequency shaping hit rate ratio">
+                                    <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Hit Rate Ratio</span>
+                                    <span className="text-[10px] font-bold font-mono text-accent">
+                                      {currentAnalytics.rrOptimization.hitRateRatio || 1.0}x
+                                    </span>
+                                  </div>
+                                </Tooltip>
                               </div>
                             )}
                           </div>

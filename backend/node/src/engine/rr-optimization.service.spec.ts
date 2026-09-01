@@ -119,7 +119,7 @@ describe('RrOptimizationService', () => {
     const result = service.calculateRrOptimization(trades as TradeEntity[]);
     expect(result.recommendedExitSignals).toBeDefined();
     const signals = result.recommendedExitSignals!;
-    expect(signals.length).toBe(7);
+    expect(signals.length).toBe(8);
 
     const emaCloseRec = signals.find(r => r.signalType === 'ema_close');
     expect(emaCloseRec).toBeDefined();

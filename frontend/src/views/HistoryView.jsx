@@ -1893,7 +1893,7 @@ export const HistoryView = () => {
 
                 {/* 3.5 Strategy Calendar PnL */}
                 <div>
-                  <StrategyCalendarPnL trades={historyTrades || []} />
+                  <StrategyCalendarPnL trades={tradeHistory || []} />
                 </div>
 
                 {/* 4. RR Optimization */}

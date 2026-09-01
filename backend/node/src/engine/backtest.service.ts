@@ -205,6 +205,28 @@ export class BacktestService {
             const currentRr = slDist > 0 ? (currentPnl / pos.risk_usdt) : 0;
             if (currentRr > pos.peak_rr) pos.peak_rr = currentRr;
 
+            // Dynamic Trailing Stop Loss
+            const trailingEnabled = pos.is_knife
+              ? config.knife_trailing_enabled !== false
+              : config.trailing_stop_enabled === true;
+            const trailingDistancePct = pos.is_knife
+              ? (config.knife_trailing_distance_pct ?? 0.5)
+              : (config.trailing_stop_distance_pct ?? 1.0);
+
+            if (trailingEnabled && trailingDistancePct > 0) {
+              if (pos.direction === 'LONG') {
+                const trailSl = currentCandle.high * (1 - trailingDistancePct / 100);
+                if (trailSl > pos.current_sl) {
+                  pos.current_sl = trailSl;
+                }
+              } else { // SHORT
+                const trailSl = currentCandle.low * (1 + trailingDistancePct / 100);
+                if (trailSl < pos.current_sl) {
+                  pos.current_sl = trailSl;
+                }
+              }
+            }
+
             // Ratchet SL on Exponential RR sequence milestone
             if (config.tp_mode === 'exp_rr_seq' && config.live_rr_sequence && config.exit_rr_sequence) {
               const liveSeq = config.live_rr_sequence;
@@ -297,10 +319,17 @@ export class BacktestService {
           }
         }
 
-        if (isScannerCandidate && !activePositions.has(symbol) && activePositions.size < (config.max_open_trades || 5)) {
-          // Check per-symbol anti-whipsaw cooldown
+        // Check global SL guard limit (total_sl_guard_usdt)
+        const cumLoss = startingBalance - balance;
+        const totalSlGuardBreached = (config.total_sl_guard_usdt && config.total_sl_guard_usdt > 0)
+          ? cumLoss >= config.total_sl_guard_usdt
+          : false;
+
+        if (isScannerCandidate && !totalSlGuardBreached && !activePositions.has(symbol) && activePositions.size < (config.max_open_trades || 5)) {
+          // Check per-symbol anti-whipsaw cooldown and min_trade_interval_min
+          const minTradeIntervalMs = Math.max(intervalMs, (config.min_trade_interval_min || 0) * 60 * 1000);
           const lastExit = lastExitTsMap.get(symbol) || 0;
-          if (currentTs >= lastExit + intervalMs) {
+          if (currentTs >= lastExit + minTradeIntervalMs) {
             const entrySide = config.entry_side || 'both';
 
             // Test LONG entry
@@ -463,7 +492,15 @@ export class BacktestService {
     details?: any
   ) {
     const entryPrice = currentCandle.close;
-    const slDistPct = config.sl_distance_pct || 2.0;
+    let slDistPct = config.sl_distance_pct || 2.0;
+
+    // Apply SL floor/ceiling clamping (sl_min_pct & sl_max_pct)
+    if (config.sl_min_pct !== undefined && config.sl_min_pct > 0) {
+      slDistPct = Math.max(slDistPct, config.sl_min_pct);
+    }
+    if (config.sl_max_pct !== undefined && config.sl_max_pct > 0) {
+      slDistPct = Math.min(slDistPct, config.sl_max_pct);
+    }
 
     let initialSl = direction === 'LONG'
       ? entryPrice * (1 - slDistPct / 100)

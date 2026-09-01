@@ -4,6 +4,8 @@ import { SignalEngineService } from './signalEngine';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { roundTo } from '../lib/math';
+import { IsOptional, IsObject, ValidateNested, IsArray, IsString, IsNumber, Min, Max, IsBoolean } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export interface BacktestTradeDto {
   id: string;
@@ -56,10 +58,30 @@ export interface BacktestResultDto {
 }
 
 export class RunBacktestDto {
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => SessionConfig)
   config?: SessionConfig;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   symbols?: string[];
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(90)
   days?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(10)
   startingBalance?: number;
+
+  @IsOptional()
+  @IsBoolean()
   useGlobalScanner?: boolean;
 }
 

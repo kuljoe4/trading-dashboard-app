@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ENGINE_EVENTS } from './events';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 import { v4 as uuid } from 'uuid';
@@ -8,6 +10,10 @@ import { ConfigValidationException } from '../lib/exceptions';
 @Injectable()
 export class RiskEngineService {
   private readonly logger = new Logger(RiskEngineService.name);
+
+  constructor(
+    @Optional() @Inject(EventEmitter2) private readonly eventEmitter?: EventEmitter2,
+  ) {}
 
   // BOLT OPTIMIZATION: Cache for closed trade aggregates to avoid redundant O(N) scans
   private _closedStatsCache: {
@@ -497,15 +503,26 @@ export class RiskEngineService {
     bodyHigh?: number,
     supertrendSlPrice?: number,
     macdPbcSlPrice?: number
-  ): { slPrice: number; rejected: boolean; reason?: string } {
+  ): { slPrice: number; rejected: boolean; reason?: string; fallbackUsed?: boolean; fallbackReason?: string } {
     if (config.sl_type === 'trailing') {
-      return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
+      const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Trailing SL type selected, defaulting to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+      this.logger.log(`[RiskEngine] ${fallbackReason}`);
+      if (this.eventEmitter) {
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'info' });
+      }
+      const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
+      return { ...res, fallbackUsed: true, fallbackReason };
     }
 
     if (config.sl_type === 'supertrend') {
       if (supertrendSlPrice === undefined || supertrendSlPrice <= 0 || isNaN(supertrendSlPrice) || !isFinite(supertrendSlPrice)) {
-        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Supertrend stop-loss price unavailable or invalid (value: ${supertrendSlPrice}). Falling back to Pct SL.`);
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
+        const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Supertrend stop-loss price unavailable or invalid (${supertrendSlPrice}). Falling back to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+        this.logger.warn(`[RiskEngine] ${fallbackReason}`);
+        if (this.eventEmitter) {
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'warn' });
+        }
+        const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
+        return { ...res, fallbackUsed: true, fallbackReason };
       }
 
       const minPct = config.sl_min_pct ?? 0.3;
@@ -570,8 +587,13 @@ export class RiskEngineService {
           this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable. Using MACD PBC SL price: ${macdPbcSlPrice} as structural SL.`);
         } else {
           // Fallback to percentage if lookback data not available
-          this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL.`);
-          return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
+          const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+          this.logger.warn(`[RiskEngine] ${fallbackReason}`);
+          if (this.eventEmitter) {
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'warn' });
+          }
+          const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
+          return { ...res, fallbackUsed: true, fallbackReason };
         }
       } else {
         if (direction === 'LONG') {
@@ -657,8 +679,13 @@ export class RiskEngineService {
       }
 
       if (structuralSl === undefined || structuralSl <= 0) {
-        this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} Engulfing boundary unavailable. Falling back to Pct SL.`);
-        return this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
+        const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Engulfing boundary unavailable (${config.sl_type}). Falling back to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+        this.logger.warn(`[RiskEngine] ${fallbackReason}`);
+        if (this.eventEmitter) {
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'warn' });
+        }
+        const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' } as SessionConfig, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
+        return { ...res, fallbackUsed: true, fallbackReason };
       }
 
       const minPct = config.sl_min_pct ?? 0.3;

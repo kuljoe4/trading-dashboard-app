@@ -410,9 +410,9 @@ export class SessionConfig {
   @IsOptional()
   paper_mode?: boolean = true;
 
-  @IsEnum(['paper', 'testnet', 'live'])
+  @IsEnum(['paper', 'testnet', 'live', 'backtest'])
   @IsOptional()
-  trading_mode?: 'paper' | 'testnet' | 'live' = 'paper';
+  trading_mode?: 'paper' | 'testnet' | 'live' | 'backtest' = 'paper';
 
   @IsNumber()
   @Min(0)

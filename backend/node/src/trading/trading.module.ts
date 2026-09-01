@@ -38,6 +38,7 @@ import { RrOptimizationService } from '../engine/rr-optimization.service';
 import { EngineBroadcasterService } from '../engine/engine-broadcaster.service';
 import { GatingService } from '../engine/gating.service';
 import { MaintenanceService } from '../engine/maintenance.service';
+import { BacktestService } from '../engine/backtest.service';
 
 @Module({
   imports: [
@@ -69,10 +70,12 @@ import { MaintenanceService } from '../engine/maintenance.service';
     EngineBroadcasterService,
     GatingService,
     MaintenanceService,
+    BacktestService,
     ApiKeyGuard,
     BinanceClientFactory,
   ],
   exports: [
+    BacktestService,
     SignalEngineService,
     RiskEngineService,
     PositionTrackerService,

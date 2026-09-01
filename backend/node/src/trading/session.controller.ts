@@ -15,6 +15,7 @@ import {
 import { Request } from "express";
 import { plainToInstance } from "class-transformer";
 import { SessionService } from "./session.service";
+import { BacktestService, RunBacktestDto } from "../engine/backtest.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
 import { SessionConfig } from "../models/SessionConfig";
 import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto } from "./dto/session.dto";
@@ -24,7 +25,19 @@ import { extractIp } from "../lib/throttle";
 @Controller("session")
 @UseGuards(ApiKeyGuard)
 export class SessionController {
-  constructor(private readonly sessionService: SessionService) {}
+  constructor(
+    private readonly sessionService: SessionService,
+    private readonly backtestService: BacktestService,
+  ) {}
+
+  @Post("backtest")
+  async runBacktest(@Body() body: RunBacktestDto) {
+    const config = plainToInstance(SessionConfig, body.config || {});
+    return this.backtestService.runBacktest({
+      ...body,
+      config,
+    });
+  }
 
   @Post("start")
   async startSession(@Body() body: StartSessionDto, @Req() req: Request) {

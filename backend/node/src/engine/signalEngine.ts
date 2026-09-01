@@ -209,6 +209,7 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     minimal: boolean = false,
+    passedCandles?: Candle[],
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
     // BOLT OPTIMIZATION: Dynamically select correct active signals depending on purpose.
     // Avoids requiring caller to clone the config object on every check.
@@ -253,7 +254,7 @@ export class SignalEngineService {
       }
     }
 
-    const candles = this.klineStore.getRawCandles(symbol, interval);
+    const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
 
     // Warm-up check for technical indicators
     if (purpose === 'entry') {
@@ -321,9 +322,9 @@ export class SignalEngineService {
         if (signalInterval === 'default') {
           signalInterval = interval;
         }
-        const signalCandles = (signalInterval !== interval)
+        const signalCandles = passedCandles || ((signalInterval !== interval)
           ? this.klineStore.getRawCandles(symbol, signalInterval)
-          : candles;
+          : candles);
 
         const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal, signalType);
         const fired = typeof result === 'boolean' ? result : result.fired;

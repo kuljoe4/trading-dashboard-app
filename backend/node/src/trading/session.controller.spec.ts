@@ -1,6 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { SessionController } from "./session.controller";
 import { SessionService } from "./session.service";
+import { BacktestService } from "../engine/backtest.service";
 import { ConfigService } from "@nestjs/config";
 import { BadRequestException } from "@nestjs/common";
 import { plainToInstance } from "class-transformer";
@@ -22,6 +23,12 @@ describe("SessionController", () => {
             getTrade: jest.fn(),
             getHistory: jest.fn(),
             getLifetimeAnalytics: jest.fn(),
+          },
+        },
+        {
+          provide: BacktestService,
+          useValue: {
+            runBacktest: jest.fn().mockResolvedValue({ totalTrades: 0 }),
           },
         },
         {

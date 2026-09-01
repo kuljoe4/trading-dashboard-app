@@ -20,7 +20,7 @@ export interface TradeSerializationDto {
   entry_price: number;
   qty: number;
   paper_mode?: boolean;
-  trading_mode?: 'paper' | 'testnet' | 'live';
+  trading_mode?: 'paper' | 'testnet' | 'live' | 'backtest';
   exit_signals_status?: Record<string, any>;
   sl_adjustments?: any[];
   live_rr_sequence?: number[];

@@ -11,7 +11,11 @@ describe("SessionController Query Parameter Validation", () => {
       getLifetimeAnalytics: jest.fn().mockResolvedValue({ totalPnl: 0 }),
     };
 
-    controller = new SessionController(mockSessionService);
+    const mockBacktestService: any = {
+      runBacktest: jest.fn().mockResolvedValue({ totalTrades: 0 }),
+    };
+
+    controller = new SessionController(mockSessionService, mockBacktestService);
   });
 
   describe("getHistory", () => {

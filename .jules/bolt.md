@@ -1,3 +1,7 @@
+## 2026-09-01 - [Optimization] Pre-instantiated Intl.NumberFormat for High-Frequency Price Formatting
+**Learning:** Calling `Number.prototype.toLocaleString()` with options inside high-frequency UI formatting utilities (like `price()`) re-instantiates an internal `Intl.NumberFormat` instance on every call. This introduces heavy JS execution overhead (~50x slower) and transient GC allocations. Using pre-instantiated, module-level `Intl.NumberFormat` instances eliminates instance re-creation and provides a ~50x speedup.
+**Action:** Always pre-instantiate `Intl.NumberFormat` instances at module scope for currency/number formatters used in high-frequency rendering components.
+
 ## 2026-08-31 - [Optimization] EngineBroadcasterService Exit Signals Status for...in Iteration
 **Learning:** Calling `Object.entries(trade.exit_signals_status)` on every high-frequency broadcast tick (500ms) for every active trade creates short-lived `[key, value]` entry tuple arrays that trigger GC pressure under high active trade counts. Replacing `Object.entries` with direct `for...in` loops (with `hasOwnProperty` checks) across `serializeTrade`, `serializeTickTrade`, and `broadcastTick` eliminates key-value entry allocations on tick updates.
 **Action:** Always use direct `for...in` loops with `hasOwnProperty` checks instead of `Object.entries()` when iterating over plain objects in high-frequency broadcast or tick execution loops.

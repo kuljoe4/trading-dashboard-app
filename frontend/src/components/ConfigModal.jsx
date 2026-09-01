@@ -1106,6 +1106,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
   const [days, setDays] = useState(14);
   const [startingBalance, setStartingBalance] = useState(10000);
   const [symbolText, setSymbolSearchText] = useState(() => (cfg.symbols && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
+  const [useGlobalScanner, setUseGlobalScanner] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
@@ -1122,6 +1123,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
         symbols: parsedSymbols.length > 0 ? parsedSymbols : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
         days: Number(days),
         startingBalance: Number(startingBalance),
+        useGlobalScanner: Boolean(useGlobalScanner),
       });
 
       if (res && res.data) {
@@ -1210,11 +1212,23 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               id="backtest-symbols"
               type="text"
               placeholder="BTCUSDT, ETHUSDT..."
+              disabled={useGlobalScanner}
               value={symbolText}
               onChange={(e) => setSymbolSearchText(e.target.value)}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              className={cn(
+                "w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent",
+                useGlobalScanner && "opacity-50 cursor-not-allowed"
+              )}
             />
           </div>
+        </div>
+
+        <div className="flex items-center justify-between p-3 bg-surface/40 border border-border/30 rounded-xl">
+          <div className="flex flex-col text-left">
+            <span className="text-[10px] font-black uppercase tracking-widest text-text">Simulate Market-Wide Global Scanner</span>
+            <span className="text-[9px] text-dim font-medium uppercase mt-0.5">Filter & rank candidate opportunities across candidate symbols dynamically</span>
+          </div>
+          <Toggle value={useGlobalScanner} onChange={setUseGlobalScanner} color="bg-accent" />
         </div>
 
         {error && (

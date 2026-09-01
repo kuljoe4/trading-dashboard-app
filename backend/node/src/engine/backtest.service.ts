@@ -60,6 +60,7 @@ export class RunBacktestDto {
   symbols?: string[];
   days?: number;
   startingBalance?: number;
+  useGlobalScanner?: boolean;
 }
 
 @Injectable()
@@ -282,7 +283,21 @@ export class BacktestService {
         }
 
         // B. Evaluate Entry Signal if position slot available
-        if (!activePositions.has(symbol) && activePositions.size < (config.max_open_trades || 5)) {
+        const useGlobalScanner = dto.useGlobalScanner !== false;
+        let isScannerCandidate = true;
+
+        if (useGlobalScanner && !activePositions.has(symbol)) {
+          // Compute historical momentum over scan_lookback
+          const lookback = Math.max(config.scan_lookback || 3, 1);
+          if (prevCandlesSlice.length > lookback) {
+            const firstClose = prevCandlesSlice[prevCandlesSlice.length - 1 - lookback].close;
+            const lastClose = prevCandlesSlice[prevCandlesSlice.length - 1].close;
+            const momPct = Math.abs(((lastClose - firstClose) / firstClose) * 100);
+            isScannerCandidate = momPct >= (config.scan_pct_threshold || 2.0);
+          }
+        }
+
+        if (isScannerCandidate && !activePositions.has(symbol) && activePositions.size < (config.max_open_trades || 5)) {
           // Check per-symbol anti-whipsaw cooldown
           const lastExit = lastExitTsMap.get(symbol) || 0;
           if (currentTs >= lastExit + intervalMs) {

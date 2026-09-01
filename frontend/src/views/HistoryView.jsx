@@ -2007,6 +2007,58 @@ export const HistoryView = () => {
                           Analysis based on <span className="text-text font-bold">{currentAnalytics.rrOptimization.sampleSize}</span> trades.
                           Calculated using MFE (Maximum Favorable Excursion) sweep to identify statistical edge.
                         </p>
+                        {currentAnalytics.rrOptimization.avgDurationToBreakevenMs !== undefined && (
+                          <div className="mt-4 p-3 bg-background/50 rounded-xl border border-border/50 space-y-2">
+                            <div className="flex items-center justify-between text-[9px] text-accent font-bold uppercase">
+                              <span className="flex items-center gap-1.5"><Clock size={11} /> Time-to-Breakeven Dynamics</span>
+                              <span>{currentAnalytics.rrOptimization.breakevenEfficiencyRatio || 0}% BE Rate</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-1 pt-1 text-center">
+                              <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30">
+                                <span className="block text-[7px] text-dim font-black uppercase tracking-widest">BE Time</span>
+                                <span className="text-[10px] font-bold font-mono text-text">
+                                  {(currentAnalytics.rrOptimization.avgDurationToBreakevenMs / 60000).toFixed(1)}m
+                                </span>
+                              </div>
+                              <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30">
+                                <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Peak Time</span>
+                                <span className="text-[10px] font-bold font-mono text-text">
+                                  {((currentAnalytics.rrOptimization.avgDurationToPeakMs || 0) / 60000).toFixed(1)}m
+                                </span>
+                              </div>
+                              <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30">
+                                <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Loss Time</span>
+                                <span className="text-[10px] font-bold font-mono text-text">
+                                  {((currentAnalytics.rrOptimization.avgDurationToLossMs || 0) / 60000).toFixed(1)}m
+                                </span>
+                              </div>
+                            </div>
+                            {currentAnalytics.rrOptimization.ratchetOscillationRate !== undefined && (
+                              <div className="grid grid-cols-3 gap-1 pt-1 text-center">
+                                <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30">
+                                  <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Ratchet Oscillations</span>
+                                  <span className="text-[10px] font-bold font-mono text-accent">
+                                    {currentAnalytics.rrOptimization.ratchetOscillationRate}% Trades
+                                  </span>
+                                </div>
+                                <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30">
+                                  <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Peak Realization</span>
+                                  <span className="text-[10px] font-bold font-mono text-green">
+                                    {currentAnalytics.rrOptimization.ratchetProgressionEfficiency}% Efficiency
+                                  </span>
+                                </div>
+                                <Tooltip content="Hit Rate Ratio (Recent Win Rate / Baseline Win Rate). Thresholds: Expansion >= 1.15 (+1 trade limit or -60m period), Contraction <= 0.85 (-1 trade limit or +60m period). Minimum trade period limit enforced: 1 trade.">
+                                  <div className="bg-surface/40 p-1.5 rounded-lg border border-border/30 cursor-help tab-focus-ring" tabIndex={0} role="region" aria-label="Frequency shaping hit rate ratio">
+                                    <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Hit Rate Ratio</span>
+                                    <span className="text-[10px] font-bold font-mono text-accent">
+                                      {currentAnalytics.rrOptimization.hitRateRatio || 1.0}x
+                                    </span>
+                                  </div>
+                                </Tooltip>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         <div className="mt-4 p-3 bg-background/50 rounded-xl border border-border/50">
                           <div className="flex items-center gap-2 text-[9px] text-amber/80 font-bold uppercase mb-1">
                             <AlertTriangle size={10} />

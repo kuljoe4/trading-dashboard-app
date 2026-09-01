@@ -242,7 +242,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 };
 
 import { Sidebar, BottomNav } from '../components/Navigation'
-import { EquityCurve, TODPerformance, RrOptimizationChart } from '../components/Analytics'
+import { EquityCurve, TODPerformance, RrOptimizationChart, StrategyCalendarPnL } from '../components/Analytics'
 
 const price = (value) => {
   if (value == null || isNaN(Number(value))) return 'None'
@@ -1889,6 +1889,11 @@ export const HistoryView = () => {
                       <TODPerformance data={currentAnalytics?.timeOfDay || []} />
                     </React.Suspense>
                   </div>
+                </div>
+
+                {/* 3.5 Strategy Calendar PnL */}
+                <div>
+                  <StrategyCalendarPnL trades={historyTrades || []} />
                 </div>
 
                 {/* 4. RR Optimization */}

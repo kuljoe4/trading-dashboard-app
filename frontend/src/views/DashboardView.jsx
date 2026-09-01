@@ -325,9 +325,16 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono">
               {config.scan_interval} · {config.scan_pct_threshold}% Move
             </span>
-            <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1">
-              {s.entryCount || 0} Entries · {s.hitCount || 0} Hits
-            </span>
+            {(() => {
+              const hitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
+              const baselineWr = analytics?.overallWinRate || 50;
+              const hitRateRatio = baselineWr > 0 ? hitRate / baselineWr : 1.0;
+              return (
+                <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 font-mono">
+                  Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0}) · Ratio: {hitRateRatio.toFixed(2)}x
+                </span>
+              );
+            })()}
           </div>
         </div>
 

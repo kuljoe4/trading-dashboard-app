@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2
 } from 'lucide-react'
-import { EquityCurve } from '../components/Analytics'
+import { EquityCurve, StrategyCalendarPnL } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
@@ -40,7 +40,7 @@ const SIGNAL_LABELS = {
 };
 
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
-  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades } = useTradingStore()
+  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades, tradeHistory } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
   const [isPausing, setIsPausing] = useState(false)
@@ -73,6 +73,35 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
+
+  // Per-strategy performance metrics calculation
+  const stratPerformance = useMemo(() => {
+    const trades = tradeHistory || analytics?.trades || [];
+    const filtered = trades.filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label);
+    const total = filtered.length;
+    let wins = 0;
+    let losses = 0;
+    let sumPnl = 0;
+
+    for (let i = 0; i < total; i++) {
+      const pnl = Number(filtered[i].pnl || 0);
+      sumPnl += pnl;
+      if (pnl > 0) wins++;
+      else if (pnl < 0) losses++;
+    }
+
+    const hitRate = total > 0 ? (wins / total) * 100 : 0;
+    const overallWr = analytics?.overallWinRate || 50;
+    const hitRateRatio = overallWr > 0 ? hitRate / overallWr : 1.0;
+
+    return { total, wins, losses, sumPnl, hitRate, hitRateRatio };
+  }, [tradeHistory, analytics, s.strategy_label]);
+
+  const hitRateRatioText = stratPerformance.hitRateRatio >= 1.15
+    ? `${stratPerformance.hitRateRatio.toFixed(2)}x (Expanding)`
+    : stratPerformance.hitRateRatio <= 0.85
+    ? `${stratPerformance.hitRateRatio.toFixed(2)}x (Contracting)`
+    : `${stratPerformance.hitRateRatio.toFixed(2)}x (Stable)`;
 
   const proximityLeaderboard = useMemo(() => {
     const list = strategyScannerResults || [];
@@ -216,7 +245,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
          </div>
       </ViewHeader>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 md:gap-4 mb-6 md:mb-10">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-10">
         <StatCard
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
@@ -225,15 +254,34 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           syncing={showResumingFeedback || isSyncing || (analytics === null && s.activePnl === 0)}
         />
         <StatCard
+          label="Hit Rate %"
+          value={`${stratPerformance.hitRate.toFixed(1)}%`}
+          color={stratPerformance.hitRate >= 50 ? "text-green" : "text-amber"}
+          subValue={`${stratPerformance.wins}W / ${stratPerformance.losses}L (${stratPerformance.total} trades)`}
+          tooltipText="Strategy win rate percentage and hit count breakdown."
+        />
+        <StatCard
+          label="Hit Rate Ratio"
+          value={hitRateRatioText}
+          color={stratPerformance.hitRateRatio >= 1.15 ? "text-green" : stratPerformance.hitRateRatio <= 0.85 ? "text-amber" : "text-text"}
+          subValue={`Baseline Win Rate: ${(analytics?.overallWinRate || 50).toFixed(0)}%`}
+          tooltipText="Hit rate ratio relative to overall performance baseline. Thresholds: >= 1.15 Expansion, <= 0.85 Contraction."
+        />
+        <StatCard
           label="Active Trades"
           value={activeTradeCount.toString()}
           color={activeTradeCount > 0 ? "text-green" : "text-dim"}
           subValue={activeTradeCount > 0 ? "In Position" : "Flat"}
           tooltipText="The number of open positions currently managed under this strategy."
         />
-        <StatCard label="Hit Count" value={(s.entryCount ?? 0).toString()} color="text-accent" />
         <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)}`} subValue={`Limit $${strategyConfig.total_sl_guard_usdt}`} color={s.totalSlUsed > strategyConfig.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
         <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > strategyConfig.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
+      </div>
+
+      {/* Strategy Calendar PnL Breakdown */}
+      <div className="mb-10">
+        <SectionLabel>Strategy Performance Calendar</SectionLabel>
+        <StrategyCalendarPnL trades={tradeHistory || analytics?.trades || []} strategyFilter={s.strategy_label} />
       </div>
 
       <div className="mb-10">

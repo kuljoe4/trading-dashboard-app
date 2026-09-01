@@ -1,6 +1,7 @@
 import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
 import { fmtUSD, solveSmoothing } from '../lib/theme';
 import { cn, Tooltip } from '../components/ui/primitives';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react';
 
 const downsample = (data, threshold = 100) => {
   if (data.length <= threshold) return data;
@@ -279,6 +280,211 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
           />
         )}
       </svg>
+    </div>
+  );
+};
+
+export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessionFilter = 'ALL' }) => {
+  const [currentDate, setCurrentDate] = useState(new Date());
+
+  const handlePrevMonth = () => {
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  // Filter trades by strategy and session
+  const filteredTrades = useMemo(() => {
+    if (!Array.isArray(trades)) return [];
+    return trades.filter((t) => {
+      if (!t || t.status === 'OPEN' || !t.exit_ts) return false;
+      if (sessionFilter !== 'ALL' && t.sessionId !== sessionFilter) return false;
+      if (strategyFilter !== 'ALL') {
+        const label = t.strategy_label || 'Momentum Strategy';
+        if (label !== strategyFilter) return false;
+      }
+      return true;
+    });
+  }, [trades, strategyFilter, sessionFilter]);
+
+  // Aggregate daily stats: Map key 'YYYY-MM-DD' => { pnl, wins, losses, count }
+  const dailyStatsMap = useMemo(() => {
+    const map = new Map();
+    const len = filteredTrades.length;
+    for (let i = 0; i < len; i++) {
+      const t = filteredTrades[i];
+      const d = new Date(t.exit_ts);
+      if (isNaN(d.getTime())) continue;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+      let entry = map.get(key);
+      if (!entry) {
+        entry = { pnl: 0, wins: 0, losses: 0, count: 0 };
+        map.set(key, entry);
+      }
+      const pnl = Number(t.pnl || 0);
+      entry.pnl += pnl;
+      entry.count += 1;
+      if (pnl > 0) entry.wins += 1;
+      else if (pnl < 0) entry.losses += 1;
+    }
+    return map;
+  }, [filteredTrades]);
+
+  // Calendar Grid metadata
+  const { daysInMonth, startDayOfWeek, monthLabel, year, mNum } = useMemo(() => {
+    const y = currentDate.getFullYear();
+    const m = currentDate.getMonth();
+    const firstDay = new Date(y, m, 1);
+    const lastDay = new Date(y, m + 1, 0);
+
+    return {
+      daysInMonth: lastDay.getDate(),
+      startDayOfWeek: firstDay.getDay(),
+      monthLabel: currentDate.toLocaleString('default', { month: 'long' }),
+      year: y,
+      mNum: m + 1
+    };
+  }, [currentDate]);
+
+  // Monthly aggregated totals
+  const monthlySummary = useMemo(() => {
+    let monthlyPnl = 0;
+    let monthlyWins = 0;
+    let monthlyTrades = 0;
+
+    dailyStatsMap.forEach((stats, key) => {
+      const [yStr, mStr] = key.split('-');
+      if (Number(yStr) === year && Number(mStr) === mNum) {
+        monthlyPnl += stats.pnl;
+        monthlyWins += stats.wins;
+        monthlyTrades += stats.count;
+      }
+    });
+
+    const winRate = monthlyTrades > 0 ? (monthlyWins / monthlyTrades) * 100 : 0;
+    return { monthlyPnl, monthlyWins, monthlyTrades, winRate };
+  }, [dailyStatsMap, year, mNum]);
+
+  const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return (
+    <div className="space-y-4 bg-surface/30 border border-border/50 rounded-2xl p-4 sm:p-6" role="region" aria-label="Strategy calendar profit and loss breakdown">
+      {/* Header controls & monthly totals */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+            <CalendarIcon size={16} />
+          </div>
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-base font-black text-text uppercase tracking-tight">{monthLabel} {year}</span>
+              <span className="text-[10px] text-dim font-bold uppercase tracking-widest font-mono">({monthlySummary.monthlyTrades} Trades)</span>
+            </div>
+            <p className="text-[9.5px] text-dim/80 font-medium">Daily PnL breakdown filtered by strategy & session</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4 self-end sm:self-auto">
+          <div className="flex flex-col items-end">
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest">Monthly P&L</span>
+            <span className={cn("text-base font-black font-mono tracking-tight", monthlySummary.monthlyPnl >= 0 ? "text-green" : "text-red")}>
+              {fmtUSD(monthlySummary.monthlyPnl)}
+            </span>
+          </div>
+          <div className="flex flex-col items-end pl-3 border-l border-border/30">
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest">Win Rate</span>
+            <span className="text-sm font-bold font-mono text-text">
+              {monthlySummary.winRate.toFixed(0)}%
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 bg-background/50 border border-border/40 p-1 rounded-xl ml-2">
+            <button
+              type="button"
+              onClick={handlePrevMonth}
+              aria-label="Previous Month"
+              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={handleNextMonth}
+              aria-label="Next Month"
+              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Calendar Grid */}
+      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+        {daysOfWeek.map((day) => (
+          <div key={day} className="text-center text-[9px] text-dim font-black uppercase tracking-wider py-1">
+            {day}
+          </div>
+        ))}
+
+        {/* Empty cells before month start */}
+        {Array.from({ length: startDayOfWeek }).map((_, i) => (
+          <div key={`empty-${i}`} className="h-16 sm:h-20 rounded-xl bg-surface/10 border border-border/10 opacity-30" />
+        ))}
+
+        {/* Days of month */}
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const dayNum = i + 1;
+          const key = `${year}-${String(mNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+          const stats = dailyStatsMap.get(key);
+          const hasTrades = stats && stats.count > 0;
+          const isProfitable = hasTrades && stats.pnl >= 0;
+
+          const tooltipContent = hasTrades
+            ? `${key}: PnL ${fmtUSD(stats.pnl)}, ${stats.wins}W / ${stats.losses}L (${stats.count} total trades)`
+            : `${key}: No trades recorded`;
+
+          return (
+            <Tooltip key={key} content={tooltipContent}>
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label={tooltipContent}
+                className={cn(
+                  "h-16 sm:h-20 p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer tab-focus-ring",
+                  hasTrades
+                    ? isProfitable
+                      ? "bg-green/10 border-green/30 hover:border-green/60"
+                      : "bg-red/10 border-red/30 hover:border-red/60"
+                    : "bg-surface/20 border-border/20 hover:border-border/40"
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono font-bold text-dim group-hover:text-text">{dayNum}</span>
+                  {hasTrades && (
+                    <span className="text-[7.5px] font-black uppercase font-mono px-1 py-0.2 rounded bg-background/50 border border-border/20 text-dim">
+                      {stats.wins}W {stats.losses}L
+                    </span>
+                  )}
+                </div>
+
+                {hasTrades ? (
+                  <div className="flex flex-col items-end">
+                    <span className={cn("text-[11px] sm:text-xs font-black font-mono tracking-tight", isProfitable ? "text-green" : "text-red")}>
+                      {fmtUSD(stats.pnl)}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-[8px] text-dim/30 font-mono text-center mb-1">---</span>
+                )}
+              </div>
+            </Tooltip>
+          );
+        })}
+      </div>
     </div>
   );
 };

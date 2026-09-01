@@ -2748,6 +2748,54 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <p className="text-[11px] text-dim leading-relaxed font-medium">
                     Based on your actual history of <span className="text-text font-bold">{lifetimeAnalytics.rrOptimization.sampleSize}</span> closed trades, the statistical model recommends the following optimized parameter settings:
                   </p>
+
+                  {lifetimeAnalytics.rrOptimization.avgDurationToBreakevenMs !== undefined && (
+                    <div className="p-3 bg-surface/40 border border-border/40 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between text-[9.5px] font-black uppercase text-accent tracking-wider">
+                        <span className="flex items-center gap-1.5"><Clock size={12} /> Time-to-Breakeven Dynamics</span>
+                        <span className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[8.5px] font-mono font-bold">
+                          {lifetimeAnalytics.rrOptimization.breakevenEfficiencyRatio || 0}% BE Rate
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
+                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg BE Time</span>
+                          <span className="text-xs font-bold font-mono text-text">
+                            {(lifetimeAnalytics.rrOptimization.avgDurationToBreakevenMs / 60000).toFixed(1)}m
+                          </span>
+                        </div>
+                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
+                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg Peak Time</span>
+                          <span className="text-xs font-bold font-mono text-text">
+                            {((lifetimeAnalytics.rrOptimization.avgDurationToPeakMs || 0) / 60000).toFixed(1)}m
+                          </span>
+                        </div>
+                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
+                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg Loss Time</span>
+                          <span className="text-xs font-bold font-mono text-text">
+                            {((lifetimeAnalytics.rrOptimization.avgDurationToLossMs || 0) / 60000).toFixed(1)}m
+                          </span>
+                        </div>
+                      </div>
+                      {lifetimeAnalytics.rrOptimization.ratchetOscillationRate !== undefined && (
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/20 text-center">
+                          <div className="bg-background/40 p-1.5 rounded-lg border border-border/20">
+                            <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Oscillation Rate</span>
+                            <span className="text-[11px] font-bold font-mono text-accent">
+                              {lifetimeAnalytics.rrOptimization.ratchetOscillationRate}% Trades
+                            </span>
+                          </div>
+                          <div className="bg-background/40 p-1.5 rounded-lg border border-border/20">
+                            <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Peak Realization</span>
+                            <span className="text-[11px] font-bold font-mono text-green">
+                              {lifetimeAnalytics.rrOptimization.ratchetProgressionEfficiency}% Efficiency
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {lifetimeAnalytics.rrOptimization.recommendedExitSignals.map((rec) => (
                       <div key={rec.signalType} className="p-3 bg-surface/30 border border-border/40 rounded-xl flex flex-col gap-1.5 hover:border-accent/20 transition-all relative group/rec">
@@ -2782,6 +2830,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               setField('signal_params_macd_slow', slow);
                               setField('signal_params_macd_signal', signal);
                               addAlert({ level: 'success', title: 'Applied MACD Parameters', message: `Set MACD to ${fast}/${slow}/${signal}.` });
+                            } else if (rec.signalType === 'entry_spacing') {
+                              setField('min_trade_interval_min', Number(rec.recommendedValue));
+                              addAlert({ level: 'success', title: 'Applied Entry Spacing', message: `Set minimum trade interval to ${rec.recommendedValue}m based on TTBE.` });
+                            } else if (rec.signalType === 'exit_delays') {
+                              const val = String(rec.recommendedValue);
+                              setField('exit_signal_delays', { default: val });
+                              addAlert({ level: 'success', title: 'Applied Exit Delay', message: `Set default exit signal delay to ${val} based on TTBE.` });
+                            } else if (rec.signalType === 'ratchet_spacing') {
+                              const parts = String(rec.recommendedValue).split(' -> ');
+                              if (parts.length === 2) {
+                                const liveSeq = parts[0].split(',').map(s => Number(s.trim()));
+                                const exitSeq = parts[1].split(',').map(s => Number(s.trim()));
+                                setField('live_rr_sequence', liveSeq);
+                                setField('exit_rr_sequence', exitSeq);
+                                addAlert({ level: 'success', title: 'Applied Ratchet Milestones', message: `Updated Live/Exit RR sequences to ${parts[0]} -> ${parts[1]}.` });
+                              }
                             }
                           }}
                           className="absolute bottom-2 right-2 opacity-0 group-hover/rec:opacity-100 transition-opacity bg-accent text-white px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider hover:bg-accent/80 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"

@@ -93,7 +93,7 @@ describe('RrOptimizationService', () => {
     expect(result.curve[0].wins).toBe(0);
   });
 
-  it('generates recommended exit signal parameters based on trade stats', () => {
+  it('generates recommended exit signal parameters and strategy settings based on trade stats', () => {
     const trades: Partial<TradeEntity>[] = [];
     const baseTime = Date.now();
 
@@ -119,16 +119,34 @@ describe('RrOptimizationService', () => {
     const result = service.calculateRrOptimization(trades as TradeEntity[]);
     expect(result.recommendedExitSignals).toBeDefined();
     const signals = result.recommendedExitSignals!;
-    expect(signals.length).toBe(4);
+    expect(signals.length).toBe(7);
 
     const emaCloseRec = signals.find(r => r.signalType === 'ema_close');
     expect(emaCloseRec).toBeDefined();
     expect(emaCloseRec!.parameterName).toBe('exit_ema_period');
-    expect(emaCloseRec!.recommendedValue).toBe(5); // Math.max(5, Math.round(10/3)) = 5
 
     const supertrendRec = signals.find(r => r.signalType === 'supertrend');
     expect(supertrendRec).toBeDefined();
     expect(supertrendRec!.parameterName).toBe('supertrend_period / supertrend_multiplier');
+
+    const entrySpacingRec = signals.find(r => r.signalType === 'entry_spacing');
+    expect(entrySpacingRec).toBeDefined();
+    expect(entrySpacingRec!.parameterName).toBe('min_trade_interval_min');
+
+    const ratchetSpacingRec = signals.find(r => r.signalType === 'ratchet_spacing');
+    expect(ratchetSpacingRec).toBeDefined();
+    expect(ratchetSpacingRec!.parameterName).toBe('live_rr_sequence / exit_rr_sequence');
+
+    // Time-to-breakeven & ratchet oscillation dynamics metrics
+    expect(result.avgDurationMs).toBe(10 * 60000);
+    expect(result.avgDurationToBreakevenMs).toBeGreaterThan(0);
+    expect(result.avgDurationToBreakevenCandles).toBeGreaterThan(0);
+    expect(result.breakevenEfficiencyRatio).toBe(100);
+    expect(result.ratchetOscillationRate).toBeDefined();
+    expect(result.ratchetProgressionEfficiency).toBeDefined();
+    expect(result.avgRatchetOscillations).toBeGreaterThan(0);
+    expect(result.recommendedMinTradeIntervalMin).toBeGreaterThan(0);
+    expect(result.recommendedExitSignalDelayCandles).toBeGreaterThan(0);
   });
 
   describe('BOLT OPTIMIZATION: Performance Benchmark', () => {

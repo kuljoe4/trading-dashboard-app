@@ -225,6 +225,7 @@ const BanBanner = ({ apiStatus }) => {
 
 // --- Strategy Card ---
 export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter }) => {
+  const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 

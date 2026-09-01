@@ -531,15 +531,27 @@ export class SessionService implements OnModuleInit {
       ...(config.exit_signals || []),
     ];
 
-    if (allEnabled.includes("ema_dual_cross")) {
-      const fast = parseInt(
-        signalParams.entry_ema_fast || signalParams.exit_ema_fast || "0",
-        10,
+    if (allEnabled.includes("ema_dual_cross") || allEnabled.includes("ema_dual_close")) {
+      const fastStr = String(
+        signalParams.entry_ema_fast ??
+        signalParams.exit_ema_fast ??
+        signalParams.ema_fast ??
+        signalParams.ema_dual_cross_fast ??
+        signalParams.ema_dual_close_fast ??
+        signalParams.fast_ema ??
+        "0"
       );
-      const slow = parseInt(
-        signalParams.entry_ema_slow || signalParams.exit_ema_slow || "0",
-        10,
+      const slowStr = String(
+        signalParams.entry_ema_slow ??
+        signalParams.exit_ema_slow ??
+        signalParams.ema_slow ??
+        signalParams.ema_dual_cross_slow ??
+        signalParams.ema_dual_close_slow ??
+        signalParams.slow_ema ??
+        "0"
       );
+      const fast = parseInt(fastStr, 10);
+      const slow = parseInt(slowStr, 10);
       if (fast <= 0 || slow <= 0)
         throw new BadRequestException(
           "EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)",
@@ -2135,9 +2147,14 @@ export class SessionService implements OnModuleInit {
 
       if (!session) throw new NotFoundException("Session not found");
 
-      // DATA-CONSISTENCY: Block modification of immutable fields while session is running
+      // DATA-CONSISTENCY: Block modification of starting balances while session is running
       if (this.sessionRunning && this.currentSessionId === id) {
-        for (const field of SessionService.IMMUTABLE_SESSION_FIELDS) {
+        const startingBalanceFields = [
+          "paper_starting_balance",
+          "testnet_starting_balance",
+          "live_starting_balance",
+        ];
+        for (const field of startingBalanceFields) {
           const typedPartial = partialConfig as any;
           if (
             typedPartial[field] !== undefined &&

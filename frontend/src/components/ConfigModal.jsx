@@ -1085,15 +1085,20 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 })
 SectionTabs.displayName = 'SectionTabs'
 
-const EnvironmentButton = React.memo(({ mode, isSelected, onClick }) => (
+const EnvironmentButton = React.memo(({ mode, isSelected, onClick, disabled = false }) => (
   <button
     type="button"
+    disabled={disabled}
     onClick={() => onClick(mode)}
-    className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover")}
+    className={cn(
+      "p-4 rounded-xl border-2 text-left transition-all relative group",
+      isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover",
+      disabled && !isSelected && "opacity-50 cursor-not-allowed hover:border-border"
+    )}
   >
     <div className="flex items-center justify-between mb-1">
       <span className="text-xs font-black uppercase tracking-tighter capitalize">{mode}</span>
-      {isSelected && <CheckCircle2 size={16} className="text-accent" />}
+      {isSelected ? <CheckCircle2 size={16} className="text-accent" /> : disabled ? <Lock size={14} className="text-dim" /> : null}
     </div>
     <p className="text-[9px] text-dim font-bold uppercase tracking-widest">
       {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : mode === 'backtest' ? 'Historical Test' : 'Real Capital'}
@@ -2218,6 +2223,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     delete cleanedConfig.paused;
     delete cleanedConfig.paused_strategies;
 
+    if (isEdit || sessionActive) {
+      cleanedConfig.trading_mode = cfg.trading_mode;
+      cleanedConfig.paper_mode = cfg.paper_mode;
+    }
+
     const next = flattenConfig(cleanedConfig);
     setCfg(next);
     setLoadedPresetName(p.name);
@@ -2225,8 +2235,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setPresetLoaded(true);
     validate(next);
     setIsDirty(false);
-    addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
-  }, [validate, addAlert]);
+    addAlert({
+      level: 'success',
+      title: 'Preset Loaded',
+      message: (isEdit || sessionActive)
+        ? `Preset "${p.name}" strategy parameters loaded into active ${cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'} session.`
+        : `Active configuration set to "${p.name}".`
+    });
+  }, [validate, addAlert, isEdit, sessionActive, cfg.trading_mode, cfg.paper_mode]);
 
   const deletePreset = React.useCallback(async (name) => {
     if (sessionActive) {
@@ -3793,9 +3809,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     mode={m}
                     isSelected={cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)}
                     onClick={handleModeSelect}
+                    disabled={isEdit && m !== cfg.trading_mode}
                   />
                 ))}
               </div>
+              {isEdit && (
+                <div className="mt-3 p-3 bg-accent/10 border border-accent/20 rounded-lg flex items-start gap-2.5 text-xs text-text-muted">
+                  <Lock size={16} className="text-accent flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-text-primary">Execution Mode Fixed: </span>
+                    Trading mode ({cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'}) is fixed while this session is running. Strategy parameters hot-reload dynamically on save.
+                  </div>
+                </div>
+              )}
               {modeWarning && (
                 <div className="mt-4 p-3 bg-orange/10 border border-orange/30 rounded-lg flex items-start gap-3 animate-in slide-in-from-top">
                   <XCircle size={16} className="text-orange mt-0.5 flex-shrink-0" />

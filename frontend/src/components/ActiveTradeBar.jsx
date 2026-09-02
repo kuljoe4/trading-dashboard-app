@@ -82,10 +82,11 @@ export const ActiveTradeBar = React.memo(() => {
               <div key={t.symbol} className="flex flex-col gap-1" role="listitem">
                 <Tooltip content={`Click to liquidate ${t.symbol} position`}>
                   <button
+                    type="button"
                     onClick={() => setClosingSymbol(t.symbol)}
-                    aria-label={`Close ${t.symbol} position`}
+                    aria-label={`Close ${t.symbol} ${t.direction || ''} position (${fmtUSD(t.pnl)})`}
                     className={cn(
-                      "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40"
+                      "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40 cursor-pointer"
                     )}
                   >
                     <div className="flex items-center gap-1.5">
@@ -98,9 +99,15 @@ export const ActiveTradeBar = React.memo(() => {
                   </button>
                 </Tooltip>
                 <div className="flex items-center justify-center px-1">
-                   <span className={cn("text-[8px] font-mono font-bold uppercase tracking-tighter opacity-60", pnlClass(slPnl))}>
-                     SL: {fmtUSD(slPnl)}
-                   </span>
+                  <Tooltip content={`Estimated Stop Loss PnL: ${fmtUSD(slPnl)}`}>
+                    <span
+                      tabIndex={0}
+                      aria-label={`Estimated Stop Loss PnL for ${t.symbol}: ${fmtUSD(slPnl)}`}
+                      className={cn("text-[8px] font-mono font-bold uppercase tracking-tighter opacity-60 cursor-help focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded-sm px-0.5", pnlClass(slPnl))}
+                    >
+                      SL: {fmtUSD(slPnl)}
+                    </span>
+                  </Tooltip>
                 </div>
               </div>
             )

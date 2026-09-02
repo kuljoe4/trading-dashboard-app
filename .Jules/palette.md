@@ -65,3 +65,7 @@
 ## 2026-09-01 - Informative System Metrics Tooltip & Keyboard Focus Standard
 **Learning:** Informative dashboard metric elements (such as rate limits or risk level badges) that render tooltips on mouse hover are often completely skipped during keyboard tabbing (`Tab` key) and ignored by screen readers if wrapped in plain, non-focusable `<div>` elements. Adding `tabIndex={0}`, dynamic/descriptive `aria-label` strings, and high-contrast theme focus rings (`focus-visible:ring-2 focus-visible:outline-none`) ensures screen readers announce the exact live values and keyboard users can reveal tooltips on focus.
 **Action:** Always ensure informative metric badges with tooltips feature `tabIndex={0}`, descriptive `aria-label` properties, and theme-aligned focus-visible rings.
+
+## 2026-09-02 - Active Position Bar Button Semantics and Landmark Role Avoidance
+**Learning:** Adding `role="region"` to small inline UI elements (such as estimated Stop Loss PnL badges inside active position bars) violates WAI-ARIA landmark guidelines and creates landmark pollution for screen readers. Instead, making inline informative badges focusable (`tabIndex={0}`) with explicit `aria-label` descriptions, Radix `<Tooltip>` wrappers, and focus-visible rings (`focus-visible:ring-1 focus-visible:ring-accent`) provides full keyboard and screen reader accessibility without landmark clutter.
+**Action:** Never apply landmark roles (`role="region"`) to small inline badges or buttons; use `tabIndex={0}` and descriptive `aria-label` attributes instead.

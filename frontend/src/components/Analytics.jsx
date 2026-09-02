@@ -389,14 +389,14 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
 
         <div className="flex items-center gap-4 self-end sm:self-auto">
           <div className="flex flex-col items-end">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest">Monthly P&L</span>
-            <span className={cn("text-base font-black font-mono tracking-tight", monthlySummary.monthlyPnl >= 0 ? "text-green" : "text-red")}>
+            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest">Monthly P&L</span>
+            <span className={cn("text-base sm:text-lg font-black font-mono tracking-tight", monthlySummary.monthlyPnl >= 0 ? "text-green" : "text-red")}>
               {fmtUSD(monthlySummary.monthlyPnl)}
             </span>
           </div>
           <div className="flex flex-col items-end pl-3 border-l border-border/30">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest">Win Rate</span>
-            <span className="text-sm font-bold font-mono text-text">
+            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest">Win Rate</span>
+            <span className="text-base sm:text-lg font-black font-mono text-text">
               {monthlySummary.winRate.toFixed(0)}%
             </span>
           </div>
@@ -432,7 +432,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
 
         {/* Empty cells before month start */}
         {Array.from({ length: startDayOfWeek }).map((_, i) => (
-          <div key={`empty-${i}`} className="min-h-[48px] sm:min-h-[64px] rounded-xl bg-surface/10 border border-border/10 opacity-30" />
+          <div key={`empty-${i}`} className="min-h-[58px] sm:min-h-[72px] rounded-xl bg-surface/10 border border-border/10 opacity-30" />
         ))}
 
         {/* Days of month */}
@@ -454,7 +454,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
                 role="region"
                 aria-label={tooltipContent}
                 className={cn(
-                  "min-h-[48px] sm:min-h-[64px] p-1 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer tab-focus-ring overflow-hidden",
+                  "min-h-[58px] sm:min-h-[72px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer tab-focus-ring overflow-hidden",
                   hasTrades
                     ? isProfitable
                       ? "bg-green/10 border-green/30 hover:border-green/60"
@@ -463,22 +463,24 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
                 )}
               >
                 <div className="flex items-center justify-between gap-0.5 w-full min-w-0">
-                  <span className="text-[9px] sm:text-[10px] font-mono font-bold text-dim group-hover:text-text shrink-0">{dayNum}</span>
+                  <span className="text-[9.5px] sm:text-[11px] font-mono font-bold text-dim group-hover:text-text shrink-0">{dayNum}</span>
                   {hasTrades && (
-                    <span className="text-[6.5px] xs:text-[7.5px] font-black uppercase font-mono px-0.5 sm:px-1 py-0.2 rounded bg-background/50 border border-border/20 text-dim truncate">
-                      {stats.wins}W {stats.losses}L
+                    <span className="text-[6.5px] xs:text-[7.5px] font-black uppercase font-mono px-1 py-0.2 rounded bg-background/60 border border-border/20 text-dim truncate">
+                      {stats.wins}W/{stats.losses}L
                     </span>
                   )}
                 </div>
 
                 {hasTrades ? (
-                  <div className="flex flex-col items-end w-full min-w-0">
-                    <span className={cn("text-[9.5px] xs:text-[11px] sm:text-xs font-black font-mono tracking-tight truncate w-full text-right", isProfitable ? "text-green" : "text-red")}>
+                  <div className="flex flex-col items-end w-full min-w-0 mt-1">
+                    <span className={cn("text-[9px] xs:text-[10.5px] sm:text-xs font-black font-mono tracking-tight truncate w-full text-right leading-tight", isProfitable ? "text-green" : "text-red")}>
                       {fmtUSD(stats.pnl)}
                     </span>
                   </div>
                 ) : (
-                  <span className="text-[7.5px] text-dim/30 font-mono text-center mb-0.5">---</span>
+                  <div className="flex items-center justify-center w-full my-auto">
+                    <span className="w-1 h-1 rounded-full bg-dim/20" />
+                  </div>
                 )}
               </div>
             </Tooltip>
@@ -761,52 +763,57 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
   const activePoint = hoverData || points[points.length - 1];
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full overflow-hidden select-none"
-      style={{ height: `${height}px` }}
-      onMouseMove={(e) => handleInteraction(e.clientX)}
-      onTouchMove={(e) => e.touches[0] && handleInteraction(e.touches[0].clientX)}
-      onMouseLeave={() => setHoverData(null)}
-      role="region"
-      aria-label={`Strategy Performance Overlay chart, latest PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%.`}
-    >
-      <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-background/80 backdrop-blur-md px-2.5 py-1 rounded-xl border border-border/50 text-xs font-mono shadow-sm flex-wrap">
-        <span className="text-dim text-[10px] uppercase tracking-wider font-sans font-bold">
-          {hoverData ? `Trade #${hoverData.tradeIndex} (${hoverData.symbol})` : 'Overall Strategy Stats'}
-        </span>
-        {showPnl && (
-          <span className={cn("font-bold", (activePoint?.cumPnl || 0) >= 0 ? "text-green" : "text-red")}>
-            PnL: {fmtUSD(activePoint?.cumPnl)}
+    <div className="flex flex-col gap-2 w-full select-none">
+      {/* Static Non-Obscuring Metric Header Bar Above Chart Frame */}
+      <div className="flex items-center justify-between gap-3 px-1 flex-wrap text-xs font-mono">
+        <div className="flex items-center gap-2.5 flex-wrap">
+          <span className="text-[10px] text-dim/70 uppercase tracking-wider font-sans font-bold">
+            {hoverData ? `Trade #${hoverData.tradeIndex} (${hoverData.symbol})` : 'Current Strategy Totals'}
           </span>
-        )}
-        {showHitRate && (
-          <span className="font-bold text-accent">
-            Hit Rate: {Number(activePoint?.hitRate || 0).toFixed(1)}%
-          </span>
-        )}
+          {showPnl && (
+            <span className={cn("font-bold text-xs font-mono", (activePoint?.cumPnl || 0) >= 0 ? "text-green" : "text-red")}>
+              PnL: {fmtUSD(activePoint?.cumPnl)}
+            </span>
+          )}
+          {showHitRate && (
+            <span className="font-bold text-xs font-mono text-accent">
+              Hit Rate: {Number(activePoint?.hitRate || 0).toFixed(1)}%
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 text-[8.5px] font-mono text-dim/60">
+          {showPnl && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL Scale (Left)</span>}
+          {showHitRate && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate % (Right)</span>}
+        </div>
       </div>
 
-      <div className="absolute top-2 right-2 z-10 flex items-center gap-3 text-[8.5px] font-mono text-dim/70">
-        {showPnl && <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL Scale (Left)</span>}
-        {showHitRate && <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate % (Right)</span>}
-      </div>
-
-      <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="var(--color-green)" stopOpacity="0.0" />
-          </linearGradient>
-          <linearGradient id={`${pnlGradientId}-neg`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.28" />
-            <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0.0" />
-          </linearGradient>
-          <filter id={`${chartId}-glow`} x="-20%" y="-20%" width="140%" height="140%">
-            <feGaussianBlur stdDeviation="1.5" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-        </defs>
+      {/* Chart Frame */}
+      <div
+        ref={containerRef}
+        className="relative w-full overflow-hidden"
+        style={{ height: `${height}px` }}
+        onMouseMove={(e) => handleInteraction(e.clientX)}
+        onTouchMove={(e) => e.touches[0] && handleInteraction(e.touches[0].clientX)}
+        onMouseLeave={() => setHoverData(null)}
+        role="region"
+        aria-label={`Strategy Performance Overlay chart, latest PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%.`}
+      >
+        <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="var(--color-green)" stopOpacity="0.0" />
+            </linearGradient>
+            <linearGradient id={`${pnlGradientId}-neg`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.18" />
+              <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0.0" />
+            </linearGradient>
+            <filter id={`${chartId}-glow`} x="-10%" y="-10%" width="120%" height="120%">
+              <feGaussianBlur stdDeviation="0.8" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+          </defs>
 
         {/* Background Grid Lines & Ticks */}
         {[0, 25, 50, 75, 100].map(y => (
@@ -848,7 +855,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
             d={pnlPathD}
             fill="none"
             stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
-            strokeWidth="2.2"
+            strokeWidth="1.0"
             strokeLinecap="round"
             strokeLinejoin="round"
             filter={`url(#${chartId}-glow)`}
@@ -860,8 +867,8 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
             d={hrPathD}
             fill="none"
             stroke="var(--color-accent)"
-            strokeWidth="2"
-            strokeDasharray={showPnl ? '3,2' : 'none'}
+            strokeWidth="1.5"
+            strokeDasharray={showPnl ? '2.5,2' : 'none'}
             strokeLinecap="round"
             strokeLinejoin="round"
             filter={`url(#${chartId}-glow)`}

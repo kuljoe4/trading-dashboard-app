@@ -1769,10 +1769,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       sigAbbr = 'Multi';
     }
 
-    const parts = [tf, sigAbbr, risk].filter(Boolean);
+    let modifier = '';
+    if (cfg.trailing_stop_enabled) {
+      modifier = 'Trail';
+    } else if (cfg.sl_distance_pct !== undefined && cfg.sl_distance_pct !== null && cfg.sl_distance_pct !== '') {
+      modifier = `${cfg.sl_distance_pct}SL`;
+    } else if (cfg.tp_ratio !== undefined && cfg.tp_ratio !== null && cfg.tp_ratio !== '') {
+      modifier = `${cfg.tp_ratio}R`;
+    }
+
+    const parts = [tf, sigAbbr, risk, modifier].filter(Boolean);
     const name = parts.join(' ');
-    return name.length > 20 ? name.slice(0, 20).trim() : name;
-  }, [cfg.scan_interval, cfg.risk_pct_per_trade, cfg.enabled_signals]);
+    return name.length > 22 ? name.slice(0, 22).trim() : name;
+  }, [cfg.scan_interval, cfg.risk_pct_per_trade, cfg.enabled_signals, cfg.sl_distance_pct, cfg.tp_ratio, cfg.trailing_stop_enabled]);
 
   useEffect(() => {
     const loadPresets = async () => {

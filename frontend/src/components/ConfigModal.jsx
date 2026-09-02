@@ -3036,7 +3036,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   )}
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {lifetimeAnalytics.rrOptimization.recommendedExitSignals.map((rec) => (
+                    {(Array.isArray(lifetimeAnalytics?.rrOptimization?.recommendedExitSignals) ? lifetimeAnalytics.rrOptimization.recommendedExitSignals : []).map((rec) => (
                       <div key={rec.signalType} className="p-3 bg-surface/30 border border-border/40 rounded-xl flex flex-col gap-1.5 hover:border-accent/20 transition-all relative group/rec">
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] text-text font-black uppercase tracking-wider">{rec.signalType.replace(/_/g, ' ')}</span>

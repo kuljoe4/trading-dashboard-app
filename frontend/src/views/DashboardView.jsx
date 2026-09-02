@@ -1722,25 +1722,19 @@ export function DashboardView({ initialStrategy }) {
                           <span>UDS Sync {udsTimeAgo}</span>
                         </div>
                       )}
-                      {(() => {
-                        const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
-                        const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
-                        return (
-                          <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
-                            <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} ({fundPct.toFixed(2)}%)</span></span>
+                      <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
+                        <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)}</span></span>
+                        <span>•</span>
+                        <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)}</span></span>
+                        {lastUdsBalanceReason && (
+                          <>
                             <span>•</span>
-                            <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)} ({commPct.toFixed(2)}%)</span></span>
-                            {lastUdsBalanceReason && (
-                              <>
-                                <span>•</span>
-                                <span className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase" title={udsTimeAgo ? `Balance event ${udsTimeAgo}` : 'Latest balance event'}>
-                                  ⚡ {lastUdsBalanceReason} {udsTimeAgo && <span className="text-dim font-normal font-sans ml-0.5">({udsTimeAgo})</span>}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })()}
+                            <span className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase" title={udsTimeAgo ? `Balance event ${udsTimeAgo}` : 'Latest balance event'}>
+                              ⚡ {lastUdsBalanceReason} {udsTimeAgo && <span className="text-dim font-normal font-sans ml-0.5">({udsTimeAgo})</span>}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}

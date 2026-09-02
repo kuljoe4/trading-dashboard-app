@@ -224,7 +224,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratPf = 0 }) => {
   const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -330,10 +330,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               const hitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
               const baselineWr = analytics?.overallWinRate || 50;
               const hitRateRatio = baselineWr > 0 ? hitRate / baselineWr : 1.0;
-              const pf = analytics?.profitFactor || 0;
               return (
                 <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 font-mono">
-                  Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0}) · Ratio: {hitRateRatio.toFixed(2)}x · PF: {Number(pf).toFixed(2)}
+                  Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0}) · Ratio: {hitRateRatio.toFixed(2)}x · PF: {Number(stratPf).toFixed(2)}
                 </span>
               );
             })()}
@@ -1163,6 +1162,35 @@ export function DashboardView({ initialStrategy }) {
 
     return { netFunding: fundingSum, netComm: feeSum };
   }, [stats?.totalFundingFee, stats?.totalRealizedFee, tradeHistory, activeTrades]);
+
+  const stratPfMap = useMemo(() => {
+    const grossWins = new Map();
+    const grossLosses = new Map();
+
+    const history = tradeHistory || [];
+    for (let i = 0; i < history.length; i++) {
+      const t = history[i];
+      const label = t.strategy_label || t.strategyLabel || 'Momentum Strategy';
+      const pnl = safeNum(t.pnl);
+
+      if (pnl > 0) {
+        grossWins.set(label, (grossWins.get(label) || 0) + pnl);
+      } else if (pnl < 0) {
+        grossLosses.set(label, (grossLosses.get(label) || 0) + Math.abs(pnl));
+      }
+    }
+
+    const map = new Map();
+    const allLabels = new Set([...grossWins.keys(), ...grossLosses.keys()]);
+    for (const label of allLabels) {
+      const gw = grossWins.get(label) || 0;
+      const gl = grossLosses.get(label) || 0;
+      const pf = gl > 0 ? (gw / gl) : (gw > 0 ? 99.99 : 0);
+      map.set(label, pf);
+    }
+
+    return map;
+  }, [tradeHistory]);
 
   const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;
@@ -2061,6 +2089,7 @@ export function DashboardView({ initialStrategy }) {
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
                             isResuming={isResuming}
                             showResumingFeedback={showResumingFeedback}
+                            stratPf={stratPfMap.get(currentStrategy.strategy_label) || 0}
                           />
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
@@ -2091,6 +2120,7 @@ export function DashboardView({ initialStrategy }) {
                                 isMonitored={monitoredSymbolsSet.has(label)}
                                 isResuming={isResuming}
                                 showResumingFeedback={showResumingFeedback}
+                                stratPf={stratPfMap.get(label) || 0}
                               />
                             );
                           })}

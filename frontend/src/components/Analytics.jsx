@@ -639,6 +639,211 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
+export const StrategyPerformanceOverlayChart = ({ trades = [], height = 220, showPnl = true, showHitRate = true }) => {
+  const containerRef = useRef(null);
+  const [hoverData, setHoverData] = useState(null);
+
+  const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange } = useMemo(() => {
+    const safeTrades = Array.isArray(trades) ? trades : [];
+    if (safeTrades.length < 2) {
+      return { points: [], pnlMin: 0, pnlMax: 10, pnlRange: 10, hrMin: 0, hrMax: 100, hrRange: 100 };
+    }
+
+    let cumPnl = 0;
+    let totalWins = 0;
+
+    const series = safeTrades.map((t, idx) => {
+      const pnl = Number(t.pnl || 0);
+      cumPnl += pnl;
+      if (pnl > 0) totalWins++;
+      const hitRate = (totalWins / (idx + 1)) * 100;
+
+      return {
+        tradeIndex: idx + 1,
+        symbol: t.symbol || '---',
+        pnl,
+        cumPnl,
+        hitRate,
+        ts: t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0)
+      };
+    });
+
+    const pnlValues = series.map(s => s.cumPnl);
+    const rawPnlMin = Math.min(0, ...pnlValues);
+    const rawPnlMax = Math.max(0.1, ...pnlValues);
+    const rawPnlRange = rawPnlMax - rawPnlMin;
+    const pnlPad = rawPnlRange * 0.15;
+    const minPnl = rawPnlMin - pnlPad;
+    const maxPnl = rawPnlMax + pnlPad;
+    const rangePnl = maxPnl - minPnl;
+
+    const hrValues = series.map(s => s.hitRate);
+    const rawHrMin = Math.max(0, Math.min(...hrValues) - 5);
+    const rawHrMax = Math.min(100, Math.max(...hrValues) + 5);
+    const rangeHr = Math.max(10, rawHrMax - rawHrMin);
+
+    const pts = series.map((d, i) => {
+      const x = (i / (series.length - 1)) * 100;
+      const yPnl = 100 - ((d.cumPnl - minPnl) / rangePnl) * 100;
+      const yHr = 100 - ((d.hitRate - rawHrMin) / rangeHr) * 100;
+      return {
+        x,
+        yPnl,
+        yHr,
+        cumPnl: d.cumPnl,
+        hitRate: d.hitRate,
+        pnl: d.pnl,
+        symbol: d.symbol,
+        tradeIndex: d.tradeIndex,
+        ts: d.ts
+      };
+    });
+
+    return {
+      points: pts,
+      pnlMin: minPnl,
+      pnlMax: maxPnl,
+      pnlRange: rangePnl,
+      hrMin: rawHrMin,
+      hrMax: rawHrMax,
+      hrRange: rangeHr
+    };
+  }, [trades]);
+
+  const pnlPathD = useMemo(() => {
+    if (!points.length) return '';
+    return solveSmoothing(points.map(p => ({ x: p.x, y: p.yPnl })));
+  }, [points]);
+
+  const hrPathD = useMemo(() => {
+    if (!points.length) return '';
+    return solveSmoothing(points.map(p => ({ x: p.x, y: p.yHr })));
+  }, [points]);
+
+  const zeroPnlY = useMemo(() => {
+    return 100 - ((0 - pnlMin) / pnlRange) * 100;
+  }, [pnlMin, pnlRange]);
+
+  const pnlAreaD = useMemo(() => {
+    if (points.length < 2 || !pnlPathD) return '';
+    return `${pnlPathD} L 100 ${zeroPnlY} L 0 ${zeroPnlY} Z`;
+  }, [pnlPathD, points, zeroPnlY]);
+
+  const handleInteraction = (clientX) => {
+    if (!containerRef.current || points.length < 2) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
+
+    let closest = points[0];
+    let minDiff = Math.abs(points[0].x - xPct);
+
+    for (let i = 1; i < points.length; i++) {
+      const diff = Math.abs(points[i].x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = points[i];
+      }
+    }
+    setHoverData(closest);
+  };
+
+  if (!trades || trades.length < 2) {
+    return (
+      <div style={{ height: `${height}px` }} className="flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed">
+        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Insufficient Trade History for Performance Overlay</span>
+      </div>
+    );
+  }
+
+  const activePoint = hoverData || points[points.length - 1];
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full overflow-hidden select-none"
+      style={{ height: `${height}px` }}
+      onMouseMove={(e) => handleInteraction(e.clientX)}
+      onTouchMove={(e) => e.touches[0] && handleInteraction(e.touches[0].clientX)}
+      onMouseLeave={() => setHoverData(null)}
+      role="region"
+      aria-label={`Strategy Performance Overlay chart, latest PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%.`}
+    >
+      <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-background/80 backdrop-blur-md px-2.5 py-1 rounded-xl border border-border/50 text-xs font-mono shadow-sm flex-wrap">
+        <span className="text-dim text-[10px] uppercase tracking-wider font-sans font-bold">
+          {hoverData ? `Trade #${hoverData.tradeIndex} (${hoverData.symbol})` : 'Overall Strategy Stats'}
+        </span>
+        {showPnl && (
+          <span className={cn("font-bold", (activePoint?.cumPnl || 0) >= 0 ? "text-green" : "text-red")}>
+            PnL: {fmtUSD(activePoint?.cumPnl)}
+          </span>
+        )}
+        {showHitRate && (
+          <span className="font-bold text-accent">
+            Hit Rate: {Number(activePoint?.hitRate || 0).toFixed(1)}%
+          </span>
+        )}
+      </div>
+
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-3 text-[8.5px] font-mono text-dim/70">
+        {showPnl && <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL Scale (Left)</span>}
+        {showHitRate && <span className="flex items-center gap-1"><span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate % (Right)</span>}
+      </div>
+
+      <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+        {showPnl && (
+          <line
+            x1="0"
+            y1={zeroPnlY}
+            x2="100"
+            y2={zeroPnlY}
+            stroke="var(--color-border)"
+            strokeWidth="0.4"
+            strokeDasharray="2,2"
+          />
+        )}
+
+        {showPnl && pnlAreaD && (
+          <path
+            d={pnlAreaD}
+            fill={(activePoint?.cumPnl || 0) >= 0 ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)'}
+          />
+        )}
+
+        {showPnl && pnlPathD && (
+          <path
+            d={pnlPathD}
+            fill="none"
+            stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
+
+        {showHitRate && hrPathD && (
+          <path
+            d={hrPathD}
+            fill="none"
+            stroke="var(--color-accent)"
+            strokeWidth="1.8"
+            strokeDasharray={showPnl ? '3,1.5' : 'none'}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        )}
+
+        {activePoint && (
+          <g>
+            <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1,2" />
+            {showPnl && <circle cx={activePoint.x} cy={activePoint.yPnl} r="2.5" fill={(activePoint.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'} />}
+            {showHitRate && <circle cx={activePoint.x} cy={activePoint.yHr} r="2.5" fill="var(--color-accent)" className="animate-pulse" />}
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+};
+
 export const HitRateTrend = ({ trades = [], height = 180 }) => {
   const containerRef = useRef(null);
   const [hoverData, setHoverData] = useState(null);

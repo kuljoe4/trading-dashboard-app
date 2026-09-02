@@ -786,9 +786,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
-            logs: (d.logLines?.map(normalizeLog) || st.logs || []).filter(Boolean),
-            scannerResults: (d.scannerResults?.map(normalizeOpportunity) || st.scannerResults || []).filter(Boolean),
-            activeWindows: d.activeWindows?.map(w => ({...w})) || st.activeWindows || [],
+            logs: (Array.isArray(d.logLines) ? d.logLines.map(normalizeLog) : st.logs || []).filter(Boolean),
+            scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(normalizeOpportunity) : st.scannerResults || []).filter(Boolean),
+            activeWindows: Array.isArray(d.activeWindows) ? d.activeWindows.map(w => ({...w})) : (Array.isArray(st.activeWindows) ? st.activeWindows : []),
             tradeHistory: nextHistory,
             gateState: d.gateState ?? st.gateState,
             nextSlotTs: d.nextSlotTs ?? st.nextSlotTs,
@@ -900,7 +900,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 signalResult: n.signalResult || p?.signalResult
               };
             }).filter(Boolean),
-            variantScannerResults: d.variant_opportunities ? d.variant_opportunities.reduce((acc, v) => {
+            variantScannerResults: Array.isArray(d.variant_opportunities) ? d.variant_opportunities.reduce((acc, v) => {
+              if (!v || !v.strategy_label || !Array.isArray(v.opportunities)) return acc;
               const prevOppMap = new Map((st.variantScannerResults[v.strategy_label] || []).map(r => [r.symbol, r]));
               acc[v.strategy_label] = v.opportunities.map(o => {
                 const sym = String(o.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);

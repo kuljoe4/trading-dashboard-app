@@ -159,6 +159,7 @@ const sessionConfigAllowedKeys = [
   'smart_watchlist_sensitivity',
   'trailing_stop_enabled',
   'trailing_stop_distance_pct',
+  'trailing_activation_rr',
   'knife_trailing_enabled',
   'knife_trailing_distance_pct',
   'knife_auto_ratchet_be_rr',

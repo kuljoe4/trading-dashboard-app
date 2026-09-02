@@ -512,7 +512,9 @@ export class MarketFeedService {
         level: 'error'
       });
       // Force reconnect
-      this.startGlobalDiscovery();
+      this.startGlobalDiscovery().catch(err => {
+        this.logger.error(`[MarketFeed] Health check global discovery restart failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
       // SRE: If the public WS is starved, seed from REST so the scanner survives.
       this.seedMarketDataFromRest().catch(() => {});
       return;
@@ -530,12 +532,16 @@ export class MarketFeedService {
        // SRE: Global discovery health check
        if (now - this.lastMiniTickerMsgTs > MAX_SILENCE_MS) {
           this.logger.warn('[MarketFeed] Global discovery stream stalled. Reconnecting...');
-          this.startGlobalDiscovery();
+          this.startGlobalDiscovery().catch(err => {
+            this.logger.error(`[MarketFeed] Global discovery reconnect failed: ${err instanceof Error ? err.message : String(err)}`);
+          });
        }
 
        // SRE: Watchlist stream health check
        if (this.activeWatchlist.size > 0) {
-          this.rebuildCombinedKlineStream();
+          this.rebuildCombinedKlineStream().catch(err => {
+            this.logger.error(`[MarketFeed] Watchlist stream rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
+          });
        }
     }
   }
@@ -785,7 +791,9 @@ export class MarketFeedService {
             }
           }
         }
-        this.processBackfillQueue();
+        this.processBackfillQueue().catch(err => {
+          this.logger.error(`[MarketFeed] Backfill queue execution failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
 
       // BOLT: Throttled logging for watchlist updates to reduce noise during rapid config changes or trade entries
@@ -860,8 +868,12 @@ export class MarketFeedService {
         }
     );
     this.discoveryManagers.set('unified', manager);
-    await manager.connect();
-    await manager.subscribe(topics);
+    try {
+      await manager.connect();
+      await manager.subscribe(topics);
+    } catch (err) {
+      this.logger.error(`[MarketFeed] Failed to connect/subscribe global discovery manager: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     this.globalDiscoveryOpenedAt = Date.now();
     this._globalDiscoveryConfirmed = false;
@@ -1056,8 +1068,12 @@ export class MarketFeedService {
             }
         );
         this.klineManagers.push(manager);
-        await manager.connect();
-        await manager.subscribe(chunk);
+        try {
+          await manager.connect();
+          await manager.subscribe(chunk);
+        } catch (err) {
+          this.logger.error(`[MarketFeed] Failed to connect/subscribe kline manager chunk (${chunk.length} streams): ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
   }
 

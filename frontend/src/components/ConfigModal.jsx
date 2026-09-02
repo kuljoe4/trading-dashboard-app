@@ -1339,7 +1339,7 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "flex items-center justify-between p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer",
+        "flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer",
         isLoaded
           ? "border-accent/40 shadow-[0_0_12px_rgba(var(--accent-rgb),0.06)] bg-accent/[0.01]"
           : isVariant
@@ -1350,11 +1350,11 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       <button
         type="button"
         onClick={() => onLoad(preset)}
-        className="flex-1 flex items-center gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-1 transition-all"
+        className="flex-1 min-w-0 flex items-center gap-2.5 sm:gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-0.5 sm:p-1 transition-all"
         aria-label={`Load preset ${preset.name}`}
       >
         <div className={cn(
-          "w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
+          "w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border shrink-0 transition-all duration-300",
           isLoaded
             ? "bg-accent/15 border-accent/30 text-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.15)]"
             : isVariant
@@ -1364,31 +1364,31 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
           {isLoaded ? <CheckCircle2 size={18} /> : isVariant ? <ShieldCheck size={18} /> : <Zap size={18} />}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
-             <span className="truncate">{preset.name}</span>
+          <div className="text-xs sm:text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
+             <span className="truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[320px] font-mono tracking-tight" title={preset.name}>{preset.name}</span>
              <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
                {pMode === 'paper' && <PaperBadge />}
                {pMode === 'testnet' && <DemoBadge />}
                {pMode === 'live' && <LiveBadge />}
              </div>
              {isLoaded && (
-               <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
+               <span className={cn("text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
                  {isDirty ? "Modified" : "Active"}
                </span>
              )}
              {isVariant && !isLoaded && (
-               <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase bg-purple/10 text-purple">
+               <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none bg-purple/10 text-purple">
                  Variant
                </span>
              )}
           </div>
-          <div className="text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5">
+          <div className="text-[9.5px] sm:text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5 truncate">
             {preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk
           </div>
         </div>
       </button>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
           <button
             type="button"

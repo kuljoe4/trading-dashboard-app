@@ -1681,11 +1681,13 @@ export function DashboardView({ initialStrategy }) {
                 value={`$${balance.toLocaleString()}`}
                 tooltipText={(() => {
                   const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : config?.live_starting_balance) || 10000;
+                  const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
+                  const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
                   const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
                   const tradeTimeStr = tradeTs ? `Last Trade: ${formatTimeAgo(tradeTs)}` : 'No closed trades';
                   const syncTimeStr = lastUdsBalanceTs ? `UDS Sync: ${formatTimeAgo(lastUdsBalanceTs)}` : 'Sync: Active';
                   const reasonText = lastUdsBalanceReason ? `UDS Reason: ${lastUdsBalanceReason}` : 'Real-time Stream';
-                  return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} | Commission: ${fmtUSD(-netComm)} | ${tradeTimeStr} | ${syncTimeStr} (${reasonText})`;
+                  return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} (${fundPct.toFixed(2)}%) | Commission: ${fmtUSD(-netComm)} (${commPct.toFixed(2)}%) | ${tradeTimeStr} | ${syncTimeStr} (${reasonText})`;
                 })()}
                 ariaLabel={(() => {
                   if (!lastTrade) return `Account Balance: $${balance.toLocaleString()}`;
@@ -1698,6 +1700,8 @@ export function DashboardView({ initialStrategy }) {
                 subValue={(() => {
                   const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
                   const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
+                  const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
                   const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0) || (lastTrade?.updated_at ? new Date(lastTrade.updated_at).getTime() : 0) || (lastTrade?.entry_ts ? new Date(lastTrade.entry_ts).getTime() : 0);
                   const tradeTimeAgo = tradeTs ? formatTimeAgo(tradeTs) : null;
                   const udsTimeAgo = lastUdsBalanceTs ? formatTimeAgo(lastUdsBalanceTs) : null;
@@ -1723,9 +1727,9 @@ export function DashboardView({ initialStrategy }) {
                         </div>
                       )}
                       <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
-                        <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)}</span></span>
+                        <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} <span className="opacity-80">({fundPct.toFixed(2)}%)</span></span></span>
                         <span>•</span>
-                        <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)}</span></span>
+                        <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)} <span className="opacity-80">({commPct.toFixed(2)}%)</span></span></span>
                         {lastUdsBalanceReason && (
                           <>
                             <span>•</span>

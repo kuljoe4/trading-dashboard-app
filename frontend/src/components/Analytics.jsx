@@ -639,6 +639,132 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
+export const HitRateTrend = ({ trades = [], height = 180 }) => {
+  const containerRef = useRef(null);
+  const [hoverData, setHoverData] = useState(null);
+
+  const { points, viewMin, viewMax, viewRange } = useMemo(() => {
+    const safeTrades = Array.isArray(trades) ? trades : [];
+    if (safeTrades.length < 2) return { points: [], viewMin: 0, viewMax: 100, viewRange: 100 };
+
+    let totalWins = 0;
+    const rollingData = safeTrades.map((t, idx) => {
+      const isWin = Number(t.pnl || 0) > 0;
+      if (isWin) totalWins++;
+      const currentHitRate = (totalWins / (idx + 1)) * 100;
+      return {
+        tradeIndex: idx + 1,
+        hitRate: currentHitRate,
+        pnl: Number(t.pnl || 0),
+        symbol: t.symbol,
+        ts: t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0)
+      };
+    });
+
+    const values = rollingData.map(d => d.hitRate);
+    const min = Math.max(0, Math.min(...values) - 5);
+    const max = Math.min(100, Math.max(...values) + 5);
+    const range = Math.max(10, max - min);
+
+    const pts = rollingData.map((d, i) => {
+      const x = (i / (rollingData.length - 1)) * 100;
+      const y = 100 - ((d.hitRate - min) / range) * 100;
+      return { x, y, hitRate: d.hitRate, tradeIndex: d.tradeIndex, symbol: d.symbol, pnl: d.pnl, ts: d.ts };
+    });
+
+    return { points: pts, viewMin: min, viewMax: max, viewRange: range };
+  }, [trades]);
+
+  const pathD = useMemo(() => solveSmoothing(points), [points]);
+
+  const handleInteraction = (clientX) => {
+    if (!containerRef.current || points.length < 2) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const xPct = ((clientX - rect.left) / rect.width) * 100;
+
+    let closest = points[0];
+    let minDiff = Math.abs(points[0].x - xPct);
+
+    for (let i = 1; i < points.length; i++) {
+      const diff = Math.abs(points[i].x - xPct);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = points[i];
+      }
+    }
+    setHoverData(closest);
+  };
+
+  if (!trades || trades.length < 2) {
+    return (
+      <div style={{ height: `${height}px` }} className="flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed">
+        <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Insufficient Trade Data for Hit Rate Trend</span>
+      </div>
+    );
+  }
+
+  const latestPoint = hoverData || points[points.length - 1];
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative w-full overflow-hidden select-none"
+      style={{ height: `${height}px` }}
+      onMouseMove={(e) => handleInteraction(e.clientX)}
+      onTouchMove={(e) => e.touches[0] && handleInteraction(e.touches[0].clientX)}
+      onMouseLeave={() => setHoverData(null)}
+      role="region"
+      aria-label={`Hit Rate Trend chart, latest value ${Number(latestPoint?.hitRate || 0).toFixed(1)}%.`}
+    >
+      <div className="absolute top-2 left-2 z-10 flex items-center gap-2 bg-background/80 backdrop-blur-md px-2.5 py-1 rounded-xl border border-border/50 text-xs font-mono shadow-sm">
+        <span className="text-dim text-[10px] uppercase tracking-wider font-sans font-bold">
+          {hoverData ? `Trade #${hoverData.tradeIndex}` : 'Overall Hit Rate'}
+        </span>
+        <span className="font-bold text-accent">
+          {Number(latestPoint?.hitRate || 0).toFixed(1)}%
+        </span>
+        {hoverData && (
+          <span className={cn("text-[9px] font-mono", hoverData.pnl >= 0 ? "text-green" : "text-red")}>
+            ({hoverData.symbol} {fmtUSD(hoverData.pnl)})
+          </span>
+        )}
+      </div>
+
+      <div className="absolute top-2 right-2 z-10 flex items-center gap-2 text-[9px] font-mono text-dim/60">
+        <span>50% Baseline</span>
+      </div>
+
+      <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <line
+          x1="0"
+          y1={100 - ((50 - viewMin) / viewRange) * 100}
+          x2="100"
+          y2={100 - ((50 - viewMin) / viewRange) * 100}
+          stroke="var(--color-border)"
+          strokeWidth="0.5"
+          strokeDasharray="2,2"
+        />
+
+        <path
+          d={pathD}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        {latestPoint && (
+          <g>
+            <line x1={latestPoint.x} y1="0" x2={latestPoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1,2" />
+            <circle cx={latestPoint.x} cy={latestPoint.y} r="2.5" fill="var(--color-accent)" className="animate-pulse" />
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+};
+
 export const TODPerformance = ({ data = [] }) => {
   const safeData = Array.isArray(data) ? data : [];
   const validData = useMemo(() => safeData.filter(d => d && typeof d.pnl === 'number'), [safeData]);

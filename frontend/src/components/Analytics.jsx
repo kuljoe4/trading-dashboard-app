@@ -639,8 +639,11 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
-export const StrategyPerformanceOverlayChart = ({ trades = [], height = 220, showPnl = true, showHitRate = true }) => {
+export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true }) => {
   const containerRef = useRef(null);
+  const chartId = useId().replace(/:/g, '');
+  const pnlGradientId = `pnl-grad-${chartId}`;
+  const hrGradientId = `hr-grad-${chartId}`;
   const [hoverData, setHoverData] = useState(null);
 
   const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange } = useMemo(() => {
@@ -790,22 +793,53 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 220, sho
       </div>
 
       <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="var(--color-green)" stopOpacity="0.0" />
+          </linearGradient>
+          <linearGradient id={`${pnlGradientId}-neg`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.28" />
+            <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0.0" />
+          </linearGradient>
+          <filter id={`${chartId}-glow`} x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="1.5" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+          </filter>
+        </defs>
+
+        {/* Background Grid Lines & Ticks */}
+        {[0, 25, 50, 75, 100].map(y => (
+          <line
+            key={y}
+            x1="0"
+            y1={y}
+            x2="100"
+            y2={y}
+            stroke="var(--color-border)"
+            strokeWidth="0.25"
+            strokeDasharray="1,3"
+            opacity="0.4"
+          />
+        ))}
+
         {showPnl && (
           <line
             x1="0"
             y1={zeroPnlY}
             x2="100"
             y2={zeroPnlY}
-            stroke="var(--color-border)"
+            stroke="var(--color-text)"
             strokeWidth="0.4"
             strokeDasharray="2,2"
+            opacity="0.3"
           />
         )}
 
         {showPnl && pnlAreaD && (
           <path
             d={pnlAreaD}
-            fill={(activePoint?.cumPnl || 0) >= 0 ? 'rgba(34, 197, 94, 0.08)' : 'rgba(239, 68, 68, 0.08)'}
+            fill={`url(#${pnlGradientId}-${(activePoint?.cumPnl || 0) >= 0 ? 'pos' : 'neg'})`}
           />
         )}
 
@@ -814,9 +848,10 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 220, sho
             d={pnlPathD}
             fill="none"
             stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
-            strokeWidth="1.8"
+            strokeWidth="2.2"
             strokeLinecap="round"
             strokeLinejoin="round"
+            filter={`url(#${chartId}-glow)`}
           />
         )}
 
@@ -825,18 +860,29 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 220, sho
             d={hrPathD}
             fill="none"
             stroke="var(--color-accent)"
-            strokeWidth="1.8"
-            strokeDasharray={showPnl ? '3,1.5' : 'none'}
+            strokeWidth="2"
+            strokeDasharray={showPnl ? '3,2' : 'none'}
             strokeLinecap="round"
             strokeLinejoin="round"
+            filter={`url(#${chartId}-glow)`}
           />
         )}
 
         {activePoint && (
           <g>
-            <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1,2" />
-            {showPnl && <circle cx={activePoint.x} cy={activePoint.yPnl} r="2.5" fill={(activePoint.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'} />}
-            {showHitRate && <circle cx={activePoint.x} cy={activePoint.yHr} r="2.5" fill="var(--color-accent)" className="animate-pulse" />}
+            <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1.5,1.5" opacity="0.8" />
+            {showPnl && (
+              <g>
+                <circle cx={activePoint.x} cy={activePoint.yPnl} r="3" fill={(activePoint.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'} />
+                <circle cx={activePoint.x} cy={activePoint.yPnl} r="5" fill="none" stroke={(activePoint.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'} strokeWidth="0.5" className="animate-ping origin-center" />
+              </g>
+            )}
+            {showHitRate && (
+              <g>
+                <circle cx={activePoint.x} cy={activePoint.yHr} r="3" fill="var(--color-accent)" />
+                <circle cx={activePoint.x} cy={activePoint.yHr} r="5" fill="none" stroke="var(--color-accent)" strokeWidth="0.5" className="animate-pulse origin-center" />
+              </g>
+            )}
           </g>
         )}
       </svg>

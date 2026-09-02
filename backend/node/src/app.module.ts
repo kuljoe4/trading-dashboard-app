@@ -28,6 +28,9 @@ import { AuthModule } from './auth/auth.module';
           // Note: These usually require superuser or postgresql.conf, but passing via connection parameters
           // where supported or documenting the requirement.
           statement_timeout: 10000,
+          // Enable TCP keepalive probes to prevent abrupt SSL EOF resets on idle pool connections
+          keepalives: true,
+          keepalives_idle: 10,
         },
         migrations: [__dirname + '/migrations/*.{ts,js}'],
         migrationsRun: true,

@@ -266,9 +266,11 @@ export class EngineBroadcasterService {
 
     let maxEstPnlForTrade = ratchetPnl;
     let estPnlSource = 'sl';
+    // WISP OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations on per-tick serialization path
     if (trade.exit_signals_status) {
-      for (const [key, status] of Object.entries(trade.exit_signals_status)) {
-        const sigStatus = status as any;
+      for (const key in trade.exit_signals_status) {
+        if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+        const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
         if (!sigStatus) continue;
 
         const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;

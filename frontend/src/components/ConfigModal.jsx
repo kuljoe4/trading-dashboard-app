@@ -1746,9 +1746,33 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [testnetConfigured, liveConfigured]);
 
   const generatedPresetName = useMemo(() => {
-    const i = cfg.scan_interval || 'Custom'; const r = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : '';
-    const parts = [i, r].filter(Boolean); return parts.join(' · ') || 'New session preset';
-  }, [cfg.scan_interval, cfg.risk_pct_per_trade])
+    const tf = cfg.scan_interval || '5m';
+    const risk = (cfg.risk_pct_per_trade !== undefined && cfg.risk_pct_per_trade !== null && cfg.risk_pct_per_trade !== '')
+      ? `${cfg.risk_pct_per_trade}%`
+      : '';
+
+    const sigs = cfg.enabled_signals || [];
+    let sigAbbr = '';
+    if (sigs.length === 0) {
+      sigAbbr = 'Scalp';
+    } else if (sigs.length === 1) {
+      const s = sigs[0];
+      if (s.startsWith('ema_dual')) sigAbbr = 'DualEMA';
+      else if (s.startsWith('ema')) sigAbbr = 'EMA';
+      else if (s.startsWith('macd')) sigAbbr = 'MACD';
+      else if (s === 'supertrend') sigAbbr = 'ST';
+      else if (s === 'breakout_hl') sigAbbr = 'Breakout';
+      else if (s === 'momentum_pct') sigAbbr = 'Mom';
+      else if (s === 'engulfing') sigAbbr = 'Engulf';
+      else sigAbbr = 'Signal';
+    } else {
+      sigAbbr = 'Multi';
+    }
+
+    const parts = [tf, sigAbbr, risk].filter(Boolean);
+    const name = parts.join(' ');
+    return name.length > 20 ? name.slice(0, 20).trim() : name;
+  }, [cfg.scan_interval, cfg.risk_pct_per_trade, cfg.enabled_signals]);
 
   useEffect(() => {
     const loadPresets = async () => {
@@ -3870,7 +3894,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
                 <div className="flex-1 min-w-0">
                   <SavePresetInput
-                    defaultName={loadedPresetName}
+                    defaultName={loadedPresetName || generatedPresetName}
                     onSave={(name) => { savePreset(name); }}
                     isSaving={isSaving}
                     success={saveSuccess}

@@ -894,6 +894,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
         )}
       </svg>
     </div>
+    </div>
   );
 };
 

@@ -4,7 +4,7 @@ import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
 import { 
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PnLBars, CopyButton, cn, ViewHeader
+  ConditionWidget, PnLBars, CopyButton, cn, ViewHeader, Tooltip
 } from '../components/ui/primitives'
 import { SignalGauge } from '../components/ui/SignalGauge'
 import { calculateProximity } from '../lib/formatters'

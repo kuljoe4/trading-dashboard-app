@@ -332,7 +332,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               const hitRateRatio = baselineWr > 0 ? hitRate / baselineWr : 1.0;
               return (
                 <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 font-mono">
-                  Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0}) · Ratio: {hitRateRatio.toFixed(2)}x · PF: {Number(stratPf).toFixed(2)}
+                  Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0}) · Ratio: {hitRateRatio.toFixed(2)}x · PF: {s.entryCount > 0 ? Number(stratPf).toFixed(2) : '---'}
                 </span>
               );
             })()}

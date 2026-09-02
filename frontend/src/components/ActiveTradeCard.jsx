@@ -327,10 +327,19 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <MonitoredBadge className="opacity-80 scale-90 -ml-0.5" />
           )}
           {trade.strategy_config?.trailing_stop_enabled && (
-            <Tooltip content="Dynamic trailing stop active for this position">
+            <Tooltip content={
+              (trade.strategy_config?.trailing_activation_rr || 0) > 0
+                ? `Dynamic trailing stop active for this position (Activates at ${trade.strategy_config.trailing_activation_rr}R)`
+                : "Dynamic trailing stop active for this position"
+            }>
               <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 animate-pulse leading-none shrink-0 cursor-help">
                 <RefreshCw size={7} className="animate-spin text-purple-400" />
                 <span className="hidden sm:inline">Trailing</span>
+                {(trade.strategy_config?.trailing_activation_rr || 0) > 0 && (
+                  <span className="bg-purple-400/20 text-purple-300 font-mono text-[6.5px] font-black px-1 py-0.2 rounded-sm ml-0.5">
+                    🎯 {trade.strategy_config.trailing_activation_rr}R
+                  </span>
+                )}
               </span>
             </Tooltip>
           )}
@@ -481,6 +490,45 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               />
             </Tooltip>
           )}
+
+          {/* Trailing Stop Activation RR Flag */}
+          {trade.strategy_config?.trailing_stop_enabled && (trade.strategy_config?.trailing_activation_rr || 0) > 0 && (() => {
+            const activationRr = Number(trade.strategy_config.trailing_activation_rr);
+            const risk = Math.abs(entry - initialSl);
+            if (risk <= 0) return null;
+            const activationPrice = isLong ? entry + (risk * activationRr) : entry - (risk * activationRr);
+            const activationPos = pos(activationPrice);
+            const isActivated = rrValue >= activationRr;
+
+            return (
+              <Tooltip content={
+                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
+                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Trailing Activation Threshold</div>
+                  <div className="text-dim">Required RR: <span className="text-purple-300 font-mono font-semibold">+{activationRr.toFixed(2)}R</span></div>
+                  <div className="text-dim">Activation Price: <span className="text-text font-mono font-semibold">{fmtUSD(activationPrice)}</span></div>
+                  <div className="text-dim">Status: <span className={cn("font-mono font-semibold", isActivated ? "text-green" : "text-amber")}>{isActivated ? "ACTIVE (Trailing engaged)" : "PENDING (Awaiting R:R target)"}</span></div>
+                </div>
+              }>
+                <div
+                  className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  style={{ left: `${activationPos}%` }}
+                >
+                  <div className={cn(
+                    "px-0.5 py-0 text-[6px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                    isActivated
+                      ? "bg-purple text-white shadow-[0_0_8px_rgba(168,85,247,0.8)] animate-pulse"
+                      : "bg-surface/80 border border-purple-400/40 text-purple-300/80"
+                  )}>
+                    🎯 {activationRr}R
+                  </div>
+                  <div className={cn(
+                    "flex-1 w-px border-l border-dashed",
+                    isActivated ? "border-purple" : "border-purple-400/40"
+                  )} />
+                </div>
+              </Tooltip>
+            );
+          })()}
 
           {/* Peak Line & Labeled Pennant Flag */}
           {maxRr > 0 && (

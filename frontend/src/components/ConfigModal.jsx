@@ -1452,6 +1452,7 @@ const flattenConfig = (config) => {
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
       trailing_stop_enabled: !!config.trailing_stop_enabled,
       trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+      trailing_activation_rr: config.trailing_activation_rr !== undefined ? Number(config.trailing_activation_rr) : 0.0,
       knife_trailing_enabled: config.knife_trailing_enabled !== false,
       knife_trailing_distance_pct: config.knife_trailing_distance_pct !== undefined ? config.knife_trailing_distance_pct : 0.5,
       knife_auto_ratchet_be_rr: config.knife_auto_ratchet_be_rr !== undefined ? config.knife_auto_ratchet_be_rr : 0.5,
@@ -3683,6 +3684,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                          {renderField('Trailing Activation R:R', 'trailing_activation_rr', 'number', 'Required R:R before trailing stop activates (0 = immediate)', { min: 0, max: 10, step: 0.1 })}
                        </div>
                        <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="trailing" />
                     </motion.div>

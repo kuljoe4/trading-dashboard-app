@@ -423,16 +423,16 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
       </div>
 
       {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+      <div className="grid grid-cols-7 gap-1 sm:gap-2">
         {daysOfWeek.map((day) => (
-          <div key={day} className="text-center text-[9px] text-dim font-black uppercase tracking-wider py-1">
+          <div key={day} className="text-center text-[8px] xs:text-[9px] text-dim font-black uppercase tracking-wider py-1 truncate">
             {day}
           </div>
         ))}
 
         {/* Empty cells before month start */}
         {Array.from({ length: startDayOfWeek }).map((_, i) => (
-          <div key={`empty-${i}`} className="h-16 sm:h-20 rounded-xl bg-surface/10 border border-border/10 opacity-30" />
+          <div key={`empty-${i}`} className="min-h-[48px] sm:min-h-[64px] rounded-xl bg-surface/10 border border-border/10 opacity-30" />
         ))}
 
         {/* Days of month */}
@@ -454,7 +454,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
                 role="region"
                 aria-label={tooltipContent}
                 className={cn(
-                  "h-16 sm:h-20 p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer tab-focus-ring",
+                  "min-h-[48px] sm:min-h-[64px] p-1 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer tab-focus-ring overflow-hidden",
                   hasTrades
                     ? isProfitable
                       ? "bg-green/10 border-green/30 hover:border-green/60"
@@ -462,23 +462,23 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
                     : "bg-surface/20 border-border/20 hover:border-border/40"
                 )}
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold text-dim group-hover:text-text">{dayNum}</span>
+                <div className="flex items-center justify-between gap-0.5 w-full min-w-0">
+                  <span className="text-[9px] sm:text-[10px] font-mono font-bold text-dim group-hover:text-text shrink-0">{dayNum}</span>
                   {hasTrades && (
-                    <span className="text-[7.5px] font-black uppercase font-mono px-1 py-0.2 rounded bg-background/50 border border-border/20 text-dim">
+                    <span className="text-[6.5px] xs:text-[7.5px] font-black uppercase font-mono px-0.5 sm:px-1 py-0.2 rounded bg-background/50 border border-border/20 text-dim truncate">
                       {stats.wins}W {stats.losses}L
                     </span>
                   )}
                 </div>
 
                 {hasTrades ? (
-                  <div className="flex flex-col items-end">
-                    <span className={cn("text-[11px] sm:text-xs font-black font-mono tracking-tight", isProfitable ? "text-green" : "text-red")}>
+                  <div className="flex flex-col items-end w-full min-w-0">
+                    <span className={cn("text-[9.5px] xs:text-[11px] sm:text-xs font-black font-mono tracking-tight truncate w-full text-right", isProfitable ? "text-green" : "text-red")}>
                       {fmtUSD(stats.pnl)}
                     </span>
                   </div>
                 ) : (
-                  <span className="text-[8px] text-dim/30 font-mono text-center mb-1">---</span>
+                  <span className="text-[7.5px] text-dim/30 font-mono text-center mb-0.5">---</span>
                 )}
               </div>
             </Tooltip>

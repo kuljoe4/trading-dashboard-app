@@ -1042,6 +1042,18 @@ export class PositionTrackerService {
 
     if (!config.trailing_stop_enabled) return;
 
+    // Trailing Activation R:R Threshold Check
+    if (config.trailing_activation_rr && config.trailing_activation_rr > 0) {
+      const risk = Math.abs(trade.entry_price - trade.initial_sl);
+      if (risk > 0) {
+        const reward = trade.direction === 'LONG' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
+        const liveRr = reward / risk;
+        if (liveRr < config.trailing_activation_rr) {
+          return;
+        }
+      }
+    }
+
     const distancePct = config.trailing_stop_distance_pct || 1.0;
     const distance = trade.entry_price * (distancePct / 100);
 

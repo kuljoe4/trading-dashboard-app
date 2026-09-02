@@ -242,15 +242,29 @@ export class BacktestService {
               : (config.trailing_stop_distance_pct ?? 1.0);
 
             if (trailingEnabled && trailingDistancePct > 0) {
-              if (pos.direction === 'LONG') {
-                const trailSl = currentCandle.high * (1 - trailingDistancePct / 100);
-                if (trailSl > pos.current_sl) {
-                  pos.current_sl = trailSl;
+              const activationRr = config.trailing_activation_rr || 0;
+              let activationMet = true;
+              if (activationRr > 0 && !pos.is_knife) {
+                const risk = Math.abs(pos.entry_price - pos.initial_sl);
+                if (risk > 0) {
+                  const currentReward = pos.direction === 'LONG'
+                    ? currentCandle.close - pos.entry_price
+                    : pos.entry_price - currentCandle.close;
+                  activationMet = (currentReward / risk) >= activationRr;
                 }
-              } else { // SHORT
-                const trailSl = currentCandle.low * (1 + trailingDistancePct / 100);
-                if (trailSl < pos.current_sl) {
-                  pos.current_sl = trailSl;
+              }
+
+              if (activationMet) {
+                if (pos.direction === 'LONG') {
+                  const trailSl = currentCandle.high * (1 - trailingDistancePct / 100);
+                  if (trailSl > pos.current_sl) {
+                    pos.current_sl = trailSl;
+                  }
+                } else { // SHORT
+                  const trailSl = currentCandle.low * (1 + trailingDistancePct / 100);
+                  if (trailSl < pos.current_sl) {
+                    pos.current_sl = trailSl;
+                  }
                 }
               }
             }

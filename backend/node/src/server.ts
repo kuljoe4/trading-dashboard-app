@@ -18,6 +18,18 @@ import { AuditLogService } from "./trading/audit-log.service";
 import { checkOrigin } from "./lib/origin";
 import "./lib/math"; // BOLT: Load math utilities early to initialize BigInt polyfill
 
+// Process-level unhandled exception and rejection guards to prevent process termination on transient socket errors
+process.on("unhandledRejection", (reason: any) => {
+  const processLogger = new Logger("UnhandledRejection");
+  const msg = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+  processLogger.error(`Unhandled Promise Rejection caught: ${msg}`);
+});
+
+process.on("uncaughtException", (err: Error) => {
+  const processLogger = new Logger("UncaughtException");
+  processLogger.error(`Uncaught Exception caught: ${err.stack || err.message}`);
+});
+
 async function bootstrap() {
   const isProduction = process.env.NODE_ENV === "production";
   const forceDebug = process.env.DEBUG === "true";

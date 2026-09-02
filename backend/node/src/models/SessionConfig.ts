@@ -508,6 +508,12 @@ export class SessionConfig {
   @Max(10.0)
   trailing_stop_distance_pct?: number = 1.0;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(0.0)
+  @Max(10.0)
+  trailing_activation_rr?: number = 0.0;
+
   @IsBoolean()
   @IsOptional()
   knife_trailing_enabled?: boolean = true;

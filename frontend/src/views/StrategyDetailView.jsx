@@ -11,7 +11,7 @@ import { calculateProximity } from '../lib/formatters'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2
+  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown
 } from 'lucide-react'
 import { EquityCurve, StrategyCalendarPnL } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
@@ -44,6 +44,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [selectedTradeId, setSelectedTradeId] = useState(null)
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
   const [isPausing, setIsPausing] = useState(false)
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false)
+  const [isChecklistOpen, setIsChecklistOpen] = useState(false)
   const [closingMap, setClosingMap] = useState({})
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
@@ -278,10 +280,29 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > strategyConfig.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
       </div>
 
-      {/* Strategy Calendar PnL Breakdown */}
-      <div className="mb-10">
-        <SectionLabel>Strategy Performance Calendar</SectionLabel>
-        <StrategyCalendarPnL trades={tradeHistory || analytics?.trades || []} strategyFilter={s.strategy_label} />
+      {/* Strategy Calendar PnL Breakdown (Collapsible) */}
+      <div className="mb-8 border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all">
+        <button
+          type="button"
+          onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+          className="w-full p-4 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+              <CalendarIcon size={14} />
+            </div>
+            <div>
+              <span className="text-xs font-black uppercase tracking-wider text-text">Performance Calendar</span>
+              <p className="text-[9.5px] text-dim font-medium">Daily profit & loss breakdown (click to expand)</p>
+            </div>
+          </div>
+          <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", isCalendarOpen && "rotate-180")} />
+        </button>
+        {isCalendarOpen && (
+          <div className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200">
+            <StrategyCalendarPnL trades={tradeHistory || analytics?.trades || []} strategyFilter={s.strategy_label} />
+          </div>
+        )}
       </div>
 
       <div className="mb-10">
@@ -345,62 +366,78 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </div>
       )}
 
-        {/* Real-time Technical Signal Checklist */}
+        {/* Real-time Technical Signal Checklist (Collapsible) */}
         {strategyConfig.enabled_signals && strategyConfig.enabled_signals.length > 0 && (
-          <div className="bg-surface/30 border border-border/40 p-4 rounded-2xl mb-5 text-left">
-            <div className="flex justify-between items-center mb-3">
-              <div className="flex flex-col text-left">
-                <div className="text-[10px] font-black text-dim uppercase tracking-widest">
-                  Technical Signal Checklist ({bestOpp.symbol})
+          <div className="mb-5 border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all text-left">
+            <button
+              type="button"
+              onClick={() => setIsChecklistOpen(!isChecklistOpen)}
+              className="w-full p-4 flex items-center justify-between hover:bg-surface/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                  <Activity size={14} />
                 </div>
-                <div className="text-[9px] font-mono font-bold text-accent uppercase tracking-wider mt-0.5">
-                  Formula: {conditionFormula}
+                <div className="flex flex-col text-left">
+                  <div className="text-xs font-black uppercase tracking-wider text-text">
+                    Technical Signal Checklist ({bestOpp.symbol})
+                  </div>
+                  <div className="text-[9.5px] text-dim font-medium">
+                    Formula: {conditionFormula}
+                  </div>
                 </div>
               </div>
-              <div className={cn(
-                "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border shadow-sm",
-                entryMet ? "bg-green/10 text-green border-green/20" : "bg-amber/10 text-amber border-amber/20"
-              )}>
-                {entryMet ? 'TRIGGERED (AUTHORIZED)' : 'PENDING'}
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border shadow-sm",
+                  entryMet ? "bg-green/10 text-green border-green/20" : "bg-amber/10 text-amber border-amber/20"
+                )}>
+                  {entryMet ? 'TRIGGERED' : 'PENDING'}
+                </div>
+                <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", isChecklistOpen && "rotate-180")} />
               </div>
-            </div>
+            </button>
 
-            {/* Checklist Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {/* Velocity (Scanner Threshold) */}
-              <SignalGauge
-                label="Velocity Move"
-                value={Math.abs(bestOpp.pct || 0)}
-                threshold={strategyConfig.scan_pct_threshold || 2.0}
-                unit="%"
-                fired={scanMet}
-                active={scanMet}
-                markPrice={bestOpp.close || 0}
-              />
-
-              {/* Technical Indicator Signals */}
-              {strategyConfig.enabled_signals.map(sig => {
-                const s = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
-                return (
+            {isChecklistOpen && (
+              <div className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200 space-y-4">
+                {/* Checklist Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                  {/* Velocity (Scanner Threshold) */}
                   <SignalGauge
-                    key={sig}
-                    label={SIGNAL_LABELS[sig] || sig}
-                    value={s.value}
-                    threshold={s.threshold}
-                    unit={s.unit}
-                    fired={s.fired}
-                    active={s.active !== false}
-                    remainingDelay={s.remaining_delay || 0}
-                    configDelay={s.config_delay || 0}
-                    insufficientData={s.insufficientData}
-                    thresholdIsPrice={s.threshold_is_price}
-                    isLong={bestOpp.dir === 'long'}
-                    markPrice={bestOpp.close || s.value || 0}
-                    type="entry"
+                    label="Velocity Move"
+                    value={Math.abs(bestOpp.pct || 0)}
+                    threshold={strategyConfig.scan_pct_threshold || 2.0}
+                    unit="%"
+                    fired={scanMet}
+                    active={scanMet}
+                    markPrice={bestOpp.close || 0}
                   />
-                );
-              })}
-            </div>
+
+                  {/* Technical Indicator Signals */}
+                  {strategyConfig.enabled_signals.map(sig => {
+                    const s = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
+                    return (
+                      <SignalGauge
+                        key={sig}
+                        label={SIGNAL_LABELS[sig] || sig}
+                        value={s.value}
+                        threshold={s.threshold}
+                        unit={s.unit}
+                        fired={s.fired}
+                        active={s.active !== false}
+                        remainingDelay={s.remaining_delay || 0}
+                        configDelay={s.config_delay || 0}
+                        insufficientData={s.insufficientData}
+                        thresholdIsPrice={s.threshold_is_price}
+                        isLong={bestOpp.dir === 'long'}
+                        markPrice={bestOpp.close || s.value || 0}
+                        type="entry"
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

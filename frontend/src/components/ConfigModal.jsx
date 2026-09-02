@@ -251,7 +251,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
         {error && <span role="alert" className="text-[9px] text-red font-bold uppercase">{error}</span>}
         {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warning}</span>}
       </div>
-      {opts ? (
+      {Array.isArray(opts) ? (
         <select
           id={id}
           value={localValue ?? ''}
@@ -259,8 +259,8 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         >
           {opts.map((o) => {
-            const val = typeof o === 'string' ? o : o.value;
-            const lbl = typeof o === 'string' ? o : o.label;
+            const val = typeof o === 'string' ? o : o?.value;
+            const lbl = typeof o === 'string' ? o : o?.label;
             return <option key={val} value={val}>{lbl}</option>;
           })}
         </select>

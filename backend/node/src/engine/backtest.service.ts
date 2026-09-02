@@ -4,7 +4,7 @@ import { SignalEngineService } from './signalEngine';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { roundTo } from '../lib/math';
-import { IsOptional, IsObject, ValidateNested, IsArray, IsString, IsNumber, Min, Max, IsBoolean } from 'class-validator';
+import { IsOptional, IsObject, ValidateNested, IsArray, IsString, IsNumber, Min, Max, IsBoolean, ArrayMaxSize, MaxLength, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export interface BacktestTradeDto {
@@ -64,9 +64,14 @@ export class RunBacktestDto {
   @Type(() => SessionConfig)
   config?: SessionConfig;
 
+  // SEC-SENTINEL: Defense-in-depth array size, string length, and character-level gating
+  // Prevents Denial of Service (DoS) via massive symbol arrays and script/header injection vectors
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @ArrayMaxSize(50, { message: 'symbols array cannot exceed 50 items' })
+  @MaxLength(20, { each: true, message: 'Symbol cannot exceed 20 characters' })
+  @Matches(/^[a-zA-Z0-9_\-]*$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens' })
   symbols?: string[];
 
   @IsOptional()
@@ -78,6 +83,7 @@ export class RunBacktestDto {
   @IsOptional()
   @IsNumber()
   @Min(10)
+  @Max(100000000, { message: 'startingBalance cannot exceed 100,000,000' })
   startingBalance?: number;
 
   @IsOptional()

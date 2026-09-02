@@ -1,5 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BacktestService } from './backtest.service';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { BacktestService, RunBacktestDto } from './backtest.service';
 import { SignalEngineService } from './signalEngine';
 import { KlineStoreService } from './kline_store.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
@@ -122,5 +124,46 @@ describe('BacktestService', () => {
         days: 1,
       })
     ).rejects.toThrow();
+  });
+
+  describe('RunBacktestDto Security Schema Validation', () => {
+    it('should validate valid RunBacktestDto payloads successfully', async () => {
+      const dto = plainToInstance(RunBacktestDto, {
+        symbols: ['BTCUSDT', 'ETHUSDT'],
+        days: 7,
+        startingBalance: 10000,
+        useGlobalScanner: true,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should reject symbol arrays exceeding 50 items to prevent DoS', async () => {
+      const hugeSymbols = Array.from({ length: 51 }, (_, i) => `SYM${i}USDT`);
+      const dto = plainToInstance(RunBacktestDto, {
+        symbols: hugeSymbols,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.property === 'symbols')).toBe(true);
+    });
+
+    it('should reject malformed symbols containing script injection or invalid characters', async () => {
+      const dto = plainToInstance(RunBacktestDto, {
+        symbols: ['<script>alert(1)</script>', 'BTCUSDT;DROP TABLE trades;'],
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.property === 'symbols')).toBe(true);
+    });
+
+    it('should reject startingBalance exceeding max upper bound', async () => {
+      const dto = plainToInstance(RunBacktestDto, {
+        startingBalance: 9999999999,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.property === 'startingBalance')).toBe(true);
+    });
   });
 });

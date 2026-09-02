@@ -27,11 +27,14 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
   // BOLT OPTIMIZATION: Loop-fused single-pass useMemo aggregates variant PnLs, active strategy labels,
   // knife trade count, and knife trade accumulated PnL in a single O(N) traversal over trades,
   // eliminating multiple array allocations (.map(), .filter(), Array.from(new Set())) and GC pressure.
-  const { variantPnls, activeLabels, knifeCount, knifeAccPnl } = useMemo(() => {
+  const { variantPnls, activeLabels, knifeCount, knifeAccPnl, winCount, lossCount, totalTrades, winRate, profitFactor } = useMemo(() => {
     const map = new Map();
     const labelsSet = new Set();
     let knifeCount = 0;
     let knifeAccPnl = 0;
+    let wins = 0;
+    let grossWins = 0;
+    let grossLosses = 0;
 
     if (trades && trades.length > 0) {
       for (let i = 0; i < trades.length; i++) {
@@ -42,6 +45,13 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
         map.set(label, (map.get(label) || 0) + pnl);
         labelsSet.add(label);
 
+        if (pnl > 0) {
+          wins++;
+          grossWins += pnl;
+        } else if (pnl < 0) {
+          grossLosses += Math.abs(pnl);
+        }
+
         if (t.is_knife) {
           knifeCount++;
           knifeAccPnl += pnl;
@@ -49,11 +59,20 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
       }
     }
 
+    const total = trades ? trades.length : 0;
+    const wr = total > 0 ? (wins / total) * 100 : 0;
+    const pf = grossLosses > 0 ? (grossWins / grossLosses) : (grossWins > 0 ? 99.99 : 0);
+
     return {
       variantPnls: map,
       activeLabels: Array.from(labelsSet),
       knifeCount,
-      knifeAccPnl
+      knifeAccPnl,
+      winCount: wins,
+      lossCount: total - wins,
+      totalTrades: total,
+      winRate: wr,
+      profitFactor: pf
     };
   }, [trades]);
 
@@ -112,6 +131,22 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 
                 {/* Body Content - Scrollable */}
                 <div className="flex-1 overflow-y-auto space-y-4 pr-1.5 no-scrollbar">
+                  {/* Performance Summary Card (Win Rate & Profit Factor) */}
+                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 grid grid-cols-2 gap-4">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Win Rate</span>
+                      <span className="text-xs font-black font-mono text-text">
+                        {winRate.toFixed(1)}% <span className="text-[9px] text-dim/70 font-normal">({winCount}W / {lossCount}L)</span>
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-0.5 items-end text-right">
+                      <span className="text-[8px] text-dim font-black uppercase tracking-widest">Profit Factor</span>
+                      <span className={cn("text-xs font-black font-mono", profitFactor >= 1.0 ? "text-green" : "text-amber")}>
+                        {profitFactor.toFixed(2)} PF
+                      </span>
+                    </div>
+                  </div>
+
                   {/* General Overview Card */}
                   <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
                     <div className="flex justify-between items-center flex-wrap gap-2">

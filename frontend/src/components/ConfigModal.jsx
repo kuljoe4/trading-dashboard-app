@@ -4302,6 +4302,9 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
   }
 
   if (type === 'trailing') {
+     const dist = typeof opt.recommendedTrailingDistance === 'number' ? opt.recommendedTrailingDistance : null;
+     if (dist === null) return null;
+
      return (
        <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center justify-between">
@@ -4312,11 +4315,11 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
           <div className="flex items-center justify-between gap-4">
              <div className="flex flex-col">
                 <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5">Statistical Distance</span>
-                <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{opt.recommendedTrailingDistance.toFixed(2)}%</span>
+                <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{dist.toFixed(2)}%</span>
              </div>
              <Btn
                variant="ghost"
-               onClick={() => setField('trailing_stop_distance_pct', opt.recommendedTrailingDistance)}
+               onClick={() => setField('trailing_stop_distance_pct', dist)}
                className="px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-purple/10 text-purple-400 border-purple/20 hover:bg-purple/20"
              >
                Use Recommended

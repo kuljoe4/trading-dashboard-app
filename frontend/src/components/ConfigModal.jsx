@@ -2732,16 +2732,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <section className="pt-6 border-t border-border/40">
                <div className="flex justify-between items-center mb-4">
                  <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
-                 {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
+                 {(Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
                </div>
                <ManualMonitorInput
-                 onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])}
+                 onAdd={(val) => setField('single_symbol_configs', [...(Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []), { symbol: val, enabled: true, follow_schedule: true }])}
                />
                <div className="flex flex-wrap gap-2 mt-4">
-                 {(cfg.single_symbol_configs || []).length === 0 ? (
+                 {(Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).length === 0 ? (
                    <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">No symbols tracked manually</p>
-                 ) : cfg.single_symbol_configs.map((sc, i) => (
-                   <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" aria-label={`Remove ${sc.symbol}`} onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}>{sc.symbol} <X size={10} className="inline ml-1" /></Chip>
+                 ) : (Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).map((sc, i) => (
+                   <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" aria-label={`Remove ${sc?.symbol || ''}`} onClick={() => setField('single_symbol_configs', (Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).filter((_, idx) => idx !== i))}>{sc?.symbol} <X size={10} className="inline ml-1" /></Chip>
                  ))}
                </div>
             </section>
@@ -3772,17 +3772,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="space-y-3">
                  <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 px-1"><Clock size={12} /> Daily Execution Windows (UTC)</div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                   {(cfg.trading_windows || []).map((w, i) => (
+                   {(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).map((w, i) => (
                      <div key={i} className="flex gap-2 p-3 bg-surface/50 border border-border rounded-xl items-center shadow-sm">
-                       <input type="text" value={w.start} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].start = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
+                       <input type="text" value={w?.start || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], start: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
                        <span className="text-dim/40 font-mono text-[10px]">to</span>
-                       <input type="text" value={w.end} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].end = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
+                       <input type="text" value={w?.end || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], end: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
                        <Tooltip content="Remove Window">
-                        <button type="button" onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                        <button type="button" onClick={() => setField('trading_windows', (Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
                        </Tooltip>
                      </div>
                    ))}
-                   <button type="button" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
+                   <button type="button" onClick={() => setField('trading_windows', [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
                  </div>
                </div>
             </CollapsibleSection>

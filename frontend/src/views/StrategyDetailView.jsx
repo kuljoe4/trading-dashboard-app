@@ -13,11 +13,14 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown
 } from 'lucide-react'
-import { EquityCurve, StrategyCalendarPnL } from '../components/Analytics'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { lazyWithRetry } from '../lib/lazy'
+
+const LazyEquityCurve = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.EquityCurve })))
+const LazyStrategyCalendarPnL = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.StrategyCalendarPnL })))
+const LazyHitRateTrend = lazyWithRetry(() => import('../components/Analytics').then(m => ({ default: m.HitRateTrend })))
 
 const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 const preloadTradeDetailModal = () => {
@@ -43,6 +46,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades, tradeHistory } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
+  const [showPnl, setShowPnl] = useState(true)
+  const [showHitRate, setShowHitRate] = useState(true)
   const [isPausing, setIsPausing] = useState(false)
   const [isCalendarOpen, setIsCalendarOpen] = useState(false)
   const [isChecklistOpen, setIsChecklistOpen] = useState(false)
@@ -280,29 +285,106 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > strategyConfig.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
       </div>
 
-      {/* Strategy Calendar PnL Breakdown (Collapsible) */}
-      <div className="mb-8 border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all">
-        <button
-          type="button"
-          onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-          className="w-full p-4 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-        >
+      {/* Performance Analytics & Chart Section (Lazy Loaded) */}
+      <div className="mb-8 border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all space-y-4 p-4">
+        <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-border/30">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-              <CalendarIcon size={14} />
+              <BarChart3 size={14} />
             </div>
             <div>
-              <span className="text-xs font-black uppercase tracking-wider text-text">Performance Calendar</span>
-              <p className="text-[9.5px] text-dim font-medium">Daily profit & loss breakdown (click to expand)</p>
+              <span className="text-xs font-black uppercase tracking-wider text-text">Strategy Performance Trend</span>
+              <p className="text-[9.5px] text-dim font-medium">Toggle between cumulative PnL curve and rolling Hit Rate trend</p>
             </div>
           </div>
-          <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", isCalendarOpen && "rotate-180")} />
-        </button>
-        {isCalendarOpen && (
-          <div className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200">
-            <StrategyCalendarPnL trades={tradeHistory || analytics?.trades || []} strategyFilter={s.strategy_label} />
+
+          <div className="flex items-center gap-1.5 bg-background/60 p-1 rounded-xl border border-border/40">
+            <button
+              type="button"
+              onClick={() => setShowPnl(!showPnl)}
+              aria-pressed={showPnl}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showPnl ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text bg-surface/40"
+              )}
+            >
+              <span className={cn("w-1.5 h-1.5 rounded-full", showPnl ? "bg-white" : "bg-dim/40")} />
+              PnL Curve
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowHitRate(!showHitRate)}
+              aria-pressed={showHitRate}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showHitRate ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text bg-surface/40"
+              )}
+            >
+              <span className={cn("w-1.5 h-1.5 rounded-full", showHitRate ? "bg-white" : "bg-dim/40")} />
+              Hit Rate Trend
+            </button>
+          </div>
+        </div>
+
+        {(showPnl || showHitRate) ? (
+          <div className={cn("grid gap-4 transition-all", showPnl && showHitRate ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1")}>
+            {showPnl && (
+              <div className="space-y-1.5">
+                <div className="text-[9px] font-black uppercase text-dim tracking-widest px-1">Cumulative PnL Equity Curve</div>
+                <Suspense fallback={
+                  <div className="h-[180px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
+                    <Loader2 size={20} className="animate-spin text-accent" />
+                  </div>
+                }>
+                  <LazyEquityCurve data={analytics?.cumulativePnL || []} height={180} />
+                </Suspense>
+              </div>
+            )}
+            {showHitRate && (
+              <div className="space-y-1.5">
+                <div className="text-[9px] font-black uppercase text-dim tracking-widest px-1">Rolling Hit Rate Trend %</div>
+                <Suspense fallback={
+                  <div className="h-[180px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
+                    <Loader2 size={20} className="animate-spin text-accent" />
+                  </div>
+                }>
+                  <LazyHitRateTrend trades={tradeHistory || analytics?.trades || []} height={180} />
+                </Suspense>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="py-8 flex flex-col items-center justify-center text-center bg-background/20 border border-dashed border-border/40 rounded-xl">
+            <BarChart3 size={20} className="text-dim/40 mb-1" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-dim">All charts toggled off</span>
+            <span className="text-[9px] text-dim/60 font-medium">Click a toggle above to show PnL Curve or Hit Rate Trend</span>
           </div>
         )}
+
+        <div className="pt-2 border-t border-border/20">
+          <button
+            type="button"
+            onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+            className="w-full py-2.5 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          >
+            <div className="flex items-center gap-2">
+              <CalendarIcon size={13} className="text-accent" />
+              <span className="text-[11px] font-black uppercase tracking-wider text-text">Daily Calendar Breakdown</span>
+            </div>
+            <ChevronDown size={14} className={cn("text-dim transition-transform duration-200", isCalendarOpen && "rotate-180")} />
+          </button>
+          {isCalendarOpen && (
+            <div className="pt-3 animate-in fade-in duration-200">
+              <Suspense fallback={
+                <div className="h-[120px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
+                  <Loader2 size={18} className="animate-spin text-accent" />
+                </div>
+              }>
+                <LazyStrategyCalendarPnL trades={tradeHistory || analytics?.trades || []} strategyFilter={s.strategy_label} />
+              </Suspense>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mb-10">

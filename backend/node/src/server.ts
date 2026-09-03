@@ -463,9 +463,17 @@ async function bootstrap() {
           const wasFocused = socket.focusMode;
           const wasScannerSymbol = socket.focusScannerSymbol;
           socket.focusMode = data.enabled === true;
-          socket.focusTradeId = data.tradeId || null;
-          socket.focusStrategyLabel = data.strategyLabel || null;
-          socket.focusScannerSymbol = data.scannerSymbol || null;
+
+          // SENTINEL: Enforce type assertions and 100 char max length on WebSocket focus properties
+          const parseStrProp = (val: any): string | null => {
+            if (typeof val !== "string" || !val.trim()) return null;
+            const trimmed = val.trim();
+            return trimmed.length > 100 ? trimmed.substring(0, 100) : trimmed;
+          };
+
+          socket.focusTradeId = parseStrProp(data.tradeId);
+          socket.focusStrategyLabel = parseStrProp(data.strategyLabel);
+          socket.focusScannerSymbol = parseStrProp(data.scannerSymbol);
 
           if (wasFocused !== socket.focusMode || wasScannerSymbol !== socket.focusScannerSymbol) {
             updateMonitoringSuppression();

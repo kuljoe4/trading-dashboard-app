@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { formatDuration, calculateProximity } from '../lib/formatters'
+import { calculatePerformanceMetrics } from '../lib/analytics'
 
 const formatTimeAgo = (ts) => {
   if (!ts) return 'ago';
@@ -224,7 +225,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratPf = 0 }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null }) => {
   const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -330,10 +331,38 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               const hitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
               const baselineWr = analytics?.overallWinRate || 50;
               const hitRateRatio = baselineWr > 0 ? hitRate / baselineWr : 1.0;
+              const pfVal = stratMetrics ? stratMetrics.profitFactor : 0;
+              const sharpeVal = stratMetrics ? stratMetrics.sharpe : 0;
+              const sortinoVal = stratMetrics ? stratMetrics.sortino : 0;
+
+              const pfText = s.entryCount > 0 ? Number(pfVal).toFixed(2) : '---';
+              const sharpeText = s.entryCount > 0 ? Number(sharpeVal).toFixed(2) : '---';
+              const sortinoText = s.entryCount > 0 ? Number(sortinoVal).toFixed(2) : '---';
+
               return (
-                <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 font-mono">
-                  Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0}) · Ratio: {hitRateRatio.toFixed(2)}x · PF: {s.entryCount > 0 ? Number(stratPf).toFixed(2) : '---'}
-                </span>
+                <div className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1.5 flex-wrap font-mono">
+                  <span>Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0})</span>
+                  <span>·</span>
+                  <span>Ratio: {hitRateRatio.toFixed(2)}x</span>
+                  <span>·</span>
+                  <Tooltip content="Profit Factor (Gross Wins / Gross Losses). Recommended: > 1.0 (Profitable), >= 2.0 (Strong)">
+                    <span className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-xs" tabIndex={0} aria-label={`Profit Factor: ${pfText}. Recommended greater than 1.0`}>
+                      PF: {pfText}
+                    </span>
+                  </Tooltip>
+                  <span>·</span>
+                  <Tooltip content="Sharpe Ratio (Risk-Adjusted Return). Recommended: >= 1.0 (Acceptable), >= 1.5 (Good), >= 2.0 (Excellent)">
+                    <span className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-xs" tabIndex={0} aria-label={`Sharpe Ratio: ${sharpeText}. Recommended >= 1.0 Acceptable, >= 1.5 Good, >= 2.0 Excellent`}>
+                      Sh: {sharpeText}
+                    </span>
+                  </Tooltip>
+                  <span>·</span>
+                  <Tooltip content="Sortino Ratio (Downside Risk-Adjusted Return). Recommended: >= 1.0 (Acceptable), >= 2.0 (Good), >= 3.0 (Excellent)">
+                    <span className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-xs" tabIndex={0} aria-label={`Sortino Ratio: ${sortinoText}. Recommended >= 1.0 Acceptable, >= 2.0 Good, >= 3.0 Excellent`}>
+                      So: {sortinoText}
+                    </span>
+                  </Tooltip>
+                </div>
               );
             })()}
           </div>
@@ -1163,30 +1192,22 @@ export function DashboardView({ initialStrategy }) {
     return { netFunding: fundingSum, netComm: feeSum };
   }, [stats?.totalFundingFee, stats?.totalRealizedFee, tradeHistory, activeTrades]);
 
-  const stratPfMap = useMemo(() => {
-    const grossWins = new Map();
-    const grossLosses = new Map();
-
+  const stratMetricsMap = useMemo(() => {
     const history = tradeHistory || [];
+    const grouped = new Map();
+
     for (let i = 0; i < history.length; i++) {
       const t = history[i];
       const label = t.strategy_label || t.strategyLabel || 'Momentum Strategy';
-      const pnl = safeNum(t.pnl);
-
-      if (pnl > 0) {
-        grossWins.set(label, (grossWins.get(label) || 0) + pnl);
-      } else if (pnl < 0) {
-        grossLosses.set(label, (grossLosses.get(label) || 0) + Math.abs(pnl));
+      if (!grouped.has(label)) {
+        grouped.set(label, []);
       }
+      grouped.get(label).push(t);
     }
 
     const map = new Map();
-    const allLabels = new Set([...grossWins.keys(), ...grossLosses.keys()]);
-    for (const label of allLabels) {
-      const gw = grossWins.get(label) || 0;
-      const gl = grossLosses.get(label) || 0;
-      const pf = gl > 0 ? (gw / gl) : (gw > 0 ? 99.99 : 0);
-      map.set(label, pf);
+    for (const [label, trades] of grouped.entries()) {
+      map.set(label, calculatePerformanceMetrics(trades));
     }
 
     return map;
@@ -2093,7 +2114,7 @@ export function DashboardView({ initialStrategy }) {
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
                             isResuming={isResuming}
                             showResumingFeedback={showResumingFeedback}
-                            stratPf={stratPfMap.get(currentStrategy.strategy_label) || 0}
+                            stratMetrics={stratMetricsMap.get(currentStrategy.strategy_label)}
                           />
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
@@ -2124,7 +2145,7 @@ export function DashboardView({ initialStrategy }) {
                                 isMonitored={monitoredSymbolsSet.has(label)}
                                 isResuming={isResuming}
                                 showResumingFeedback={showResumingFeedback}
-                                stratPf={stratPfMap.get(label) || 0}
+                                stratMetrics={stratMetricsMap.get(label)}
                               />
                             );
                           })}

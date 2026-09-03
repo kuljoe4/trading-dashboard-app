@@ -42,7 +42,7 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
       <path
         fill="none"
         stroke={colorHex}
-        strokeWidth="1.5"
+        strokeWidth="0.8"
         strokeLinecap="round"
         strokeLinejoin="round"
         d={pathD}
@@ -258,7 +258,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
                 x2={pt.x}
                 y2={pt.y}
                 stroke={color}
-                strokeWidth="1.5"
+                strokeWidth="0.8"
                 strokeLinecap="round"
                 opacity="0.8"
               />
@@ -276,7 +276,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
             x2={width}
             y2={slY}
             stroke="#ff4466"
-            strokeWidth="1.5"
+            strokeWidth="0.8"
             strokeDasharray="2 2"
             opacity="0.6"
           />

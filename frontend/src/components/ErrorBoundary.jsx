@@ -38,14 +38,18 @@ class ErrorBoundary extends React.Component {
             </p>
             <div className="space-y-3">
               <button
+                type="button"
                 onClick={() => window.location.reload()}
-                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors"
+                aria-label="Reload Dashboard"
+                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:outline-none cursor-pointer"
               >
                 Reload Dashboard
               </button>
               <button
+                type="button"
                 onClick={() => this.setState({ hasError: false, error: null })}
-                className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-lg transition-colors"
+                aria-label="Try to recover dashboard state"
+                className="w-full py-3 px-4 bg-slate-700 hover:bg-slate-600 text-slate-200 font-medium rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:outline-none cursor-pointer"
               >
                 Try to Recover
               </button>

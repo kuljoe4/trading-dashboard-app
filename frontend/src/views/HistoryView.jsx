@@ -1408,6 +1408,7 @@ export const HistoryView = () => {
   const isFirstRender = React.useRef(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [search, setSearch] = useState('')
+  const [selectedStrategy, setSelectedStrategy] = useState('ALL')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Controlled expansion state for sessions
@@ -1453,10 +1454,100 @@ export const HistoryView = () => {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
+  // Extract mode-filtered trades
+  const modeTrades = useMemo(() => {
+    return (tradeHistory || []).filter(Boolean).filter(t => {
+      const mode = t.paperMode || t.paper_mode ? 'paper' : (t.trading_mode || 'live');
+      return mode === lifetimeMode;
+    });
+  }, [tradeHistory, lifetimeMode]);
+
+  // Extract unique available strategy labels across current mode trades along with counts & total PnL
+  const availableStrategies = useMemo(() => {
+    const map = new Map();
+    for (let i = 0; i < modeTrades.length; i++) {
+      const t = modeTrades[i];
+      const label = strategyLabel(t);
+      const pnl = safeNum(t.pnl);
+      if (!map.has(label)) {
+        map.set(label, { label, count: 0, pnl: 0 });
+      }
+      const item = map.get(label);
+      item.count += 1;
+      item.pnl += pnl;
+    }
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [modeTrades]);
+
+  // Loop-fused single pass calculation for Top 5 Biggest Wins & Top 5 Biggest Losses
+  const { topWins, topLosses } = useMemo(() => {
+    const wins = [];
+    const losses = [];
+
+    // Filter trades by strategy if selected
+    const tradesToProcess = selectedStrategy === 'ALL'
+      ? modeTrades
+      : modeTrades.filter(t => strategyLabel(t) === selectedStrategy);
+
+    for (let i = 0; i < tradesToProcess.length; i++) {
+      const t = tradesToProcess[i];
+      const pnl = safeNum(t.pnl);
+      if (pnl > 0) wins.push(t);
+      else if (pnl < 0) losses.push(t);
+    }
+
+    wins.sort((a, b) => safeNum(b.pnl) - safeNum(a.pnl));
+    losses.sort((a, b) => safeNum(a.pnl) - safeNum(b.pnl));
+
+    return {
+      topWins: wins.slice(0, 5),
+      topLosses: losses.slice(0, 5)
+    };
+  }, [modeTrades, selectedStrategy]);
+
+  // Recalculate lifetime analytics dynamically when a strategy filter is active
+  const filteredLifetimeAnalytics = useMemo(() => {
+    if (selectedStrategy === 'ALL') return lifetimeAnalytics;
+
+    const filteredTrades = modeTrades.filter(t => strategyLabel(t) === selectedStrategy);
+    const m = calculatePerformanceMetrics(filteredTrades);
+    const curve = buildCurve(filteredTrades);
+
+    // Compute max drawdown for filtered trades
+    let peak = 0;
+    let maxDd = 0;
+    let runningPnl = 0;
+    for (let i = 0; i < curve.length; i++) {
+      runningPnl = curve[i].pnl;
+      if (runningPnl > peak) peak = runningPnl;
+      const dd = peak - runningPnl;
+      if (dd > maxDd) maxDd = dd;
+    }
+
+    return {
+      totalTrades: filteredTrades.length,
+      overallWinRate: m.winRate,
+      cumulativePnL: curve,
+      maxDrawdown: maxDd,
+      maxDrawdownPct: 0,
+      avgWin: m.wins > 0 ? m.grossProfit / m.wins : 0,
+      avgLoss: (filteredTrades.length - m.wins) > 0 ? m.grossLoss / (filteredTrades.length - m.wins) : 0,
+      avgWinLossRatio: m.grossLoss > 0 ? (m.grossProfit / m.wins) / (m.grossLoss / (filteredTrades.length - m.wins)) : 0,
+      sharpeRatio: m.sharpe,
+      sortinoRatio: m.sortino,
+      profitFactor: m.profitFactor,
+      maxWinStreak: m.maxWinStreak,
+      maxLossStreak: m.maxLossStreak,
+      avgDuration: m.avgDuration,
+      timeOfDay: []
+    };
+  }, [selectedStrategy, modeTrades, lifetimeAnalytics]);
+
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
     const tradesBySession = (tradeHistory || []).filter(Boolean).reduce((acc, t) => {
       if (!t.sessionId) return acc;
+      if (selectedStrategy !== 'ALL' && strategyLabel(t) !== selectedStrategy) return acc;
       if (!acc[t.sessionId]) acc[t.sessionId] = [];
       acc[t.sessionId].push(t);
       return acc;
@@ -1464,18 +1555,20 @@ export const HistoryView = () => {
 
     // BOLT OPTIMIZATION: Use pre-calculated startTimeMs directly (Schwartzian transform)
     // to avoid instantiating new Date objects inside the sort comparator loop.
-    const mapped = (sessionList || []).filter(Boolean).map(session => {
-      const startTimeMs = session.startTimeMs ?? (session.startTime ? new Date(session.startTime).getTime() : 0);
-      return {
-        ...session,
-        startTimeMs,
-        trades: tradesBySession[session.id] || []
-      };
-    });
+    const mapped = (sessionList || []).filter(Boolean)
+      .map(session => {
+        const startTimeMs = session.startTimeMs ?? (session.startTime ? new Date(session.startTime).getTime() : 0);
+        return {
+          ...session,
+          startTimeMs,
+          trades: tradesBySession[session.id] || []
+        };
+      })
+      .filter(session => selectedStrategy === 'ALL' || session.trades.length > 0);
 
     mapped.sort((a, b) => b.startTimeMs - a.startTimeMs);
     return mapped;
-  }, [sessionList, tradeHistory])
+  }, [sessionList, tradeHistory, selectedStrategy])
 
   const [sortBy, setSortBy] = useState('time'); // 'time', 'pnl', 'winrate'
 
@@ -1575,7 +1668,7 @@ export const HistoryView = () => {
     }
   }
 
-  const currentAnalytics = lifetimeAnalytics
+  const currentAnalytics = filteredLifetimeAnalytics
 
   const totalPnl = currentAnalytics?.cumulativePnL?.length ? safeNum(currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl) : 0
   const totalTrades = currentAnalytics?.totalTrades || 0
@@ -1655,6 +1748,48 @@ export const HistoryView = () => {
              </span>
           </div>
         </ViewHeader>
+
+        {/* Strategy Filter Badges Row */}
+        {availableStrategies.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1.5 pt-0.5 mb-3">
+            <span className="text-[8.5px] text-dim font-black uppercase tracking-widest shrink-0 mr-1 flex items-center gap-1">
+              <Layers size={11} className="text-accent" /> Strategy Filter:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedStrategy('ALL')}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                selectedStrategy === 'ALL'
+                  ? "bg-accent/15 border-accent text-accent shadow-sm"
+                  : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-accent/30"
+              )}
+            >
+              All Strategies ({modeTrades.length})
+            </button>
+            {availableStrategies.map(strat => (
+              <button
+                key={strat.label}
+                type="button"
+                onClick={() => setSelectedStrategy(strat.label)}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                  selectedStrategy === strat.label
+                    ? "bg-accent/15 border-accent text-accent shadow-sm"
+                    : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-accent/30"
+                )}
+              >
+                <span>{strat.label}</span>
+                <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
+                  {strat.count}
+                </span>
+                <span className={cn("text-[7.5px] font-mono font-black", pnlClass(strat.pnl))}>
+                  {fmtUSD(strat.pnl)}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Unified Sticky Filter Toolbar */}
         <div className="sticky top-[64px] z-40 bg-background/95 backdrop-blur-md border border-border/30 rounded-2xl p-2.5 mb-6 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full">
@@ -1929,6 +2064,84 @@ export const HistoryView = () => {
                 {/* 3.5 Strategy Calendar PnL */}
                 <div>
                   <StrategyCalendarPnL trades={tradeHistory || []} />
+                </div>
+
+                {/* 3.6 Top 5 Biggest Wins & Top 5 Biggest Losses */}
+                <div className="bg-surface/30 border border-border/40 rounded-2xl p-4 md:p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between gap-3 border-b border-border/10 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                        <TrendingUp size={16} />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-tight text-text">Outliers & Extremes</h4>
+                        <p className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Biggest Wins & Top 5 Biggest Losses</p>
+                      </div>
+                    </div>
+                    {selectedStrategy !== 'ALL' && (
+                      <span className="text-[8.5px] font-black px-2 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase">
+                        {selectedStrategy}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Top 5 Wins */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-green">
+                        <span className="flex items-center gap-1.5"><TrendingUp size={13} /> Top 5 Biggest Wins</span>
+                        <span>PnL ($)</span>
+                      </div>
+                      {topWins.length === 0 ? (
+                        <div className="p-4 bg-background/20 rounded-xl text-center text-[9px] text-dim font-black uppercase tracking-wider">No winning trades recorded</div>
+                      ) : (
+                        topWins.map((t, idx) => (
+                          <div key={t.id || `win-${idx}`} className="p-3 bg-surface/50 border border-green/20 rounded-xl flex items-center justify-between gap-3 hover:border-green/40 transition-all">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="w-5 h-5 rounded-full bg-green/10 text-green text-[9px] font-black font-mono flex items-center justify-center shrink-0">#{idx + 1}</span>
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-black font-mono text-text truncate">{t.symbol}</span>
+                                  <span className="text-[7.5px] font-black px-1.5 py-0.5 rounded border border-green/20 bg-green/5 text-green uppercase shrink-0">{t.direction}</span>
+                                  <span className="text-[7.5px] font-black px-1.5 py-0.5 rounded border border-border/30 text-dim truncate max-w-[110px]">{strategyLabel(t)}</span>
+                                </div>
+                                <span className="text-[8.5px] text-dim font-mono font-medium">{new Date(t.entry_ts || t.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} · Peak +{Number(t.max_rr_achieved || 0).toFixed(1)}R</span>
+                              </div>
+                            </div>
+                            <span className="text-sm font-black font-mono text-green shrink-0">{fmtUSD(safeNum(t.pnl))}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Top 5 Losses */}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-red">
+                        <span className="flex items-center gap-1.5"><TrendingDown size={13} /> Top 5 Biggest Losses</span>
+                        <span>PnL ($)</span>
+                      </div>
+                      {topLosses.length === 0 ? (
+                        <div className="p-4 bg-background/20 rounded-xl text-center text-[9px] text-dim font-black uppercase tracking-wider">No losing trades recorded</div>
+                      ) : (
+                        topLosses.map((t, idx) => (
+                          <div key={t.id || `loss-${idx}`} className="p-3 bg-surface/50 border border-red/20 rounded-xl flex items-center justify-between gap-3 hover:border-red/40 transition-all">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="w-5 h-5 rounded-full bg-red/10 text-red text-[9px] font-black font-mono flex items-center justify-center shrink-0">#{idx + 1}</span>
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-xs font-black font-mono text-text truncate">{t.symbol}</span>
+                                  <span className="text-[7.5px] font-black px-1.5 py-0.5 rounded border border-red/20 bg-red/5 text-red uppercase shrink-0">{t.direction}</span>
+                                  <span className="text-[7.5px] font-black px-1.5 py-0.5 rounded border border-border/30 text-dim truncate max-w-[110px]">{strategyLabel(t)}</span>
+                                </div>
+                                <span className="text-[8.5px] text-dim font-mono font-medium">{new Date(t.entry_ts || t.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} · Exit {t.exit_rr !== undefined ? Number(t.exit_rr).toFixed(1) : '0.0'}R</span>
+                              </div>
+                            </div>
+                            <span className="text-sm font-black font-mono text-red shrink-0">{fmtUSD(safeNum(t.pnl))}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </div>
 
                 {/* 4. RR Optimization */}

@@ -198,7 +198,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
           </clipPath>
 
           <filter id={glowId}>
-            <feGaussianBlur stdDeviation="0.4" result="blur" />
+            <feGaussianBlur stdDeviation="0.15" result="blur" />
             <feComposite in="SourceGraphic" in2="blur" operator="over" />
           </filter>
         </defs>
@@ -230,7 +230,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
           d={pathD}
           fill="none"
           stroke="var(--color-green)"
-          strokeWidth="0.5"
+          strokeWidth="0.4"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-above)`}
@@ -243,7 +243,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
           d={pathD}
           fill="none"
           stroke="var(--color-red)"
-          strokeWidth="0.5"
+          strokeWidth="0.4"
           strokeLinecap="round"
           strokeLinejoin="round"
           clipPath={`url(#${gradientId}-clip-below)`}
@@ -594,7 +594,7 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
             d={pathPF}
             fill="none"
             stroke="var(--color-accent)"
-            strokeWidth="0.8"
+            strokeWidth="0.4"
             strokeLinecap="round"
             strokeLinejoin="round"
             className="transition-all duration-700"
@@ -641,37 +641,78 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
-export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true }) => {
+export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false }) => {
   const containerRef = useRef(null);
   const chartId = useId().replace(/:/g, '');
   const pnlGradientId = `pnl-grad-${chartId}`;
-  const hrGradientId = `hr-grad-${chartId}`;
   const [hoverData, setHoverData] = useState(null);
 
-  const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange } = useMemo(() => {
+  const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange, maxRatio } = useMemo(() => {
     const safeTrades = Array.isArray(trades) ? trades : [];
     if (safeTrades.length < 2) {
-      return { points: [], pnlMin: 0, pnlMax: 10, pnlRange: 10, hrMin: 0, hrMax: 100, hrRange: 100 };
+      return { points: [], pnlMin: 0, pnlMax: 10, pnlRange: 10, hrMin: 0, hrMax: 100, hrRange: 100, maxRatio: 3.0 };
     }
 
     let cumPnl = 0;
     let totalWins = 0;
+    let grossWin = 0;
+    let grossLoss = 0;
 
-    const series = safeTrades.map((t, idx) => {
+    let rollingBal = 10000;
+    let sumReturnPct = 0;
+    let sumSqReturnPct = 0;
+    let downsideSumSqReturnPct = 0;
+
+    const series = new Array(safeTrades.length);
+
+    for (let idx = 0; idx < safeTrades.length; idx++) {
+      const t = safeTrades[idx];
       const pnl = Number(t.pnl || 0);
       cumPnl += pnl;
-      if (pnl > 0) totalWins++;
-      const hitRate = (totalWins / (idx + 1)) * 100;
 
-      return {
-        tradeIndex: idx + 1,
+      const retPct = rollingBal > 0 ? (pnl / rollingBal) * 100 : 0;
+      rollingBal = Math.max(1, rollingBal + pnl);
+
+      sumReturnPct += retPct;
+      sumSqReturnPct += retPct * retPct;
+
+      if (pnl > 0) {
+        totalWins++;
+        grossWin += pnl;
+      } else if (pnl < 0) {
+        grossLoss += Math.abs(pnl);
+        downsideSumSqReturnPct += retPct * retPct;
+      }
+
+      const count = idx + 1;
+      const hitRate = (totalWins / count) * 100;
+      const pf = grossLoss > 0 ? (grossWin / grossLoss) : (grossWin > 0 ? 10 : 0);
+
+      let sharpe = 0;
+      let sortino = 0;
+
+      if (count > 1) {
+        const meanReturn = sumReturnPct / count;
+        const variance = Math.max(0, (sumSqReturnPct / count) - (meanReturn * meanReturn));
+        const stdDev = Math.sqrt(variance);
+        const downsideStdDev = Math.sqrt(downsideSumSqReturnPct / count);
+
+        if (stdDev > 0) sharpe = meanReturn / stdDev;
+        if (downsideStdDev > 0) sortino = meanReturn / downsideStdDev;
+      }
+
+      series[idx] = {
+        tradeIndex: count,
         symbol: t.symbol || '---',
         pnl,
         cumPnl,
         hitRate,
+        pf,
+        sharpe,
+        sortino,
         ts: t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0)
       };
-    });
+    }
 
     const pnlValues = series.map(s => s.cumPnl);
     const rawPnlMin = Math.min(0, ...pnlValues);
@@ -687,16 +728,35 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
     const rawHrMax = Math.min(100, Math.max(...hrValues) + 5);
     const rangeHr = Math.max(10, rawHrMax - rawHrMin);
 
+    const ratioValues = [];
+    series.forEach(s => {
+      if (s.pf > 0 && s.pf < 50) ratioValues.push(s.pf);
+      if (s.sharpe > 0) ratioValues.push(s.sharpe);
+      if (s.sortino > 0) ratioValues.push(s.sortino);
+    });
+    const peakRatio = ratioValues.length > 0 ? Math.max(...ratioValues) : 2.5;
+    const ratioScaleMax = Math.max(3.0, peakRatio * 1.15);
+
     const pts = series.map((d, i) => {
       const x = (i / (series.length - 1)) * 100;
       const yPnl = 100 - ((d.cumPnl - minPnl) / rangePnl) * 100;
       const yHr = 100 - ((d.hitRate - rawHrMin) / rangeHr) * 100;
+      const yPf = 100 - (Math.min(ratioScaleMax, Math.max(0, d.pf)) / ratioScaleMax) * 100;
+      const ySharpe = 100 - (Math.min(ratioScaleMax, Math.max(0, d.sharpe)) / ratioScaleMax) * 100;
+      const ySortino = 100 - (Math.min(ratioScaleMax, Math.max(0, d.sortino)) / ratioScaleMax) * 100;
+
       return {
         x,
         yPnl,
         yHr,
+        yPf,
+        ySharpe,
+        ySortino,
         cumPnl: d.cumPnl,
         hitRate: d.hitRate,
+        pf: d.pf,
+        sharpe: d.sharpe,
+        sortino: d.sortino,
         pnl: d.pnl,
         symbol: d.symbol,
         tradeIndex: d.tradeIndex,
@@ -711,7 +771,8 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
       pnlRange: rangePnl,
       hrMin: rawHrMin,
       hrMax: rawHrMax,
-      hrRange: rangeHr
+      hrRange: rangeHr,
+      maxRatio: ratioScaleMax
     };
   }, [trades]);
 
@@ -723,6 +784,21 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
   const hrPathD = useMemo(() => {
     if (!points.length) return '';
     return solveSmoothing(points.map(p => ({ x: p.x, y: p.yHr })));
+  }, [points]);
+
+  const pfPathD = useMemo(() => {
+    if (!points.length) return '';
+    return solveSmoothing(points.map(p => ({ x: p.x, y: p.yPf })));
+  }, [points]);
+
+  const sharpePathD = useMemo(() => {
+    if (!points.length) return '';
+    return solveSmoothing(points.map(p => ({ x: p.x, y: p.ySharpe })));
+  }, [points]);
+
+  const sortinoPathD = useMemo(() => {
+    if (!points.length) return '';
+    return solveSmoothing(points.map(p => ({ x: p.x, y: p.ySortino })));
   }, [points]);
 
   const zeroPnlY = useMemo(() => {
@@ -780,11 +856,29 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
               Hit Rate: {Number(activePoint?.hitRate || 0).toFixed(1)}%
             </span>
           )}
+          {showPf && (
+            <span className="font-bold text-xs font-mono text-purple">
+              PF: {Number(activePoint?.pf || 0).toFixed(2)}
+            </span>
+          )}
+          {showSharpe && (
+            <span className="font-bold text-xs font-mono text-amber">
+              Sh: {Number(activePoint?.sharpe || 0).toFixed(2)}
+            </span>
+          )}
+          {showSortino && (
+            <span className="font-bold text-xs font-mono text-cyan-400">
+              So: {Number(activePoint?.sortino || 0).toFixed(2)}
+            </span>
+          )}
         </div>
 
-        <div className="flex items-center gap-3 text-[8.5px] font-mono text-dim/60">
-          {showPnl && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL Scale (Left)</span>}
-          {showHitRate && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate % (Right)</span>}
+        <div className="flex items-center gap-2.5 text-[8.5px] font-mono text-dim/60 flex-wrap">
+          {showPnl && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL ($)</span>}
+          {showHitRate && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate (%)</span>}
+          {showPf && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-purple rounded-full inline-block" /> Profit Factor</span>}
+          {showSharpe && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-amber rounded-full inline-block" /> Sharpe</span>}
+          {showSortino && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-cyan-400 rounded-full inline-block" /> Sortino</span>}
         </div>
       </div>
 
@@ -810,7 +904,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
               <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0.0" />
             </linearGradient>
             <filter id={`${chartId}-glow`} x="-10%" y="-10%" width="120%" height="120%">
-              <feGaussianBlur stdDeviation="0.8" result="blur" />
+              <feGaussianBlur stdDeviation="0.15" result="blur" />
               <feComposite in="SourceGraphic" in2="blur" operator="over" />
             </filter>
           </defs>
@@ -855,7 +949,43 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
             d={pnlPathD}
             fill="none"
             stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
-            strokeWidth="1.0"
+            strokeWidth="0.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#${chartId}-glow)`}
+          />
+        )}
+
+        {showPf && pfPathD && (
+          <path
+            d={pfPathD}
+            fill="none"
+            stroke="var(--color-purple)"
+            strokeWidth="0.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#${chartId}-glow)`}
+          />
+        )}
+
+        {showSharpe && sharpePathD && (
+          <path
+            d={sharpePathD}
+            fill="none"
+            stroke="var(--color-amber)"
+            strokeWidth="0.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            filter={`url(#${chartId}-glow)`}
+          />
+        )}
+
+        {showSortino && sortinoPathD && (
+          <path
+            d={sortinoPathD}
+            fill="none"
+            stroke="#06b6d4"
+            strokeWidth="0.5"
             strokeLinecap="round"
             strokeLinejoin="round"
             filter={`url(#${chartId}-glow)`}
@@ -867,7 +997,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
             d={hrPathD}
             fill="none"
             stroke="var(--color-accent)"
-            strokeWidth="1.5"
+            strokeWidth="0.6"
             strokeDasharray={showPnl ? '2.5,2' : 'none'}
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -888,6 +1018,21 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
               <g>
                 <circle cx={activePoint.x} cy={activePoint.yHr} r="3" fill="var(--color-accent)" />
                 <circle cx={activePoint.x} cy={activePoint.yHr} r="5" fill="none" stroke="var(--color-accent)" strokeWidth="0.5" className="animate-pulse origin-center" />
+              </g>
+            )}
+            {showPf && (
+              <g>
+                <circle cx={activePoint.x} cy={activePoint.yPf} r="3" fill="var(--color-purple)" />
+              </g>
+            )}
+            {showSharpe && (
+              <g>
+                <circle cx={activePoint.x} cy={activePoint.ySharpe} r="3" fill="var(--color-amber)" />
+              </g>
+            )}
+            {showSortino && (
+              <g>
+                <circle cx={activePoint.x} cy={activePoint.ySortino} r="3" fill="#06b6d4" />
               </g>
             )}
           </g>
@@ -1008,7 +1153,7 @@ export const HitRateTrend = ({ trades = [], height = 180 }) => {
           d={pathD}
           fill="none"
           stroke="var(--color-accent)"
-          strokeWidth="1.8"
+          strokeWidth="0.8"
           strokeLinecap="round"
           strokeLinejoin="round"
         />

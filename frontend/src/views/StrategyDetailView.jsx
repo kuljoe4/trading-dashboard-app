@@ -8,6 +8,7 @@ import {
 } from '../components/ui/primitives'
 import { SignalGauge } from '../components/ui/SignalGauge'
 import { calculateProximity } from '../lib/formatters'
+import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -47,6 +48,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
   const [showPnl, setShowPnl] = useState(true)
   const [showHitRate, setShowHitRate] = useState(true)
+  const [showPf, setShowPf] = useState(false)
+  const [showSharpe, setShowSharpe] = useState(false)
+  const [showSortino, setShowSortino] = useState(false)
   const [isPausing, setIsPausing] = useState(false)
   const [isCalendarOpen, setIsCalendarOpen] = useState(false)
   const [isChecklistOpen, setIsChecklistOpen] = useState(false)
@@ -84,24 +88,32 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const stratPerformance = useMemo(() => {
     const trades = tradeHistory || analytics?.trades || [];
     const filtered = trades.filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label);
+    const metrics = calculatePerformanceMetrics(filtered);
     const total = filtered.length;
-    let wins = 0;
-    let losses = 0;
-    let sumPnl = 0;
 
-    for (let i = 0; i < total; i++) {
-      const pnl = Number(filtered[i].pnl || 0);
-      sumPnl += pnl;
-      if (pnl > 0) wins++;
-      else if (pnl < 0) losses++;
-    }
-
-    const hitRate = total > 0 ? (wins / total) * 100 : 0;
+    const hitRate = total > 0 ? (metrics.wins / total) * 100 : 0;
     const overallWr = analytics?.overallWinRate || 50;
     const hitRateRatio = overallWr > 0 ? hitRate / overallWr : 1.0;
 
-    return { total, wins, losses, sumPnl, hitRate, hitRateRatio };
-  }, [tradeHistory, analytics, s.strategy_label]);
+    const targetRr = strategyConfig.exit_rr_target || strategyConfig.min_rr || 1.5;
+    const breakevenWr = Math.round((1 / (1 + targetRr)) * 100);
+    const recommendedWr = Math.min(85, Math.round(breakevenWr * 1.3));
+
+    return {
+      total,
+      wins: metrics.wins,
+      losses: total - metrics.wins,
+      sumPnl: metrics.totalPnl,
+      hitRate,
+      hitRateRatio,
+      profitFactor: metrics.profitFactor,
+      sharpe: metrics.sharpe,
+      sortino: metrics.sortino,
+      targetRr,
+      breakevenWr,
+      recommendedWr
+    };
+  }, [tradeHistory, analytics, s.strategy_label, strategyConfig]);
 
   const hitRateRatioText = stratPerformance.hitRateRatio >= 1.15
     ? `${stratPerformance.hitRateRatio.toFixed(2)}x (Expanding)`
@@ -255,7 +267,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
          </div>
       </ViewHeader>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4 mb-6 md:mb-10">
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3 md:gap-4 mb-6 md:mb-10">
         <StatCard
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
@@ -266,16 +278,44 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         <StatCard
           label="Hit Rate %"
           value={`${stratPerformance.hitRate.toFixed(1)}%`}
-          color={stratPerformance.hitRate >= 50 ? "text-green" : "text-amber"}
-          subValue={`${stratPerformance.wins}W / ${stratPerformance.losses}L (${stratPerformance.total} trades)`}
-          tooltipText="Strategy win rate percentage and hit count breakdown."
+          color={stratPerformance.hitRate >= stratPerformance.recommendedWr ? "text-green" : "text-amber"}
+          subValue={`Target: >=${stratPerformance.recommendedWr}% (BE: ${stratPerformance.breakevenWr}%)`}
+          tooltipText={`Strategy Win Rate. Dynamic recommendation based on ${stratPerformance.targetRr}R target: Breakeven >= ${stratPerformance.breakevenWr}%, Recommended Target >= ${stratPerformance.recommendedWr}%.`}
         />
         <StatCard
           label="Hit Rate Ratio"
           value={hitRateRatioText}
           color={stratPerformance.hitRateRatio >= 1.15 ? "text-green" : stratPerformance.hitRateRatio <= 0.85 ? "text-amber" : "text-text"}
-          subValue={`Baseline Win Rate: ${(analytics?.overallWinRate || 50).toFixed(0)}%`}
+          subValue={`Baseline: ${(analytics?.overallWinRate || 50).toFixed(0)}%`}
           tooltipText="Hit rate ratio relative to overall performance baseline. Thresholds: >= 1.15 Expansion, <= 0.85 Contraction."
+        />
+        <StatCard
+          label="Profit Factor"
+          value={stratPerformance.profitFactor > 0 ? stratPerformance.profitFactor.toFixed(2) : '---'}
+          color={stratPerformance.profitFactor >= 1.5 ? "text-green" : stratPerformance.profitFactor >= 1.0 ? "text-amber" : "text-text"}
+          subValue="Target: >= 1.50"
+          tooltipText="Profit Factor (Gross Wins / Gross Losses). Recommended: > 1.00 (Profitable), >= 1.50 (Solid), >= 2.00 (Excellent)."
+        />
+        <StatCard
+          label="Sharpe (Sh)"
+          value={stratPerformance.sharpe > 0 ? stratPerformance.sharpe.toFixed(2) : '---'}
+          color={stratPerformance.sharpe >= 1.5 ? "text-green" : stratPerformance.sharpe >= 1.0 ? "text-amber" : "text-text"}
+          subValue="Target: >= 1.50"
+          tooltipText="Sharpe Ratio (Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 1.50 (Good), >= 2.00 (Excellent)."
+        />
+        <StatCard
+          label="Sortino (So)"
+          value={stratPerformance.sortino > 0 ? stratPerformance.sortino.toFixed(2) : '---'}
+          color={stratPerformance.sortino >= 2.0 ? "text-green" : stratPerformance.sortino >= 1.0 ? "text-amber" : "text-text"}
+          subValue="Target: >= 2.00"
+          tooltipText="Sortino Ratio (Downside Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 2.00 (Good), >= 3.00 (Excellent)."
+        />
+        <StatCard
+          label="Active Risk"
+          value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`}
+          color={s.totalRiskPct > strategyConfig.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
+          subValue={`Limit: ${strategyConfig.max_total_risk_pct || 5}%`}
+          tooltipText="Total active risk exposure across open positions."
         />
         <StatCard
           label="Active Trades"
@@ -284,8 +324,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           subValue={activeTradeCount > 0 ? "In Position" : "Flat"}
           tooltipText="The number of open positions currently managed under this strategy."
         />
-        <StatCard label="SL Budget" value={`$${Number(s.totalSlUsed || 0).toFixed(0)}`} subValue={`Limit $${strategyConfig.total_sl_guard_usdt}`} color={s.totalSlUsed > strategyConfig.total_sl_guard_usdt * 0.7 ? "text-amber" : "text-text"} />
-        <StatCard label="Active Risk" value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`} color={s.totalRiskPct > strategyConfig.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
       </div>
 
       {/* Performance Analytics & Chart Section (Lazy Loaded Overlaid Dual-Axis Plot) */}
@@ -301,35 +339,71 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </div>
           </div>
 
-          <div className="flex items-center p-0.5 bg-surface/60 rounded-xl border border-border/40 text-dim">
+          <div className="flex items-center p-0.5 bg-surface/60 rounded-xl border border-border/40 text-dim flex-wrap gap-1">
             <button
               type="button"
               onClick={() => setShowPnl(!showPnl)}
               aria-pressed={showPnl}
               className={cn(
-                "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 showPnl ? "bg-surface border border-border/60 text-green shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
               )}
             >
               <span className={cn("w-1.5 h-1.5 rounded-full", showPnl ? "bg-green" : "bg-dim/30")} />
-              PnL Scale
+              PnL
             </button>
             <button
               type="button"
               onClick={() => setShowHitRate(!showHitRate)}
               aria-pressed={showHitRate}
               className={cn(
-                "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                 showHitRate ? "bg-surface border border-border/60 text-accent shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
               )}
             >
               <span className={cn("w-1.5 h-1.5 rounded-full", showHitRate ? "bg-accent" : "bg-dim/30")} />
-              Hit Rate %
+              Hit Rate
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPf(!showPf)}
+              aria-pressed={showPf}
+              className={cn(
+                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showPf ? "bg-surface border border-border/60 text-purple shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+              )}
+            >
+              <span className={cn("w-1.5 h-1.5 rounded-full", showPf ? "bg-purple" : "bg-dim/30")} />
+              PF
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSharpe(!showSharpe)}
+              aria-pressed={showSharpe}
+              className={cn(
+                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showSharpe ? "bg-surface border border-border/60 text-amber shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+              )}
+            >
+              <span className={cn("w-1.5 h-1.5 rounded-full", showSharpe ? "bg-amber" : "bg-dim/30")} />
+              Sh
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSortino(!showSortino)}
+              aria-pressed={showSortino}
+              className={cn(
+                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showSortino ? "bg-surface border border-border/60 text-cyan-400 shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+              )}
+            >
+              <span className={cn("w-1.5 h-1.5 rounded-full", showSortino ? "bg-cyan-400" : "bg-dim/30")} />
+              So
             </button>
           </div>
         </div>
 
-        {(showPnl || showHitRate) ? (
+        {(showPnl || showHitRate || showPf || showSharpe || showSortino) ? (
           <Suspense fallback={
             <div className="h-[220px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
               <Loader2 size={20} className="animate-spin text-accent" />
@@ -340,6 +414,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               height={220}
               showPnl={showPnl}
               showHitRate={showHitRate}
+              showPf={showPf}
+              showSharpe={showSharpe}
+              showSortino={showSortino}
             />
           </Suspense>
         ) : (

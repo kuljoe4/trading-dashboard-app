@@ -69,3 +69,11 @@
 ## 2026-09-02 - Active Position Bar Button Semantics and Landmark Role Avoidance
 **Learning:** Adding `role="region"` to small inline UI elements (such as estimated Stop Loss PnL badges inside active position bars) violates WAI-ARIA landmark guidelines and creates landmark pollution for screen readers. Instead, making inline informative badges focusable (`tabIndex={0}`) with explicit `aria-label` descriptions, Radix `<Tooltip>` wrappers, and focus-visible rings (`focus-visible:ring-1 focus-visible:ring-accent`) provides full keyboard and screen reader accessibility without landmark clutter.
 **Action:** Never apply landmark roles (`role="region"`) to small inline badges or buttons; use `tabIndex={0}` and descriptive `aria-label` attributes instead.
+
+## 2026-09-03 - Error Boundary Recovery Button Accessibility & Focus Ring Standard
+**Learning:** Top-level fallback error UI components (such as global error boundaries) are frequently overlooked during accessibility audits. Buttons in error fallback viewports that lack explicit `type="button"`, `cursor-pointer`, focus-visible rings (`focus-visible:ring-2 focus-visible:ring-blue-500`), and explicit `aria-label` descriptors trap keyboard-only and screen reader users when a unexpected runtime or chunk error occurs, preventing seamless recovery.
+**Action:** Always ensure all error recovery controls specify explicit `type="button"`, `cursor-pointer`, WCAG focus-visible rings, and descriptive `aria-label` attributes.
+
+## 2026-09-04 - Chart Minimal Stroke Widths & Risk Metric Tooltips Standard
+**Learning:** Dense trading dashboards require minimal SVG stroke widths (0.4px - 0.8px) and minimal blur stdDev (0.15) to prevent visual clutter and chart line distortion. Additionally, technical risk metrics like Sharpe (Sh), Sortino (So), Profit Factor (PF), and dynamic Win Rate targets should always be presented alongside strategy cards and details with Radix `<Tooltip>` wrappers providing explicit recommended value tiers for actionable user guidance.
+**Action:** Always maintain minimal SVG stroke widths on chart curves and wrap Sharpe/Sortino/PF metrics in focusable tooltips with benchmark threshold guidance.

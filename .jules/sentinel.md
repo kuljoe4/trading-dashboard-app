@@ -164,3 +164,8 @@
 **Vulnerability:** Outgoing REST requests initiated during application initialization/startup (specifically `fetchInitialTickers` in `MarketFeedService`) lacked a timeout signal, exposing the application to permanent hangs or self-inflicted Denial of Service (DoS) during cold boots if the exchange REST gateway is unresponsive or rate-limiting.
 **Learning:** All startup REST/HTTP queries must have bounded execution guarantees to protect the event loop and ensure successful bootstrap sequences under unstable network/gateway conditions.
 **Prevention:** Always couple startup `fetch` requests with explicit timeout signals (e.g. `AbortSignal.timeout(5000)`) and robust `try/catch` handlers that allow the system to proceed gracefully if the external dependency is slow or unreachable.
+
+## 2026-09-03 - Unbounded Focus Properties in WebSocket Frame Handlers
+**Vulnerability:** In `server.ts`, WebSocket client messages of type `set_focus_mode` directly assigned user-controlled payload fields (`tradeId`, `strategyLabel`, `scannerSymbol`) to the socket object without type checks or string length bounds. Overly long strings or non-string objects sent by clients could result in memory exhaustion or unexpected behavior in downstream broadcasting logic.
+**Learning:** In WebSocket message handlers, input framing data cannot bypass type checking and string length bounds simply because it is received over an authenticated socket connection.
+**Prevention:** Enforce explicit string type assertions, whitespace trimming, and strict character length caps (e.g. max 100 chars) on all incoming WebSocket message payload attributes.

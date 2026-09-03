@@ -670,7 +670,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             </span>
             {(() => {
               const hitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
-              const baselineWr = analytics?.overallWinRate || 50;
+              const baselineWr = typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50;
               const hitRateRatio = baselineWr > 0 ? hitRate / baselineWr : 1.0;
               const pfVal = stratMetrics ? stratMetrics.profitFactor : 0;
               const sharpeVal = stratMetrics ? stratMetrics.sharpe : 0;
@@ -1548,13 +1548,20 @@ export function DashboardView({ initialStrategy }) {
       grouped.get(label).push(t);
     }
 
+    const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+    const startingBal = tradingMode === 'paper'
+      ? (config?.paper_starting_balance || 10000)
+      : (tradingMode === 'testnet'
+          ? (config?.testnet_starting_balance || 10000)
+          : (config?.live_starting_balance || 10000));
+
     const map = new Map();
     for (const [label, trades] of grouped.entries()) {
-      map.set(label, calculatePerformanceMetrics(trades));
+      map.set(label, calculatePerformanceMetrics(trades, startingBal));
     }
 
     return map;
-  }, [tradeHistory]);
+  }, [tradeHistory, config]);
 
   const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;

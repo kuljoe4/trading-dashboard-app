@@ -641,16 +641,42 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
-export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false }) => {
+export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance }) => {
   const containerRef = useRef(null);
   const chartId = useId().replace(/:/g, '');
   const pnlGradientId = `pnl-grad-${chartId}`;
   const [hoverData, setHoverData] = useState(null);
 
   const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange, maxRatio } = useMemo(() => {
-    const safeTrades = Array.isArray(trades) ? trades : [];
-    if (safeTrades.length < 2) {
+    const rawTrades = Array.isArray(trades) ? trades : [];
+    if (rawTrades.length < 2) {
       return { points: [], pnlMin: 0, pnlMax: 10, pnlRange: 10, hrMin: 0, hrMax: 100, hrRange: 100, maxRatio: 3.0 };
+    }
+
+    const count = rawTrades.length;
+    const safeTrades = new Array(count);
+    let totalNetPnl = 0;
+    for (let i = 0; i < count; i++) {
+      const t = rawTrades[i];
+      const pnl = Number(t?.pnl || 0);
+      totalNetPnl += pnl;
+      const exitTs = t?.exit_ts_ms !== undefined ? t.exit_ts_ms : (t?.exit_ts || t?.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : 0);
+      safeTrades[i] = { trade: t, exitTs };
+    }
+
+    let isSortedAsc = true;
+    let isSortedDesc = true;
+    for (let i = 1; i < count; i++) {
+      const current = safeTrades[i].exitTs;
+      const prev = safeTrades[i - 1].exitTs;
+      if (current < prev) isSortedAsc = false;
+      if (current > prev) isSortedDesc = false;
+    }
+
+    if (isSortedDesc) {
+      safeTrades.reverse();
+    } else if (!isSortedAsc) {
+      safeTrades.sort((a, b) => a.exitTs - b.exitTs);
     }
 
     let cumPnl = 0;
@@ -658,16 +684,16 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
     let grossWin = 0;
     let grossLoss = 0;
 
-    let rollingBal = 10000;
+    let rollingBal = startingBalance ? Math.max(1, startingBalance - totalNetPnl) : 10000;
     let sumReturnPct = 0;
     let sumSqReturnPct = 0;
     let downsideSumSqReturnPct = 0;
 
-    const series = new Array(safeTrades.length);
+    const series = new Array(count);
 
-    for (let idx = 0; idx < safeTrades.length; idx++) {
-      const t = safeTrades[idx];
-      const pnl = Number(t.pnl || 0);
+    for (let idx = 0; idx < count; idx++) {
+      const t = safeTrades[idx].trade;
+      const pnl = Number(t?.pnl || 0);
       cumPnl += pnl;
 
       const retPct = rollingBal > 0 ? (pnl / rollingBal) * 100 : 0;
@@ -886,7 +912,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
       <div
         ref={containerRef}
         className="relative w-full overflow-hidden"
-        style={{ height: `${height}px` }}
+        style={{ height: `${height}px`, touchAction: 'pan-y' }}
         onMouseMove={(e) => handleInteraction(e.clientX)}
         onTouchMove={(e) => e.touches[0] && handleInteraction(e.touches[0].clientX)}
         onMouseLeave={() => setHoverData(null)}
@@ -911,17 +937,28 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
 
         {/* Background Grid Lines & Ticks */}
         {[0, 25, 50, 75, 100].map(y => (
-          <line
-            key={y}
-            x1="0"
-            y1={y}
-            x2="100"
-            y2={y}
-            stroke="var(--color-border)"
-            strokeWidth="0.25"
-            strokeDasharray="1,3"
-            opacity="0.4"
-          />
+          <g key={y}>
+            <line
+              x1="0"
+              y1={y}
+              x2="100"
+              y2={y}
+              stroke="var(--color-border)"
+              strokeWidth="0.25"
+              strokeDasharray="1,3"
+              opacity="0.4"
+            />
+            <text
+              x="1"
+              y={y === 0 ? y + 3 : y - 1}
+              fill="var(--color-dim)"
+              fontSize="2.5"
+              fontFamily="monospace"
+              opacity="0.5"
+            >
+              {Math.round(100 - y)}%
+            </text>
+          </g>
         ))}
 
         {showPnl && (
@@ -1048,20 +1085,43 @@ export const HitRateTrend = ({ trades = [], height = 180 }) => {
   const [hoverData, setHoverData] = useState(null);
 
   const { points, viewMin, viewMax, viewRange } = useMemo(() => {
-    const safeTrades = Array.isArray(trades) ? trades : [];
-    if (safeTrades.length < 2) return { points: [], viewMin: 0, viewMax: 100, viewRange: 100 };
+    const rawTrades = Array.isArray(trades) ? trades : [];
+    if (rawTrades.length < 2) return { points: [], viewMin: 0, viewMax: 100, viewRange: 100 };
+
+    const count = rawTrades.length;
+    const safeTrades = new Array(count);
+    for (let i = 0; i < count; i++) {
+      const t = rawTrades[i];
+      const exitTs = t?.exit_ts_ms !== undefined ? t.exit_ts_ms : (t?.exit_ts || t?.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : 0);
+      safeTrades[i] = { trade: t, exitTs };
+    }
+
+    let isSortedAsc = true;
+    let isSortedDesc = true;
+    for (let i = 1; i < count; i++) {
+      const current = safeTrades[i].exitTs;
+      const prev = safeTrades[i - 1].exitTs;
+      if (current < prev) isSortedAsc = false;
+      if (current > prev) isSortedDesc = false;
+    }
+
+    if (isSortedDesc) {
+      safeTrades.reverse();
+    } else if (!isSortedAsc) {
+      safeTrades.sort((a, b) => a.exitTs - b.exitTs);
+    }
 
     let totalWins = 0;
-    const rollingData = safeTrades.map((t, idx) => {
-      const isWin = Number(t.pnl || 0) > 0;
+    const rollingData = safeTrades.map(({ trade: t }, idx) => {
+      const isWin = Number(t?.pnl || 0) > 0;
       if (isWin) totalWins++;
       const currentHitRate = (totalWins / (idx + 1)) * 100;
       return {
         tradeIndex: idx + 1,
         hitRate: currentHitRate,
-        pnl: Number(t.pnl || 0),
-        symbol: t.symbol,
-        ts: t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0)
+        pnl: Number(t?.pnl || 0),
+        symbol: t?.symbol,
+        ts: t?.exit_ts_ms || (t?.exit_ts ? new Date(t.exit_ts).getTime() : 0)
       };
     });
 

@@ -3,27 +3,23 @@ import assert from 'node:assert';
 
 // Pure implementation of generatedPresetName matching ConfigModal.jsx
 function generatePresetName(cfg) {
-  const tf = cfg.scan_interval || '5m';
-  const risk = (cfg.risk_pct_per_trade !== undefined && cfg.risk_pct_per_trade !== null && cfg.risk_pct_per_trade !== '')
-    ? `${cfg.risk_pct_per_trade}%`
-    : '';
-
   const sigs = cfg.enabled_signals || [];
   let sigAbbr = '';
   if (sigs.length === 0) {
-    sigAbbr = 'Scalp';
+    sigAbbr = 'Scl';
   } else if (sigs.length === 1) {
     const s = sigs[0];
-    if (s.startsWith('ema_dual')) sigAbbr = 'DualEMA';
+    if (s.startsWith('ema_dual')) sigAbbr = 'Dul';
     else if (s.startsWith('ema')) sigAbbr = 'EMA';
-    else if (s.startsWith('macd')) sigAbbr = 'MACD';
+    else if (s.startsWith('macd')) sigAbbr = 'MCD';
     else if (s === 'supertrend') sigAbbr = 'ST';
-    else if (s === 'breakout_hl') sigAbbr = 'Breakout';
+    else if (s === 'breakout_hl') sigAbbr = 'Brk';
     else if (s === 'momentum_pct') sigAbbr = 'Mom';
-    else if (s === 'engulfing') sigAbbr = 'Engulf';
-    else sigAbbr = 'Signal';
+    else if (s === 'engulfing') sigAbbr = 'Eng';
+    else if (s === 'knife_catch') sigAbbr = 'Knf';
+    else sigAbbr = 'Sig';
   } else {
-    sigAbbr = 'Multi';
+    sigAbbr = 'Mlt';
   }
 
   let modifier = '';
@@ -33,82 +29,79 @@ function generatePresetName(cfg) {
     modifier = `${cfg.sl_distance_pct}SL`;
   } else if (cfg.tp_ratio !== undefined && cfg.tp_ratio !== null && cfg.tp_ratio !== '') {
     modifier = `${cfg.tp_ratio}R`;
+  } else if (cfg.risk_pct_per_trade !== undefined && cfg.risk_pct_per_trade !== null && cfg.risk_pct_per_trade !== '') {
+    modifier = `${cfg.risk_pct_per_trade}%`;
   }
 
-  const parts = [tf, sigAbbr, risk, modifier].filter(Boolean);
+  const parts = [sigAbbr, modifier].filter(Boolean);
   const name = parts.join(' ');
-  return name.length > 22 ? name.slice(0, 22).trim() : name;
+  return name.length > 10 ? name.slice(0, 10).trim() : name;
 }
 
-describe('Preset Auto-Naming & Mobile Character Limit Standard', () => {
-  test('generates concise name for single signal configuration within 22 chars', () => {
+describe('Preset Auto-Naming & 10-Character Mobile Budget Standard', () => {
+  test('generates ultra-compact name without timeframe within 10 chars', () => {
     const name = generatePresetName({
       scan_interval: '5m',
       risk_pct_per_trade: 1.5,
       enabled_signals: ['ema_dual_cross'],
       sl_distance_pct: 0.8
     });
-    assert.strictEqual(name, '5m DualEMA 1.5% 0.8SL');
-    assert.ok(name.length <= 22, `Length ${name.length} must be <= 22`);
+    assert.strictEqual(name, 'Dul 0.8SL');
+    assert.ok(name.length <= 10, `Length ${name.length} must be <= 10`);
   });
 
-  test('differentiates presets with slight SL distance variations', () => {
-    const name1 = generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['ema_dual_cross'], sl_distance_pct: 0.8 });
-    const name2 = generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['ema_dual_cross'], sl_distance_pct: 1.5 });
+  test('differentiates presets with slight SL distance variations under 10 chars', () => {
+    const name1 = generatePresetName({ enabled_signals: ['supertrend'], sl_distance_pct: 0.8 });
+    const name2 = generatePresetName({ enabled_signals: ['supertrend'], sl_distance_pct: 1.5 });
 
-    assert.strictEqual(name1, '5m DualEMA 1% 0.8SL');
-    assert.strictEqual(name2, '5m DualEMA 1% 1.5SL');
-    assert.notStrictEqual(name1, name2, 'Presets with different SL distances must have unique names');
-    assert.ok(name1.length <= 22 && name2.length <= 22);
+    assert.strictEqual(name1, 'ST 0.8SL');
+    assert.strictEqual(name2, 'ST 1.5SL');
+    assert.notStrictEqual(name1, name2);
+    assert.ok(name1.length <= 10 && name2.length <= 10);
   });
 
-  test('differentiates presets with trailing stop enabled vs disabled', () => {
-    const nameNormal = generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['supertrend'], sl_distance_pct: 1 });
-    const nameTrailing = generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['supertrend'], sl_distance_pct: 1, trailing_stop_enabled: true });
+  test('differentiates presets with trailing stop enabled vs disabled under 10 chars', () => {
+    const nameNormal = generatePresetName({ enabled_signals: ['supertrend'], sl_distance_pct: 1 });
+    const nameTrailing = generatePresetName({ enabled_signals: ['supertrend'], sl_distance_pct: 1, trailing_stop_enabled: true });
 
-    assert.strictEqual(nameNormal, '5m ST 1% 1SL');
-    assert.strictEqual(nameTrailing, '5m ST 1% Trail');
+    assert.strictEqual(nameNormal, 'ST 1SL');
+    assert.strictEqual(nameTrailing, 'ST Trail');
     assert.notStrictEqual(nameNormal, nameTrailing);
-    assert.ok(nameNormal.length <= 22 && nameTrailing.length <= 22);
+    assert.ok(nameNormal.length <= 10 && nameTrailing.length <= 10);
   });
 
-  test('generates fallback Scalp label when no signals enabled', () => {
+  test('generates fallback Scl label with risk % when no signals enabled', () => {
     const name = generatePresetName({
-      scan_interval: '15m',
       risk_pct_per_trade: 2,
-      enabled_signals: [],
-      tp_ratio: 2
+      enabled_signals: []
     });
-    assert.strictEqual(name, '15m Scalp 2% 2R');
-    assert.ok(name.length <= 22);
+    assert.strictEqual(name, 'Scl 2%');
+    assert.ok(name.length <= 10);
   });
 
-  test('generates Multi label when multiple signals enabled', () => {
+  test('generates Mlt label when multiple signals enabled', () => {
     const name = generatePresetName({
-      scan_interval: '1h',
-      risk_pct_per_trade: 0.5,
       enabled_signals: ['momentum_pct', 'supertrend'],
       sl_distance_pct: 2
     });
-    assert.strictEqual(name, '1h Multi 0.5% 2SL');
-    assert.ok(name.length <= 22);
+    assert.strictEqual(name, 'Mlt 2SL');
+    assert.ok(name.length <= 10);
   });
 
-  test('maps individual signal types to clean abbreviations', () => {
-    assert.strictEqual(generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['supertrend'], sl_distance_pct: 1 }), '5m ST 1% 1SL');
-    assert.strictEqual(generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['macd_impulse'], tp_ratio: 3 }), '5m MACD 1% 3R');
-    assert.strictEqual(generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['breakout_hl'], sl_distance_pct: 1 }), '5m Breakout 1% 1SL');
-    assert.strictEqual(generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['engulfing'], sl_distance_pct: 1 }), '5m Engulf 1% 1SL');
-    assert.strictEqual(generatePresetName({ scan_interval: '5m', risk_pct_per_trade: 1, enabled_signals: ['momentum_pct'], sl_distance_pct: 1 }), '5m Mom 1% 1SL');
+  test('maps individual signal types to clean 10-char abbreviations with SL modifier', () => {
+    assert.strictEqual(generatePresetName({ enabled_signals: ['supertrend'], sl_distance_pct: 1 }), 'ST 1SL');
+    assert.strictEqual(generatePresetName({ enabled_signals: ['macd_impulse'], tp_ratio: 3 }), 'MCD 3R');
+    assert.strictEqual(generatePresetName({ enabled_signals: ['breakout_hl'], sl_distance_pct: 1 }), 'Brk 1SL');
+    assert.strictEqual(generatePresetName({ enabled_signals: ['engulfing'], sl_distance_pct: 1 }), 'Eng 1SL');
+    assert.strictEqual(generatePresetName({ enabled_signals: ['momentum_pct'], sl_distance_pct: 1 }), 'Mom 1SL');
+    assert.strictEqual(generatePresetName({ enabled_signals: ['knife_catch'], sl_distance_pct: 1 }), 'Knf 1SL');
   });
 
-  test('enforces strict max 22 character limit on ultra long inputs', () => {
+  test('enforces strict hard-cap at 10 characters on long inputs', () => {
     const name = generatePresetName({
-      scan_interval: '1440m',
-      risk_pct_per_trade: 100.5,
       enabled_signals: ['breakout_hl'],
       sl_distance_pct: 15.5
     });
-    assert.ok(name.length <= 22, `Name "${name}" length ${name.length} exceeds 22 characters`);
+    assert.ok(name.length <= 10, `Name "${name}" length ${name.length} exceeds 10 characters`);
   });
 });

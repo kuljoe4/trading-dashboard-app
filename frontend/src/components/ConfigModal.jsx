@@ -1746,27 +1746,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [testnetConfigured, liveConfigured]);
 
   const generatedPresetName = useMemo(() => {
-    const tf = cfg.scan_interval || '5m';
-    const risk = (cfg.risk_pct_per_trade !== undefined && cfg.risk_pct_per_trade !== null && cfg.risk_pct_per_trade !== '')
-      ? `${cfg.risk_pct_per_trade}%`
-      : '';
-
     const sigs = cfg.enabled_signals || [];
     let sigAbbr = '';
     if (sigs.length === 0) {
-      sigAbbr = 'Scalp';
+      sigAbbr = 'Scl';
     } else if (sigs.length === 1) {
       const s = sigs[0];
-      if (s.startsWith('ema_dual')) sigAbbr = 'DualEMA';
+      if (s.startsWith('ema_dual')) sigAbbr = 'Dul';
       else if (s.startsWith('ema')) sigAbbr = 'EMA';
-      else if (s.startsWith('macd')) sigAbbr = 'MACD';
+      else if (s.startsWith('macd')) sigAbbr = 'MCD';
       else if (s === 'supertrend') sigAbbr = 'ST';
-      else if (s === 'breakout_hl') sigAbbr = 'Breakout';
+      else if (s === 'breakout_hl') sigAbbr = 'Brk';
       else if (s === 'momentum_pct') sigAbbr = 'Mom';
-      else if (s === 'engulfing') sigAbbr = 'Engulf';
-      else sigAbbr = 'Signal';
+      else if (s === 'engulfing') sigAbbr = 'Eng';
+      else if (s === 'knife_catch') sigAbbr = 'Knf';
+      else sigAbbr = 'Sig';
     } else {
-      sigAbbr = 'Multi';
+      sigAbbr = 'Mlt';
     }
 
     let modifier = '';
@@ -1776,12 +1772,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       modifier = `${cfg.sl_distance_pct}SL`;
     } else if (cfg.tp_ratio !== undefined && cfg.tp_ratio !== null && cfg.tp_ratio !== '') {
       modifier = `${cfg.tp_ratio}R`;
+    } else if (cfg.risk_pct_per_trade !== undefined && cfg.risk_pct_per_trade !== null && cfg.risk_pct_per_trade !== '') {
+      modifier = `${cfg.risk_pct_per_trade}%`;
     }
 
-    const parts = [tf, sigAbbr, risk, modifier].filter(Boolean);
+    const parts = [sigAbbr, modifier].filter(Boolean);
     const name = parts.join(' ');
-    return name.length > 22 ? name.slice(0, 22).trim() : name;
-  }, [cfg.scan_interval, cfg.risk_pct_per_trade, cfg.enabled_signals, cfg.sl_distance_pct, cfg.tp_ratio, cfg.trailing_stop_enabled]);
+    return name.length > 10 ? name.slice(0, 10).trim() : name;
+  }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade]);
 
   useEffect(() => {
     const loadPresets = async () => {

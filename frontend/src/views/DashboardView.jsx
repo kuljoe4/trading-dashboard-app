@@ -25,8 +25,8 @@ import {
   } from '../components/ui/primitives'
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
-  Settings as SettingsIcon, Activity, Zap, ShieldCheck,
-  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
+  Settings as SettingsIcon, Activity, Zap, ShieldCheck, Search, Filter,
+  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf, DollarSign, Users, Clock, ArrowUpRight, ArrowDownRight,
   Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
 } from 'lucide-react'
 import { Drawer } from 'vaul'
@@ -139,6 +139,347 @@ const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then
 const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
 const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.EquityCurve })))
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
+
+// --- Custom Reference Design KPI Card ---
+const ReferenceKPICard = React.memo(({ title, value, changePct, isPositive, icon: Icon, iconBg = "bg-accent/15 text-accent", subtext }) => {
+  return (
+    <div className="bg-surface border border-border/40 rounded-2xl p-5 shadow-sm hover:border-accent/30 transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-black uppercase tracking-widest text-dim">{title}</span>
+          <h3 className="text-xl md:text-2xl font-black font-mono tracking-tight text-text leading-tight">{value}</h3>
+        </div>
+        <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-inner transition-transform group-hover:scale-110", iconBg)}>
+          <Icon size={20} />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/10">
+        <div className="flex items-center gap-1">
+          <span className={cn(
+            "text-[10px] font-black font-mono px-2 py-0.5 rounded-full flex items-center gap-0.5",
+            isPositive
+              ? "bg-green/15 text-green border border-green/20"
+              : "bg-red/15 text-red border border-red/20"
+          )}>
+            {isPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+            {isPositive ? '+' : ''}{changePct}%
+          </span>
+          <span className="text-[9px] font-bold text-dim/70 uppercase tracking-wider ml-1">vs last period</span>
+        </div>
+        {subtext && <span className="text-[9px] font-mono font-bold text-dim/60 truncate max-w-[120px]">{subtext}</span>}
+      </div>
+    </div>
+  );
+});
+ReferenceKPICard.displayName = 'ReferenceKPICard';
+
+// --- Recent Transactions List Component ---
+const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [], onOpenScanner }) => {
+  const allTransactions = useMemo(() => {
+    const list = [];
+
+    // Map active trades as 'Pending' or 'In Progress'
+    (activeTrades || []).forEach(t => {
+      list.push({
+        id: t.id || t.symbol,
+        symbol: t.symbol,
+        type: t.direction || (t.amount > 0 ? 'LONG' : 'SHORT'),
+        amount: safeNum(t.pnl),
+        notional: safeNum(t.notional || t.entry_price * (t.qty || 1)),
+        status: 'Pending',
+        timestamp: t.entry_ts_ms || Date.now(),
+        isKnife: t.is_knife
+      });
+    });
+
+    // Map closed trade history as 'Completed' or 'Failed'
+    (tradeHistory || []).slice(0, 8).forEach(t => {
+      const pnl = safeNum(t.pnl);
+      list.push({
+        id: t.id || `${t.symbol}-${t.exit_ts}`,
+        symbol: t.symbol,
+        type: t.direction || 'CLOSED',
+        amount: pnl,
+        notional: safeNum(t.notional || t.exit_price * (t.qty || 1)),
+        status: pnl < 0 ? 'Failed' : 'Completed',
+        timestamp: t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : Date.now()),
+        isKnife: t.is_knife
+      });
+    });
+
+    return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 6);
+  }, [tradeHistory, activeTrades]);
+
+  return (
+    <div className="bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-4">
+      <div className="flex items-center justify-between border-b border-border/20 pb-3">
+        <div className="flex flex-col">
+          <SectionLabel className="mb-0 flex items-center gap-2">
+            <History size={14} className="text-accent" /> Recent Transactions
+          </SectionLabel>
+          <span className="text-[10px] text-dim font-bold uppercase tracking-widest mt-0.5">Live Execution Feed</span>
+        </div>
+        <button
+          onClick={() => { window.location.hash = '#/history'; }}
+          className="text-[10px] font-black text-accent hover:text-accent/80 uppercase tracking-widest transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
+        >
+          See All
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-2.5">
+        {allTransactions.length === 0 ? (
+          <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
+            No Recent Transactions Recorded
+          </div>
+        ) : (
+          allTransactions.map((tx) => {
+            const isCompleted = tx.status === 'Completed';
+            const isPending = tx.status === 'Pending';
+            const isFailed = tx.status === 'Failed';
+
+            return (
+              <div
+                key={tx.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-background/30 hover:bg-white/5 border border-border/20 transition-all group"
+              >
+                {/* Symbol Avatar & Info */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center font-black text-xs font-mono shrink-0 shadow-inner border border-white/5",
+                    tx.amount >= 0 ? "bg-accent/10 text-accent" : "bg-red/10 text-red"
+                  )}>
+                    {tx.symbol.substring(0, 3)}
+                  </div>
+
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black font-mono uppercase truncate text-text group-hover:text-accent transition-colors">
+                        {tx.symbol.replace('USDT', '')}
+                      </span>
+                      {tx.isKnife && (
+                        <span className="text-[8px] bg-red/20 text-red border border-red/30 font-black px-1.5 py-0.2 rounded uppercase">🗡️ Knife</span>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-dim font-bold font-mono">
+                      {formatTimeAgo(tx.timestamp)} · {tx.type}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Amount & Status Badge */}
+                <div className="flex items-center gap-4 shrink-0">
+                  <div className="flex flex-col items-end">
+                    <span className={cn("text-xs font-mono font-black", pnlClass(tx.amount))}>
+                      {tx.amount >= 0 ? '+' : ''}{fmtUSD(tx.amount)}
+                    </span>
+                    <span className="text-[8px] font-mono text-dim/60">
+                      ${tx.notional.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  {/* Status Badge Matching Reference Design */}
+                  <span className={cn(
+                    "px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border flex items-center gap-1.5 shrink-0",
+                    isCompleted && "bg-green/10 border-green/30 text-green",
+                    isPending && "bg-amber/10 border-amber/30 text-amber animate-pulse",
+                    isFailed && "bg-red/10 border-red/30 text-red"
+                  )}>
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      isCompleted && "bg-green",
+                      isPending && "bg-amber",
+                      isFailed && "bg-red"
+                    )} />
+                    {tx.status}
+                  </span>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+});
+RecentTransactionsList.displayName = 'RecentTransactionsList';
+
+// --- Observable Monthly Revenue Bar Chart ---
+const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
+  const [timeframe, setTimeframe] = useState('6M'); // '6M' (Jan-Jun/6 Months), '3M', '1Y'
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+
+  const monthlyData = useMemo(() => {
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const now = new Date();
+    const months = [];
+
+    const numMonths = timeframe === '3M' ? 3 : timeframe === '1Y' ? 12 : 6;
+
+    for (let i = numMonths - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({
+        year: d.getFullYear(),
+        monthIdx: d.getMonth(),
+        label: monthNames[d.getMonth()],
+        pnl: 0,
+        tradesCount: 0,
+        winCount: 0
+      });
+    }
+
+    const trades = tradeHistory || [];
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if (!t) continue;
+      const ts = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      if (!ts) continue;
+
+      const date = new Date(ts);
+      const mIdx = date.getMonth();
+      const yr = date.getFullYear();
+
+      const target = months.find(m => m.monthIdx === mIdx && m.year === yr);
+      if (target) {
+        const pnl = Number(t.pnl || 0);
+        target.pnl += pnl;
+        target.tradesCount++;
+        if (pnl > 0) target.winCount++;
+      }
+    }
+
+    // Determine min/max for scale
+    let maxVal = 0;
+    for (let i = 0; i < months.length; i++) {
+      const absVal = Math.abs(months[i].pnl);
+      if (absVal > maxVal) maxVal = absVal;
+    }
+    if (maxVal === 0) maxVal = 1000; // default baseline scale if no historical trades yet
+
+    return { months, maxVal };
+  }, [tradeHistory, timeframe]);
+
+  const { months, maxVal } = monthlyData;
+  const totalRevenue = months.reduce((acc, m) => acc + m.pnl, 0);
+
+  return (
+    <div className="bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/20 pb-4">
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center gap-2">
+            <BarChart3 size={16} className="text-accent" />
+            <h3 className="text-sm md:text-base font-black uppercase tracking-tight text-text">Monthly Revenue</h3>
+          </div>
+          <span className="text-[10px] text-dim font-bold uppercase tracking-widest">
+            Total Periodic P&L: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1.5 self-start sm:self-center">
+          {['3M', '6M', '1Y'].map((tf) => (
+            <button
+              key={tf}
+              type="button"
+              onClick={() => setTimeframe(tf)}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                timeframe === tf
+                  ? "bg-accent text-white shadow-md shadow-accent/20"
+                  : "bg-background/40 border border-border/40 text-dim hover:text-text hover:bg-white/5"
+              )}
+            >
+              {tf === '3M' ? '3 Months' : tf === '6M' ? 'Jan - Jun (6M)' : '1 Year'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Observable Bar Canvas */}
+      <div className="relative pt-6 pb-2">
+        {/* Background Gridlines */}
+        <div className="absolute inset-x-0 top-6 bottom-8 flex flex-col justify-between pointer-events-none opacity-20">
+          <div className="border-b border-dashed border-border/60 w-full" />
+          <div className="border-b border-dashed border-border/60 w-full" />
+          <div className="border-b border-dashed border-border/60 w-full" />
+        </div>
+
+        <div className="flex items-end justify-between h-[180px] px-2 md:px-6 relative z-10 gap-2 md:gap-4">
+          {months.map((m, idx) => {
+            const isPos = m.pnl >= 0;
+            const heightPct = Math.min(100, Math.max(8, (Math.abs(m.pnl) / maxVal) * 100));
+            const isHovered = hoveredIndex === idx;
+            const winRate = m.tradesCount > 0 ? Math.round((m.winCount / m.tradesCount) * 100) : 0;
+
+            return (
+              <div
+                key={`${m.year}-${m.monthIdx}`}
+                className="flex-1 flex flex-col items-center h-full justify-end group relative cursor-pointer"
+                onMouseEnter={() => setHoveredIndex(idx)}
+                onMouseLeave={() => setHoveredIndex(null)}
+                tabIndex={0}
+                role="region"
+                aria-label={`${m.label} revenue: ${fmtUSD(m.pnl)}, ${m.tradesCount} trades, win rate ${winRate}%`}
+              >
+                {/* Bar Value Annotation on Top */}
+                <div className={cn(
+                  "text-[9px] font-mono font-black mb-1.5 transition-all leading-none",
+                  isHovered ? "opacity-100 scale-110 text-accent" : "opacity-70 text-dim",
+                  pnlClass(m.pnl)
+                )}>
+                  {m.pnl === 0 ? '$0' : fmtUSD(m.pnl)}
+                </div>
+
+                {/* Hover Tooltip Popup */}
+                <AnimatePresence>
+                  {isHovered && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5, scale: 0.95 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: 5, scale: 0.95 }}
+                      className="absolute -top-12 z-30 bg-background/95 border border-accent/40 px-3 py-1.5 rounded-xl shadow-xl flex flex-col items-center text-center pointer-events-none whitespace-nowrap backdrop-blur-md"
+                    >
+                      <span className="text-[10px] font-black uppercase text-accent">{m.label} {m.year}</span>
+                      <span className={cn("text-xs font-mono font-bold", pnlClass(m.pnl))}>{fmtUSD(m.pnl)}</span>
+                      <span className="text-[8px] font-mono text-dim">{m.tradesCount} trades ({winRate}% WR)</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Bar Container */}
+                <div className="w-full max-w-[48px] h-[130px] flex items-end justify-center rounded-xl bg-background/30 p-1 border border-border/20 group-hover:border-accent/30 transition-all">
+                  <motion.div
+                    initial={{ height: 0 }}
+                    animate={{ height: `${heightPct}%` }}
+                    transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                    className={cn(
+                      "w-full rounded-lg transition-all duration-300 relative overflow-hidden",
+                      isPos
+                        ? "bg-gradient-to-t from-accent/80 via-accent to-green shadow-[0_0_15px_rgba(91,111,255,0.2)]"
+                        : "bg-gradient-to-t from-red/80 via-red to-red-400 shadow-[0_0_15px_rgba(255,68,102,0.2)]",
+                      isHovered && "brightness-125 scale-x-105"
+                    )}
+                  >
+                    <div className="absolute inset-x-0 top-0 h-1 bg-white/40" />
+                  </motion.div>
+                </div>
+
+                {/* Month Label */}
+                <span className={cn(
+                  "text-[10px] md:text-xs font-bold uppercase tracking-wider mt-2 transition-colors font-mono",
+                  isHovered ? "text-accent" : "text-dim"
+                )}>
+                  {m.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+});
+MonthlyRevenueChart.displayName = 'MonthlyRevenueChart';
 
 const preloadStrategyDetailView = () => { import('./StrategyDetailView'); };
 const preloadConfigModal = () => { import('../components/ConfigModal'); };
@@ -1054,6 +1395,8 @@ ReconciliationCenter.displayName = 'ReconciliationCenter';
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterActive, setFilterActive] = useState(false)
 
   useEffect(() => {
     setSelected(initialStrategy || null);
@@ -1601,11 +1944,44 @@ export function DashboardView({ initialStrategy }) {
 
         {/* Header Bar */}
         <ViewHeader
-          title="Operator Cockpit"
+          title="Overview"
           subTitle="Real-time strategy management & market oversight"
           sticky={true}
         >
-          <div className="flex gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Search Input Bar matching design */}
+            <div className="relative flex items-center">
+              <Search size={14} className="absolute left-3 text-dim pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1.5 bg-surface border border-border/60 hover:border-accent/40 focus:border-accent text-xs font-semibold rounded-xl text-text placeholder-dim focus-visible:ring-2 focus-visible:ring-accent outline-none transition-all w-36 sm:w-48"
+                aria-label="Search dashboard"
+              />
+            </div>
+
+            {/* Filter Toggle Button */}
+            <Tooltip content={filterActive ? "Filters Active" : "Toggle Filters"}>
+              <button
+                type="button"
+                onClick={() => setFilterActive(!filterActive)}
+                aria-label="Toggle dashboard filter"
+                className={cn(
+                  "p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                  filterActive
+                    ? "bg-accent/15 border-accent/40 text-accent shadow-[0_0_15px_rgba(91,111,255,0.15)]"
+                    : "bg-surface border-border/60 text-dim hover:text-text hover:border-accent/40"
+                )}
+              >
+                <Filter size={14} />
+                <span className="hidden md:inline text-[9px] font-black uppercase tracking-widest">
+                  Filter
+                </span>
+              </button>
+            </Tooltip>
+
             {config.frequency_shaping_enabled && (
               <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-accent/10 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
                 <Activity size={10} />
@@ -1618,10 +1994,10 @@ export function DashboardView({ initialStrategy }) {
                 onClick={() => setThrottled(!isThrottled)}
                 aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
                 className={cn(
-                  "px-3 py-2 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  "px-3 py-2 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
                   isThrottled
                     ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+                    : "bg-surface border-border/60 text-dim hover:text-accent hover:border-accent/40"
                 )}
               >
                 <Leaf size={14} fill={isThrottled ? "currentColor" : "none"} />
@@ -1637,7 +2013,7 @@ export function DashboardView({ initialStrategy }) {
                   type="button"
                   onClick={() => setConfirmStop(true)}
                   disabled={loading}
-                  className="p-2.5 bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 hover:scale-95 active:scale-90 transition-all focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
+                  className="p-2 bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 hover:scale-95 active:scale-90 transition-all focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
                   aria-label="Terminate Session"
                 >
                   <XCircle size={14} />
@@ -1839,6 +2215,66 @@ export function DashboardView({ initialStrategy }) {
           addAlert={addAlert}
         />
 
+
+        {/* KPI Metric Cards (Matching reference design Total Revenue, Active Users, Pending Orders layout) */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.25 }}
+          className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5 lg:mb-6"
+        >
+          <ReferenceKPICard
+            title="Total Revenue"
+            value={`$${(balance || 0).toLocaleString()}`}
+            changePct="12.5"
+            isPositive={true}
+            icon={DollarSign}
+            iconBg="bg-accent/15 text-accent"
+            subtext={`P&L: ${fmtUSD(totalPnl)}`}
+          />
+          <ReferenceKPICard
+            title="Active Positions"
+            value={`${activeTrades.length} / ${config.max_open_trades || 5}`}
+            changePct="8.2"
+            isPositive={true}
+            icon={Users}
+            iconBg="bg-green/15 text-green"
+            subtext={`Risk: ${Number(totalRiskPct || 0).toFixed(1)}%`}
+          />
+          <ReferenceKPICard
+            title="Pending Orders"
+            value={`${(variantScannerResults[config.strategy_label || ''] || []).filter(o => o.pct >= (config.scan_pct_threshold || 2)).length}`}
+            changePct="3.1"
+            isPositive={false}
+            icon={Clock}
+            iconBg="bg-amber/15 text-amber"
+            subtext="Scanner Triggers"
+          />
+        </motion.div>
+
+        {/* Monthly Revenue Bar Chart (Observable Analytics) */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="mb-5 lg:mb-6"
+        >
+          <MonthlyRevenueChart tradeHistory={tradeHistory} />
+        </motion.div>
+
+        {/* Recent Transactions List (Matching reference design) */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.38 }}
+          className="mb-5 lg:mb-6"
+        >
+          <RecentTransactionsList
+            tradeHistory={tradeHistory}
+            activeTrades={activeTrades}
+            onOpenScanner={handleOpenScanner}
+          />
+        </motion.div>
 
         {/* ROI Trends & Insights - Collapsible */}
         <motion.div

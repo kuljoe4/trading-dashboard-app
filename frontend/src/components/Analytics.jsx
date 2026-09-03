@@ -673,9 +673,9 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
       if (current > prev) isSortedDesc = false;
     }
 
-    if (isSortedDesc) {
+    if (isSortedDesc && !isSortedAsc) {
       safeTrades.reverse();
-    } else if (!isSortedAsc) {
+    } else {
       safeTrades.sort((a, b) => a.exitTs - b.exitTs);
     }
 
@@ -1076,6 +1076,30 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
         )}
       </svg>
     </div>
+
+      {/* Explicit X-Axis Legend Bar Displaying Trade Numbers & Timestamps */}
+      {points.length >= 2 && (
+        <div className="flex items-center justify-between px-1 pt-1 text-[9px] font-mono text-dim/70 border-t border-border/20">
+          <div className="flex items-center gap-1">
+            <span className="font-bold text-text">#{points[0].tradeIndex}</span>
+            {points[0].ts > 0 && (
+              <span>({new Date(points[0].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="font-bold text-text">#{points[Math.floor(points.length / 2)].tradeIndex}</span>
+            {points[Math.floor(points.length / 2)].ts > 0 && (
+              <span>({new Date(points[Math.floor(points.length / 2)].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="font-bold text-text">#{points[points.length - 1].tradeIndex}</span>
+            {points[points.length - 1].ts > 0 && (
+              <span>({new Date(points[points.length - 1].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

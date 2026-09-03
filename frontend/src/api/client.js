@@ -167,6 +167,8 @@ const sessionConfigAllowedKeys = [
   'knife_auto_ratchet_be_rr',
   'knife_auto_ratchet_lock_rr',
   'anti_whipsaw_allow_knife',
+  'anti_whipsaw_candle_delay',
+  'anti_whipsaw_tf_delay_min',
   'allow_knife_when_gated',
   'release_risk_on_est_pnl_be',
   'signal_timeframes',

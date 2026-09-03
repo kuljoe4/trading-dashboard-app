@@ -179,7 +179,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
   const allTransactions = useMemo(() => {
     const list = [];
 
-    // Map active trades as 'Pending' or 'In Progress'
+    // Map active trades as 'Open'
     (activeTrades || []).forEach(t => {
       list.push({
         id: t.id || t.symbol,
@@ -187,13 +187,13 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
         type: t.direction || (t.amount > 0 ? 'LONG' : 'SHORT'),
         amount: safeNum(t.pnl),
         notional: safeNum(t.notional || t.entry_price * (t.qty || 1)),
-        status: 'Pending',
+        status: 'Open',
         timestamp: t.entry_ts_ms || Date.now(),
         isKnife: t.is_knife
       });
     });
 
-    // Map closed trade history as 'Completed' or 'Failed'
+    // Map closed trade history as 'Closed'
     (tradeHistory || []).slice(0, 8).forEach(t => {
       const pnl = safeNum(t.pnl);
       list.push({
@@ -202,7 +202,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
         type: t.direction || 'CLOSED',
         amount: pnl,
         notional: safeNum(t.notional || t.exit_price * (t.qty || 1)),
-        status: pnl < 0 ? 'Failed' : 'Completed',
+        status: 'Closed',
         timestamp: t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : Date.now()),
         isKnife: t.is_knife
       });
@@ -235,9 +235,8 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
           </div>
         ) : (
           allTransactions.map((tx) => {
-            const isCompleted = tx.status === 'Completed';
-            const isPending = tx.status === 'Pending';
-            const isFailed = tx.status === 'Failed';
+            const isClosed = tx.status === 'Closed';
+            const isOpen = tx.status === 'Open';
 
             return (
               <div
@@ -279,18 +278,16 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
                     </span>
                   </div>
 
-                  {/* Status Badge Matching Reference Design */}
+                  {/* Status Badge Matching Domain Terminology */}
                   <span className={cn(
                     "px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border flex items-center gap-1.5 shrink-0",
-                    isCompleted && "bg-green/10 border-green/30 text-green",
-                    isPending && "bg-amber/10 border-amber/30 text-amber animate-pulse",
-                    isFailed && "bg-red/10 border-red/30 text-red"
+                    isClosed && "bg-green/10 border-green/30 text-green",
+                    isOpen && "bg-amber/10 border-amber/30 text-amber animate-pulse"
                   )}>
                     <span className={cn(
                       "w-1.5 h-1.5 rounded-full",
-                      isCompleted && "bg-green",
-                      isPending && "bg-amber",
-                      isFailed && "bg-red"
+                      isClosed && "bg-green",
+                      isOpen && "bg-amber"
                     )} />
                     {tx.status}
                   </span>
@@ -389,7 +386,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
                   : "bg-background/40 border border-border/40 text-dim hover:text-text hover:bg-white/5"
               )}
             >
-              {tf === '3M' ? '3 Months' : tf === '6M' ? 'Jan - Jun (6M)' : '1 Year'}
+              {tf === '3M' ? '3 Months' : tf === '6M' ? `${months[0]?.label || 'Jan'} - ${months[months.length - 1]?.label || 'Jun'} (6M)` : '1 Year'}
             </button>
           ))}
         </div>
@@ -1611,6 +1608,47 @@ export function DashboardView({ initialStrategy }) {
     };
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
+  const { todaysPnl, todaysPnlPct } = useMemo(() => {
+    const now = new Date();
+    const startOfDayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    let closedTodayPnl = 0;
+    const history = tradeHistory || [];
+    for (let i = 0; i < history.length; i++) {
+      const t = history[i];
+      if (!t) continue;
+      const exitTs = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      if (exitTs >= startOfDayMs) {
+        closedTodayPnl += Number(t.pnl || 0);
+      }
+    }
+
+    const netTodayPnl = closedTodayPnl + (totalActivePnl || 0);
+    const startOfDayBalance = balance - netTodayPnl;
+    const pct = startOfDayBalance > 0 ? (netTodayPnl / startOfDayBalance) * 100 : 0;
+
+    return { todaysPnl: netTodayPnl, todaysPnlPct: pct };
+  }, [tradeHistory, totalActivePnl, balance]);
+
+  const pendingScannerTriggers = useMemo(() => {
+    let count = 0;
+    const variantKeys = Object.keys(variantScannerResults || {});
+    const seenSymbols = new Set();
+    const thresh = config.scan_pct_threshold || 2;
+
+    for (const key of variantKeys) {
+      const opps = variantScannerResults[key] || [];
+      for (const o of opps) {
+        if (o && !seenSymbols.has(o.symbol) && Math.abs(o.pct || 0) >= thresh) {
+          seenSymbols.add(o.symbol);
+          count++;
+        }
+      }
+    }
+
+    return count;
+  }, [variantScannerResults, config.scan_pct_threshold]);
+
   const monitoredSymbolsSet = useMemo(() => {
     const set = new Set();
     (config.single_symbol_configs || []).forEach(sc => {
@@ -2231,28 +2269,28 @@ export function DashboardView({ initialStrategy }) {
           className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5 lg:mb-6"
         >
           <ReferenceKPICard
-            title="Total Revenue"
+            title="Account Equity"
             value={`$${(balance || 0).toLocaleString()}`}
-            changePct="12.5"
-            isPositive={true}
+            changePct={todaysPnlPct.toFixed(1)}
+            isPositive={todaysPnl >= 0}
             icon={DollarSign}
             iconBg="bg-accent/15 text-accent"
-            subtext={`P&L: ${fmtUSD(totalPnl)}`}
+            subtext={`Today's P&L: ${fmtUSD(todaysPnl)}`}
           />
           <ReferenceKPICard
             title="Active Positions"
             value={`${activeTrades.length} / ${config.max_open_trades || 5}`}
-            changePct="8.2"
-            isPositive={true}
+            changePct={((activeTrades.length / (config.max_open_trades || 5)) * 100).toFixed(1)}
+            isPositive={activeTrades.length > 0}
             icon={Users}
             iconBg="bg-green/15 text-green"
             subtext={`Risk: ${Number(totalRiskPct || 0).toFixed(1)}%`}
           />
           <ReferenceKPICard
             title="Pending Orders"
-            value={`${(variantScannerResults[config.strategy_label || ''] || []).filter(o => o.pct >= (config.scan_pct_threshold || 2)).length}`}
-            changePct="3.1"
-            isPositive={false}
+            value={`${pendingScannerTriggers}`}
+            changePct={pendingScannerTriggers > 0 ? (pendingScannerTriggers).toFixed(1) : "0.0"}
+            isPositive={pendingScannerTriggers > 0}
             icon={Clock}
             iconBg="bg-amber/15 text-amber"
             subtext="Scanner Triggers"
@@ -2564,7 +2602,7 @@ export function DashboardView({ initialStrategy }) {
                             const variantConfig = { ...config, ...variant };
                             return (
                               <StrategyCard
-                                key={i}
+                                key={label}
                                 s={{
                                   ...currentStrategy,
                                   strategy_label: label,

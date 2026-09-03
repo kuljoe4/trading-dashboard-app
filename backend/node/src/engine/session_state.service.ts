@@ -186,14 +186,14 @@ export class SessionStateService {
     };
 
     // BOLT: Optimize by using loop fusion and avoiding intermediate array spreads
-    // Filter by sessionId during processing to avoid redundant allocations
+    // Filter by sessionId during processing to preserve session isolation
     for (let i = 0; i < initialHistory.length; i++) {
-      if (!sessionId || initialHistory[i].sessionId === sessionId) {
+      if (!sessionId || !initialHistory[i].sessionId || initialHistory[i].sessionId === sessionId) {
         processTrade(initialHistory[i]);
       }
     }
     for (let i = 0; i < initialOpen.length; i++) {
-      if (!sessionId || initialOpen[i].sessionId === sessionId) {
+      if (!sessionId || !initialOpen[i].sessionId || initialOpen[i].sessionId === sessionId) {
         processTrade(initialOpen[i]);
       }
     }

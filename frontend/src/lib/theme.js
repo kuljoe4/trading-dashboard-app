@@ -246,12 +246,19 @@ export const solveSmoothing = (points) => {
     const next = points[i + 1];
     const prevPrev = points[i - 2] || prev;
 
+    const minY = Math.min(prev.y, curr.y);
+    const maxY = Math.max(prev.y, curr.y);
+
     // Control points
     const cp1x = prev.x + (curr.x - prevPrev.x) / 6;
-    const cp1y = prev.y + (curr.y - prevPrev.y) / 6;
+    let cp1y = prev.y + (curr.y - prevPrev.y) / 6;
 
     const cp2x = curr.x - ((next ? next.x : curr.x) - prev.x) / 6;
-    const cp2y = curr.y - ((next ? next.y : curr.y) - prev.y) / 6;
+    let cp2y = curr.y - ((next ? next.y : curr.y) - prev.y) / 6;
+
+    // Monotonic control point clamping to prevent overshoot/bowing beyond segment bounds
+    cp1y = Math.max(minY, Math.min(maxY, cp1y));
+    cp2y = Math.max(minY, Math.min(maxY, cp2y));
 
     path[i] = ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${curr.x} ${curr.y}`;
   }

@@ -84,15 +84,24 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
+  const startingBal = useMemo(() => {
+    const mode = strategyConfig?.trading_mode || (strategyConfig?.paper_mode ? 'paper' : 'live');
+    return mode === 'paper'
+      ? (strategyConfig?.paper_starting_balance || 10000)
+      : (mode === 'testnet'
+          ? (strategyConfig?.testnet_starting_balance || 10000)
+          : (strategyConfig?.live_starting_balance || 10000));
+  }, [strategyConfig]);
+
   // Per-strategy performance metrics calculation
   const stratPerformance = useMemo(() => {
     const trades = tradeHistory || analytics?.trades || [];
     const filtered = trades.filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label);
-    const metrics = calculatePerformanceMetrics(filtered);
+    const metrics = calculatePerformanceMetrics(filtered, startingBal);
     const total = filtered.length;
 
     const hitRate = total > 0 ? (metrics.wins / total) * 100 : 0;
-    const overallWr = analytics?.overallWinRate || 50;
+    const overallWr = typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50;
     const hitRateRatio = overallWr > 0 ? hitRate / overallWr : 1.0;
 
     const targetRr = strategyConfig.exit_rr_target || strategyConfig.min_rr || 1.5;
@@ -286,27 +295,27 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           label="Hit Rate Ratio"
           value={hitRateRatioText}
           color={stratPerformance.hitRateRatio >= 1.15 ? "text-green" : stratPerformance.hitRateRatio <= 0.85 ? "text-amber" : "text-text"}
-          subValue={`Baseline: ${(analytics?.overallWinRate || 50).toFixed(0)}%`}
+          subValue={`Baseline: ${(typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50).toFixed(0)}%`}
           tooltipText="Hit rate ratio relative to overall performance baseline. Thresholds: >= 1.15 Expansion, <= 0.85 Contraction."
         />
         <StatCard
           label="Profit Factor"
-          value={stratPerformance.profitFactor > 0 ? stratPerformance.profitFactor.toFixed(2) : '---'}
+          value={stratPerformance.total > 0 ? stratPerformance.profitFactor.toFixed(2) : '---'}
           color={stratPerformance.profitFactor >= 1.5 ? "text-green" : stratPerformance.profitFactor >= 1.0 ? "text-amber" : "text-text"}
           subValue="Target: >= 1.50"
           tooltipText="Profit Factor (Gross Wins / Gross Losses). Recommended: > 1.00 (Profitable), >= 1.50 (Solid), >= 2.00 (Excellent)."
         />
         <StatCard
           label="Sharpe (Sh)"
-          value={stratPerformance.sharpe > 0 ? stratPerformance.sharpe.toFixed(2) : '---'}
-          color={stratPerformance.sharpe >= 1.5 ? "text-green" : stratPerformance.sharpe >= 1.0 ? "text-amber" : "text-text"}
+          value={stratPerformance.total > 1 ? stratPerformance.sharpe.toFixed(2) : '---'}
+          color={stratPerformance.sharpe >= 1.5 ? "text-green" : stratPerformance.sharpe >= 1.0 ? "text-amber" : stratPerformance.sharpe < 0 ? "text-red" : "text-text"}
           subValue="Target: >= 1.50"
           tooltipText="Sharpe Ratio (Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 1.50 (Good), >= 2.00 (Excellent)."
         />
         <StatCard
           label="Sortino (So)"
-          value={stratPerformance.sortino > 0 ? stratPerformance.sortino.toFixed(2) : '---'}
-          color={stratPerformance.sortino >= 2.0 ? "text-green" : stratPerformance.sortino >= 1.0 ? "text-amber" : "text-text"}
+          value={stratPerformance.total > 1 ? stratPerformance.sortino.toFixed(2) : '---'}
+          color={stratPerformance.sortino >= 2.0 ? "text-green" : stratPerformance.sortino >= 1.0 ? "text-amber" : stratPerformance.sortino < 0 ? "text-red" : "text-text"}
           subValue="Target: >= 2.00"
           tooltipText="Sortino Ratio (Downside Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 2.00 (Good), >= 3.00 (Excellent)."
         />
@@ -417,6 +426,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               showPf={showPf}
               showSharpe={showSharpe}
               showSortino={showSortino}
+              startingBalance={startingBal}
             />
           </Suspense>
         ) : (

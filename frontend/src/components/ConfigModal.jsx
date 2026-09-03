@@ -3225,14 +3225,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 <div className="pt-4 border-t border-border/40 space-y-3">
-                  <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-amber/20 transition-all">
-                    <div className="flex flex-col text-left">
-                      <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
-                        <Zap size={12} /> Allow Knife Re-entry (Anti-Whipsaw Bypass)
-                      </span>
-                      <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">If a trade was closed by Knife Catch engine, allow re-entering the symbol in the same candle provided the candidate is still a Knife Catch trade.</p>
+                  <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col text-left">
+                        <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
+                          <Zap size={12} /> Allow Knife Re-entry (Anti-Whipsaw Bypass)
+                        </span>
+                        <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">If a trade was closed by Knife Catch engine, allow re-entering the symbol in the same candle provided the candidate is still a Knife Catch trade.</p>
+                      </div>
+                      <Toggle value={cfg.anti_whipsaw_allow_knife === true} onChange={(v) => setField('anti_whipsaw_allow_knife', v)} color="bg-amber" />
                     </div>
-                    <Toggle value={cfg.anti_whipsaw_allow_knife === true} onChange={(v) => setField('anti_whipsaw_allow_knife', v)} color="bg-amber" />
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/20">
+                      <Tooltip content="Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay).">
+                        {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, { min: 0, max: 20 })}
+                      </Tooltip>
+                      <Tooltip content="Custom time delay (in minutes) after an exit before re-entry is permitted. Overrides candle delay if time delay is longer.">
+                        {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, { min: 0, max: 1440 })}
+                      </Tooltip>
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-amber/20 transition-all">

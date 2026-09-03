@@ -642,7 +642,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         )}
 
         <ScannerPreview
-          scannerResults={(strategyScannerResults || []).filter(Boolean)}
+          scannerResults={strategyScannerResults}
           config={strategyConfig}
           onOpen={() => onOpenScanner(s.strategy_label)}
         />

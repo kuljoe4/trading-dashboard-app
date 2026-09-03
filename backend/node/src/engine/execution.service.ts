@@ -298,28 +298,35 @@ export class ExecutionService {
                     return 0;
                   };
 
-                  if (t.entry_ts) {
-                    const entryTsMs = toTimestampMs(t.entry_ts);
-                    if (entryTsMs > 0 && entryTsMs >= currentCandleStart) {
-                      sameCandleGated = true;
-                      gatedTimeframe = tf;
-                      gateReason = `entered during the current ${tf} candle period`;
-                      break;
-                    }
-                  }
+                  const candleDelay = symbolConfig.anti_whipsaw_candle_delay ?? 1;
+                  const tfDelayMin = symbolConfig.anti_whipsaw_tf_delay_min ?? 0;
+                  const effectiveDelayMs = Math.max(candleDelay * tfDurationMs, tfDelayMin * 60 * 1000);
 
-                  if (t.exit_ts) {
-                    const exitTsMs = toTimestampMs(t.exit_ts);
-                    const nowMs = Date.now();
-                    const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
-                    if (validExitTsMs > 0 && (validExitTsMs >= currentCandleStart || nowMs < validExitTsMs + tfDurationMs)) {
-                      sameCandleGated = true;
-                      gatedTimeframe = tf;
-                      const cooldownMins = Math.ceil(tfDurationMs / 60000);
-                      gateReason = validExitTsMs >= currentCandleStart
-                        ? `exited during the active ${tf} candle`
-                        : `exited within the ${cooldownMins}m timeframe cooldown window`;
-                      break;
+                  if (effectiveDelayMs > 0) {
+                    if (t.entry_ts) {
+                      const entryTsMs = toTimestampMs(t.entry_ts);
+                      const nowMs = Date.now();
+                      if (entryTsMs > 0 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
+                        sameCandleGated = true;
+                        gatedTimeframe = tf;
+                        gateReason = `entered during the current ${tf} candle period`;
+                        break;
+                      }
+                    }
+
+                    if (t.exit_ts) {
+                      const exitTsMs = toTimestampMs(t.exit_ts);
+                      const nowMs = Date.now();
+                      const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
+                      if (validExitTsMs > 0 && (validExitTsMs >= currentCandleStart || nowMs < validExitTsMs + effectiveDelayMs)) {
+                        sameCandleGated = true;
+                        gatedTimeframe = tf;
+                        const cooldownMins = Math.ceil(effectiveDelayMs / 60000);
+                        gateReason = validExitTsMs >= currentCandleStart
+                          ? `exited during the active ${tf} candle`
+                          : `exited within the ${cooldownMins}m timeframe cooldown window`;
+                        break;
+                      }
                     }
                   }
                 }

@@ -550,6 +550,18 @@ export class SessionConfig {
   @IsOptional()
   anti_whipsaw_allow_knife?: boolean = false;
 
+  @IsNumber()
+  @Min(0)
+  @Max(20)
+  @IsOptional()
+  anti_whipsaw_candle_delay?: number = 1;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1440)
+  @IsOptional()
+  anti_whipsaw_tf_delay_min?: number = 0;
+
   @IsBoolean()
   @IsOptional()
   allow_knife_when_gated?: boolean = false;

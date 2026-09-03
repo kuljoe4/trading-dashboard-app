@@ -1451,7 +1451,9 @@ const flattenConfig = (config) => {
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
       trailing_stop_enabled: !!config.trailing_stop_enabled,
+      trailing_stop_type: config.trailing_stop_type || 'pct',
       trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+      trailing_stop_rr: config.trailing_stop_rr !== undefined ? Number(config.trailing_stop_rr) : 1.0,
       trailing_activation_rr: config.trailing_activation_rr !== undefined ? Number(config.trailing_activation_rr) : 0.0,
       knife_trailing_enabled: config.knife_trailing_enabled !== false,
       knife_trailing_distance_pct: config.knife_trailing_distance_pct !== undefined ? config.knife_trailing_distance_pct : 0.5,
@@ -1519,6 +1521,7 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'max_single_trade_risk_pct',
       'smart_watchlist_sensitivity',
       'trailing_stop_distance_pct',
+      'trailing_stop_rr',
       'knife_trailing_distance_pct',
       'knife_auto_ratchet_be_rr',
       'knife_auto_ratchet_lock_rr',
@@ -2106,6 +2109,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'max_single_trade_risk_pct',
       'smart_watchlist_sensitivity',
       'trailing_stop_distance_pct',
+      'trailing_stop_rr',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
@@ -3714,8 +3718,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  {cfg.trailing_stop_enabled && (
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                          {renderField('Trailing Method', 'trailing_stop_type', 'text', [
+                            { value: 'pct', label: 'Percentage Distance (%)' },
+                            { value: 'rr', label: 'Risk Multiple (R:R)' }
+                          ])}
                           {renderField('Trailing Activation R:R', 'trailing_activation_rr', 'number', 'Required R:R before trailing stop activates (0 = immediate)', { min: 0, max: 10, step: 0.1 })}
+                       </div>
+
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {cfg.trailing_stop_type === 'rr' ? (
+                            renderField('Trailing Distance (R:R)', 'trailing_stop_rr', 'number', 'Distance expressed as a multiple of initial SL risk distance (e.g. 1.0R = initial risk width)', { min: 0.1, max: 10, step: 0.1 })
+                          ) : (
+                            renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', 'Distance expressed as percentage of price', { min: 0.1, max: 10, step: 0.1 })
+                          )}
                        </div>
                        <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="trailing" />
                     </motion.div>

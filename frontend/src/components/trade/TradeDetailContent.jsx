@@ -1388,9 +1388,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                        { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
                        trade.strategy_config?.trailing_stop_enabled && {
                          label: 'Trailing Stop',
-                         value: `${trade.strategy_config.trailing_stop_distance_pct}%`,
+                         value: trade.strategy_config.trailing_stop_type === 'rr'
+                           ? `${trade.strategy_config.trailing_stop_rr || 1.0} R`
+                           : `${trade.strategy_config.trailing_stop_distance_pct || 1.0}%`,
                          color: 'text-purple-400',
-                         tooltip: 'Trailing stop-loss distance percentage.'
+                         tooltip: trade.strategy_config.trailing_stop_type === 'rr'
+                           ? 'Trailing stop-loss distance expressed as initial R multiple.'
+                           : 'Trailing stop-loss distance percentage.'
                        },
                        { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
                            { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },

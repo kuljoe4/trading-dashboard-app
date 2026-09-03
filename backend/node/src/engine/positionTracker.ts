@@ -1054,8 +1054,20 @@ export class PositionTrackerService {
       }
     }
 
-    const distancePct = config.trailing_stop_distance_pct || 1.0;
-    const distance = trade.entry_price * (distancePct / 100);
+    let distance = 0;
+    if (config.trailing_stop_type === 'rr') {
+      const initialRisk = Math.abs(trade.entry_price - trade.initial_sl);
+      const rr = config.trailing_stop_rr || 1.0;
+      if (initialRisk > 0) {
+        distance = initialRisk * rr;
+      } else {
+        const distancePct = config.trailing_stop_distance_pct || 1.0;
+        distance = trade.entry_price * (distancePct / 100);
+      }
+    } else {
+      const distancePct = config.trailing_stop_distance_pct || 1.0;
+      distance = trade.entry_price * (distancePct / 100);
+    }
 
     let prospectiveSl: number;
     if (trade.direction === 'LONG') {

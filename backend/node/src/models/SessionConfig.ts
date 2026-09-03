@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize, Matches } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize, Matches, IsIn } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { CONFIG_LIMITS } from './constants';
 
@@ -502,11 +502,21 @@ export class SessionConfig {
   @IsOptional()
   trailing_stop_enabled?: boolean = false;
 
+  @IsIn(['pct', 'rr'])
+  @IsOptional()
+  trailing_stop_type?: 'pct' | 'rr' = 'pct';
+
   @IsNumber()
   @IsOptional()
   @Min(0.1)
   @Max(10.0)
   trailing_stop_distance_pct?: number = 1.0;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(10.0)
+  trailing_stop_rr?: number = 1.0;
 
   @IsNumber()
   @IsOptional()

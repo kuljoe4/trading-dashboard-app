@@ -241,27 +241,39 @@ export class BacktestService {
               ? (config.knife_trailing_distance_pct ?? 0.5)
               : (config.trailing_stop_distance_pct ?? 1.0);
 
-            if (trailingEnabled && trailingDistancePct > 0) {
+            if (trailingEnabled) {
               const activationRr = config.trailing_activation_rr || 0;
               let activationMet = true;
+              const initialRisk = Math.abs(pos.entry_price - pos.initial_sl);
+
               if (activationRr > 0 && !pos.is_knife) {
-                const risk = Math.abs(pos.entry_price - pos.initial_sl);
-                if (risk > 0) {
+                if (initialRisk > 0) {
                   const currentReward = pos.direction === 'LONG'
                     ? currentCandle.close - pos.entry_price
                     : pos.entry_price - currentCandle.close;
-                  activationMet = (currentReward / risk) >= activationRr;
+                  activationMet = (currentReward / initialRisk) >= activationRr;
                 }
               }
 
               if (activationMet) {
+                let trailSl = pos.current_sl;
+
+                if (!pos.is_knife && config.trailing_stop_type === 'rr' && initialRisk > 0) {
+                  const rrDist = initialRisk * (config.trailing_stop_rr || 1.0);
+                  trailSl = pos.direction === 'LONG'
+                    ? currentCandle.high - rrDist
+                    : currentCandle.low + rrDist;
+                } else if (trailingDistancePct > 0) {
+                  trailSl = pos.direction === 'LONG'
+                    ? currentCandle.high * (1 - trailingDistancePct / 100)
+                    : currentCandle.low * (1 + trailingDistancePct / 100);
+                }
+
                 if (pos.direction === 'LONG') {
-                  const trailSl = currentCandle.high * (1 - trailingDistancePct / 100);
                   if (trailSl > pos.current_sl) {
                     pos.current_sl = trailSl;
                   }
                 } else { // SHORT
-                  const trailSl = currentCandle.low * (1 + trailingDistancePct / 100);
                   if (trailSl < pos.current_sl) {
                     pos.current_sl = trailSl;
                   }

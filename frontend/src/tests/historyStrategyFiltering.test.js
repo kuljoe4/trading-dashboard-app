@@ -1,12 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-// Lightweight pure logic extractor matching HistoryView strategy filtering & top wins/losses computation
-function processHistoryTradeFiltering(modeTrades, selectedStrategy) {
-  // Available strategies map calculation
+// Pure logic helper mirroring per-session strategy filtering and top wins/losses inside SessionGroup
+function processSessionTradeFiltering(sessionTrades, sessionStrategyFilter) {
+  // Available session strategy badges calculation
   const map = new Map();
-  for (let i = 0; i < modeTrades.length; i++) {
-    const t = modeTrades[i];
+  const safeTrades = sessionTrades || [];
+  for (let i = 0; i < safeTrades.length; i++) {
+    const t = safeTrades[i];
     const label = t.strategy_label || t.strategyLabel || 'Momentum Strategy';
     const pnl = Number(t.pnl || 0);
     if (!map.has(label)) {
@@ -16,17 +17,18 @@ function processHistoryTradeFiltering(modeTrades, selectedStrategy) {
     item.count += 1;
     item.pnl += pnl;
   }
-  const availableStrategies = Array.from(map.values()).sort((a, b) => b.count - a.count);
+  const availableSessionStrategies = Array.from(map.values()).sort((a, b) => b.count - a.count);
 
-  // Top 5 Wins & Top 5 Losses calculation
+  // Filter trades by selected strategy
+  const filteredTrades = sessionStrategyFilter === 'ALL'
+    ? safeTrades
+    : safeTrades.filter(t => (t.strategy_label || t.strategyLabel || 'Momentum Strategy') === sessionStrategyFilter);
+
+  // Calculate per-session top 5 wins and losses
   const wins = [];
   const losses = [];
-  const tradesToProcess = selectedStrategy === 'ALL'
-    ? modeTrades
-    : modeTrades.filter(t => (t.strategy_label || t.strategyLabel || 'Momentum Strategy') === selectedStrategy);
-
-  for (let i = 0; i < tradesToProcess.length; i++) {
-    const t = tradesToProcess[i];
+  for (let i = 0; i < filteredTrades.length; i++) {
+    const t = filteredTrades[i];
     const pnl = Number(t.pnl || 0);
     if (pnl > 0) wins.push(t);
     else if (pnl < 0) losses.push(t);
@@ -36,66 +38,61 @@ function processHistoryTradeFiltering(modeTrades, selectedStrategy) {
   losses.sort((a, b) => Number(a.pnl || 0) - Number(b.pnl || 0));
 
   return {
-    availableStrategies,
-    topWins: wins.slice(0, 5),
-    topLosses: losses.slice(0, 5),
-    filteredCount: tradesToProcess.length
+    availableSessionStrategies,
+    filteredTrades,
+    sessionTopWins: wins.slice(0, 5),
+    sessionTopLosses: losses.slice(0, 5)
   };
 }
 
-test('HistoryView Strategy Filtering & Top 5 Wins/Losses Unit Tests', async (t) => {
-  const sampleTrades = [
-    { id: '1', symbol: 'BTCUSDT', pnl: 250, strategy_label: 'Dual EMA Cross' },
-    { id: '2', symbol: 'ETHUSDT', pnl: -120, strategy_label: 'Dual EMA Cross' },
-    { id: '3', symbol: 'SOLUSDT', pnl: 450, strategy_label: 'Supertrend Trend' },
-    { id: '4', symbol: 'DOGEUSDT', pnl: -300, strategy_label: 'Supertrend Trend' },
-    { id: '5', symbol: 'AVAXUSDT', pnl: 100, strategy_label: 'Dual EMA Cross' },
-    { id: '6', symbol: 'ADAUSDT', pnl: -50, strategy_label: 'Supertrend Trend' },
-    { id: '7', symbol: 'LINKUSDT', pnl: 600, strategy_label: 'Dual EMA Cross' },
-    { id: '8', symbol: 'XRPUSDT', pnl: -400, strategy_label: 'Dual EMA Cross' },
-    { id: '9', symbol: 'DOTUSDT', pnl: -10, strategy_label: 'Supertrend Trend' },
-    { id: '10', symbol: 'BNBUSDT', pnl: 50, strategy_label: 'Supertrend Trend' },
+test('SessionGroup Per-Session Strategy Filtering & Top Wins/Losses Unit Tests', async (t) => {
+  const sessionTrades = [
+    { id: '1', symbol: 'BTCUSDT', pnl: 150, strategy_label: 'Momentum Strategy' },
+    { id: '2', symbol: 'ETHUSDT', pnl: -80, strategy_label: 'Momentum Strategy' },
+    { id: '3', symbol: 'SOLUSDT', pnl: 300, strategy_label: 'EMA Breakout Variant' },
+    { id: '4', symbol: 'DOGEUSDT', pnl: -150, strategy_label: 'EMA Breakout Variant' },
+    { id: '5', symbol: 'AVAXUSDT', pnl: 90, strategy_label: 'Momentum Strategy' },
+    { id: '6', symbol: 'ADAUSDT', pnl: -200, strategy_label: 'EMA Breakout Variant' },
+    { id: '7', symbol: 'LINKUSDT', pnl: 500, strategy_label: 'EMA Breakout Variant' },
+    { id: '8', symbol: 'XRPUSDT', pnl: -20, strategy_label: 'Momentum Strategy' },
   ];
 
-  await t.test('derives available strategy badges with counts and total PnLs', () => {
-    const result = processHistoryTradeFiltering(sampleTrades, 'ALL');
-    assert.equal(result.availableStrategies.length, 2);
+  await t.test('derives available strategy badges for a single session', () => {
+    const result = processSessionTradeFiltering(sessionTrades, 'ALL');
+    assert.equal(result.availableSessionStrategies.length, 2);
 
-    const dualEma = result.availableStrategies.find(s => s.label === 'Dual EMA Cross');
-    assert.equal(dualEma.count, 5);
-    assert.equal(dualEma.pnl, 250 - 120 + 100 + 600 - 400); // 430
+    const momentum = result.availableSessionStrategies.find(s => s.label === 'Momentum Strategy');
+    assert.equal(momentum.count, 4);
+    assert.equal(momentum.pnl, 150 - 80 + 90 - 20); // 140
 
-    const supertrend = result.availableStrategies.find(s => s.label === 'Supertrend Trend');
-    assert.equal(supertrend.count, 5);
-    assert.equal(supertrend.pnl, 450 - 300 - 50 - 10 + 50); // 140
+    const variant = result.availableSessionStrategies.find(s => s.label === 'EMA Breakout Variant');
+    assert.equal(variant.count, 4);
+    assert.equal(variant.pnl, 300 - 150 - 200 + 500); // 450
   });
 
-  await t.test('extracts top 5 biggest wins and top 5 biggest losses across all strategies', () => {
-    const result = processHistoryTradeFiltering(sampleTrades, 'ALL');
-    assert.equal(result.topWins.length, 5); // 5 wins in sample dataset
-    assert.equal(result.topWins[0].id, '7'); // +600 PnL
-    assert.equal(result.topWins[1].id, '3'); // +450 PnL
-    assert.equal(result.topWins[2].id, '1'); // +250 PnL
+  await t.test('extracts top 5 wins and losses per session under ALL strategies filter', () => {
+    const result = processSessionTradeFiltering(sessionTrades, 'ALL');
+    assert.equal(result.sessionTopWins.length, 4); // 4 wins in session
+    assert.equal(result.sessionTopWins[0].id, '7'); // +500 PnL
+    assert.equal(result.sessionTopWins[1].id, '3'); // +300 PnL
 
-    assert.equal(result.topLosses.length, 5); // 5 losses in sample dataset
-    assert.equal(result.topLosses[0].id, '8'); // -400 PnL
-    assert.equal(result.topLosses[1].id, '4'); // -300 PnL
-    assert.equal(result.topLosses[2].id, '2'); // -120 PnL
+    assert.equal(result.sessionTopLosses.length, 4); // 4 losses in session
+    assert.equal(result.sessionTopLosses[0].id, '6'); // -200 PnL
+    assert.equal(result.sessionTopLosses[1].id, '4'); // -150 PnL
   });
 
-  await t.test('filters top wins and losses when a specific strategy filter is active', () => {
-    const result = processHistoryTradeFiltering(sampleTrades, 'Dual EMA Cross');
-    assert.equal(result.filteredCount, 5);
+  await t.test('filters session trades and top wins/losses when filtering by strategy variant', () => {
+    const result = processSessionTradeFiltering(sessionTrades, 'EMA Breakout Variant');
+    assert.equal(result.filteredTrades.length, 4);
 
-    // Wins in Dual EMA Cross: id 7 (+600), id 1 (+250), id 5 (+100)
-    assert.equal(result.topWins.length, 3);
-    assert.equal(result.topWins[0].id, '7');
-    assert.equal(result.topWins[1].id, '1');
-    assert.equal(result.topWins[2].id, '5');
+    // Wins in EMA Breakout Variant: id 7 (+500), id 3 (+300)
+    assert.equal(result.sessionTopWins.length, 2);
+    assert.equal(result.sessionTopWins[0].id, '7');
+    assert.equal(result.sessionTopWins[1].id, '3');
 
-    // Losses in Dual EMA Cross: id 8 (-400), id 2 (-120)
-    assert.equal(result.topLosses.length, 2);
-    assert.equal(result.topLosses[0].id, '8');
-    assert.equal(result.topLosses[1].id, '2');
+    // Losses in EMA Breakout Variant: id 6 (-200), id 4 (-150)
+    assert.equal(result.sessionTopLosses.length, 2);
+    assert.equal(result.sessionTopLosses[0].id, '6');
+    assert.equal(result.sessionTopLosses[1].id, '4');
   });
 });

@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert';
 
-describe('R:R Dynamic Trailing Stop Calculations Unit Tests', () => {
+describe('R:R Dynamic Trailing Stop & Runway Flag Calculations Unit Tests', () => {
   test('calculates trailing distance in currency units based on pct vs rr mode', () => {
     const entryPrice = 100;
     const initialSl = 95; // Initial Risk = 5 USDT
@@ -24,5 +24,43 @@ describe('R:R Dynamic Trailing Stop Calculations Unit Tests', () => {
     // Mode 2 SHORT prospective SL calculation: currentPrice 90 + rrDistance 7.5 = 97.5
     const shortProspectiveSlRr = 90 + rrDistance;
     assert.strictEqual(shortProspectiveSlRr, 97.5);
+  });
+
+  test('calculates trailing activation threshold price and activation status for LONG position', () => {
+    const entryPrice = 50000;
+    const initialSl = 49000;
+    const risk = Math.abs(entryPrice - initialSl); // 1000 USDT
+    const activationRr = 1.5;
+
+    const activationPrice = entryPrice + (risk * activationRr); // 50000 + 1500 = 51500
+    assert.strictEqual(activationPrice, 51500);
+
+    // Case A: Live R:R = 1.0 (< 1.5) -> Pending activation
+    const currentPricePending = 51000;
+    const liveRrPending = (currentPricePending - entryPrice) / risk;
+    const isActivatedPending = liveRrPending >= activationRr;
+    assert.strictEqual(isActivatedPending, false);
+
+    // Case B: Live R:R = 1.8 (>= 1.5) -> Active activation
+    const currentPriceActive = 51800;
+    const liveRrActive = (currentPriceActive - entryPrice) / risk;
+    const isActivatedActive = liveRrActive >= activationRr;
+    assert.strictEqual(isActivatedActive, true);
+  });
+
+  test('calculates trailing activation threshold price and activation status for SHORT position', () => {
+    const entryPrice = 3000;
+    const initialSl = 3100;
+    const risk = Math.abs(entryPrice - initialSl); // 100 USDT
+    const activationRr = 2.0;
+
+    const activationPrice = entryPrice - (risk * activationRr); // 3000 - 200 = 2800
+    assert.strictEqual(activationPrice, 2800);
+
+    // Case A: Live R:R = 2.5 (>= 2.0) -> Active activation
+    const currentPriceActive = 2750;
+    const liveRrActive = (entryPrice - currentPriceActive) / risk;
+    const isActivatedActive = liveRrActive >= activationRr;
+    assert.strictEqual(isActivatedActive, true);
   });
 });

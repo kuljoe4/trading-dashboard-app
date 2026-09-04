@@ -176,6 +176,8 @@ ReferenceKPICard.displayName = 'ReferenceKPICard';
 
 // --- Recent Transactions List Component ---
 const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [], onOpenScanner }) => {
+  const [isRecentExpanded, setIsRecentExpanded] = useState(false);
+
   const allTransactions = useMemo(() => {
     const list = [];
 
@@ -212,23 +214,55 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
   }, [tradeHistory, activeTrades]);
 
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-5 md:p-6 shadow-sm flex flex-col gap-4">
-      <div className="flex items-center justify-between border-b border-border/20 pb-3">
-        <div className="flex flex-col">
-          <SectionLabel className="mb-0 flex items-center gap-2">
-            <History size={14} className="text-accent" /> Recent Transactions
-          </SectionLabel>
-          <span className="text-[10px] text-dim font-bold uppercase tracking-widest mt-0.5">Live Execution Feed</span>
+    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setIsRecentExpanded(!isRecentExpanded)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsRecentExpanded(!isRecentExpanded))}
+        aria-expanded={isRecentExpanded}
+        aria-controls="recent-transactions-content"
+        className="flex items-center justify-between cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
+            <History size={16} />
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <h3 className="text-xs sm:text-sm md:text-base font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+              Recent Transactions
+            </h3>
+            <span className="text-[10px] text-dim font-bold uppercase tracking-widest truncate">Live Execution Feed ({allTransactions.length})</span>
+          </div>
         </div>
-        <button
-          onClick={() => { window.location.hash = '#/history'; }}
-          className="text-[10px] font-black text-accent hover:text-accent/80 uppercase tracking-widest transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
-        >
-          See All
-        </button>
+
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); window.location.hash = '#/history'; }}
+            className="text-[10px] font-black text-accent hover:text-accent/80 uppercase tracking-widest transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
+          >
+            See All
+          </button>
+          <div className={cn(
+            "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+            isRecentExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
+          )}>
+            <ChevronLeft size={14} className="-rotate-90" />
+          </div>
+        </div>
       </div>
 
-      <div className="flex flex-col gap-2.5">
+      <AnimatePresence>
+        {isRecentExpanded && (
+          <motion.div
+            id="recent-transactions-content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden pt-2 border-t border-border/20 space-y-2.5"
+          >
         {allTransactions.length === 0 ? (
           <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
             No Recent Transactions Recorded
@@ -296,7 +330,9 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
             );
           })
         )}
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });
@@ -306,6 +342,8 @@ RecentTransactionsList.displayName = 'RecentTransactionsList';
 const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
   const [timeframe, setTimeframe] = useState('7D'); // '7D' (Daily), '4W' (Weekly), '6M' (Monthly), '1Y' (Monthly)
   const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [selectedIndex, setSelectedIndex] = useState(null);
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
 
   const periodicData = useMemo(() => {
     const trades = tradeHistory || [];
@@ -436,91 +474,131 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
   }, [tradeHistory]);
 
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-4 sm:gap-5 overflow-hidden w-full">
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 border-b border-border/20 pb-4 min-w-0">
-        <div className="flex flex-col gap-1 min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <BarChart3 size={16} className="text-accent shrink-0" />
-            <h3 className="text-sm md:text-base font-black uppercase tracking-tight text-text truncate">Periodic Performance</h3>
+    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setIsChartExpanded(!isChartExpanded)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsChartExpanded(!isChartExpanded))}
+        aria-expanded={isChartExpanded}
+        aria-controls="periodic-chart-content"
+        className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
+            <BarChart3 size={16} />
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap mt-0.5">
-            <span className="text-[10px] text-dim font-bold uppercase tracking-widest shrink-0">
-              Range Net P&L: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
-            </span>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <h3 className="text-xs sm:text-sm md:text-base font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+              Periodic Performance
+            </h3>
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <span className="text-[10px] text-dim font-bold uppercase tracking-widest shrink-0">
+                Net P&L: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
+              </span>
 
-            {/* Quick Period Badges (Today / 7D / 30D) - Responsive Flex-Wrap */}
-            <div className="flex items-center gap-1 sm:gap-1.5 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase flex-wrap">
-              <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                Today: {fmtUSD(periodBadges.today)}
-              </span>
-              <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                7D: {fmtUSD(periodBadges.d7)}
-              </span>
-              <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                30D: {fmtUSD(periodBadges.d30)}
-              </span>
+              {/* Quick Period Badges */}
+              <div className="flex items-center gap-1 sm:gap-1.5 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase flex-wrap">
+                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                  Today: {fmtUSD(periodBadges.today)}
+                </span>
+                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                  7D: {fmtUSD(periodBadges.d7)}
+                </span>
+                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                  30D: {fmtUSD(periodBadges.d30)}
+                </span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Multi-Horizon Granularity Controls - Responsive Scrollable Container */}
-        <div className="flex items-center gap-1 sm:gap-1.5 self-start lg:self-center bg-background/50 border border-border/40 p-1 rounded-xl max-w-full overflow-x-auto no-scrollbar shrink-0">
-          {[
-            { id: '7D', shortLabel: '7D', fullLabel: '7 Days (Daily)' },
-            { id: '14D', shortLabel: '14D', fullLabel: '14 Days' },
-            { id: '4W', shortLabel: '4W', fullLabel: '4 Weeks' },
-            { id: '6M', shortLabel: '6M', fullLabel: '6 Months' },
-            { id: '1Y', shortLabel: '1Y', fullLabel: '1 Year' }
-          ].map((tf) => (
-            <button
-              key={tf.id}
-              type="button"
-              onClick={() => setTimeframe(tf.id)}
-              className={cn(
-                "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap shrink-0",
-                timeframe === tf.id
-                  ? "bg-accent text-white shadow-md shadow-accent/20"
-                  : "text-dim hover:text-text hover:bg-white/5"
-              )}
-            >
-              <span className="hidden sm:inline">{tf.fullLabel}</span>
-              <span className="inline sm:hidden">{tf.shortLabel}</span>
-            </button>
-          ))}
+        <div className="flex items-center gap-2 shrink-0">
+          <div className={cn(
+            "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+            isChartExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
+          )}>
+            <ChevronLeft size={14} className="-rotate-90" />
+          </div>
         </div>
       </div>
 
-      {/* Active Selected Period Detail Banner (Aesthetic Elegance & Zero-Clipping Assurance) */}
       <AnimatePresence>
-        {hoveredIndex !== null && buckets[hoveredIndex] && (
+        {isChartExpanded && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="bg-accent/10 border border-accent/25 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap"
+            id="periodic-chart-content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden space-y-4 pt-2 border-t border-border/20"
           >
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-              <span className="font-black uppercase tracking-wider text-accent">
-                {buckets[hoveredIndex].label} ({buckets[hoveredIndex].subLabel})
-              </span>
+            {/* Multi-Horizon Granularity Controls */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[9px] text-dim font-black uppercase tracking-widest">Timeframe Horizon:</span>
+              <div className="flex items-center gap-1 sm:gap-1.5 bg-background/50 border border-border/40 p-1 rounded-xl overflow-x-auto no-scrollbar shrink-0">
+                {[
+                  { id: '7D', shortLabel: '7D', fullLabel: '7 Days' },
+                  { id: '14D', shortLabel: '14D', fullLabel: '14 Days' },
+                  { id: '4W', shortLabel: '4W', fullLabel: '4 Weeks' },
+                  { id: '6M', shortLabel: '6M', fullLabel: '6 Months' },
+                  { id: '1Y', shortLabel: '1Y', fullLabel: '1 Year' }
+                ].map((tf) => (
+                  <button
+                    key={tf.id}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setTimeframe(tf.id); }}
+                    className={cn(
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap shrink-0",
+                      timeframe === tf.id
+                        ? "bg-accent text-white shadow-md shadow-accent/20"
+                        : "text-dim hover:text-text hover:bg-white/5"
+                    )}
+                  >
+                    <span className="hidden sm:inline">{tf.fullLabel}</span>
+                    <span className="inline sm:hidden">{tf.shortLabel}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-3 font-bold flex-wrap">
-              <span>
-                Net P&L: <span className={pnlClass(buckets[hoveredIndex].pnl)}>{buckets[hoveredIndex].pnl >= 0 ? '+' : ''}{fmtUSD(buckets[hoveredIndex].pnl)}</span>
-              </span>
-              <span className="text-dim/60">•</span>
-              <span className="text-dim">
-                Trades: <strong className="text-text">{buckets[hoveredIndex].tradesCount}</strong>
-              </span>
-              <span className="text-dim/60">•</span>
-              <span className="text-dim">
-                Win Rate: <strong className="text-text">{buckets[hoveredIndex].tradesCount > 0 ? Math.round((buckets[hoveredIndex].winCount / buckets[hoveredIndex].tradesCount) * 100) : 0}%</strong>
-              </span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
+            {/* Active Selected Period Detail Banner */}
+            <AnimatePresence>
+        {(() => {
+          const activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex;
+          if (activeIdx === null || !buckets[activeIdx]) return null;
+          const activeBucket = buckets[activeIdx];
+
+          return (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-accent/10 border border-accent/25 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                <span className="font-black uppercase tracking-wider text-accent">
+                  {activeBucket.label} ({activeBucket.subLabel})
+                </span>
+              </div>
+              <div className="flex items-center gap-3 font-bold flex-wrap">
+                <span>
+                  Net P&L: <span className={pnlClass(activeBucket.pnl)}>{activeBucket.pnl >= 0 ? '+' : ''}{fmtUSD(activeBucket.pnl)}</span>
+                </span>
+                <span className="text-dim/60">•</span>
+                <span className="text-dim">
+                  Trades: <strong className="text-text">{activeBucket.tradesCount}</strong>
+                </span>
+                <span className="text-dim/60">•</span>
+                <span className="text-dim">
+                  Win Rate: <strong className="text-text">{activeBucket.tradesCount > 0 ? Math.round((activeBucket.winCount / activeBucket.tradesCount) * 100) : 0}%</strong>
+                </span>
+              </div>
+            </motion.div>
+          );
+        })()}
+            </AnimatePresence>
 
       {/* Bar Canvas Container with Responsive Scroll */}
       <div className="relative pt-4 pb-2 w-full overflow-x-auto no-scrollbar">
@@ -558,7 +636,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
                   )}
                   onMouseEnter={() => setHoveredIndex(idx)}
                   onMouseLeave={() => setHoveredIndex(null)}
-                  onClick={() => setHoveredIndex(isHovered ? null : idx)}
+                  onClick={() => setSelectedIndex(prev => prev === idx ? null : idx)}
                   tabIndex={0}
                   role="region"
                   aria-label={`${b.label} (${b.subLabel}): ${fmtUSD(b.pnl)}, ${b.tradesCount} trades, win rate ${winRate}%`}
@@ -608,6 +686,9 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
           })}
         </div>
       </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });
@@ -742,6 +823,85 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const totalEstToRealize = closedPnl + activeEstPnl;
 
   const isCompact = viewMode === 'compact';
+  const isList = viewMode === 'list';
+
+  // Ultra-compact single-row List view rendering
+  if (isList) {
+    return (
+      <motion.div
+        layout
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+        onClick={handleCardClick}
+        onKeyDown={handleKeyDown}
+        onMouseEnter={onMouseEnter}
+        role="button"
+        tabIndex={0}
+        className={cn(
+          "bg-surface border border-border/40 rounded-xl px-3 py-2 flex items-center justify-between gap-3 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[44px]",
+          className,
+          isResuming && "opacity-80 border-accent/20"
+        )}
+        aria-label={`View details for ${s.strategy_label} strategy, active P&L ${fmtUSD(s.activePnl)}, session return ${fmtUSD(s.totalPnl)}`}
+      >
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <StatusBadge status={s.sessionActive} />
+          <h3 className="font-black font-mono text-xs tracking-tight truncate uppercase text-text group-hover:text-accent transition-colors">
+            {s.strategy_label}
+          </h3>
+          <span className="text-[7.5px] font-mono font-black text-dim bg-background/50 border border-border/30 px-1.5 py-0.2 rounded uppercase shrink-0">
+            {config.scan_interval}
+          </span>
+          {paused && !isResuming && (
+            <span className="text-[7.5px] font-black uppercase text-amber shrink-0">PAUSED</span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0 font-mono text-xs">
+          <div className="flex items-center gap-2 text-right">
+            <div className="flex flex-col items-end">
+              <span className="text-[7px] text-dim/60 font-black uppercase tracking-widest leading-none">Active</span>
+              <span className={cn("font-bold text-[11px] leading-none mt-0.5", pnlClass(s.activePnl))}>
+                {fmtUSD(s.activePnl)}
+              </span>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-[7px] text-dim/60 font-black uppercase tracking-widest leading-none">Return</span>
+              <span className={cn("font-bold text-[11px] leading-none mt-0.5", pnlClass(s.totalPnl))}>
+                {fmtUSD(s.totalPnl)}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] font-bold text-dim bg-background/60 border border-border/30 px-2 py-0.5 rounded-full">
+              {activeCount}/{maxOpen}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 relative z-20">
+            <button
+              type="button"
+              onClick={handleEditClick}
+              onMouseEnter={onEditMouseEnter}
+              className="p-1 hover:bg-white/5 text-dim hover:text-accent rounded transition-all focus-visible:ring-1 focus-visible:ring-accent outline-none cursor-pointer"
+              aria-label="Edit Strategy"
+            >
+              <Edit3 size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={handlePauseClick}
+              disabled={isPausing}
+              className="p-1 hover:bg-white/5 text-dim hover:text-accent rounded transition-all focus-visible:ring-1 focus-visible:ring-accent outline-none cursor-pointer"
+              aria-label={paused ? "Resume Strategy" : "Pause Strategy"}
+            >
+              {isPausing ? <Loader2 size={12} className="animate-spin text-accent" /> : (paused ? <Play size={12} fill="currentColor" className="text-green" /> : <Pause size={12} fill="currentColor" className="text-amber" />)}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -2722,7 +2882,7 @@ export function DashboardView({ initialStrategy }) {
                     type="button"
                     onClick={() => setCardViewMode('detailed')}
                     className={cn(
-                      "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                       cardViewMode === 'detailed' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
                     )}
                     aria-label="Detailed strategy cards view"
@@ -2733,16 +2893,30 @@ export function DashboardView({ initialStrategy }) {
                     type="button"
                     onClick={() => setCardViewMode('compact')}
                     className={cn(
-                      "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                       cardViewMode === 'compact' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
                     )}
                     aria-label="Compact strategy cards view"
                   >
                     Compact
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardViewMode('list')}
+                    className={cn(
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      cardViewMode === 'list' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                    )}
+                    aria-label="List strategy cards view"
+                  >
+                    List
+                  </button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className={cn(
+                "grid gap-3 sm:gap-4",
+                cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"
+              )}>
                 {sessionActive ? (
                   <>
                     {(() => {

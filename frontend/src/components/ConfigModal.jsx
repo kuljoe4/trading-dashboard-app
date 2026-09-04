@@ -3490,6 +3490,31 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             </CollapsibleSection>
 
             <CollapsibleSection
+              id="strategy_whipsaw"
+              icon={ShieldCheck}
+              title="Anti-Whipsaw Re-Entry Gating"
+              subtitle="Execution cooldowns between consecutive trades"
+              isOpen={openSectionId === 'strategy_whipsaw'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_whipsaw' ? null : 'strategy_whipsaw')}
+            >
+              <div className="space-y-4">
+                <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Tooltip content="Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay). Applies to all standard strategy signals.">
+                      {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, { min: 0, max: 20 })}
+                    </Tooltip>
+                    <Tooltip content="Custom time delay (in minutes) after an exit before re-entry is permitted on the symbol. Overrides candle delay if time delay is longer.">
+                      {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, { min: 0, max: 1440 })}
+                    </Tooltip>
+                  </div>
+                  <p className="text-[8.5px] text-dim/70 leading-snug">
+                    Anti-whipsaw gating prevents rapid oscillation and double-dipping on the same symbol right after an exit. High-velocity Knife Catch trades can optionally bypass this delay via the "Allow Knife Re-entry" setting under Knife Catch.
+                  </p>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
               id="strategy_knife"
               icon={Zap}
               title="Knife Catch & Risk Bypass"

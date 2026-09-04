@@ -26,7 +26,8 @@ describe('MonthlyRevenueChart Periodic PnL Tooltip & Micro-UX Standard', () => {
       'MonthlyRevenueChart must render an active period banner showing selected period breakdown'
     );
     assert.ok(
-      dashboardViewSource.includes('hoveredIndex !== null && buckets[hoveredIndex]'),
+      dashboardViewSource.includes('activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex') &&
+      dashboardViewSource.includes('activeIdx === null || !buckets[activeIdx]'),
       'MonthlyRevenueChart must display active details when a period bar is hovered or clicked'
     );
   });

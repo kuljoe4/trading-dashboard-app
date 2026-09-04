@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { SessionController } from '../trading/session.controller';
 import { SessionService } from '../trading/session.service';
 import { BacktestService } from '../engine/backtest.service';
+import { SmartOptimizerService } from '../engine/smart-optimizer.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('Sentinel: Parameter and Query Input Hardening', () => {
@@ -34,6 +35,14 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
         {
           provide: BacktestService,
           useValue: mockBacktestService,
+        },
+        {
+          provide: SmartOptimizerService,
+          useValue: {
+            getTopRecommendations: jest.fn().mockReturnValue([]),
+            clearRecommendations: jest.fn(),
+            runOptimization: jest.fn(),
+          },
         },
         {
           provide: ConfigService,

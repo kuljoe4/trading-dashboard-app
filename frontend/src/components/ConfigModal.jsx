@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
-import { settingsAPI, presetsAPI, sessionAPI } from '../api/client'
+import { settingsAPI, presetsAPI, sessionAPI, smartOptimizerAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -1035,6 +1035,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     { id: 'strategy', label: 'Strategy', icon: Zap },
     { id: 'risk', label: 'Risk', icon: ShieldCheck },
     { id: 'env', label: 'Env', icon: Briefcase },
+    { id: 'smart', label: 'Smart Auto', icon: Sparkles },
     { id: 'backtest', label: 'Backtest', icon: TrendingUp },
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
@@ -1084,6 +1085,304 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
   );
 })
 SectionTabs.displayName = 'SectionTabs'
+
+const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePreset }) => {
+  const [iterations, setIterations] = useState(15);
+  const [days, setDays] = useState(14);
+  const [startingBalance, setStartingBalance] = useState(10000);
+  const [symbolsText, setSymbolsText] = useState('BTCUSDT, ETHUSDT, SOLUSDT');
+  const [isRunning, setIsRunning] = useState(false);
+  const [recommendations, setRecommendations] = useState([]);
+  const [error, setError] = useState(null);
+  const addAlert = useTradingStore(state => state.addAlert);
+
+  useEffect(() => {
+    const fetchRecs = async () => {
+      try {
+        const res = await smartOptimizerAPI.getRecommendations();
+        if (res?.data?.recommendations) {
+          setRecommendations(res.data.recommendations);
+        }
+      } catch (err) {
+        console.warn('[SmartOptimizer] Failed to fetch top recommendations:', err);
+      }
+    };
+    fetchRecs();
+  }, []);
+
+  const handleRunOptimization = async () => {
+    setIsRunning(true);
+    setError(null);
+    try {
+      const parsedSymbols = symbolsText.split(',').map(s => s.trim().toUpperCase()).filter(s => s.endsWith('USDT'));
+      const res = await smartOptimizerAPI.run({
+        iterations: Number(iterations),
+        days: Number(days),
+        startingBalance: Number(startingBalance),
+        symbols: parsedSymbols.length > 0 ? parsedSymbols : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+        baseConfig: cfg,
+        topCount: 5,
+      });
+
+      if (res?.data?.topRecommendations) {
+        setRecommendations(res.data.topRecommendations);
+        if (addAlert) {
+          addAlert({
+            level: 'success',
+            title: 'Smart Optimization Complete',
+            message: `Evaluated ${res.data.testedCount} randomized strategy candidates in ${res.data.executionTimeMs}ms! Top strategy recommendations updated in memory.`,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[SmartOptimizer] Run error:', err);
+      const msg = err.response?.data?.message || err.message || 'Smart optimization failed.';
+      setError(msg);
+      if (addAlert) {
+        addAlert({ level: 'error', title: 'Optimizer Error', message: msg });
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleClear = async () => {
+    try {
+      await smartOptimizerAPI.clearRecommendations();
+      setRecommendations([]);
+      if (addAlert) {
+        addAlert({ level: 'info', title: 'Recommendations Cleared', message: 'In-memory top strategy recommendations cleared.' });
+      }
+    } catch (err) {
+      console.error('[SmartOptimizer] Clear error:', err);
+    }
+  };
+
+  return (
+    <div
+      id="config-panel-smart"
+      role="tabpanel"
+      aria-labelledby="config-tab-smart"
+      className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+    >
+      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+              <Sparkles size={16} />
+            </div>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-tight">Smart Intelligence Auto-Optimizer</h3>
+              <p className="text-[9px] text-dim font-medium uppercase">Generates & paper-tests randomized strategy variations to find top performers</p>
+            </div>
+          </div>
+          <Btn
+            variant="primary"
+            onClick={handleRunOptimization}
+            loading={isRunning}
+            className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+          >
+            {isRunning ? 'Testing Strategies...' : '⚡ Run Smart Auto Optimizer'}
+          </Btn>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2 border-t border-border/40">
+          <div>
+            <label htmlFor="smart-iterations" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Randomized Variations</label>
+            <select
+              id="smart-iterations"
+              value={iterations}
+              onChange={(e) => setIterations(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+            >
+              <option value={10}>10 Variations (Fast)</option>
+              <option value={15}>15 Variations (Recommended)</option>
+              <option value={25}>25 Variations (Thorough)</option>
+              <option value={50}>50 Variations (Deep Search)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="smart-days" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Testing Period (Days)</label>
+            <select
+              id="smart-days"
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+            >
+              <option value={7}>7 Days (1 Week)</option>
+              <option value={14}>14 Days (2 Weeks)</option>
+              <option value={30}>30 Days (1 Month)</option>
+              <option value={60}>60 Days (2 Months)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="smart-balance" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Paper Capital ($)</label>
+            <input
+              id="smart-balance"
+              type="number"
+              min={10}
+              step={1000}
+              value={startingBalance}
+              onChange={(e) => setStartingBalance(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="smart-symbols" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Target Symbols</label>
+            <input
+              id="smart-symbols"
+              type="text"
+              placeholder="BTCUSDT, ETHUSDT..."
+              value={symbolsText}
+              onChange={(e) => setSymbolsText(e.target.value)}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red/10 border border-red/30 rounded-xl text-xs text-red font-semibold flex items-center gap-2">
+            <XCircle size={14} className="shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Leaderboard of Top In-Memory Recommendations */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Award size={14} className="text-accent" />
+            <span className="text-xs font-black uppercase tracking-widest text-text">Top Recommended Strategies (In-Memory Leaderboard)</span>
+            <span className="text-[9px] text-dim font-bold font-mono">({recommendations.length})</span>
+          </div>
+          {recommendations.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="text-[9px] font-black uppercase tracking-widest text-red/70 hover:text-red transition-colors flex items-center gap-1"
+            >
+              <Trash2 size={11} /> Clear Leaderboard
+            </button>
+          )}
+        </div>
+
+        {recommendations.length === 0 ? (
+          <div className="p-10 border border-dashed border-border/60 rounded-2xl text-center space-y-2">
+            <Sparkles size={28} className="mx-auto text-dim/30 animate-pulse" />
+            <div className="text-xs font-bold text-dim uppercase">No strategy recommendations stored in memory yet</div>
+            <p className="text-[10px] text-dim/70 max-w-sm mx-auto">
+              Click <strong className="text-accent">"⚡ Run Smart Auto Optimizer"</strong> above to paper-test randomized setting candidates and discover top strategy configurations.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recommendations.map((rec) => {
+              const isTopRank = rec.rank === 1;
+              return (
+                <div
+                  key={rec.id}
+                  className={cn(
+                    "p-4 rounded-2xl border transition-all space-y-3 bg-background/60",
+                    isTopRank
+                      ? "border-accent/50 shadow-[0_0_20px_rgba(91,111,255,0.1)] bg-accent/[0.02]"
+                      : "border-border/60 hover:border-border-hover"
+                  )}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/30 pb-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className={cn(
+                        "w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center font-mono",
+                        isTopRank ? "bg-accent text-white" : "bg-surface border border-border text-dim"
+                      )}>
+                        #{rec.rank}
+                      </span>
+                      <div>
+                        <h4 className="text-xs font-bold font-mono text-text flex items-center gap-2">
+                          {rec.name}
+                          {isTopRank && (
+                            <span className="text-[8px] px-1.5 py-0.5 rounded bg-accent/20 text-accent font-black uppercase">
+                              ★ Top Recommendation
+                            </span>
+                          )}
+                        </h4>
+                        <p className="text-[9px] text-dim/80 font-mono">
+                          Score: <strong className="text-accent">{rec.score}</strong> · Timeframe: <strong className="text-text">{rec.config.scan_interval}</strong> · SL: <strong className="text-text">{rec.config.sl_distance_pct}%</strong> ({rec.config.sl_type}) · TP: <strong className="text-text">{rec.config.tp_ratio}R</strong>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Btn
+                        variant="primary"
+                        onClick={() => onLoadRecommendation(rec.config)}
+                        className="px-3 py-1.5 text-[10px] font-bold bg-accent text-white hover:bg-accent/90 flex items-center gap-1"
+                      >
+                        <Zap size={12} /> Apply Settings
+                      </Btn>
+
+                      <Btn
+                        variant="ghost"
+                        onClick={() => savePreset(rec.name)}
+                        className="px-3 py-1.5 text-[10px] font-bold border border-border hover:border-accent/40 text-dim hover:text-text flex items-center gap-1"
+                      >
+                        <Save size={12} /> Save as Preset
+                      </Btn>
+                    </div>
+                  </div>
+
+                  {/* Metrics Badges Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 pt-1">
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Win Rate</span>
+                      <span className="text-xs font-bold font-mono text-accent">{rec.metrics.winRate}%</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Profit Factor</span>
+                      <span className="text-xs font-bold font-mono text-purple-400">{rec.metrics.profitFactor}</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Total PnL</span>
+                      <span className={cn("text-xs font-bold font-mono", rec.metrics.totalPnl >= 0 ? "text-green" : "text-red")}>
+                        {fmtUSD(rec.metrics.totalPnl)}
+                      </span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Expectancy</span>
+                      <span className="text-xs font-bold font-mono text-text">${rec.metrics.expectancy}</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Max Drawdown</span>
+                      <span className="text-xs font-bold font-mono text-red">{rec.metrics.maxDrawdownPct}%</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Sharpe Ratio</span>
+                      <span className="text-xs font-bold font-mono text-text">{rec.metrics.sharpeRatio}</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center col-span-2 sm:col-span-1">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Trades Count</span>
+                      <span className="text-xs font-bold font-mono text-text">{rec.metrics.totalTrades} ({rec.metrics.wins}W/{rec.metrics.losses}L)</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+SmartAutoDiscoveryPanel.displayName = 'SmartAutoDiscoveryPanel';
 
 const EnvironmentButton = React.memo(({ mode, isSelected, onClick, disabled = false }) => (
   <button
@@ -3904,6 +4203,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </CollapsibleSection>
           </div>
+        )}
+
+        {section === 'smart' && (
+          <SmartAutoDiscoveryPanel
+            cfg={cfg}
+            onLoadRecommendation={(recommendedConfig) => {
+              const flattened = flattenConfig(recommendedConfig);
+              setCfg(flattened);
+              setIsDirty(true);
+              validate(flattened);
+              addAlert({
+                level: 'success',
+                title: 'Recommendation Applied',
+                message: `Applied smart strategy "${recommendedConfig.strategy_label || 'Recommended'}" settings to active draft.`,
+              });
+            }}
+            savePreset={savePreset}
+          />
         )}
 
         {section === 'backtest' && (

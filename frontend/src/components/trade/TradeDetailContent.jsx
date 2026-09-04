@@ -640,6 +640,68 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
       </div>
 
       <div className="space-y-1.5 md:space-y-4 flex-1">
+        {/* Dedicated Trailing Stop Loss Exit Guard Card */}
+        {trade.strategy_config?.trailing_stop_enabled && (() => {
+          const cfg = trade.strategy_config;
+          const trailingType = cfg.trailing_stop_type || 'pct';
+          const activationRr = Number(cfg.trailing_activation_rr || 0);
+          const currentRr = Number(trade.rr || 0);
+          const isActivated = activationRr <= 0 || currentRr >= activationRr;
+
+          const slPrice = Number(trade.sl_price || 0);
+          const slDistPct = mark > 0 && slPrice > 0 ? (Math.abs(mark - slPrice) / mark) * 100 : 0;
+          const slPnl = slPrice > 0 && entryPrice > 0 && qty > 0
+            ? (slPrice - entryPrice) * qty * (isLong ? 1 : -1)
+            : null;
+
+          const trailingDistLabel = trailingType === 'rr'
+            ? `${cfg.trailing_stop_rr || 1.0} R`
+            : `${cfg.trailing_stop_distance_pct || 1.0}%`;
+
+          return (
+            <div className="bg-background/60 border border-purple-500/25 rounded-xl p-2.5 md:p-3 shadow-sm flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <RefreshCw size={12} className="text-purple-400 animate-spin shrink-0" />
+                  <span className="text-xs font-black uppercase tracking-tight text-purple-300 font-mono">
+                    Trailing Stop Guard
+                  </span>
+                  <span className="text-[7.5px] font-mono font-bold bg-purple-500/15 border border-purple-500/30 text-purple-300 px-1.5 py-0.2 rounded uppercase">
+                    {trailingDistLabel}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className={cn(
+                    "text-[7.5px] font-mono font-black uppercase px-1.5 py-0.2 rounded border leading-none",
+                    isActivated
+                      ? "bg-green/10 text-green border-green/30 shadow-[0_0_6px_rgba(0,229,160,0.2)]"
+                      : "bg-amber/10 text-amber border-amber/30 animate-pulse"
+                  )}>
+                    {isActivated ? "⚡ ACTIVE (Trailing)" : `🎯 ACTIVATES AT ${activationRr}R`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 bg-surface/60 rounded-lg p-2 border border-border/40 text-[9px] font-mono">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-dim/70 text-[7.5px] uppercase font-black">Live Trailing SL</span>
+                  <span className="font-bold text-text">{fmtUSD(slPrice)}</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-dim/70 text-[7.5px] uppercase font-black">Dist to SL</span>
+                  <span className="font-bold text-amber">{slDistPct.toFixed(2)}%</span>
+                </div>
+                <div className="flex flex-col gap-0.5 col-span-2 md:col-span-1">
+                  <span className="text-dim/70 text-[7.5px] uppercase font-black">Floor P&L at Trigger</span>
+                  <span className={cn("font-bold", slPnl !== null ? pnlClass(slPnl) : "text-dim")}>
+                    {slPnl !== null ? fmtUSD(slPnl) : "---"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {entries.map(([key, s]) => {
           const isFired = s.fired && s.active
           const threshold = Number(s.threshold) || 0
@@ -1218,9 +1280,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           <div className="flex flex-col gap-0.5">
             <span className={cn(
               "text-[8px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
-              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 animate-pulse font-extrabold" : "text-red"
+              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 font-extrabold" : "text-red"
             )}>
-              <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
+              <ShieldAlert size={8} className={cn(trade.strategy_config?.trailing_stop_enabled && "animate-pulse")} />
+              {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
+              {trade.strategy_config?.trailing_stop_enabled && (
+                <span className="text-[7.5px] font-mono text-purple-300/90 font-semibold lowercase bg-purple-400/10 px-1 py-0.2 rounded border border-purple-400/20 ml-0.5">
+                  {trade.strategy_config.trailing_stop_type === 'rr'
+                    ? `${trade.strategy_config.trailing_stop_rr || 1.0}R`
+                    : `${trade.strategy_config.trailing_stop_distance_pct || 1.0}%`}
+                </span>
+              )}
             </span>
             {isEditingSl ? (
               <div className="flex items-center gap-1 mt-1.5">
@@ -1282,29 +1352,81 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           </div>
         </div>
 
-        <div
-          role="progressbar"
-          aria-valuenow={Math.round(progress)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuetext={`Active trade price runway at ${Math.round(progress)}% of exit targets`}
-          className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
-          <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
+        <div className="relative pt-3 pb-0.5 min-h-[26px]">
           <div
-            className={cn(
-              "h-full transition-all duration-1000 ease-out relative",
-              trade.pnl >= 0 ? "bg-green/80" : "bg-red/80"
-            )}
-            style={{ width: `${progress}%` }}
+            role="progressbar"
+            aria-valuenow={Math.round(progress)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={`Active trade price runway at ${Math.round(progress)}% of exit targets`}
+            className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]"
           >
-             <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[move-stripe_1s_linear_infinite]" />
-             {/* Beautiful custom tick marker with pulse dot at current leading price edge */}
-             <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20">
-               <PulseDot color={trade.pnl >= 0 ? "bg-green" : "bg-red"} />
-             </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
+            <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
+            <div
+              className={cn(
+                "h-full transition-all duration-1000 ease-out relative",
+                trade.pnl >= 0 ? "bg-green/80" : "bg-red/80"
+              )}
+              style={{ width: `${progress}%` }}
+            >
+               <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[move-stripe_1s_linear_infinite]" />
+               {/* Beautiful custom tick marker with pulse dot at current leading price edge */}
+               <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20">
+                 <PulseDot color={trade.pnl >= 0 ? "bg-green" : "bg-red"} />
+               </div>
+            </div>
           </div>
+
+          {/* Trailing Stop Activation RR Flag Marker on Runway Track */}
+          {trade.strategy_config?.trailing_stop_enabled && (trade.strategy_config?.trailing_activation_rr || 0) > 0 && (() => {
+            const activationRr = Number(trade.strategy_config.trailing_activation_rr);
+            const risk = Math.abs(entry - initialSl);
+            if (risk <= 0) return null;
+            const activationPrice = isLong ? entry + (risk * activationRr) : entry - (risk * activationRr);
+
+            // Compute position on track (0% to 100%) consistent with runway calculation
+            let activationPos = 50;
+            if (tp > 0) {
+              const totalRange = isLong ? (tp - sl) : (sl - tp);
+              const distFromSl = isLong ? (activationPrice - sl) : (sl - activationPrice);
+              activationPos = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100));
+            } else {
+              activationPos = Math.min(100, 50 + (activationRr / 3) * 50);
+            }
+
+            const currentRr = Number(trade.rr || 0);
+            const isActivated = currentRr >= activationRr;
+
+            return (
+              <Tooltip content={
+                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
+                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Trailing Activation Threshold</div>
+                  <div className="text-dim">Required RR: <span className="text-purple-300 font-mono font-semibold">+{activationRr.toFixed(2)}R</span></div>
+                  <div className="text-dim">Activation Price: <span className="text-text font-mono font-semibold">{fmtUSD(activationPrice)}</span></div>
+                  <div className="text-dim">Status: <span className={cn("font-mono font-semibold", isActivated ? "text-green" : "text-amber")}>{isActivated ? "ACTIVE (Trailing engaged)" : "PENDING (Awaiting R:R target)"}</span></div>
+                </div>
+              }>
+                <div
+                  className="absolute top-0 bottom-0 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  style={{ left: `${activationPos}%` }}
+                >
+                  <div className={cn(
+                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                    isActivated
+                      ? "bg-purple text-white shadow-[0_0_8px_rgba(168,85,247,0.8)] animate-pulse"
+                      : "bg-surface/90 border border-purple-400/40 text-purple-300/80"
+                  )}>
+                    🎯 {activationRr}R
+                  </div>
+                  <div className={cn(
+                    "flex-1 w-px border-l border-dashed",
+                    isActivated ? "border-purple" : "border-purple-400/40"
+                  )} />
+                </div>
+              </Tooltip>
+            );
+          })()}
         </div>
 
         <div className="flex justify-center scale-90">

@@ -825,8 +825,11 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const isCompact = viewMode === 'compact';
   const isList = viewMode === 'list';
 
-  // Ultra-compact single-row List view rendering
+  // Ultra-compact single-row List view rendering (High-density, controls omitted, icon cues & color-coded PnL)
   if (isList) {
+    const isPosActive = s.activePnl >= 0;
+    const isPosReturn = s.totalPnl >= 0;
+
     return (
       <motion.div
         layout
@@ -837,67 +840,65 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         role="button"
         tabIndex={0}
         className={cn(
-          "bg-surface border border-border/40 rounded-xl px-3 py-2 flex items-center justify-between gap-3 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[44px]",
+          "bg-surface border border-border/40 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[38px]",
           className,
           isResuming && "opacity-80 border-accent/20"
         )}
         aria-label={`View details for ${s.strategy_label} strategy, active P&L ${fmtUSD(s.activePnl)}, session return ${fmtUSD(s.totalPnl)}`}
       >
+        {/* Left: Indicator Pulse & Strategy Name */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <StatusBadge status={s.sessionActive} />
           <h3 className="font-black font-mono text-xs tracking-tight truncate uppercase text-text group-hover:text-accent transition-colors">
             {s.strategy_label}
           </h3>
-          <span className="text-[7.5px] font-mono font-black text-dim bg-background/50 border border-border/30 px-1.5 py-0.2 rounded uppercase shrink-0">
+
+          {/* Timeframe Icon Cue Badge */}
+          <span className="text-[8px] font-mono font-black text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded uppercase shrink-0 flex items-center gap-1">
+            <Zap size={9} />
             {config.scan_interval}
           </span>
+
           {paused && !isResuming && (
-            <span className="text-[7.5px] font-black uppercase text-amber shrink-0">PAUSED</span>
+            <span className="text-[8px] font-black uppercase text-amber bg-amber/10 border border-amber/20 px-1.5 py-0.2 rounded shrink-0">
+              PAUSED
+            </span>
           )}
         </div>
 
-        <div className="flex items-center gap-3 sm:gap-4 shrink-0 font-mono text-xs">
-          <div className="flex items-center gap-2 text-right">
-            <div className="flex flex-col items-end">
-              <span className="text-[7px] text-dim/60 font-black uppercase tracking-widest leading-none">Active</span>
-              <span className={cn("font-bold text-[11px] leading-none mt-0.5", pnlClass(s.activePnl))}>
-                {fmtUSD(s.activePnl)}
-              </span>
+        {/* Right: Color-Coded Active PnL & Session Return Badges + Position Allocation Pill */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 font-mono text-xs">
+          {/* Active PnL Color-Coded Badge */}
+          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)}`}>
+            <div className={cn(
+              "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0",
+              isPosActive ? "bg-green/10 border-green/25 text-green" : "bg-red/10 border-red/25 text-red"
+            )}>
+              {isPosActive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+              <span>{fmtUSD(s.activePnl)}</span>
             </div>
-            <div className="flex flex-col items-end">
-              <span className="text-[7px] text-dim/60 font-black uppercase tracking-widest leading-none">Return</span>
-              <span className={cn("font-bold text-[11px] leading-none mt-0.5", pnlClass(s.totalPnl))}>
-                {fmtUSD(s.totalPnl)}
-              </span>
+          </Tooltip>
+
+          {/* Session Return Color-Coded Badge */}
+          <Tooltip content={`Total Session Return: ${fmtUSD(s.totalPnl)} (${sessionReturnPct.toFixed(2)}%)`}>
+            <div className={cn(
+              "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0 hidden sm:flex",
+              isPosReturn ? "bg-green/10 border-green/20 text-green/90" : "bg-red/10 border-red/20 text-red/90"
+            )}>
+              <span>{sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(1)}%</span>
             </div>
-          </div>
+          </Tooltip>
 
-          <div className="flex items-center gap-1.5">
-            <span className="text-[9px] font-bold text-dim bg-background/60 border border-border/30 px-2 py-0.5 rounded-full">
-              {activeCount}/{maxOpen}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1 relative z-20">
-            <button
-              type="button"
-              onClick={handleEditClick}
-              onMouseEnter={onEditMouseEnter}
-              className="p-1 hover:bg-white/5 text-dim hover:text-accent rounded transition-all focus-visible:ring-1 focus-visible:ring-accent outline-none cursor-pointer"
-              aria-label="Edit Strategy"
-            >
-              <Edit3 size={12} />
-            </button>
-            <button
-              type="button"
-              onClick={handlePauseClick}
-              disabled={isPausing}
-              className="p-1 hover:bg-white/5 text-dim hover:text-accent rounded transition-all focus-visible:ring-1 focus-visible:ring-accent outline-none cursor-pointer"
-              aria-label={paused ? "Resume Strategy" : "Pause Strategy"}
-            >
-              {isPausing ? <Loader2 size={12} className="animate-spin text-accent" /> : (paused ? <Play size={12} fill="currentColor" className="text-green" /> : <Pause size={12} fill="currentColor" className="text-amber" />)}
-            </button>
-          </div>
+          {/* Position Slot Capacity Pill */}
+          <Tooltip content={`Active Positions: ${activeCount} out of ${maxOpen} maximum slots`}>
+            <div className={cn(
+              "px-2 py-0.5 rounded-full border text-[10px] font-black font-mono shrink-0 flex items-center gap-1",
+              activeCount > 0 ? "bg-accent/15 border-accent/30 text-accent" : "bg-background/60 border-border/30 text-dim"
+            )}>
+              <Users size={10} />
+              <span>{activeCount}/{maxOpen}</span>
+            </div>
+          </Tooltip>
         </div>
       </motion.div>
     );

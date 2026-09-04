@@ -1122,6 +1122,7 @@ RrWinRateCalculator.displayName = 'RrWinRateCalculator';
 const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [showAllTrades, setShowAllTrades] = useState(false);
+  const [sessionStrategyFilter, setSessionStrategyFilter] = useState('ALL');
 
   const handleToggleClick = React.useCallback(() => {
     if (onToggle) onToggle(session.id);
@@ -1141,22 +1142,52 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     return formatDuration(end - start)
   }, [session.startTime, session.endTime])
 
-  const metrics = useMemo(() => {
-    if (session.analytics) {
-      const analytics = session.analytics;
-      return {
-        ...analytics,
-        winLossRatio: analytics.avgWinLossRatio || 0,
-        winLossRatioStr: Number(analytics.avgWinLossRatio || 0).toFixed(2),
-        pnlPct: analytics.overallPnlPct || 0,
-        expectancyStatus: getExpectancyStatus(Number(session.analytics.overallWinRate || 0) / 100, Number(session.analytics.avgWinLossRatio || 0)),
-        sharpeStatus: getSharpeStatus(session.analytics.sharpeRatio),
-        sortinoStatus: getSortinoStatus(session.analytics.sortinoRatio),
-        curve: expanded ? (session.analytics.cumulativePnL || []) : []
-      };
+  // Extract unique available strategy labels across this session's trades with counts & total PnL
+  const availableSessionStrategies = useMemo(() => {
+    const map = new Map();
+    const safeTrades = trades || [];
+    for (let i = 0; i < safeTrades.length; i++) {
+      const t = safeTrades[i];
+      const lbl = strategyLabel(t);
+      const pnlVal = safeNum(t.pnl);
+      if (!map.has(lbl)) {
+        map.set(lbl, { label: lbl, count: 0, pnl: 0 });
+      }
+      const item = map.get(lbl);
+      item.count += 1;
+      item.pnl += pnlVal;
     }
-    const m = calculatePerformanceMetrics(trades, session.balance);
-    const losses = trades.length - m.wins;
+    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+  }, [trades]);
+
+  // Filter session trades by selected session strategy
+  const filteredTrades = useMemo(() => {
+    if (!trades || trades.length === 0) return [];
+    if (sessionStrategyFilter === 'ALL') return trades;
+    return trades.filter(t => strategyLabel(t) === sessionStrategyFilter);
+  }, [trades, sessionStrategyFilter]);
+
+  // Calculate top 5 wins and top 5 losses per session
+  const { sessionTopWins, sessionTopLosses } = useMemo(() => {
+    const winsArr = [];
+    const lossesArr = [];
+    for (let i = 0; i < filteredTrades.length; i++) {
+      const t = filteredTrades[i];
+      const pnlVal = safeNum(t.pnl);
+      if (pnlVal > 0) winsArr.push(t);
+      else if (pnlVal < 0) lossesArr.push(t);
+    }
+    winsArr.sort((a, b) => safeNum(b.pnl) - safeNum(a.pnl));
+    lossesArr.sort((a, b) => safeNum(a.pnl) - safeNum(b.pnl));
+    return {
+      sessionTopWins: winsArr.slice(0, 5),
+      sessionTopLosses: lossesArr.slice(0, 5)
+    };
+  }, [filteredTrades]);
+
+  const metrics = useMemo(() => {
+    const m = calculatePerformanceMetrics(filteredTrades, session.balance);
+    const losses = filteredTrades.length - m.wins;
     const bgWin = m.wins > 0 ? m.grossProfit / m.wins : 0;
     const bgLoss = losses > 0 ? m.grossLoss / losses : 0;
     const winLossRatio = bgLoss > 0 ? (bgWin / bgLoss) : (m.wins > 0 ? 100 : 0);
@@ -1172,9 +1203,9 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       expectancyStatus: getExpectancyStatus(m.winRate / 100, winLossRatio),
       sharpeStatus: getSharpeStatus(m.sharpe),
       sortinoStatus: getSortinoStatus(m.sortino),
-      curve: expanded ? buildCurve(trades) : []
+      curve: expanded ? buildCurve(filteredTrades) : []
     };
-  }, [trades, session, expanded]);
+  }, [filteredTrades, session.balance, session.totalPnl, expanded]);
 
   const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
@@ -1197,16 +1228,16 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     let w = 0;
     let l = 0;
     let s = 0;
-    const len = trades.length;
+    const len = filteredTrades.length;
     for (let i = 0; i < len; i++) {
-      const pnlVal = safeNum(trades[i].pnl);
+      const pnlVal = safeNum(filteredTrades[i].pnl);
       if (pnlVal > 0) w++;
       else if (pnlVal < 0) l++;
       else s++;
     }
     return { winCount: w, lossCount: l, scratchCount: s };
-  }, [trades]);
-  const totalTradesCount = trades.length;
+  }, [filteredTrades]);
+  const totalTradesCount = filteredTrades.length;
 
   const winPct = totalTradesCount > 0 ? (winCount / totalTradesCount) * 100 : 0;
   const lossPct = totalTradesCount > 0 ? (lossCount / totalTradesCount) * 100 : 0;
@@ -1356,8 +1387,121 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             className="border-t border-border/10"
           >
             <div className="p-4 space-y-4 bg-background/20">
-              {trades && trades.length > 0 && (
-                <RrWinRateCalculator trades={trades} startingBalance={session.balance || 10000} />
+              {/* Session Strategy Filter Toolbar */}
+              {availableSessionStrategies.length > 1 && (
+                <div className="bg-surface/40 border border-border/20 rounded-xl p-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
+                  <span className="text-[8.5px] text-dim font-black uppercase tracking-widest shrink-0 flex items-center gap-1">
+                    <Layers size={11} className="text-accent" /> Filter Strategy:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSessionStrategyFilter('ALL')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                      sessionStrategyFilter === 'ALL'
+                        ? "bg-accent/15 border-accent text-accent shadow-sm"
+                        : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
+                    )}
+                  >
+                    All Session Trades ({trades.length})
+                  </button>
+                  {availableSessionStrategies.map(st => (
+                    <button
+                      key={st.label}
+                      type="button"
+                      onClick={() => setSessionStrategyFilter(st.label)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        sessionStrategyFilter === st.label
+                          ? "bg-accent/15 border-accent text-accent shadow-sm"
+                          : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
+                      )}
+                    >
+                      <span>{st.label}</span>
+                      <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
+                        {st.count}
+                      </span>
+                      <span className={cn("text-[7.5px] font-mono font-black", pnlClass(st.pnl))}>
+                        {fmtUSD(st.pnl)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Session Extremes: Top 5 Wins & Top 5 Losses */}
+              {(sessionTopWins.length > 0 || sessionTopLosses.length > 0) && (
+                <div className="bg-surface/40 border border-border/20 rounded-xl p-3.5 sm:p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2 border-b border-border/10 pb-2">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-text flex items-center gap-1.5">
+                      <TrendingUp size={13} className="text-accent" /> Session Extremes (Top Wins & Losses)
+                    </span>
+                    {sessionStrategyFilter !== 'ALL' && (
+                      <span className="text-[8px] font-black px-2 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase">
+                        {sessionStrategyFilter}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Session Top Wins */}
+                    <div className="space-y-2">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-green flex items-center justify-between">
+                        <span>Top Wins</span>
+                        <span>PnL ($)</span>
+                      </div>
+                      {sessionTopWins.length === 0 ? (
+                        <div className="p-3 bg-background/20 rounded-lg text-center text-[8.5px] text-dim uppercase">No wins recorded</div>
+                      ) : (
+                        sessionTopWins.map((t, idx) => (
+                          <div key={t.id || `session-win-${idx}`} className="p-2.5 bg-surface/60 border border-green/20 rounded-lg flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="w-4 h-4 rounded-full bg-green/10 text-green text-[8px] font-black font-mono flex items-center justify-center shrink-0">#{idx + 1}</span>
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10.5px] font-black font-mono text-text truncate">{t.symbol}</span>
+                                  <span className="text-[7px] font-black px-1 py-0.2 rounded border border-green/20 bg-green/5 text-green uppercase shrink-0">{t.direction}</span>
+                                </div>
+                                <span className="text-[8px] text-dim font-mono">{strategyLabel(t)} · Peak +{Number(t.max_rr_achieved || 0).toFixed(1)}R</span>
+                              </div>
+                            </div>
+                            <span className="text-xs font-black font-mono text-green shrink-0">{fmtUSD(safeNum(t.pnl))}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+
+                    {/* Session Top Losses */}
+                    <div className="space-y-2">
+                      <div className="text-[9px] font-black uppercase tracking-wider text-red flex items-center justify-between">
+                        <span>Top Losses</span>
+                        <span>PnL ($)</span>
+                      </div>
+                      {sessionTopLosses.length === 0 ? (
+                        <div className="p-3 bg-background/20 rounded-lg text-center text-[8.5px] text-dim uppercase">No losses recorded</div>
+                      ) : (
+                        sessionTopLosses.map((t, idx) => (
+                          <div key={t.id || `session-loss-${idx}`} className="p-2.5 bg-surface/60 border border-red/20 rounded-lg flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="w-4 h-4 rounded-full bg-red/10 text-red text-[8px] font-black font-mono flex items-center justify-center shrink-0">#{idx + 1}</span>
+                              <div className="flex flex-col min-w-0">
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10.5px] font-black font-mono text-text truncate">{t.symbol}</span>
+                                  <span className="text-[7px] font-black px-1 py-0.2 rounded border border-red/20 bg-red/5 text-red uppercase shrink-0">{t.direction}</span>
+                                </div>
+                                <span className="text-[8px] text-dim font-mono">{strategyLabel(t)} · Exit {t.exit_rr !== undefined ? Number(t.exit_rr).toFixed(1) : '0.0'}R</span>
+                              </div>
+                            </div>
+                            <span className="text-xs font-black font-mono text-red shrink-0">{fmtUSD(safeNum(t.pnl))}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {filteredTrades && filteredTrades.length > 0 && (
+                <RrWinRateCalculator trades={filteredTrades} startingBalance={session.balance || 10000} />
               )}
 
               {curve.length >= 2 && (
@@ -1366,23 +1510,23 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                 </div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {(!trades || trades.length === 0) ? (
-                  <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this session</div>
+                {(!filteredTrades || filteredTrades.length === 0) ? (
+                  <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this strategy selection</div>
                 ) : (
-                  (showAllTrades ? trades : trades.slice(0, 20)).map((trade) => (
+                  (showAllTrades ? filteredTrades : filteredTrades.slice(0, 20)).map((trade) => (
                     <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
                   ))
                 )}
               </div>
 
-              {trades && trades.length > 20 && !showAllTrades && (
+              {filteredTrades && filteredTrades.length > 20 && !showAllTrades && (
                 <div className="flex justify-center pt-2">
                   <button
                     type="button"
                     onClick={() => setShowAllTrades(true)}
                     className="px-4 py-2 bg-surface/60 border border-border/40 hover:border-accent/30 text-accent text-[10px] font-black uppercase tracking-widest rounded-xl transition-all hover:bg-accent/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                   >
-                    Show All {trades.length} Trades (+{trades.length - 20} More)
+                    Show All {filteredTrades.length} Trades (+{filteredTrades.length - 20} More)
                   </button>
                 </div>
               )}

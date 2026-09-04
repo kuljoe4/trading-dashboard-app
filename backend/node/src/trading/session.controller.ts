@@ -14,6 +14,7 @@ import {
 } from "@nestjs/common";
 import { Request } from "express";
 import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
 import { SessionService } from "./session.service";
 import { BacktestService, RunBacktestDto } from "../engine/backtest.service";
 import { SmartOptimizerService, RunOptimizationDto } from "../engine/smart-optimizer.service";
@@ -22,6 +23,7 @@ import { SessionConfig } from "../models/SessionConfig";
 import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto } from "./dto/session.dto";
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
+import { formatValidationErrors } from "../lib/logger";
 
 @Controller("session")
 @UseGuards(ApiKeyGuard)
@@ -57,6 +59,15 @@ export class SessionController {
   @Post("backtest")
   async runBacktest(@Body() body: RunBacktestDto) {
     const config = plainToInstance(SessionConfig, body.config || {});
+    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
+    const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid strategy configuration in backtest",
+        detail: detailedErrors,
+      });
+    }
     return this.backtestService.runBacktest({
       ...body,
       config,
@@ -70,6 +81,15 @@ export class SessionController {
     const userAgent = req.headers["user-agent"];
 
     const config = plainToInstance(SessionConfig, body.config || {});
+    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
+    const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid strategy configuration",
+        detail: detailedErrors,
+      });
+    }
     return this.sessionService.startSession(
       config,
       body.paper_mode ?? true,

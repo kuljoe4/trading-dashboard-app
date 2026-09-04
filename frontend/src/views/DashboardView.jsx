@@ -2575,6 +2575,7 @@ export function DashboardView({ initialStrategy }) {
                             s={{
                               ...currentStrategy,
                               ...safeVariantStats[currentStrategy.strategy_label],
+                              totalPnl: safeVariantStats[currentStrategy.strategy_label]?.totalPnl ?? (stratMetricsMap.get(currentStrategy.strategy_label)?.totalPnl ?? currentStrategy.totalPnl),
                               activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
                               activeEstPnl: activeEstPnlToRealizeMap[currentStrategy.strategy_label] || 0,
                               activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0,
@@ -2600,6 +2601,8 @@ export function DashboardView({ initialStrategy }) {
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
                             const variantConfig = { ...config, ...variant };
+                            const stratMetric = stratMetricsMap.get(label);
+                            const variantTotalPnl = safeVariantStats[label]?.totalPnl ?? (stratMetric ? stratMetric.totalPnl + (activePnlMap[label] || 0) : (activePnlMap[label] || 0));
                             return (
                               <StrategyCard
                                 key={label}
@@ -2607,6 +2610,7 @@ export function DashboardView({ initialStrategy }) {
                                   ...currentStrategy,
                                   strategy_label: label,
                                   ...safeVariantStats[label],
+                                  totalPnl: variantTotalPnl,
                                   activePnl: activePnlMap[label] || 0,
                                   activeEstPnl: activeEstPnlToRealizeMap[label] || 0,
                                   activeTradeCount: activeTradeCountsMap[label] || 0,

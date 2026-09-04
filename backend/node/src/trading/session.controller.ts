@@ -16,6 +16,7 @@ import { Request } from "express";
 import { plainToInstance } from "class-transformer";
 import { SessionService } from "./session.service";
 import { BacktestService, RunBacktestDto } from "../engine/backtest.service";
+import { SmartOptimizerService, RunOptimizationDto } from "../engine/smart-optimizer.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
 import { SessionConfig } from "../models/SessionConfig";
 import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto } from "./dto/session.dto";
@@ -28,7 +29,30 @@ export class SessionController {
   constructor(
     private readonly sessionService: SessionService,
     private readonly backtestService: BacktestService,
+    private readonly smartOptimizerService: SmartOptimizerService,
   ) {}
+
+  @Post("smart-optimizer/run")
+  async runSmartOptimization(@Body() body: RunOptimizationDto) {
+    const baseConfig = plainToInstance(SessionConfig, body.baseConfig || {});
+    return this.smartOptimizerService.runOptimization({
+      ...body,
+      baseConfig,
+    });
+  }
+
+  @Get("smart-optimizer/recommendations")
+  async getSmartRecommendations() {
+    return {
+      recommendations: this.smartOptimizerService.getTopRecommendations(),
+    };
+  }
+
+  @Delete("smart-optimizer/recommendations")
+  async clearSmartRecommendations() {
+    this.smartOptimizerService.clearRecommendations();
+    return { success: true };
+  }
 
   @Post("backtest")
   async runBacktest(@Body() body: RunBacktestDto) {

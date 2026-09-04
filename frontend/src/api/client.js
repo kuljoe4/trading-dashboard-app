@@ -262,6 +262,15 @@ export const presetsAPI = {
   delete: (name) => api.delete(`/presets/${encodeURIComponent(name)}`),
 }
 
+export const smartOptimizerAPI = {
+  run: (payload) => api.post('/session/smart-optimizer/run', {
+    ...payload,
+    baseConfig: sanitizeSessionConfig(payload?.baseConfig || {}),
+  }),
+  getRecommendations: () => api.get('/session/smart-optimizer/recommendations'),
+  clearRecommendations: () => api.delete('/session/smart-optimizer/recommendations'),
+}
+
 export { sanitizeSessionConfig }
 
 export default api

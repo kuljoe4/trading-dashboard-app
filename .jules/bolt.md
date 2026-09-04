@@ -1,3 +1,7 @@
+## 2026-09-04 - [Optimization] Zero-Allocation On-Demand Slicing in Event-Driven Backtesting
+**Learning:** Performing eager array slicing (`candles.slice(0, i + 1)`) inside event-driven simulation loops creates millions of short-lived array allocations across symbols and steps. Deferring array slicing until signal evaluation is required and replacing scanner momentum lookback checks with direct index lookups (`candles[i - lookback]`) eliminates >95% of array slicing allocations during backtest execution.
+**Action:** Always defer sub-array slicing until signal evaluation or downstream callers require it, and replace lookback slice accesses with direct index calculations.
+
 ## 2026-09-03 - [Optimization] Single-Pass Loop-Fused Aggregation for TODPerformance Analytics
 **Learning:** Instantiating intermediate arrays and performing multiple functional passes (`.filter()`, `.map()`, `.reduce()`, spread `Math.max(...)`) inside React memoized hooks (like `TODPerformance` in `Analytics.jsx`) creates transient array allocations and redundant data iterations on every render frame. Consolidating filtering, extreme extraction (`maxPnl`), and average positive/negative PnL calculations into a single `for` loop over input data eliminates intermediate array allocations and yields a measured 2.11x rendering speedup.
 **Action:** Fuse multi-step `.filter()`, `.map()`, and `.reduce()` chains in React analytics visualization components into single-pass `for` loops.

@@ -2048,6 +2048,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [testnetConfigured, liveConfigured]);
 
   const generatedPresetName = useMemo(() => {
+    if (loadedPresetName && typeof loadedPresetName === 'string' && loadedPresetName.trim()) {
+      return loadedPresetName.trim();
+    }
+
     const sigs = cfg.enabled_signals || [];
     let sigAbbr = '';
     if (sigs.length === 0) {
@@ -2078,20 +2082,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       modifier = `${cfg.risk_pct_per_trade}%`;
     }
 
-    let name = '';
-    if (loadedPresetName && typeof loadedPresetName === 'string') {
-      const trimmedLoaded = loadedPresetName.trim();
-      if (modifier && !trimmedLoaded.includes(modifier)) {
-        const basePart = trimmedLoaded.split(' ')[0] || sigAbbr;
-        const proposed = `${basePart} ${modifier}`;
-        name = proposed.length <= 10 ? proposed : proposed.slice(0, 10).trim();
-      } else {
-        name = trimmedLoaded.length <= 10 ? trimmedLoaded : trimmedLoaded.slice(0, 10).trim();
-      }
-    } else {
-      const parts = [sigAbbr, modifier].filter(Boolean);
-      name = parts.join(' ');
-    }
+    const parts = [sigAbbr, modifier].filter(Boolean);
+    const name = parts.join(' ');
 
     return name.length > 10 ? name.slice(0, 10).trim() : name;
   }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade, loadedPresetName]);

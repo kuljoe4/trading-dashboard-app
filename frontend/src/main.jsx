@@ -279,6 +279,7 @@ const App = () => {
       const [path, query] = fullHash.split('?');
       setView(path === 'dashboard' ? 'cockpit' : path);
       setShowShortcuts(false);
+      window.scrollTo({ top: 0, behavior: 'instant' });
     };
     window.addEventListener('hashchange', handleHashChange);
     handleHashChange();

@@ -339,7 +339,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
 RecentTransactionsList.displayName = 'RecentTransactionsList';
 
 // --- Observable Periodic Revenue Bar Chart (Daily, Weekly, Monthly) ---
-const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
+const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) => {
   const [timeframe, setTimeframe] = useState('7D'); // '7D' (Daily), '4W' (Weekly), '6M' (Monthly), '1Y' (Monthly)
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(null);
@@ -568,6 +568,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
           const activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex;
           if (activeIdx === null || !buckets[activeIdx]) return null;
           const activeBucket = buckets[activeIdx];
+          const activePct = balance > 0 ? (activeBucket.pnl / balance) * 100 : 0;
 
           return (
             <motion.div
@@ -584,7 +585,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
               </div>
               <div className="flex items-center gap-3 font-bold flex-wrap">
                 <span>
-                  Net P&L: <span className={pnlClass(activeBucket.pnl)}>{activeBucket.pnl >= 0 ? '+' : ''}{fmtUSD(activeBucket.pnl)}</span>
+                  Net P&L: <span className={pnlClass(activeBucket.pnl)}>{activeBucket.pnl >= 0 ? '+' : ''}{fmtUSD(activeBucket.pnl)} ({activePct >= 0 ? '+' : ''}{activePct.toFixed(2)}%)</span>
                 </span>
                 <span className="text-dim/60">•</span>
                 <span className="text-dim">
@@ -615,15 +616,15 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
             const heightPct = Math.min(100, Math.max(8, (Math.abs(b.pnl) / maxVal) * 100));
             const isHovered = hoveredIndex === idx;
             const winRate = b.tradesCount > 0 ? Math.round((b.winCount / b.tradesCount) * 100) : 0;
+            const barPct = balance > 0 ? (b.pnl / balance) * 100 : 0;
 
             const tooltipCard = (
               <div className="flex flex-col items-center text-center py-0.5 px-1 font-mono">
                 <span className="text-[10px] font-black uppercase text-accent tracking-wider">{b.label} ({b.subLabel})</span>
-                <span className={cn("text-xs font-bold my-0.5", pnlClass(b.pnl))}>{b.pnl >= 0 ? '+' : ''}{fmtUSD(b.pnl)}</span>
+                <span className={cn("text-xs font-bold my-0.5", pnlClass(b.pnl))}>{b.pnl >= 0 ? '+' : ''}{fmtUSD(b.pnl)} ({barPct >= 0 ? '+' : ''}{barPct.toFixed(2)}%)</span>
                 <span className="text-[9px] text-dim font-bold">{b.tradesCount} trades ({winRate}% WR)</span>
               </div>
             );
-
             return (
               <Tooltip
                 key={b.id}
@@ -639,15 +640,16 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [] }) => {
                   onClick={() => setSelectedIndex(prev => prev === idx ? null : idx)}
                   tabIndex={0}
                   role="region"
-                  aria-label={`${b.label} (${b.subLabel}): ${fmtUSD(b.pnl)}, ${b.tradesCount} trades, win rate ${winRate}%`}
+                  aria-label={`${b.label} (${b.subLabel}): ${fmtUSD(b.pnl)} (${barPct >= 0 ? '+' : ''}${barPct.toFixed(2)}%), ${b.tradesCount} trades, win rate ${winRate}%`}
                 >
                   {/* Bar Value Annotation on Top */}
                   <div className={cn(
-                    "text-[7.5px] xs:text-[8.5px] sm:text-[9.5px] font-mono font-black mb-1.5 transition-all leading-none truncate w-full text-center",
+                    "text-[7.5px] xs:text-[8.5px] sm:text-[9.5px] font-mono font-black mb-1.5 transition-all leading-none truncate w-full text-center flex flex-col items-center gap-0.5",
                     isHovered ? "opacity-100 scale-110 text-accent font-bold" : "opacity-75 text-dim",
                     pnlClass(b.pnl)
                   )}>
-                    {b.pnl === 0 ? '$0' : fmtUSD(b.pnl)}
+                    <span>{b.pnl === 0 ? '$0' : fmtUSD(b.pnl)}</span>
+                    <span className="text-[7px] opacity-80 font-normal">({barPct >= 0 ? '+' : ''}{barPct.toFixed(1)}%)</span>
                   </div>
 
                   {/* Bar Container */}
@@ -2575,41 +2577,6 @@ export function DashboardView({ initialStrategy }) {
         />
 
 
-        {/* KPI Metric Cards (Matching reference design Total Revenue, Active Users, Pending Orders layout) */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-          className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5 lg:mb-6"
-        >
-          <ReferenceKPICard
-            title="Account Equity"
-            value={`$${(balance || 0).toLocaleString()}`}
-            changePct={todaysPnlPct.toFixed(1)}
-            isPositive={todaysPnl >= 0}
-            icon={DollarSign}
-            iconBg="bg-accent/15 text-accent"
-            subtext={`Today's P&L: ${fmtUSD(todaysPnl)}`}
-          />
-          <ReferenceKPICard
-            title="Active Positions"
-            value={`${activeTrades.length} / ${config.max_open_trades || 5}`}
-            changePct={((activeTrades.length / (config.max_open_trades || 5)) * 100).toFixed(1)}
-            isPositive={activeTrades.length > 0}
-            icon={Users}
-            iconBg="bg-green/15 text-green"
-            subtext={`Risk: ${Number(totalRiskPct || 0).toFixed(1)}%`}
-          />
-          <ReferenceKPICard
-            title="Pending Orders"
-            value={`${pendingScannerTriggers}`}
-            changePct={pendingScannerTriggers > 0 ? (pendingScannerTriggers).toFixed(1) : "0.0"}
-            isPositive={pendingScannerTriggers > 0}
-            icon={Clock}
-            iconBg="bg-amber/15 text-amber"
-            subtext="Scanner Triggers"
-          />
-        </motion.div>
 
         {/* Monthly Revenue Bar Chart (Observable Analytics) */}
         <motion.div
@@ -2618,7 +2585,7 @@ export function DashboardView({ initialStrategy }) {
           transition={{ delay: 0.35 }}
           className="mb-5 lg:mb-6"
         >
-          <MonthlyRevenueChart tradeHistory={tradeHistory} />
+          <MonthlyRevenueChart tradeHistory={tradeHistory} balance={balance} />
         </motion.div>
 
         {/* Recent Transactions List (Matching reference design) */}

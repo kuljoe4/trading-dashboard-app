@@ -186,7 +186,6 @@ export class BacktestService {
       for (const [symbol, candles] of symbolCandlesMap) {
         if (i >= candles.length) continue;
         const currentCandle = candles[i];
-        const prevCandlesSlice = candles.slice(0, i + 1);
 
         // A. Evaluate Active Position on this symbol
         const pos = activePositions.get(symbol);
@@ -304,7 +303,8 @@ export class BacktestService {
 
           // 4. Check Exit Signals via SignalEngineService
           if (!closed && config.exit_signals && config.exit_signals.length > 0) {
-            const exitCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, pos.direction, 'exit', prevCandlesSlice);
+            // BOLT OPTIMIZATION: Slice on-demand only when evaluating exit signals
+            const exitCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, pos.direction, 'exit', candles.slice(0, i + 1));
             if (exitCheck.allFired) {
               closed = true;
               exitPrice = currentCandle.close;
@@ -364,10 +364,11 @@ export class BacktestService {
 
         if (useGlobalScanner && !activePositions.has(symbol)) {
           // Compute historical momentum over scan_lookback
+          // BOLT OPTIMIZATION: Zero-allocation direct array index lookup instead of slicing
           const lookback = Math.max(config.scan_lookback || 3, 1);
-          if (prevCandlesSlice.length > lookback) {
-            const firstClose = prevCandlesSlice[prevCandlesSlice.length - 1 - lookback].close;
-            const lastClose = prevCandlesSlice[prevCandlesSlice.length - 1].close;
+          if (i >= lookback) {
+            const firstClose = candles[i - lookback].close;
+            const lastClose = candles[i].close;
             const momPct = Math.abs(((lastClose - firstClose) / firstClose) * 100);
             isScannerCandidate = momPct >= (config.scan_pct_threshold || 2.0);
           }
@@ -388,7 +389,8 @@ export class BacktestService {
 
             // Test LONG entry
             if (entrySide === 'both' || entrySide === 'long') {
-              const longCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'LONG', 'entry', prevCandlesSlice);
+              // BOLT OPTIMIZATION: Slice on-demand only when evaluating entry signal
+              const longCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'LONG', 'entry', candles.slice(0, i + 1));
               if (longCheck.allFired) {
                 this.openSimulatedPosition('LONG', symbol, currentCandle, currentTs, balance, config, activePositions, longCheck.details);
                 continue;
@@ -397,7 +399,8 @@ export class BacktestService {
 
             // Test SHORT entry
             if (!activePositions.has(symbol) && (entrySide === 'both' || entrySide === 'short')) {
-              const shortCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'SHORT', 'entry', prevCandlesSlice);
+              // BOLT OPTIMIZATION: Slice on-demand only when evaluating entry signal
+              const shortCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'SHORT', 'entry', candles.slice(0, i + 1));
               if (shortCheck.allFired) {
                 this.openSimulatedPosition('SHORT', symbol, currentCandle, currentTs, balance, config, activePositions, shortCheck.details);
               }
@@ -467,17 +470,32 @@ export class BacktestService {
     }
 
     // 5. Compute Summary Metrics
+    // BOLT OPTIMIZATION: Single-pass loop fusion over closed trades for counts, gross totals, and returns.
+    // Eliminates multiple intermediate .filter(), .map(), and .reduce() array allocations.
     const totalTrades = closedTrades.length;
-    const wins = closedTrades.filter(t => t.pnl > 0).length;
-    const losses = closedTrades.filter(t => t.pnl <= 0).length;
+    let wins = 0;
+    let losses = 0;
+    let grossWins = 0;
+    let grossLosses = 0;
+    let sumReturnPct = 0;
+
+    for (let k = 0; k < totalTrades; k++) {
+      const t = closedTrades[k];
+      if (t.pnl > 0) {
+        wins++;
+        grossWins += t.pnl;
+      } else {
+        losses++;
+        grossLosses += Math.abs(t.pnl);
+      }
+      sumReturnPct += t.pnl_pct;
+    }
+
     const winRate = totalTrades > 0 ? roundTo((wins / totalTrades) * 100, 2) : 0;
     const totalPnl = roundTo(balance - startingBalance, 2);
     const pnlPct = roundTo((totalPnl / startingBalance) * 100, 2);
 
-    const grossWins = closedTrades.filter(t => t.pnl > 0).reduce((acc, t) => acc + t.pnl, 0);
-    const grossLosses = Math.abs(closedTrades.filter(t => t.pnl <= 0).reduce((acc, t) => acc + t.pnl, 0));
     const profitFactor = grossLosses > 0 ? roundTo(grossWins / grossLosses, 2) : grossWins > 0 ? 99.99 : 0;
-
     const avgWin = wins > 0 ? roundTo(grossWins / wins, 2) : 0;
     const avgLoss = losses > 0 ? roundTo(grossLosses / losses, 2) : 0;
     const avgTradePnl = totalTrades > 0 ? roundTo(totalPnl / totalTrades, 2) : 0;
@@ -487,12 +505,16 @@ export class BacktestService {
     const lossRateFrac = losses / (totalTrades || 1);
     const expectancy = roundTo((winRateFrac * avgWin) - (lossRateFrac * avgLoss), 2);
 
-    // Sharpe ratio approximation (annualized return over std deviation of daily returns)
-    const returns = closedTrades.map(t => t.pnl_pct);
+    // Sharpe ratio approximation (annualized return over std deviation of returns)
     let sharpeRatio = 0;
-    if (returns.length > 1) {
-      const meanReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
-      const variance = returns.reduce((a, b) => a + Math.pow(b - meanReturn, 2), 0) / (returns.length - 1);
+    if (totalTrades > 1) {
+      const meanReturn = sumReturnPct / totalTrades;
+      let varianceSum = 0;
+      for (let k = 0; k < totalTrades; k++) {
+        const diff = closedTrades[k].pnl_pct - meanReturn;
+        varianceSum += diff * diff;
+      }
+      const variance = varianceSum / (totalTrades - 1);
       const stdDev = Math.sqrt(variance);
       sharpeRatio = stdDev > 0 ? roundTo((meanReturn / stdDev) * Math.sqrt(252), 2) : 0;
     }

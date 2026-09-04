@@ -15,7 +15,13 @@ describe("SessionController Query Parameter Validation", () => {
       runBacktest: jest.fn().mockResolvedValue({ totalTrades: 0 }),
     };
 
-    controller = new SessionController(mockSessionService, mockBacktestService);
+    const mockSmartOptimizerService: any = {
+      getTopRecommendations: jest.fn().mockReturnValue([]),
+      clearRecommendations: jest.fn(),
+      runOptimization: jest.fn(),
+    };
+
+    controller = new SessionController(mockSessionService, mockBacktestService, mockSmartOptimizerService);
   });
 
   describe("getHistory", () => {

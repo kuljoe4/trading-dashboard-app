@@ -10,9 +10,14 @@ describe('SmartOptimizerService Unit Tests', () => {
   let backtestService: BacktestService;
 
   beforeEach(() => {
-    const signalEngine = new SignalEngineService();
-    const klineStore = new KlineStoreService();
-    const binanceClientFactory = new BinanceClientFactory();
+    const mockKlineRepo: any = {};
+    const mockEventEmitter: any = {};
+    const mockSessionState: any = {};
+    const mockSettingsRepo: any = {};
+
+    const klineStore = new KlineStoreService(mockKlineRepo);
+    const signalEngine = new SignalEngineService(klineStore);
+    const binanceClientFactory = new BinanceClientFactory(mockEventEmitter, mockSessionState, mockSettingsRepo);
     backtestService = new BacktestService(signalEngine, klineStore, binanceClientFactory);
     optimizerService = new SmartOptimizerService(backtestService);
   });

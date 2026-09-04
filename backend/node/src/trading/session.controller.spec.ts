@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { SessionController } from "./session.controller";
 import { SessionService } from "./session.service";
 import { BacktestService } from "../engine/backtest.service";
+import { SmartOptimizerService } from "../engine/smart-optimizer.service";
 import { ConfigService } from "@nestjs/config";
 import { BadRequestException } from "@nestjs/common";
 import { plainToInstance } from "class-transformer";
@@ -29,6 +30,14 @@ describe("SessionController", () => {
           provide: BacktestService,
           useValue: {
             runBacktest: jest.fn().mockResolvedValue({ totalTrades: 0 }),
+          },
+        },
+        {
+          provide: SmartOptimizerService,
+          useValue: {
+            getTopRecommendations: jest.fn().mockReturnValue([]),
+            clearRecommendations: jest.fn(),
+            runOptimization: jest.fn(),
           },
         },
         {

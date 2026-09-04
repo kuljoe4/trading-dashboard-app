@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
 import { fmtUSD, solveSmoothing } from '../lib/theme';
 import { cn, Tooltip } from '../components/ui/primitives';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, List, Grid } from 'lucide-react';
 
 const downsample = (data, threshold = 100) => {
   if (data.length <= threshold) return data;
@@ -286,6 +286,8 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
 
 export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessionFilter = 'ALL' }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [viewMode, setViewMode] = useState('GRID'); // 'GRID' | 'LIST'
+  const [selectedDayDetail, setSelectedDayDetail] = useState(null);
 
   const handlePrevMonth = () => {
     setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -309,7 +311,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
     });
   }, [trades, strategyFilter, sessionFilter]);
 
-  // Aggregate daily stats: Map key 'YYYY-MM-DD' => { pnl, wins, losses, count }
+  // Aggregate daily stats: Map key 'YYYY-MM-DD' => { pnl, wins, losses, count, trades }
   const dailyStatsMap = useMemo(() => {
     const map = new Map();
     const len = filteredTrades.length;
@@ -321,12 +323,13 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
 
       let entry = map.get(key);
       if (!entry) {
-        entry = { pnl: 0, wins: 0, losses: 0, count: 0 };
+        entry = { pnl: 0, wins: 0, losses: 0, count: 0, trades: [] };
         map.set(key, entry);
       }
       const pnl = Number(t.pnl || 0);
       entry.pnl += pnl;
       entry.count += 1;
+      entry.trades.push(t);
       if (pnl > 0) entry.wins += 1;
       else if (pnl < 0) entry.losses += 1;
     }
@@ -368,10 +371,23 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
     return { monthlyPnl, monthlyWins, monthlyTrades, winRate };
   }, [dailyStatsMap, year, mNum]);
 
+  // Active Month Days List for Agenda View
+  const monthActiveDaysList = useMemo(() => {
+    const list = [];
+    for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+      const key = `${year}-${String(mNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      const stats = dailyStatsMap.get(key);
+      if (stats && stats.count > 0) {
+        list.push({ key, dayNum, ...stats });
+      }
+    }
+    return list;
+  }, [daysInMonth, year, mNum, dailyStatsMap]);
+
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="space-y-4 bg-surface/30 border border-border/50 rounded-2xl p-4 sm:p-6" role="region" aria-label="Strategy calendar profit and loss breakdown">
+    <div className="space-y-4 bg-surface/30 border border-border/50 rounded-2xl p-4 sm:p-6 relative" role="region" aria-label="Strategy calendar profit and loss breakdown">
       {/* Header controls & monthly totals */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
         <div className="flex items-center gap-3">
@@ -387,26 +403,59 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
           </div>
         </div>
 
-        <div className="flex items-center gap-4 self-end sm:self-auto">
-          <div className="flex flex-col items-end">
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest">Monthly P&L</span>
-            <span className={cn("text-base sm:text-lg font-black font-mono tracking-tight", monthlySummary.monthlyPnl >= 0 ? "text-green" : "text-red")}>
-              {fmtUSD(monthlySummary.monthlyPnl)}
-            </span>
-          </div>
-          <div className="flex flex-col items-end pl-3 border-l border-border/30">
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest">Win Rate</span>
-            <span className="text-base sm:text-lg font-black font-mono text-text">
-              {monthlySummary.winRate.toFixed(0)}%
-            </span>
+        <div className="flex items-center gap-3 self-end sm:self-auto flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col items-end">
+              <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest">Monthly P&L</span>
+              <span className={cn("text-base sm:text-lg font-black font-mono tracking-tight", monthlySummary.monthlyPnl >= 0 ? "text-green" : "text-red")}>
+                {fmtUSD(monthlySummary.monthlyPnl)}
+              </span>
+            </div>
+            <div className="flex flex-col items-end pl-3 border-l border-border/30">
+              <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest">Win Rate</span>
+              <span className="text-base sm:text-lg font-black font-mono text-text">
+                {monthlySummary.winRate.toFixed(0)}%
+              </span>
+            </div>
           </div>
 
-          <div className="flex items-center gap-1 bg-background/50 border border-border/40 p-1 rounded-xl ml-2">
+          {/* View Toggle (Grid / Agenda) */}
+          <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setViewMode('GRID')}
+              aria-label="Grid View"
+              title="Calendar Grid View"
+              className={cn(
+                "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase",
+                viewMode === 'GRID' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+              )}
+            >
+              <Grid size={13} />
+              <span className="hidden xs:inline">Grid</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('LIST')}
+              aria-label="Agenda View"
+              title="Daily Agenda List View"
+              className={cn(
+                "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase",
+                viewMode === 'LIST' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+              )}
+            >
+              <List size={13} />
+              <span className="hidden xs:inline">Agenda</span>
+            </button>
+          </div>
+
+          {/* Month Navigation */}
+          <div className="flex items-center gap-1 bg-background/50 border border-border/40 p-1 rounded-xl">
             <button
               type="button"
               onClick={handlePrevMonth}
               aria-label="Previous Month"
-              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
             >
               <ChevronLeft size={14} />
             </button>
@@ -414,7 +463,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
               type="button"
               onClick={handleNextMonth}
               aria-label="Next Month"
-              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+              className="p-1.5 hover:bg-surface text-dim hover:text-text rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-h-[32px] min-w-[32px] flex items-center justify-center"
             >
               <ChevronRight size={14} />
             </button>
@@ -422,71 +471,253 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
         </div>
       </div>
 
-      {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-1 sm:gap-2">
-        {daysOfWeek.map((day) => (
-          <div key={day} className="text-center text-[8px] xs:text-[9px] text-dim font-black uppercase tracking-wider py-1 truncate">
-            {day}
-          </div>
-        ))}
+      {/* Main Calendar Render (Grid vs. Agenda) */}
+      {viewMode === 'GRID' ? (
+        <div className="grid grid-cols-7 gap-1 sm:gap-2">
+          {daysOfWeek.map((day) => (
+            <div key={day} className="text-center text-[8px] xs:text-[9px] text-dim font-black uppercase tracking-wider py-1 truncate">
+              {day}
+            </div>
+          ))}
 
-        {/* Empty cells before month start */}
-        {Array.from({ length: startDayOfWeek }).map((_, i) => (
-          <div key={`empty-${i}`} className="min-h-[58px] sm:min-h-[72px] rounded-xl bg-surface/10 border border-border/10 opacity-30" />
-        ))}
+          {/* Empty cells before month start */}
+          {Array.from({ length: startDayOfWeek }).map((_, i) => (
+            <div key={`empty-${i}`} className="min-h-[58px] sm:min-h-[72px] rounded-xl bg-surface/10 border border-border/10 opacity-30" />
+          ))}
 
-        {/* Days of month */}
-        {Array.from({ length: daysInMonth }).map((_, i) => {
-          const dayNum = i + 1;
-          const key = `${year}-${String(mNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-          const stats = dailyStatsMap.get(key);
-          const hasTrades = stats && stats.count > 0;
-          const isProfitable = hasTrades && stats.pnl >= 0;
+          {/* Days of month */}
+          {Array.from({ length: daysInMonth }).map((_, i) => {
+            const dayNum = i + 1;
+            const key = `${year}-${String(mNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+            const stats = dailyStatsMap.get(key);
+            const hasTrades = stats && stats.count > 0;
+            const isProfitable = hasTrades && stats.pnl >= 0;
 
-          const tooltipContent = hasTrades
-            ? `${key}: PnL ${fmtUSD(stats.pnl)}, ${stats.wins}W / ${stats.losses}L (${stats.count} total trades)`
-            : `${key}: No trades recorded`;
+            const tooltipContent = hasTrades
+              ? `${key}: PnL ${fmtUSD(stats.pnl)}, ${stats.wins}W / ${stats.losses}L (${stats.count} total trades). Tap for details.`
+              : `${key}: No trades recorded`;
 
-          return (
-            <Tooltip key={key} content={tooltipContent}>
-              <div
-                tabIndex={0}
-                role="region"
-                aria-label={tooltipContent}
-                className={cn(
-                  "min-h-[58px] sm:min-h-[72px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer tab-focus-ring overflow-hidden",
-                  hasTrades
-                    ? isProfitable
-                      ? "bg-green/10 border-green/30 hover:border-green/60"
-                      : "bg-red/10 border-red/30 hover:border-red/60"
-                    : "bg-surface/20 border-border/20 hover:border-border/40"
-                )}
-              >
-                <div className="flex items-center justify-between gap-0.5 w-full min-w-0">
-                  <span className="text-[9.5px] sm:text-[11px] font-mono font-bold text-dim group-hover:text-text shrink-0">{dayNum}</span>
-                  {hasTrades && (
-                    <span className="text-[6.5px] xs:text-[7.5px] font-black uppercase font-mono px-1 py-0.2 rounded bg-background/60 border border-border/20 text-dim truncate">
-                      {stats.wins}W/{stats.losses}L
-                    </span>
+            return (
+              <Tooltip key={key} content={tooltipContent}>
+                <button
+                  type="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (hasTrades) {
+                      setSelectedDayDetail({ dateKey: key, dayNum, ...stats });
+                    }
+                  }}
+                  aria-label={tooltipContent}
+                  className={cn(
+                    "min-h-[58px] sm:min-h-[72px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none overflow-hidden text-left w-full",
+                    hasTrades
+                      ? isProfitable
+                        ? "bg-green/10 border-green/30 hover:border-green/60 hover:scale-[1.02] active:scale-95"
+                        : "bg-red/10 border-red/30 hover:border-red/60 hover:scale-[1.02] active:scale-95"
+                      : "bg-surface/20 border-border/20 hover:border-border/40"
                   )}
-                </div>
+                >
+                  <div className="flex items-center justify-between gap-0.5 w-full min-w-0">
+                    <span className="text-[9.5px] sm:text-[11px] font-mono font-bold text-dim group-hover:text-text shrink-0">{dayNum}</span>
+                    {hasTrades && (
+                      <span className="text-[6.5px] xs:text-[7.5px] font-black uppercase font-mono px-1 py-0.2 rounded bg-background/60 border border-border/20 text-dim truncate">
+                        {stats.wins}W/{stats.losses}L
+                      </span>
+                    )}
+                  </div>
 
-                {hasTrades ? (
-                  <div className="flex flex-col items-end w-full min-w-0 mt-1">
-                    <span className={cn("text-[9px] xs:text-[10.5px] sm:text-xs font-black font-mono tracking-tight truncate w-full text-right leading-tight", isProfitable ? "text-green" : "text-red")}>
-                      {fmtUSD(stats.pnl)}
-                    </span>
+                  {hasTrades ? (
+                    <div className="flex flex-col items-end w-full min-w-0 mt-1">
+                      <span className={cn("text-[9px] xs:text-[10.5px] sm:text-xs font-black font-mono tracking-tight truncate w-full text-right leading-tight", isProfitable ? "text-green" : "text-red")}>
+                        {fmtUSD(stats.pnl)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center w-full my-auto">
+                      <span className="w-1 h-1 rounded-full bg-dim/20" />
+                    </div>
+                  )}
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
+      ) : (
+        /* Agenda List View for Small Viewports & Accessibility */
+        <div className="space-y-2">
+          {monthActiveDaysList.length === 0 ? (
+            <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
+              No Trades Recorded in {monthLabel} {year}
+            </div>
+          ) : (
+            monthActiveDaysList.map((day) => {
+              const isProfitable = day.pnl >= 0;
+              const winRate = day.count > 0 ? ((day.wins / day.count) * 100).toFixed(0) : 0;
+
+              return (
+                <button
+                  key={day.key}
+                  type="button"
+                  onClick={() => setSelectedDayDetail(day)}
+                  className="w-full text-left p-3 rounded-xl bg-surface/40 hover:bg-surface border border-border/30 hover:border-accent/40 transition-all flex items-center justify-between gap-3 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                  aria-label={`${day.key}: ${fmtUSD(day.pnl)}, ${day.wins} Wins, ${day.losses} Losses (${winRate}% Win Rate). Tap for full trade details.`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={cn(
+                      "w-10 h-10 rounded-xl flex flex-col items-center justify-center font-mono shrink-0 border",
+                      isProfitable ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red"
+                    )}>
+                      <span className="text-[9px] uppercase font-bold text-dim">{monthLabel.substring(0, 3)}</span>
+                      <span className="text-sm font-black leading-none">{day.dayNum}</span>
+                    </div>
+
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-black font-mono text-text uppercase">{day.key}</span>
+                        <span className="text-[8px] bg-background border border-border/30 font-black px-1.5 py-0.5 rounded text-dim font-mono">
+                          {day.wins}W / {day.losses}L ({winRate}% WR)
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-dim/80 font-medium">
+                        {day.count} {day.count === 1 ? 'Trade' : 'Trades'} executed
+                      </span>
+                    </div>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-center w-full my-auto">
-                    <span className="w-1 h-1 rounded-full bg-dim/20" />
+
+                  <div className="flex items-center gap-3">
+                    <div className="flex flex-col items-end">
+                      <span className={cn("text-xs sm:text-sm font-black font-mono tracking-tight", isProfitable ? "text-green" : "text-red")}>
+                        {fmtUSD(day.pnl)}
+                      </span>
+                      <span className="text-[8px] text-dim uppercase tracking-wider font-bold">Daily PnL</span>
+                    </div>
+                    <ChevronRight size={16} className="text-dim group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
                   </div>
-                )}
+                </button>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {/* Daily Detail Interactive Popover Modal / Drawer */}
+      {selectedDayDetail && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Daily details for ${selectedDayDetail.dateKey}`}
+          className="fixed inset-0 z-[120] bg-black/70 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200"
+          onClick={() => setSelectedDayDetail(null)}
+        >
+          <div
+            className="bg-background border-t sm:border border-border/60 rounded-t-3xl sm:rounded-2xl p-5 sm:p-6 w-full max-w-lg max-h-[85vh] flex flex-col gap-4 shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-border/20 pb-3">
+              <div className="flex items-center gap-3">
+                <div className={cn(
+                  "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border",
+                  selectedDayDetail.pnl >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red"
+                )}>
+                  <CalendarIcon size={18} />
+                </div>
+                <div className="flex flex-col">
+                  <h3 className="text-sm sm:text-base font-black uppercase text-text font-mono tracking-tight">
+                    {selectedDayDetail.dateKey} Details
+                  </h3>
+                  <span className="text-[9.5px] text-dim font-bold uppercase tracking-wider font-mono">
+                    {selectedDayDetail.count} {selectedDayDetail.count === 1 ? 'Trade' : 'Trades'} Recorded
+                  </span>
+                </div>
               </div>
-            </Tooltip>
-          );
-        })}
-      </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedDayDetail(null)}
+                aria-label="Close daily details"
+                className="p-1.5 rounded-lg bg-surface/50 border border-border/40 text-dim hover:text-text hover:bg-surface transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Summary Stat Grid */}
+            <div className="grid grid-cols-3 gap-2 bg-surface/30 p-3 rounded-xl border border-border/30">
+              <div className="flex flex-col items-center justify-center text-center">
+                <span className="text-[8px] text-dim/60 font-black uppercase tracking-widest">Daily P&L</span>
+                <span className={cn("text-xs sm:text-sm font-black font-mono mt-0.5", selectedDayDetail.pnl >= 0 ? "text-green" : "text-red")}>
+                  {fmtUSD(selectedDayDetail.pnl)}
+                </span>
+              </div>
+              <div className="flex flex-col items-center justify-center text-center border-x border-border/20">
+                <span className="text-[8px] text-dim/60 font-black uppercase tracking-widest">Wins / Losses</span>
+                <span className="text-xs sm:text-sm font-black font-mono text-text mt-0.5">
+                  {selectedDayDetail.wins}W / {selectedDayDetail.losses}L
+                </span>
+              </div>
+              <div className="flex flex-col items-center justify-center text-center">
+                <span className="text-[8px] text-dim/60 font-black uppercase tracking-widest">Win Rate</span>
+                <span className="text-xs sm:text-sm font-black font-mono text-accent mt-0.5">
+                  {selectedDayDetail.count > 0 ? ((selectedDayDetail.wins / selectedDayDetail.count) * 100).toFixed(0) : 0}%
+                </span>
+              </div>
+            </div>
+
+            {/* Daily Executed Trades List */}
+            <div className="flex flex-col gap-2 overflow-y-auto max-h-[50vh] pr-1">
+              <span className="text-[9px] text-dim font-black uppercase tracking-widest">Executed Trades</span>
+              {(!selectedDayDetail.trades || selectedDayDetail.trades.length === 0) ? (
+                <div className="p-4 text-center text-dim font-mono text-[10px] uppercase">No trade items recorded</div>
+              ) : (
+                selectedDayDetail.trades.map((t, idx) => {
+                  const pnl = Number(t.pnl || 0);
+                  const isLong = t.direction === 'LONG' || t.side === 'BUY';
+                  const exitTimeStr = t.exit_ts ? new Date(t.exit_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+
+                  return (
+                    <div
+                      key={t.id || `trade-${idx}`}
+                      className="p-3 rounded-xl bg-background/50 border border-border/30 flex items-center justify-between gap-3 text-xs font-mono"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-[8px] font-black uppercase border shrink-0",
+                          isLong ? "bg-green/10 text-green border-green/30" : "bg-red/10 text-red border-red/30"
+                        )}>
+                          {t.direction || (isLong ? 'LONG' : 'SHORT')}
+                        </span>
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-text truncate uppercase">{t.symbol}</span>
+                            {t.is_knife && (
+                              <span className="text-[7.5px] bg-red/20 text-red border border-red/30 font-black px-1 py-0.2 rounded uppercase shrink-0">🗡️ KNIFE</span>
+                            )}
+                          </div>
+                          <span className="text-[8.5px] text-dim font-medium">
+                            {exitTimeStr} {t.exit_reason ? `· ${t.exit_reason}` : ''}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className={cn("font-bold text-xs font-mono", pnl >= 0 ? "text-green" : "text-red")}>
+                          {fmtUSD(pnl)}
+                        </span>
+                        {t.entry_price && t.exit_price && (
+                          <span className="text-[8px] text-dim/60 font-mono">
+                            ${t.entry_price} → ${t.exit_price}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

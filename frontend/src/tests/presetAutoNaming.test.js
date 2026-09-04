@@ -2,7 +2,11 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 
 // Pure implementation of generatedPresetName matching ConfigModal.jsx
-function generatePresetName(cfg) {
+function generatePresetName(cfg, loadedPresetName = null) {
+  if (loadedPresetName && typeof loadedPresetName === 'string' && loadedPresetName.trim()) {
+    return loadedPresetName.trim();
+  }
+
   const sigs = cfg.enabled_signals || [];
   let sigAbbr = '';
   if (sigs.length === 0) {
@@ -35,6 +39,7 @@ function generatePresetName(cfg) {
 
   const parts = [sigAbbr, modifier].filter(Boolean);
   const name = parts.join(' ');
+
   return name.length > 10 ? name.slice(0, 10).trim() : name;
 }
 
@@ -68,6 +73,11 @@ describe('Preset Auto-Naming & 10-Character Mobile Budget Standard', () => {
     assert.strictEqual(nameTrailing, 'ST Trail');
     assert.notStrictEqual(nameNormal, nameTrailing);
     assert.ok(nameNormal.length <= 10 && nameTrailing.length <= 10);
+  });
+
+  test('preserves existing loaded preset name during updates', () => {
+    const updated = generatePresetName({ enabled_signals: ['ema_dual_cross'], sl_distance_pct: 1.2 }, 'Dul 0.8SL');
+    assert.strictEqual(updated, 'Dul 0.8SL');
   });
 
   test('generates fallback Scl label with risk % when no signals enabled', () => {

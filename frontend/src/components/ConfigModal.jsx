@@ -2048,6 +2048,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [testnetConfigured, liveConfigured]);
 
   const generatedPresetName = useMemo(() => {
+    if (loadedPresetName && typeof loadedPresetName === 'string' && loadedPresetName.trim()) {
+      return loadedPresetName.trim();
+    }
+
     const sigs = cfg.enabled_signals || [];
     let sigAbbr = '';
     if (sigs.length === 0) {
@@ -2080,8 +2084,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     const parts = [sigAbbr, modifier].filter(Boolean);
     const name = parts.join(' ');
+
     return name.length > 10 ? name.slice(0, 10).trim() : name;
-  }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade]);
+  }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade, loadedPresetName]);
 
   useEffect(() => {
     const loadPresets = async () => {

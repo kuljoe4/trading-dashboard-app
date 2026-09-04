@@ -832,6 +832,19 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     const isPosActive = s.activePnl >= 0;
     const isPosReturn = s.totalPnl >= 0;
 
+    const abbrevLabel = (() => {
+      const clean = (s.strategy_label || '').trim();
+      if (!clean) return 'STR';
+      const words = clean.split(/[\s_\-]+/).filter(Boolean);
+      if (words.length >= 3) {
+        return (words[0][0] + words[1][0] + words[2][0]).toUpperCase();
+      }
+      if (words.length === 2) {
+        return (words[0].substring(0, 2) + words[1][0]).toUpperCase();
+      }
+      return clean.substring(0, 3).toUpperCase();
+    })();
+
     return (
       <motion.div
         layout
@@ -848,23 +861,45 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         )}
         aria-label={`View details for ${s.strategy_label} strategy, active P&L ${fmtUSD(s.activePnl)}, session return ${fmtUSD(s.totalPnl)}`}
       >
-        {/* Left: Indicator Pulse & Strategy Name */}
+        {/* Left: Color Status Dot Cue & Strategy Name */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
-          <StatusBadge status={s.sessionActive} />
-          <h3 className="font-black font-mono text-xs tracking-tight truncate uppercase text-text group-hover:text-accent transition-colors">
-            {s.strategy_label}
-          </h3>
+          <Tooltip content={s.sessionActive ? "Engine Status: Active" : "Engine Status: Stopped"}>
+            <span className={cn(
+              "w-2 h-2 rounded-full shrink-0 transition-all",
+              s.sessionActive
+                ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.5)] animate-pulse"
+                : "bg-dim/40"
+            )} />
+          </Tooltip>
+
+          <Tooltip content={`Strategy: ${s.strategy_label}`}>
+            <h3 className="font-black font-mono text-xs tracking-tight uppercase text-text group-hover:text-accent transition-colors cursor-help">
+              {abbrevLabel}
+            </h3>
+          </Tooltip>
 
           {/* Timeframe Icon Cue Badge */}
-          <span className="text-[8px] font-mono font-black text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded uppercase shrink-0 flex items-center gap-1">
-            <Zap size={9} />
-            {config.scan_interval}
-          </span>
+          <Tooltip content={`Timeframe scan interval: ${config.scan_interval}`}>
+            <span className="text-[8px] font-mono font-black text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded uppercase shrink-0 flex items-center gap-1 cursor-help">
+              <Zap size={9} />
+              {config.scan_interval}
+            </span>
+          </Tooltip>
 
           {paused && !isResuming && (
-            <span className="text-[8px] font-black uppercase text-amber bg-amber/10 border border-amber/20 px-1.5 py-0.2 rounded shrink-0">
-              PAUSED
-            </span>
+            <Tooltip content="Strategy Engine Paused">
+              <div className="p-1 rounded bg-amber/10 border border-amber/20 text-amber shrink-0 flex items-center justify-center cursor-help">
+                <Pause size={10} fill="currentColor" />
+              </div>
+            </Tooltip>
+          )}
+
+          {isGated && !paused && !isResuming && (
+            <Tooltip content={gateInfo?.gateReason || 'Gated by Risk Rules'}>
+              <div className="p-1 rounded bg-amber/10 border border-amber/20 text-amber shrink-0 flex items-center justify-center cursor-help">
+                <AlertCircle size={10} className="animate-pulse" />
+              </div>
+            </Tooltip>
           )}
         </div>
 

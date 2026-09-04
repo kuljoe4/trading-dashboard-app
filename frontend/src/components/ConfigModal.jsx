@@ -2078,10 +2078,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       modifier = `${cfg.risk_pct_per_trade}%`;
     }
 
-    const parts = [sigAbbr, modifier].filter(Boolean);
-    const name = parts.join(' ');
+    let name = '';
+    if (loadedPresetName && typeof loadedPresetName === 'string') {
+      const trimmedLoaded = loadedPresetName.trim();
+      if (modifier && !trimmedLoaded.includes(modifier)) {
+        const basePart = trimmedLoaded.split(' ')[0] || sigAbbr;
+        const proposed = `${basePart} ${modifier}`;
+        name = proposed.length <= 10 ? proposed : proposed.slice(0, 10).trim();
+      } else {
+        name = trimmedLoaded.length <= 10 ? trimmedLoaded : trimmedLoaded.slice(0, 10).trim();
+      }
+    } else {
+      const parts = [sigAbbr, modifier].filter(Boolean);
+      name = parts.join(' ');
+    }
+
     return name.length > 10 ? name.slice(0, 10).trim() : name;
-  }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade]);
+  }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade, loadedPresetName]);
 
   useEffect(() => {
     const loadPresets = async () => {

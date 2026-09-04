@@ -17,7 +17,7 @@ const downsample = (data, threshold = 100) => {
   return result;
 };
 
-export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hideAxes = false }) => {
+export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hideAxes = false, configChanges = [] }) => {
   const gradientId = useId().replace(/:/g, '')
   const glowId = `${gradientId}-glow`
   const containerRef = useRef(null);
@@ -41,11 +41,53 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
     const pts = downsampled.map((d, i) => {
       const x = (i / (downsampled.length - 1)) * 100;
       const y = 100 - ((d.pnl - vMin) / vRange) * 100;
-      return { x, y, pnl: d.pnl, ts: d.ts };
+      return { x, y, pnl: d.pnl, ts: d.ts, configChange: d.configChange };
     });
 
     return { points: pts, viewMin: vMin, viewMax: vMax, viewRange: vRange };
   }, [data]);
+
+  // Derived list of config change markers on timeline
+  const changeMarkers = useMemo(() => {
+    if (!points || points.length < 2) return [];
+    const markers = [];
+
+    // 1) Markers embedded in points
+    points.forEach(p => {
+      if (p.configChange) {
+        markers.push({
+          x: p.x,
+          y: p.y,
+          ts: p.ts,
+          label: p.configChange.label || 'Config Updated',
+          diffs: Array.isArray(p.configChange.diffs) ? p.configChange.diffs : [p.configChange.message || 'Strategy config updated']
+        });
+      }
+    });
+
+    // 2) External configChanges array matched by timestamp
+    if (Array.isArray(configChanges) && configChanges.length > 0) {
+      const minTs = points[0].ts || 0;
+      const maxTs = points[points.length - 1].ts || Date.now();
+      const tsRange = Math.max(1, maxTs - minTs);
+
+      configChanges.forEach(cc => {
+        if (cc && cc.ts) {
+          const clampedTs = Math.max(minTs, Math.min(maxTs, cc.ts));
+          const x = ((clampedTs - minTs) / tsRange) * 100;
+          markers.push({
+            x,
+            y: 50,
+            ts: cc.ts,
+            label: cc.label || 'Config Updated',
+            diffs: Array.isArray(cc.diffs) ? cc.diffs : [cc.message || 'Strategy parameters updated']
+          });
+        }
+      });
+    }
+
+    return markers;
+  }, [points, configChanges]);
 
   const pathD = useMemo(() => solveSmoothing(points), [points]);
 
@@ -250,6 +292,17 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
           filter={`url(#${glowId})`}
           className="transition-all duration-700"
         />
+
+        {/* Config Change Timeline Markers */}
+        {changeMarkers.map((marker, i) => (
+          <g key={`cfg-marker-${i}`} className="cursor-pointer">
+            <line
+              x1={marker.x} y1="0" x2={marker.x} y2="100"
+              stroke="var(--color-amber)" strokeWidth="0.3" strokeDasharray="1.5,1.5" opacity="0.7"
+            />
+            <circle cx={marker.x} cy={marker.y || 50} r="2" fill="var(--color-amber)" />
+          </g>
+        ))}
 
         {/* Interaction Crosshair */}
         {hoverData && (
@@ -872,11 +925,12 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
-export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance }) => {
+export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance, configChanges = [] }) => {
   const containerRef = useRef(null);
   const chartId = useId().replace(/:/g, '');
   const pnlGradientId = `pnl-grad-${chartId}`;
   const [hoverData, setHoverData] = useState(null);
+  const [activeConfigDiff, setActiveConfigDiff] = useState(null);
 
   const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange, maxRatio } = useMemo(() => {
     const rawTrades = Array.isArray(trades) ? trades : [];
@@ -1273,6 +1327,47 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
           />
         )}
 
+        {/* Config Change Event Markers */}
+        {configChanges && configChanges.length > 0 && configChanges.map((cc, i) => {
+          const minTs = points[0]?.ts || 0;
+          const maxTs = points[points.length - 1]?.ts || Date.now();
+          const tsRange = Math.max(1, maxTs - minTs);
+          const clampedTs = Math.max(minTs, Math.min(maxTs, cc.ts || minTs));
+          const x = ((clampedTs - minTs) / tsRange) * 100;
+          const isSelected = activeConfigDiff?.ts === cc.ts;
+
+          return (
+            <g
+              key={`cfg-ev-${i}`}
+              className="cursor-pointer group/marker"
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveConfigDiff(isSelected ? null : cc);
+              }}
+              tabIndex={0}
+              role="button"
+              aria-label={`Config change at ${new Date(cc.ts).toLocaleTimeString()}: ${cc.label || 'Parameters updated'}. Click to view diff.`}
+            >
+              <line
+                x1={x} y1="0" x2={x} y2="100"
+                stroke="var(--color-amber)"
+                strokeWidth={isSelected ? "0.8" : "0.4"}
+                strokeDasharray="2,2"
+                className="opacity-80 group-hover/marker:opacity-100"
+              />
+              <circle
+                cx={x}
+                cy={15}
+                r={isSelected ? "3" : "2.2"}
+                fill="var(--color-amber)"
+                stroke="var(--color-surface)"
+                strokeWidth="0.5"
+                className="transition-all group-hover/marker:scale-125"
+              />
+            </g>
+          );
+        })}
+
         {activePoint && (
           <g>
             <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1.5,1.5" opacity="0.8" />
@@ -1307,6 +1402,39 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
         )}
       </svg>
     </div>
+
+      {/* Interactive Config Change Diff Details Popover */}
+      {activeConfigDiff && (
+        <div className="bg-surface/95 border border-amber/40 p-3 rounded-xl shadow-xl flex flex-col gap-2 text-xs font-mono text-left animate-in fade-in duration-200">
+          <div className="flex items-center justify-between border-b border-amber/20 pb-1.5">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-amber animate-pulse" />
+              <span className="font-black uppercase tracking-wider text-amber">
+                ⚙️ {activeConfigDiff.label || 'Strategy Config Updated'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveConfigDiff(null)}
+              className="text-dim hover:text-text p-0.5 rounded transition-colors"
+              aria-label="Close diff details"
+            >
+              <X size={12} />
+            </button>
+          </div>
+          <div className="text-[10px] text-dim/80 font-bold uppercase">
+            {activeConfigDiff.ts ? new Date(activeConfigDiff.ts).toLocaleString() : 'Recent Update'}
+          </div>
+          <div className="flex flex-col gap-1 pt-1">
+            {(Array.isArray(activeConfigDiff.diffs) ? activeConfigDiff.diffs : [activeConfigDiff.message || 'Parameters synchronized']).map((d, idx) => (
+              <div key={idx} className="flex items-center gap-2 text-[11px] font-bold text-text bg-background/50 px-2 py-1 rounded border border-border/30">
+                <span className="text-amber">•</span>
+                <span>{d}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Explicit X-Axis Legend Bar Displaying Trade Numbers & Timestamps */}
       {points.length >= 2 && (

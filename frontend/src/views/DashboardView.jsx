@@ -698,7 +698,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null, viewMode = 'detailed' }) => {
   const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -741,6 +741,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const closedPnl = safeNum(s.totalPnl) - safeNum(s.activePnl);
   const totalEstToRealize = closedPnl + activeEstPnl;
 
+  const isCompact = viewMode === 'compact';
+
   return (
     <motion.div
       layout
@@ -751,7 +753,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        "bg-surface border border-border/40 rounded-2xl flex flex-col w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        isCompact ? "p-3 gap-2.5" : "p-4 md:p-5 gap-4",
         className,
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
@@ -769,7 +772,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       <div className="flex justify-between items-start gap-3">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm md:text-base font-black font-mono tracking-tight truncate uppercase leading-none text-text group-hover:text-accent transition-colors">
+            <h3 className={cn("font-black font-mono tracking-tight truncate uppercase leading-none text-text group-hover:text-accent transition-colors", isCompact ? "text-xs sm:text-sm" : "text-sm md:text-base")}>
               {s.strategy_label}
             </h3>
 
@@ -812,6 +815,16 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               const sharpeText = s.entryCount > 0 ? Number(sharpeVal).toFixed(2) : '---';
               const sortinoText = s.entryCount > 0 ? Number(sortinoVal).toFixed(2) : '---';
 
+              if (isCompact) {
+                return (
+                  <div className="bg-accent/10 border border-accent/25 text-accent text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 flex-wrap font-mono">
+                    <span>HR: {hitRate.toFixed(0)}%</span>
+                    <span>·</span>
+                    <span>PF: {pfText}</span>
+                  </div>
+                );
+              }
+
               return (
                 <div className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1.5 flex-wrap font-mono">
                   <span>Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0})</span>
@@ -842,7 +855,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         </div>
 
         {/* Action buttons and performance metrics aligned to the right */}
-        <div className="flex flex-col items-end shrink-0 min-w-[100px] gap-2">
+        <div className="flex flex-col items-end shrink-0 min-w-[80px] gap-2">
           {/* Inline Action Buttons */}
           <div className="flex items-center gap-1 relative z-20">
             <Tooltip content="Edit Strategy Config">
@@ -877,32 +890,34 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       </div>
 
       {/* Modern Metrics Row */}
-      <div className="grid grid-cols-3 gap-3 py-1 items-stretch border-t border-b border-border/10 py-3">
-        <div className="flex flex-col justify-between h-full min-h-[72px]">
+      <div className={cn("grid grid-cols-3 gap-3 items-stretch border-t border-b border-border/10", isCompact ? "py-2" : "py-3")}>
+        <div className={cn("flex flex-col justify-between h-full", isCompact ? "min-h-[50px]" : "min-h-[72px]")}>
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Active P&L</span>
-            <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.activePnl) }}>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start">Active P&L</span>
+            <span className={cn("font-black font-mono tracking-tighter leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")} style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
             </span>
           </div>
-          <div className="flex flex-col mt-1 gap-0.5 leading-none">
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
-              <span className="hidden xs:inline">Est. Target: </span>
-              <span className="xs:hidden inline">Est: </span>
-              <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>≈{fmtUSD(activeEstPnl)}</span>
-            </span>
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
-              <span className="hidden xs:inline">Projected: </span>
-              <span className="xs:hidden inline">Proj: </span>
-              <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
-            </span>
-          </div>
+          {!isCompact && (
+            <div className="flex flex-col mt-1 gap-0.5 leading-none">
+              <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
+                <span className="hidden xs:inline">Est. Target: </span>
+                <span className="xs:hidden inline">Est: </span>
+                <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>≈{fmtUSD(activeEstPnl)}</span>
+              </span>
+              <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
+                <span className="hidden xs:inline">Projected: </span>
+                <span className="xs:hidden inline">Proj: </span>
+                <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
+              </span>
+            </div>
+          )}
         </div>
 
-        <div className="flex flex-col justify-between h-full min-h-[72px]">
+        <div className={cn("flex flex-col justify-between h-full", isCompact ? "min-h-[50px]" : "min-h-[72px]")}>
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Session Return</span>
-            <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.totalPnl) }}>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start">Session Return</span>
+            <span className={cn("font-black font-mono tracking-tighter leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")} style={{ color: pnlColor(s.totalPnl) }}>
               {fmtUSD(s.totalPnl)}
             </span>
           </div>
@@ -911,10 +926,10 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </span>
         </div>
 
-        <div className="flex flex-col justify-between items-end text-right h-full min-h-[72px]">
+        <div className={cn("flex flex-col justify-between items-end text-right h-full", isCompact ? "min-h-[50px]" : "min-h-[72px]")}>
           <div className="flex flex-col items-end">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start justify-end text-right w-full">Positions</span>
-            <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1.5">
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start justify-end text-right w-full">Positions</span>
+            <span className={cn("font-black font-mono tracking-tighter text-text/90 leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")}>
               {activeCount} / {maxOpen}
             </span>
           </div>
@@ -925,7 +940,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       </div>
 
       {/* Position Slot Capacity Runway */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         <div
           className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative"
           role="progressbar"
@@ -942,12 +957,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             style={{ width: `${capacityPct}%` }}
           />
         </div>
-        <div className="flex justify-between items-center text-[9px] font-bold text-dim uppercase tracking-wider leading-none">
-          <span>Capacity: {activeCount} Active</span>
-          <span className="text-[8px] bg-white/5 border border-white/5 px-1.5 py-0.5 rounded text-accent">
-            Open Cockpit
-          </span>
-        </div>
+        {!isCompact && (
+          <div className="flex justify-between items-center text-[9px] font-bold text-dim uppercase tracking-wider leading-none">
+            <span>Capacity: {activeCount} Active</span>
+            <span className="text-[8px] bg-white/5 border border-white/5 px-1.5 py-0.5 rounded text-accent">
+              Open Cockpit
+            </span>
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -1526,6 +1543,7 @@ ReconciliationCenter.displayName = 'ReconciliationCenter';
 
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
+  const [cardViewMode, setCardViewMode] = useState('detailed') // 'detailed' | 'compact'
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterActive, setFilterActive] = useState(false)
@@ -2695,9 +2713,35 @@ export function DashboardView({ initialStrategy }) {
               transition={{ delay: 0.3 }}
               className="bg-surface border border-border rounded-2xl p-6 flex flex-col shadow-sm"
             >
-              <SectionLabel className="mb-4 flex items-center gap-2">
-                <Zap size={14} className="text-accent" /> Active Strategy
-              </SectionLabel>
+              <div className="flex items-center justify-between mb-4">
+                <SectionLabel className="mb-0 flex items-center gap-2">
+                  <Zap size={14} className="text-accent" /> Active Strategy
+                </SectionLabel>
+                <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setCardViewMode('detailed')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      cardViewMode === 'detailed' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                    )}
+                    aria-label="Detailed strategy cards view"
+                  >
+                    Detailed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardViewMode('compact')}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      cardViewMode === 'compact' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                    )}
+                    aria-label="Compact strategy cards view"
+                  >
+                    Compact
+                  </button>
+                </div>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {sessionActive ? (
                   <>
@@ -2732,6 +2776,7 @@ export function DashboardView({ initialStrategy }) {
                             isResuming={isResuming}
                             showResumingFeedback={showResumingFeedback}
                             stratMetrics={stratMetricsMap.get(currentStrategy.strategy_label)}
+                            viewMode={cardViewMode}
                           />
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
@@ -2766,6 +2811,7 @@ export function DashboardView({ initialStrategy }) {
                                 isResuming={isResuming}
                                 showResumingFeedback={showResumingFeedback}
                                 stratMetrics={stratMetricsMap.get(label)}
+                                viewMode={cardViewMode}
                               />
                             );
                           })}

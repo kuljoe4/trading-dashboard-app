@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert';
 
 // Pure implementation of generatedPresetName matching ConfigModal.jsx
-function generatePresetName(cfg) {
+function generatePresetName(cfg, loadedPresetName = null) {
   const sigs = cfg.enabled_signals || [];
   let sigAbbr = '';
   if (sigs.length === 0) {
@@ -33,8 +33,21 @@ function generatePresetName(cfg) {
     modifier = `${cfg.risk_pct_per_trade}%`;
   }
 
-  const parts = [sigAbbr, modifier].filter(Boolean);
-  const name = parts.join(' ');
+  let name = '';
+  if (loadedPresetName && typeof loadedPresetName === 'string') {
+    const trimmedLoaded = loadedPresetName.trim();
+    if (modifier && !trimmedLoaded.includes(modifier)) {
+      const basePart = trimmedLoaded.split(' ')[0] || sigAbbr;
+      const proposed = `${basePart} ${modifier}`;
+      name = proposed.length <= 10 ? proposed : proposed.slice(0, 10).trim();
+    } else {
+      name = trimmedLoaded.length <= 10 ? trimmedLoaded : trimmedLoaded.slice(0, 10).trim();
+    }
+  } else {
+    const parts = [sigAbbr, modifier].filter(Boolean);
+    name = parts.join(' ');
+  }
+
   return name.length > 10 ? name.slice(0, 10).trim() : name;
 }
 
@@ -68,6 +81,12 @@ describe('Preset Auto-Naming & 10-Character Mobile Budget Standard', () => {
     assert.strictEqual(nameTrailing, 'ST Trail');
     assert.notStrictEqual(nameNormal, nameTrailing);
     assert.ok(nameNormal.length <= 10 && nameTrailing.length <= 10);
+  });
+
+  test('updates loaded preset name with parameter changes within 10 chars', () => {
+    const updated = generatePresetName({ enabled_signals: ['ema_dual_cross'], sl_distance_pct: 1.2 }, 'Dul 0.8SL');
+    assert.strictEqual(updated, 'Dul 1.2SL');
+    assert.ok(updated.length <= 10, `Updated name length ${updated.length} must be <= 10`);
   });
 
   test('generates fallback Scl label with risk % when no signals enabled', () => {

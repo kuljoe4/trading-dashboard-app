@@ -224,24 +224,27 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                   </button>
                 </div>
               ) : (
-                <div
+                <button
+                  type="button"
+                  disabled={!interactiveEnabled}
                   onClick={() => {
                     if (!interactiveEnabled) return;
                     setEditingMilestone({ idx: i, type: 'trigger' });
                     setTempValue(String(trigger));
                   }}
                   className={cn(
-                    "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300 border-b border-dashed border-transparent flex items-center gap-1 group/trig",
+                    "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300 border-b border-dashed border-transparent flex items-center gap-1 group/trig focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-sm",
                     interactiveEnabled
                       ? "cursor-pointer hover:border-accent hover:text-accent"
                       : "cursor-not-allowed opacity-90",
                     current ? "text-accent scale-110" : done ? "text-green" : "text-dim"
                   )}
                   title={interactiveEnabled ? "Click to edit Trigger R" : "Trigger R (Read-Only)"}
+                  aria-label={interactiveEnabled ? `Edit milestone ${i + 1} trigger (current: ${trigger}R)` : `Milestone ${i + 1} trigger ${trigger}R (read only)`}
                 >
                   {trigger}R
                   {interactiveEnabled && <Edit3 size={8} className="opacity-0 group-hover/trig:opacity-100 transition-opacity text-accent" />}
-                </div>
+                </button>
               )}
 
               {/* Stepper Node Bubble */}
@@ -289,20 +292,23 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                   </button>
                 </div>
               ) : (
-                <div
+                <button
+                  type="button"
+                  disabled={!interactiveEnabled}
                   onClick={() => {
                     if (!interactiveEnabled) return;
                     setEditingMilestone({ idx: i, type: 'exit' });
                     setTempValue(String(exits[i] ?? 0));
                   }}
                   className={cn(
-                    "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300 border-b border-dashed border-transparent group/ex",
+                    "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300 border-b border-dashed border-transparent group/ex focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-sm",
                     interactiveEnabled
                       ? "cursor-pointer hover:border-accent hover:text-accent"
                       : "cursor-not-allowed opacity-95",
                     done ? "text-text font-black" : "text-dim/60"
                   )}
                   title={interactiveEnabled ? "Click to edit Secured Stop R" : "Secured Stop R (Read-Only)"}
+                  aria-label={interactiveEnabled ? `Edit milestone ${i + 1} secured stop loss (current: SL ${exits[i] === 0 ? 'BE' : `${exits[i]}R`})` : `Milestone ${i + 1} secured stop loss SL ${exits[i] === 0 ? 'BE' : `${exits[i]}R`} (read only)`}
                 >
                   <span className="flex items-center gap-1 justify-center">
                     SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}
@@ -311,7 +317,7 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                   <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-30")}>
                     {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
                   </span>
-                </div>
+                </button>
               )}
             </div>
           )
@@ -1326,22 +1332,25 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 </button>
               </div>
             ) : (
-              <span
+              <button
+                type="button"
+                disabled={!interactiveEnabled}
                 onClick={() => {
                   if (!interactiveEnabled) return;
                   handleStartEditSl();
                 }}
                 className={cn(
-                  "font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none border-b border-dashed border-dim/30 transition-all flex items-center gap-1 mt-1 group/sl",
+                  "font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none border-b border-dashed border-dim/30 transition-all flex items-center gap-1 mt-1 group/sl focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-sm",
                   interactiveEnabled
                     ? "cursor-pointer hover:border-accent hover:text-accent"
                     : "cursor-not-allowed opacity-95"
                 )}
                 title={interactiveEnabled ? "Click to edit Stop Loss Price" : "Stop Loss Price (Read-Only)"}
+                aria-label={interactiveEnabled ? `Edit stop loss price (current: ${price(sl)})` : `Stop loss price ${price(sl)} (read only)`}
               >
                 {price(sl)}
                 {interactiveEnabled && <Edit3 size={8} className="opacity-0 group-hover/sl:opacity-100 transition-opacity text-accent" />}
-              </span>
+              </button>
             )}
           </div>
           <div className="flex flex-col items-end gap-0.5">

@@ -248,4 +248,39 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       expect(mockSessionService.startSession).not.toHaveBeenCalled();
     });
   });
+
+  describe('runSmartOptimization Base Strategy Config Whitelist Validation', () => {
+    it('should accept valid base strategy configuration in runSmartOptimization', async () => {
+      const validPayload = {
+        baseConfig: {
+          strategy_label: 'Smart Base Strategy',
+          scan_interval: '5m',
+        },
+      };
+      await expect(controller.runSmartOptimization(validPayload as any)).resolves.not.toThrow();
+    });
+
+    it('should reject non-whitelisted properties in runSmartOptimization base strategy configuration', async () => {
+      const invalidPayload = {
+        baseConfig: {
+          strategy_label: 'Smart Base Strategy',
+          unauthorized_extra_param: '<script>alert(1)</script>',
+        },
+      };
+      await expect(controller.runSmartOptimization(invalidPayload as any)).rejects.toThrow(
+        BadRequestException
+      );
+    });
+
+    it('should reject invalid property values in runSmartOptimization base strategy configuration', async () => {
+      const invalidPayload = {
+        baseConfig: {
+          strategy_label: 'Invalid <script>alert(1)</script>',
+        },
+      };
+      await expect(controller.runSmartOptimization(invalidPayload as any)).rejects.toThrow(
+        BadRequestException
+      );
+    });
+  });
 });

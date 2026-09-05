@@ -37,6 +37,15 @@ export class SessionController {
   @Post("smart-optimizer/run")
   async runSmartOptimization(@Body() body: RunOptimizationDto) {
     const baseConfig = plainToInstance(SessionConfig, body.baseConfig || {});
+    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
+    const errors = await validate(baseConfig, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid base strategy configuration in smart optimizer",
+        detail: detailedErrors,
+      });
+    }
     return this.smartOptimizerService.runOptimization({
       ...body,
       baseConfig,

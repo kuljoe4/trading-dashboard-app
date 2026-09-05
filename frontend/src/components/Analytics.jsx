@@ -1,5 +1,6 @@
 import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
-import { fmtUSD, solveSmoothing } from '../lib/theme';
+import { fmtUSD, solveSmoothing, pnlClass } from '../lib/theme';
+import { formatDuration } from '../lib/formatters';
 import { cn, Tooltip } from '../components/ui/primitives';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, List, Grid } from 'lucide-react';
 
@@ -300,7 +301,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
               x1={marker.x} y1="0" x2={marker.x} y2="100"
               stroke="var(--color-amber)" strokeWidth="0.3" strokeDasharray="1.5,1.5" opacity="0.7"
             />
-            <circle cx={marker.x} cy={marker.y || 50} r="2" fill="var(--color-amber)" />
+            <circle cx={marker.x} cy={marker.y || 50} r="2" fill="var(--color-amber)"  vectorEffect="non-scaling-stroke" />
           </g>
         ))}
 
@@ -318,7 +319,7 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
               fill="var(--color-accent)"
               filter={`url(#${glowId})`}
               className="animate-pulse"
-            />
+             vectorEffect="non-scaling-stroke" />
           </g>
         )}
 
@@ -910,7 +911,7 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
           {hoverPos && (
             <g>
               <line x1={hoverPos.x} y1="0" x2={hoverPos.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.3" strokeDasharray="1,2" />
-              <circle cx={hoverPos.x} cy={hoverPos.y} r="2.5" fill="var(--color-accent)" className="animate-pulse" />
+              <circle cx={hoverPos.x} cy={hoverPos.y} r="2.5" fill="var(--color-accent)" className="animate-pulse"  vectorEffect="non-scaling-stroke" />
             </g>
           )}
         </svg>
@@ -925,44 +926,104 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
-export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance, configChanges = [], onToggleSeries }) => {
+export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance, configChanges = [], onToggleSeries }) => {
   const containerRef = useRef(null);
+  const brushRef = useRef(null);
   const chartId = useId().replace(/:/g, '');
   const pnlGradientId = `pnl-grad-${chartId}`;
+
   const [hoverData, setHoverData] = useState(null);
   const [focusedIndex, setFocusedIndex] = useState(null);
   const [activeConfigDiff, setActiveConfigDiff] = useState(null);
 
-  const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange, maxRatio } = useMemo(() => {
-    const rawTrades = Array.isArray(trades) ? trades : [];
-    if (rawTrades.length < 2) {
-      return { points: [], pnlMin: 0, pnlMax: 10, pnlRange: 10, hrMin: 0, hrMax: 100, hrRange: 100, maxRatio: 3.0 };
+  // New state controls: mode, zoom preset, range selection
+  const [axisMode, setAxisMode] = useState('time'); // 'time' | 'trade'
+  const [activePreset, setActivePreset] = useState('ALL'); // '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'ALL'
+  const [rangeSpan, setRangeSpan] = useState([0, 100]); // percentage [minX, maxX]
+  const [isDraggingBrush, setIsDraggingBrush] = useState(false);
+  const [brushDragStart, setBrushDragStart] = useState(null);
+
+  // Pre-process and sort all raw trades chronologically
+  const sortedRawTrades = useMemo(() => {
+    const raw = Array.isArray(trades) ? trades : [];
+    if (raw.length === 0) return [];
+
+    const safe = raw.map((t, i) => {
+      const exitTs = t?.exit_ts_ms !== undefined
+        ? t.exit_ts_ms
+        : (t?.exit_ts || t?.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : i);
+      const entryTs = t?.entry_ts_ms !== undefined
+        ? t.entry_ts_ms
+        : (t?.entry_ts ? new Date(t.entry_ts).getTime() : exitTs);
+      return { trade: t, exitTs, entryTs };
+    });
+
+    safe.sort((a, b) => a.exitTs - b.exitTs);
+    return safe;
+  }, [trades]);
+
+  // Handle Preset Time Selection
+  const handlePresetSelect = (preset) => {
+    setActivePreset(preset);
+    if (preset === 'ALL' || sortedRawTrades.length < 2) {
+      setRangeSpan([0, 100]);
+      return;
     }
 
-    const count = rawTrades.length;
-    const safeTrades = new Array(count);
+    const maxTs = sortedRawTrades[sortedRawTrades.length - 1].exitTs;
+    const minTs = sortedRawTrades[0].exitTs;
+    const totalDuration = maxTs - minTs;
+    if (totalDuration <= 0) {
+      setRangeSpan([0, 100]);
+      return;
+    }
+
+    const now = maxTs;
+    let cutoffTs = minTs;
+
+    const DAY = 86400000;
+    if (preset === '1W') cutoffTs = now - 7 * DAY;
+    else if (preset === '1M') cutoffTs = now - 30 * DAY;
+    else if (preset === '3M') cutoffTs = now - 90 * DAY;
+    else if (preset === '6M') cutoffTs = now - 180 * DAY;
+    else if (preset === 'YTD') cutoffTs = new Date(new Date(now).getFullYear(), 0, 1).getTime();
+    else if (preset === '1Y') cutoffTs = now - 365 * DAY;
+
+    cutoffTs = Math.max(minTs, cutoffTs);
+    const startPct = Math.max(0, Math.min(95, ((cutoffTs - minTs) / totalDuration) * 100));
+    setRangeSpan([startPct, 100]);
+  };
+
+  // Filter trades based on rangeSpan
+  const filteredTradeItems = useMemo(() => {
+    if (sortedRawTrades.length === 0) return [];
+    if (rangeSpan[0] <= 0 && rangeSpan[1] >= 100) return sortedRawTrades;
+
+    const minTs = sortedRawTrades[0].exitTs;
+    const maxTs = sortedRawTrades[sortedRawTrades.length - 1].exitTs;
+    const totalDuration = maxTs - minTs;
+
+    if (totalDuration <= 0) return sortedRawTrades;
+
+    const startTs = minTs + (rangeSpan[0] / 100) * totalDuration;
+    const endTs = minTs + (rangeSpan[1] / 100) * totalDuration;
+
+    return sortedRawTrades.filter(item => item.exitTs >= startTs && item.exitTs <= endTs);
+  }, [sortedRawTrades, rangeSpan]);
+
+  // Compute performance points and curves over filtered trades
+  const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange, maxRatio, adaptiveTicks } = useMemo(() => {
+    const rawItems = filteredTradeItems;
+    if (rawItems.length < 2) {
+      return {
+        points: [], pnlMin: 0, pnlMax: 10, pnlRange: 10, hrMin: 0, hrMax: 100, hrRange: 100, maxRatio: 3.0, adaptiveTicks: []
+      };
+    }
+
+    const count = rawItems.length;
     let totalNetPnl = 0;
     for (let i = 0; i < count; i++) {
-      const t = rawTrades[i];
-      const pnl = Number(t?.pnl || 0);
-      totalNetPnl += pnl;
-      const exitTs = t?.exit_ts_ms !== undefined ? t.exit_ts_ms : (t?.exit_ts || t?.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : 0);
-      safeTrades[i] = { trade: t, exitTs };
-    }
-
-    let isSortedAsc = true;
-    let isSortedDesc = true;
-    for (let i = 1; i < count; i++) {
-      const current = safeTrades[i].exitTs;
-      const prev = safeTrades[i - 1].exitTs;
-      if (current < prev) isSortedAsc = false;
-      if (current > prev) isSortedDesc = false;
-    }
-
-    if (isSortedDesc && !isSortedAsc) {
-      safeTrades.reverse();
-    } else {
-      safeTrades.sort((a, b) => a.exitTs - b.exitTs);
+      totalNetPnl += Number(rawItems[i].trade?.pnl || 0);
     }
 
     let cumPnl = 0;
@@ -976,9 +1037,13 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
     let downsideSumSqReturnPct = 0;
 
     const series = new Array(count);
+    const minTs = rawItems[0].exitTs;
+    const maxTs = rawItems[count - 1].exitTs;
+    const timeSpanMs = Math.max(1, maxTs - minTs);
 
     for (let idx = 0; idx < count; idx++) {
-      const t = safeTrades[idx].trade;
+      const item = rawItems[idx];
+      const t = item.trade;
       const pnl = Number(t?.pnl || 0);
       cumPnl += pnl;
 
@@ -996,33 +1061,41 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
         downsideSumSqReturnPct += retPct * retPct;
       }
 
-      const count = idx + 1;
-      const hitRate = (totalWins / count) * 100;
+      const tradeNum = idx + 1;
+      const hitRate = (totalWins / tradeNum) * 100;
       const pf = grossLoss > 0 ? (grossWin / grossLoss) : (grossWin > 0 ? 10 : 0);
 
       let sharpe = 0;
       let sortino = 0;
 
-      if (count > 1) {
-        const meanReturn = sumReturnPct / count;
-        const variance = Math.max(0, (sumSqReturnPct / count) - (meanReturn * meanReturn));
+      if (tradeNum > 1) {
+        const meanReturn = sumReturnPct / tradeNum;
+        const variance = Math.max(0, (sumSqReturnPct / tradeNum) - (meanReturn * meanReturn));
         const stdDev = Math.sqrt(variance);
-        const downsideStdDev = Math.sqrt(downsideSumSqReturnPct / count);
+        const downsideStdDev = Math.sqrt(downsideSumSqReturnPct / tradeNum);
 
         if (stdDev > 0) sharpe = meanReturn / stdDev;
         if (downsideStdDev > 0) sortino = meanReturn / downsideStdDev;
       }
 
+      const durMs = Math.max(0, item.exitTs - item.entryTs);
+
       series[idx] = {
-        tradeIndex: count,
+        tradeIndex: tradeNum,
+        rawIndex: idx,
         symbol: t.symbol || '---',
+        direction: (t.direction || 'LONG').toUpperCase(),
+        entryPrice: Number(t.entry_price || t.price || 0),
+        exitPrice: Number(t.exit_price || 0),
+        strategy: t.strategy_label || t.strategy || 'Base Strategy',
+        durationMs: durMs,
         pnl,
         cumPnl,
         hitRate,
         pf,
         sharpe,
         sortino,
-        ts: t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0)
+        ts: item.exitTs
       };
     }
 
@@ -1050,7 +1123,14 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
     const ratioScaleMax = Math.max(3.0, peakRatio * 1.15);
 
     const pts = series.map((d, i) => {
-      const x = (i / (series.length - 1)) * 100;
+      // Calculate x position based on axisMode
+      let x = 0;
+      if (axisMode === 'time' && timeSpanMs > 0) {
+        x = ((d.ts - minTs) / timeSpanMs) * 100;
+      } else {
+        x = (i / (series.length - 1)) * 100;
+      }
+
       const yPnl = 100 - ((d.cumPnl - minPnl) / rangePnl) * 100;
       const yHr = 100 - ((d.hitRate - rawHrMin) / rangeHr) * 100;
       const yPf = 100 - (Math.min(ratioScaleMax, Math.max(0, d.pf)) / ratioScaleMax) * 100;
@@ -1071,10 +1151,47 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
         sortino: d.sortino,
         pnl: d.pnl,
         symbol: d.symbol,
+        direction: d.direction,
+        entryPrice: d.entryPrice,
+        exitPrice: d.exitPrice,
+        strategy: d.strategy,
+        durationMs: d.durationMs,
         tradeIndex: d.tradeIndex,
         ts: d.ts
       };
     });
+
+    // Compute Adaptive X-Axis Ticks (Max 8 - 12 Ticks)
+    const tickCount = Math.min(10, Math.max(4, Math.floor(count / 10) + 4));
+    const ticks = [];
+
+    if (axisMode === 'time') {
+      const DAY_MS = 86400000;
+
+      for (let k = 0; k < tickCount; k++) {
+        const frac = k / (tickCount - 1);
+        const tickTs = minTs + frac * timeSpanMs;
+        const tickX = frac * 100;
+
+        let label = '';
+        if (timeSpanMs < 2 * DAY_MS) {
+          label = new Date(tickTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else if (timeSpanMs < 60 * DAY_MS) {
+          label = new Date(tickTs).toLocaleDateString([], { month: 'short', day: 'numeric' });
+        } else {
+          label = new Date(tickTs).toLocaleDateString([], { month: 'short', year: '2-digit' });
+        }
+
+        ticks.push({ x: tickX, label, ts: tickTs });
+      }
+    } else {
+      for (let k = 0; k < tickCount; k++) {
+        const frac = k / (tickCount - 1);
+        const tradeIdx = Math.round(1 + frac * (count - 1));
+        const tickX = frac * 100;
+        ticks.push({ x: tickX, label: `#${tradeIdx}`, tradeIdx });
+      }
+    }
 
     return {
       points: pts,
@@ -1084,9 +1201,10 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
       hrMin: rawHrMin,
       hrMax: rawHrMax,
       hrRange: rangeHr,
-      maxRatio: ratioScaleMax
+      maxRatio: ratioScaleMax,
+      adaptiveTicks: ticks
     };
-  }, [trades]);
+  }, [filteredTradeItems, startingBalance, axisMode]);
 
   const pnlPathD = useMemo(() => {
     if (!points.length) return '';
@@ -1170,6 +1288,57 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
     }
   };
 
+  // Draggable Mini Brush Range Slider Handlers
+  const handleBrushMouseDown = (e, type) => {
+    e.stopPropagation();
+    setIsDraggingBrush(type);
+    setBrushDragStart(e.clientX);
+  };
+
+  const handleBrushMouseMove = (e) => {
+    if (!isDraggingBrush || !brushRef.current) return;
+    const rect = brushRef.current.getBoundingClientRect();
+    const deltaX = e.clientX - brushDragStart;
+    const deltaPct = (deltaX / rect.width) * 100;
+
+    setBrushDragStart(e.clientX);
+
+    if (isDraggingBrush === 'left') {
+      setRangeSpan(prev => [Math.max(0, Math.min(prev[1] - 5, prev[0] + deltaPct)), prev[1]]);
+    } else if (isDraggingBrush === 'right') {
+      setRangeSpan(prev => [prev[0], Math.min(100, Math.max(prev[0] + 5, prev[1] + deltaPct))]);
+    } else if (isDraggingBrush === 'move') {
+      const width = rangeSpan[1] - rangeSpan[0];
+      let newStart = rangeSpan[0] + deltaPct;
+      let newEnd = rangeSpan[1] + deltaPct;
+
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = width;
+      }
+      if (newEnd > 100) {
+        newEnd = 100;
+        newStart = 100 - width;
+      }
+      setRangeSpan([newStart, newEnd]);
+    }
+  };
+
+  const handleBrushMouseUp = () => {
+    setIsDraggingBrush(false);
+  };
+
+  useEffect(() => {
+    if (isDraggingBrush) {
+      window.addEventListener('mousemove', handleBrushMouseMove);
+      window.addEventListener('mouseup', handleBrushMouseUp);
+      return () => {
+        window.removeEventListener('mousemove', handleBrushMouseMove);
+        window.removeEventListener('mouseup', handleBrushMouseUp);
+      };
+    }
+  }, [isDraggingBrush, rangeSpan]);
+
   if (!trades || trades.length < 2) {
     return (
       <div style={{ height: `${height}px` }} className="flex flex-col items-center justify-center bg-surface/20 border border-border/40 rounded-2xl border-dashed">
@@ -1182,8 +1351,52 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
 
   return (
     <div className="flex flex-col gap-2.5 w-full select-none">
-      {/* Static Non-Obscuring Metric Header Bar Above Chart Frame */}
+      {/* Top Controls Bar: Axis Mode, Zoom Presets, Series Toggles */}
       <div className="flex items-center justify-between gap-3 px-1 flex-wrap text-xs font-mono">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Axis Mode Switcher */}
+          <div className="flex items-center bg-surface/60 border border-border/40 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => setAxisMode('time')}
+              className={cn(
+                "px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
+                axisMode === 'time' ? "bg-accent/20 text-accent font-black" : "text-dim hover:text-text"
+              )}
+            >
+              By Time
+            </button>
+            <button
+              type="button"
+              onClick={() => setAxisMode('trade')}
+              className={cn(
+                "px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
+                axisMode === 'trade' ? "bg-accent/20 text-accent font-black" : "text-dim hover:text-text"
+              )}
+            >
+              By Trade
+            </button>
+          </div>
+
+          {/* Time Zoom Range Presets */}
+          <div className="flex items-center bg-surface/40 border border-border/30 rounded-lg p-0.5">
+            {['1W', '1M', '3M', '6M', 'YTD', '1Y', 'ALL'].map(p => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => handlePresetSelect(p)}
+                className={cn(
+                  "px-1.5 py-0.5 rounded text-[9.5px] font-bold transition-all cursor-pointer",
+                  activePreset === p ? "bg-surface border border-border/40 text-text font-black" : "text-dim/60 hover:text-text"
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Dynamic Active Point Indicator Banner */}
         <div className="flex items-center gap-2.5 flex-wrap">
           <span className="text-[10px] text-dim/80 uppercase tracking-wider font-sans font-bold bg-surface/50 border border-border/30 px-2 py-0.5 rounded-lg">
             {hoverData || focusedIndex !== null ? `Trade #${activePoint?.tradeIndex} (${activePoint?.symbol})` : 'Strategy Totals'}
@@ -1199,7 +1412,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
             </span>
           )}
           {showPf && (
-            <span className="font-bold text-xs font-mono text-purple">
+            <span className="font-bold text-xs font-mono text-purple-400">
               PF: {Number(activePoint?.pf || 0).toFixed(2)}
             </span>
           )}
@@ -1215,14 +1428,13 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
           )}
         </div>
 
-        {/* Interactive Legend Toggles with A11Y Keyboard Accessibility */}
-        <div className="flex items-center gap-2 text-[9px] font-mono text-dim/70 flex-wrap">
+        {/* Series Toggles */}
+        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
           {onToggleSeries ? (
             <>
               <button
                 type="button"
-                onClick={() => onToggleSeries('pnl')}
-                aria-pressed={showPnl}
+                onClick={() => onToggleSeries('showPnl')}
                 aria-label="Toggle PnL series"
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
@@ -1233,8 +1445,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
               </button>
               <button
                 type="button"
-                onClick={() => onToggleSeries('hitRate')}
-                aria-pressed={showHitRate}
+                onClick={() => onToggleSeries('showHitRate')}
                 aria-label="Toggle Hit Rate series"
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
@@ -1281,7 +1492,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
           <span>{showHitRate ? `${Math.round(hrMin)}%` : '0.0R'}</span>
         </div>
 
-        <svg className="w-full h-full overflow-visible px-6" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <svg className="w-full h-full overflow-visible px-6 pb-4" viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
             <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.18" />
@@ -1297,190 +1508,320 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
             </filter>
           </defs>
 
-        {/* Background Grid Lines & Ticks */}
-        {[0, 25, 50, 75, 100].map(y => (
-          <g key={y}>
-            <line
-              x1="0"
-              y1={y}
-              x2="100"
-              y2={y}
-              stroke="var(--color-border)"
-              strokeWidth="0.25"
-              strokeDasharray="1,3"
-              opacity="0.4"
-            />
-            <text
-              x="1"
-              y={y === 0 ? y + 3 : y - 1}
-              fill="var(--color-dim)"
-              fontSize="2.5"
-              fontFamily="monospace"
-              opacity="0.5"
-            >
-              {Math.round(100 - y)}%
-            </text>
-          </g>
-        ))}
-
-        {showPnl && (
-          <line
-            x1="0"
-            y1={zeroPnlY}
-            x2="100"
-            y2={zeroPnlY}
-            stroke="var(--color-text)"
-            strokeWidth="0.4"
-            strokeDasharray="2,2"
-            opacity="0.3"
-          />
-        )}
-
-        {showPnl && pnlAreaD && (
-          <path
-            d={pnlAreaD}
-            fill={`url(#${pnlGradientId}-${(activePoint?.cumPnl || 0) >= 0 ? 'pos' : 'neg'})`}
-          />
-        )}
-
-        {showPnl && pnlPathD && (
-          <path
-            d={pnlPathD}
-            fill="none"
-            stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
-            strokeWidth="0.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter={`url(#${chartId}-glow)`}
-          />
-        )}
-
-        {showPf && pfPathD && (
-          <path
-            d={pfPathD}
-            fill="none"
-            stroke="var(--color-purple)"
-            strokeWidth="0.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter={`url(#${chartId}-glow)`}
-          />
-        )}
-
-        {showSharpe && sharpePathD && (
-          <path
-            d={sharpePathD}
-            fill="none"
-            stroke="var(--color-amber)"
-            strokeWidth="0.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter={`url(#${chartId}-glow)`}
-          />
-        )}
-
-        {showSortino && sortinoPathD && (
-          <path
-            d={sortinoPathD}
-            fill="none"
-            stroke="#06b6d4"
-            strokeWidth="0.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter={`url(#${chartId}-glow)`}
-          />
-        )}
-
-        {showHitRate && hrPathD && (
-          <path
-            d={hrPathD}
-            fill="none"
-            stroke="var(--color-accent)"
-            strokeWidth="0.6"
-            strokeDasharray={showPnl ? '2.5,2' : 'none'}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            filter={`url(#${chartId}-glow)`}
-          />
-        )}
-
-        {/* Config Change Event Markers */}
-        {configChanges && configChanges.length > 0 && configChanges.map((cc, i) => {
-          const minTs = points[0]?.ts || 0;
-          const maxTs = points[points.length - 1]?.ts || Date.now();
-          const tsRange = Math.max(1, maxTs - minTs);
-          const clampedTs = Math.max(minTs, Math.min(maxTs, cc.ts || minTs));
-          const x = ((clampedTs - minTs) / tsRange) * 100;
-          const isSelected = activeConfigDiff?.ts === cc.ts;
-
-          return (
-            <g
-              key={`cfg-ev-${i}`}
-              className="cursor-pointer group/marker"
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveConfigDiff(isSelected ? null : cc);
-              }}
-              tabIndex={0}
-              role="button"
-              aria-label={`Config change at ${new Date(cc.ts).toLocaleTimeString()}: ${cc.label || 'Parameters updated'}. Click to view diff.`}
-            >
+          {/* Background Grid Lines & Ticks */}
+          {[0, 25, 50, 75, 100].map(y => (
+            <g key={y}>
               <line
-                x1={x} y1="0" x2={x} y2="100"
-                stroke="var(--color-amber)"
-                strokeWidth={isSelected ? "0.8" : "0.4"}
-                strokeDasharray="2,2"
-                className="opacity-80 group-hover/marker:opacity-100"
-              />
-              <circle
-                cx={x}
-                cy={15}
-                r={isSelected ? "3" : "2.2"}
-                fill="var(--color-amber)"
-                stroke="var(--color-surface)"
-                strokeWidth="0.5"
-                className="transition-all group-hover/marker:scale-125"
+                x1="0"
+                y1={y}
+                x2="100"
+                y2={y}
+                stroke="var(--color-border)"
+                strokeWidth="0.25"
+                strokeDasharray="1,3"
+                opacity="0.4"
               />
             </g>
-          );
-        })}
+          ))}
 
-        {activePoint && (
-          <g>
-            <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1.5,1.5" opacity="0.8" />
-            {showPnl && (
-              <g>
-                <circle cx={activePoint.x} cy={activePoint.yPnl} r="3" fill={(activePoint.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'} />
-                <circle cx={activePoint.x} cy={activePoint.yPnl} r="5" fill="none" stroke={(activePoint.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'} strokeWidth="0.5" className="animate-ping origin-center" />
+          {showPnl && (
+            <line
+              x1="0"
+              y1={zeroPnlY}
+              x2="100"
+              y2={zeroPnlY}
+              stroke="var(--color-text)"
+              strokeWidth="0.4"
+              strokeDasharray="2,2"
+              opacity="0.3"
+            />
+          )}
+
+          {showPnl && pnlAreaD && (
+            <path
+              d={pnlAreaD}
+              fill={`url(#${pnlGradientId}-${(activePoint?.cumPnl || 0) >= 0 ? 'pos' : 'neg'})`}
+            />
+          )}
+
+          {showPnl && pnlPathD && (
+            <path
+              d={pnlPathD}
+              fill="none"
+              stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
+              strokeWidth="0.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter={`url(#${chartId}-glow)`}
+            />
+          )}
+
+          {showPf && pfPathD && (
+            <path
+              d={pfPathD}
+              fill="none"
+              stroke="var(--color-purple)"
+              strokeWidth="0.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter={`url(#${chartId}-glow)`}
+            />
+          )}
+
+          {showSharpe && sharpePathD && (
+            <path
+              d={sharpePathD}
+              fill="none"
+              stroke="var(--color-amber)"
+              strokeWidth="0.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter={`url(#${chartId}-glow)`}
+            />
+          )}
+
+          {showSortino && sortinoPathD && (
+            <path
+              d={sortinoPathD}
+              fill="none"
+              stroke="#06b6d4"
+              strokeWidth="0.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter={`url(#${chartId}-glow)`}
+            />
+          )}
+
+          {showHitRate && hrPathD && (
+            <path
+              d={hrPathD}
+              fill="none"
+              stroke="var(--color-accent)"
+              strokeWidth="0.6"
+              strokeDasharray={showPnl ? '2.5,2' : 'none'}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              filter={`url(#${chartId}-glow)`}
+            />
+          )}
+
+          {/* Bottom Baseline Win/Loss Markers */}
+          {points.map((pt, i) => {
+            const isWin = pt.pnl > 0;
+            const isLoss = pt.pnl < 0;
+            if (!isWin && !isLoss) return null;
+
+            return (
+              <circle
+                key={`wl-marker-${i}`}
+                cx={pt.x}
+                cy={96}
+                r={points.length > 300 ? "0.8" : "1.2"}
+                fill={isWin ? "var(--color-green)" : "var(--color-red)"}
+                opacity={activePoint?.tradeIndex === pt.tradeIndex ? "1" : "0.6"}
+              />
+            );
+          })}
+
+          {/* Config Change Event Markers */}
+          {configChanges && configChanges.length > 0 && configChanges.map((cc, i) => {
+            const minTs = points[0]?.ts || 0;
+            const maxTs = points[points.length - 1]?.ts || Date.now();
+            const tsRange = Math.max(1, maxTs - minTs);
+            const clampedTs = Math.max(minTs, Math.min(maxTs, cc.ts || minTs));
+            const x = ((clampedTs - minTs) / tsRange) * 100;
+            const isSelected = activeConfigDiff?.ts === cc.ts;
+
+            return (
+              <g
+                key={`cfg-ev-${i}`}
+                className="cursor-pointer group/marker"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveConfigDiff(isSelected ? null : cc);
+                }}
+                tabIndex={0}
+                role="button"
+                aria-label={`Config change at ${new Date(cc.ts).toLocaleTimeString()}: ${cc.label || 'Parameters updated'}. Click to view diff.`}
+              >
+                <line
+                  x1={x} y1="0" x2={x} y2="100"
+                  stroke="var(--color-amber)"
+                  strokeWidth={isSelected ? "0.8" : "0.4"}
+                  strokeDasharray="2,2"
+                  className="opacity-80 group-hover/marker:opacity-100"
+                />
               </g>
+            );
+          })}
+
+          {/* Vertical Crosshair Guide Line */}
+          {activePoint && (
+            <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1.5,1.5" opacity="0.8" />
+          )}
+        </svg>
+
+        {/* Perfectly Circular Crosshair Overlay Markers using CSS absolute positioning */}
+        {activePoint && (
+          <div className="absolute inset-0 pointer-events-none px-6 pb-4">
+            {showPnl && (
+              <div
+                className="absolute w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border border-surface shadow-md transition-all duration-75 flex items-center justify-center"
+                style={{
+                  left: `${activePoint.x}%`,
+                  top: `${activePoint.yPnl}%`,
+                  backgroundColor: activePoint.cumPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)'
+                }}
+              >
+                <div
+                  className="w-5 h-5 -ml-1 -mt-1 rounded-full border animate-ping"
+                  style={{ borderColor: activePoint.cumPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}
+                />
+              </div>
             )}
             {showHitRate && (
-              <g>
-                <circle cx={activePoint.x} cy={activePoint.yHr} r="3" fill="var(--color-accent)" />
-                <circle cx={activePoint.x} cy={activePoint.yHr} r="5" fill="none" stroke="var(--color-accent)" strokeWidth="0.5" className="animate-pulse origin-center" />
-              </g>
+              <div
+                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-accent border border-surface shadow-md transition-all duration-75"
+                style={{
+                  left: `${activePoint.x}%`,
+                  top: `${activePoint.yHr}%`
+                }}
+              />
             )}
             {showPf && (
-              <g>
-                <circle cx={activePoint.x} cy={activePoint.yPf} r="3" fill="var(--color-purple)" />
-              </g>
+              <div
+                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-purple-500 border border-surface shadow-md transition-all duration-75"
+                style={{
+                  left: `${activePoint.x}%`,
+                  top: `${activePoint.yPf}%`
+                }}
+              />
             )}
             {showSharpe && (
-              <g>
-                <circle cx={activePoint.x} cy={activePoint.ySharpe} r="3" fill="var(--color-amber)" />
-              </g>
+              <div
+                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-amber border border-surface shadow-md transition-all duration-75"
+                style={{
+                  left: `${activePoint.x}%`,
+                  top: `${activePoint.ySharpe}%`
+                }}
+              />
             )}
             {showSortino && (
-              <g>
-                <circle cx={activePoint.x} cy={activePoint.ySortino} r="3" fill="#06b6d4" />
-              </g>
+              <div
+                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-cyan-400 border border-surface shadow-md transition-all duration-75"
+                style={{
+                  left: `${activePoint.x}%`,
+                  top: `${activePoint.ySortino}%`
+                }}
+              />
             )}
-          </g>
+          </div>
         )}
-      </svg>
-    </div>
 
-      {/* Interactive Config Change Diff Details Popover */}
+        {/* Rich Hover Floating Tooltip */}
+        {hoverData && (
+          <div
+            className="absolute top-2 z-30 bg-surface/95 border border-border/80 backdrop-blur-md p-2.5 rounded-xl shadow-2xl flex flex-col gap-1 text-[10.5px] font-mono pointer-events-none transition-all duration-75"
+            style={{
+              left: hoverData.x > 60 ? 'auto' : `${Math.max(2, hoverData.x + 2)}%`,
+              right: hoverData.x > 60 ? `${Math.max(2, 100 - hoverData.x + 2)}%` : 'auto'
+            }}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-border/30 pb-1 font-bold">
+              <span className="text-text">Trade #{hoverData.tradeIndex}</span>
+              <span className="text-accent">{hoverData.symbol} ({hoverData.direction})</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-0.5">
+              <div>
+                <span className="text-dim text-[9px]">Entry: </span>
+                <span className="text-text font-bold">${hoverData.entryPrice ? hoverData.entryPrice.toLocaleString() : '---'}</span>
+              </div>
+              <div>
+                <span className="text-dim text-[9px]">Exit: </span>
+                <span className="text-text font-bold">${hoverData.exitPrice ? hoverData.exitPrice.toLocaleString() : '---'}</span>
+              </div>
+              <div>
+                <span className="text-dim text-[9px]">P&L: </span>
+                <span className={cn("font-bold", pnlClass(hoverData.pnl))}>{fmtUSD(hoverData.pnl)}</span>
+              </div>
+              <div>
+                <span className="text-dim text-[9px]">Duration: </span>
+                <span className="text-text font-bold">{hoverData.durationMs ? formatDuration(hoverData.durationMs) : '---'}</span>
+              </div>
+            </div>
+            <div className="border-t border-border/20 pt-1 text-[9px] text-dim flex items-center justify-between">
+              <span>Strategy: <span className="text-text font-semibold">{hoverData.strategy}</span></span>
+              <span>Cum PnL: <span className={cn("font-bold", pnlClass(hoverData.cumPnl))}>{fmtUSD(hoverData.cumPnl)}</span></span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Draggable Mini Range Brush Slider Underneath Chart */}
+      {sortedRawTrades.length >= 2 && (
+        <div className="flex flex-col gap-1 px-1">
+          <div
+            ref={brushRef}
+            className="relative h-4 bg-surface/40 border border-border/30 rounded-md overflow-hidden cursor-pointer"
+            onMouseDown={(e) => handleBrushMouseDown(e, 'move')}
+          >
+            {/* Background Mini Path representation */}
+            <div className="absolute inset-0 opacity-20 bg-accent/20" />
+
+            {/* Selected Range Overlay Window */}
+            <div
+              className="absolute top-0 bottom-0 bg-accent/25 border-x-2 border-accent transition-none"
+              style={{
+                left: `${rangeSpan[0]}%`,
+                width: `${rangeSpan[1] - rangeSpan[0]}%`
+              }}
+            >
+              {/* Left Handle */}
+              <div
+                className="absolute left-0 top-0 bottom-0 w-2.5 bg-accent/80 hover:bg-accent cursor-ew-resize flex items-center justify-center"
+                onMouseDown={(e) => handleBrushMouseDown(e, 'left')}
+              >
+                <div className="w-0.5 h-2 bg-background rounded-full" />
+              </div>
+              {/* Right Handle */}
+              <div
+                className="absolute right-0 top-0 bottom-0 w-2.5 bg-accent/80 hover:bg-accent cursor-ew-resize flex items-center justify-center"
+                onMouseDown={(e) => handleBrushMouseDown(e, 'right')}
+              >
+                <div className="w-0.5 h-2 bg-background rounded-full" />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Adaptive X-Axis Labels (Max 8-12 ticks, Non-overlapping) */}
+      {adaptiveTicks.length > 0 && (
+        <div className="flex items-center justify-between px-2 pt-0.5 text-[8.5px] font-mono text-dim/70 relative">
+          {adaptiveTicks.map((tick, idx) => {
+            const isFirst = idx === 0;
+            const isLast = idx === adaptiveTicks.length - 1;
+
+            return (
+              <div
+                key={idx}
+                className={cn(
+                  "flex flex-col gap-0.5 transition-colors duration-150",
+                  isFirst && "items-start text-left",
+                  isLast && "items-end text-right",
+                  !isFirst && !isLast && "items-center text-center"
+                )}
+              >
+                <span className="font-bold text-[8.5px] text-text/70">
+                  {tick.label}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Config Diff Details Popover */}
       {activeConfigDiff && (
         <div className="bg-surface/95 border border-amber/40 p-3 rounded-xl shadow-xl flex flex-col gap-2 text-xs font-mono text-left animate-in fade-in duration-200">
           <div className="flex items-center justify-between border-b border-amber/20 pb-1.5">
@@ -1510,42 +1851,6 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Intuitive 5-Milestone X-Axis Bar with Active Tracking Marker */}
-      {points.length >= 2 && (
-        <div className="flex items-center justify-between px-2 pt-1.5 text-[8.5px] font-mono text-dim/70 border-t border-border/20 relative">
-          {[0, 0.25, 0.5, 0.75, 1.0].map((fraction, idx) => {
-            const ptIdx = Math.min(points.length - 1, Math.floor(fraction * (points.length - 1)));
-            const pt = points[ptIdx];
-            if (!pt) return null;
-            const isFirst = idx === 0;
-            const isLast = idx === 4;
-            const isActive = activePoint?.tradeIndex === pt.tradeIndex;
-
-            return (
-              <div
-                key={idx}
-                className={cn(
-                  "flex flex-col gap-0.5 transition-colors duration-150",
-                  isFirst && "items-start text-left",
-                  isLast && "items-end text-right",
-                  !isFirst && !isLast && "items-center text-center",
-                  isActive ? "text-accent font-black" : "text-dim/70"
-                )}
-              >
-                <span className={cn("font-bold text-[9px]", isActive ? "text-accent" : "text-text/80")}>
-                  #{pt.tradeIndex}
-                </span>
-                {pt.ts > 0 && (
-                  <span className="text-[7.5px] text-dim/60 font-medium">
-                    {new Date(pt.ts).toLocaleDateString([], { month: 'numeric', day: 'numeric' })} {new Date(pt.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                )}
-              </div>
-            );
-          })}
         </div>
       )}
     </div>
@@ -1693,7 +1998,7 @@ export const HitRateTrend = ({ trades = [], height = 180 }) => {
         {latestPoint && (
           <g>
             <line x1={latestPoint.x} y1="0" x2={latestPoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1,2" />
-            <circle cx={latestPoint.x} cy={latestPoint.y} r="2.5" fill="var(--color-accent)" className="animate-pulse" />
+            <circle cx={latestPoint.x} cy={latestPoint.y} r="2.5" fill="var(--color-accent)" className="animate-pulse"  vectorEffect="non-scaling-stroke" />
           </g>
         )}
       </svg>
@@ -1829,7 +2134,7 @@ export const TODPerformance = ({ data = [] }) => {
                 r="3"
                 fill="var(--color-accent)"
                 className="animate-pulse"
-              />
+               vectorEffect="non-scaling-stroke" />
             </g>
           )}
         </svg>

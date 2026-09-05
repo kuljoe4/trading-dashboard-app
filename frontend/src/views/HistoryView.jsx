@@ -1464,7 +1464,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                                 <span className="text-[8px] text-dim font-mono">{strategyLabel(t)} · Peak +{Number(t.max_rr_achieved || 0).toFixed(1)}R</span>
                               </div>
                             </div>
-                            <span className="text-xs font-black font-mono text-green shrink-0">{fmtUSD(safeNum(t.pnl))}</span>
+                            <span className={cn("text-xs font-black font-mono shrink-0", pnlClass(safeNum(t.pnl)))}>{fmtUSD(safeNum(t.pnl))}</span>
                           </div>
                         ))
                       )}
@@ -2311,7 +2311,7 @@ export const HistoryView = () => {
                                 <span className="text-[8.5px] text-dim font-mono font-medium">{new Date(t.entry_ts || t.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' })} · Peak +{Number(t.max_rr_achieved || 0).toFixed(1)}R</span>
                               </div>
                             </div>
-                            <span className="text-sm font-black font-mono text-green shrink-0">{fmtUSD(safeNum(t.pnl))}</span>
+                            <span className={cn("text-sm font-black font-mono shrink-0", pnlClass(safeNum(t.pnl)))}>{fmtUSD(safeNum(t.pnl))}</span>
                           </div>
                         ))
                       )}

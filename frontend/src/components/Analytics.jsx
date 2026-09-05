@@ -2,7 +2,7 @@ import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
 import { fmtUSD, solveSmoothing, pnlClass } from '../lib/theme';
 import { formatDuration } from '../lib/formatters';
 import { cn, Tooltip } from '../components/ui/primitives';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, List, Grid } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, List, Grid, Maximize2, Minimize2, Layers, ZoomIn } from 'lucide-react';
 
 const downsample = (data, threshold = 100) => {
   if (data.length <= threshold) return data;
@@ -928,6 +928,7 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
 
 export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance, configChanges = [], onToggleSeries }) => {
   const containerRef = useRef(null);
+  const plotRef = useRef(null);
   const brushRef = useRef(null);
   const chartId = useId().replace(/:/g, '');
   const pnlGradientId = `pnl-grad-${chartId}`;
@@ -936,12 +937,31 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
   const [focusedIndex, setFocusedIndex] = useState(null);
   const [activeConfigDiff, setActiveConfigDiff] = useState(null);
 
-  // New state controls: mode, zoom preset, range selection
+  // Expanded UX & Controls
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [groupingMode, setGroupingMode] = useState('auto'); // 'auto' | 'raw' | 'grouped'
   const [axisMode, setAxisMode] = useState('time'); // 'time' | 'trade'
-  const [activePreset, setActivePreset] = useState('ALL'); // '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'ALL'
+  const [activePreset, setActivePreset] = useState('ALL'); // '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'ALL' | 'Custom'
   const [rangeSpan, setRangeSpan] = useState([0, 100]); // percentage [minX, maxX]
   const [isDraggingBrush, setIsDraggingBrush] = useState(false);
-  const [brushDragStart, setBrushDragStart] = useState(null);
+
+  // Drag state for touch/pointer Events
+  const dragStateRef = useRef({
+    isDragging: false,
+    type: null,
+    startX: 0,
+    startSpan: [0, 100]
+  });
+
+  // Handle ESC key to dismiss fullscreen
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') setIsFullscreen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
 
   // Pre-process and sort all raw trades chronologically
   const sortedRawTrades = useMemo(() => {
@@ -1008,10 +1028,18 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     const startTs = minTs + (rangeSpan[0] / 100) * totalDuration;
     const endTs = minTs + (rangeSpan[1] / 100) * totalDuration;
 
-    return sortedRawTrades.filter(item => item.exitTs >= startTs && item.exitTs <= endTs);
+    const res = sortedRawTrades.filter(item => item.exitTs >= startTs && item.exitTs <= endTs);
+    return res.length >= 2 ? res : sortedRawTrades.slice(-2);
   }, [sortedRawTrades, rangeSpan]);
 
-  // Compute performance points and curves over filtered trades
+  // Determine whether to activate trade grouping (bucketing)
+  const isGrouped = useMemo(() => {
+    if (groupingMode === 'grouped') return true;
+    if (groupingMode === 'raw') return false;
+    return filteredTradeItems.length > 35; // Auto group if > 35 trades
+  }, [groupingMode, filteredTradeItems.length]);
+
+  // Compute performance points, grouped buckets, and curves over filtered trades
   const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange, maxRatio, adaptiveTicks } = useMemo(() => {
     const rawItems = filteredTradeItems;
     if (rawItems.length < 2) {
@@ -1021,9 +1049,57 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     }
 
     const count = rawItems.length;
+
+    // Apply Smart Grouping / Bucketing when enabled
+    let displayItems = rawItems;
+    if (isGrouped && count > 20) {
+      const bucketCount = Math.min(30, Math.max(12, Math.floor(count / 3)));
+      const groupSize = count / bucketCount;
+      const grouped = [];
+
+      for (let g = 0; g < bucketCount; g++) {
+        const startIdx = Math.floor(g * groupSize);
+        const endIdx = g === bucketCount - 1 ? count : Math.floor((g + 1) * groupSize);
+        const chunk = rawItems.slice(startIdx, endIdx);
+        if (chunk.length === 0) continue;
+
+        const lastItem = chunk[chunk.length - 1];
+        let chunkPnl = 0;
+        let chunkWins = 0;
+        let chunkLosses = 0;
+        const symbolSet = new Set();
+
+        chunk.forEach(ci => {
+          const p = Number(ci.trade?.pnl || 0);
+          chunkPnl += p;
+          if (p > 0) chunkWins++;
+          else if (p < 0) chunkLosses++;
+          if (ci.trade?.symbol) symbolSet.add(ci.trade.symbol);
+        });
+
+        grouped.push({
+          trade: {
+            ...lastItem.trade,
+            pnl: chunkPnl,
+            symbol: symbolSet.size === 1 ? Array.from(symbolSet)[0] : `${symbolSet.size} Pairs`,
+            strategy: `${chunk.length} Trades Group`
+          },
+          exitTs: lastItem.exitTs,
+          entryTs: chunk[0].entryTs,
+          isBucket: true,
+          bucketTradeCount: chunk.length,
+          bucketWins: chunkWins,
+          bucketLosses: chunkLosses,
+          bucketPnl: chunkPnl
+        });
+      }
+      displayItems = grouped;
+    }
+
+    const dCount = displayItems.length;
     let totalNetPnl = 0;
-    for (let i = 0; i < count; i++) {
-      totalNetPnl += Number(rawItems[i].trade?.pnl || 0);
+    for (let i = 0; i < dCount; i++) {
+      totalNetPnl += Number(displayItems[i].trade?.pnl || 0);
     }
 
     let cumPnl = 0;
@@ -1036,13 +1112,13 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     let sumSqReturnPct = 0;
     let downsideSumSqReturnPct = 0;
 
-    const series = new Array(count);
-    const minTs = rawItems[0].exitTs;
-    const maxTs = rawItems[count - 1].exitTs;
+    const series = new Array(dCount);
+    const minTs = displayItems[0].exitTs;
+    const maxTs = displayItems[dCount - 1].exitTs;
     const timeSpanMs = Math.max(1, maxTs - minTs);
 
-    for (let idx = 0; idx < count; idx++) {
-      const item = rawItems[idx];
+    for (let idx = 0; idx < dCount; idx++) {
+      const item = displayItems[idx];
       const t = item.trade;
       const pnl = Number(t?.pnl || 0);
       cumPnl += pnl;
@@ -1054,7 +1130,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       sumSqReturnPct += retPct * retPct;
 
       if (pnl > 0) {
-        totalWins++;
+        totalWins += item.isBucket ? item.bucketWins : 1;
         grossWin += pnl;
       } else if (pnl < 0) {
         grossLoss += Math.abs(pnl);
@@ -1062,7 +1138,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       }
 
       const tradeNum = idx + 1;
-      const hitRate = (totalWins / tradeNum) * 100;
+      const hitRate = (totalWins / Math.max(1, idx + 1)) * 100;
       const pf = grossLoss > 0 ? (grossWin / grossLoss) : (grossWin > 0 ? 10 : 0);
 
       let sharpe = 0;
@@ -1095,7 +1171,11 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
         pf,
         sharpe,
         sortino,
-        ts: item.exitTs
+        ts: item.exitTs,
+        isBucket: item.isBucket || false,
+        bucketTradeCount: item.bucketTradeCount || 1,
+        bucketWins: item.bucketWins,
+        bucketLosses: item.bucketLosses
       };
     }
 
@@ -1123,7 +1203,6 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     const ratioScaleMax = Math.max(3.0, peakRatio * 1.15);
 
     const pts = series.map((d, i) => {
-      // Calculate x position based on axisMode
       let x = 0;
       if (axisMode === 'time' && timeSpanMs > 0) {
         x = ((d.ts - minTs) / timeSpanMs) * 100;
@@ -1157,39 +1236,84 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
         strategy: d.strategy,
         durationMs: d.durationMs,
         tradeIndex: d.tradeIndex,
-        ts: d.ts
+        ts: d.ts,
+        isBucket: d.isBucket,
+        bucketTradeCount: d.bucketTradeCount,
+        bucketWins: d.bucketWins,
+        bucketLosses: d.bucketLosses
       };
     });
 
-    // Compute Adaptive X-Axis Ticks (Max 8 - 12 Ticks)
-    const tickCount = Math.min(10, Math.max(4, Math.floor(count / 10) + 4));
+    // Compute Smart Hierarchical Non-Overlapping X-Axis Ticks
+    const tickCount = Math.min(10, Math.max(4, Math.floor(dCount / 8) + 4));
     const ticks = [];
 
     if (axisMode === 'time') {
       const DAY_MS = 86400000;
+      const HOUR_MS = 3600000;
+      let lastDayStr = '';
+      let shownAmPm = false;
 
       for (let k = 0; k < tickCount; k++) {
         const frac = k / (tickCount - 1);
         const tickTs = minTs + frac * timeSpanMs;
         const tickX = frac * 100;
+        const d = new Date(tickTs);
 
-        let label = '';
-        if (timeSpanMs < 2 * DAY_MS) {
-          label = new Date(tickTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        } else if (timeSpanMs < 60 * DAY_MS) {
-          label = new Date(tickTs).toLocaleDateString([], { month: 'short', day: 'numeric' });
+        let primaryLabel = '';
+        let secondaryLabel = '';
+        let isDayBoundary = false;
+
+        if (timeSpanMs > 60 * DAY_MS) {
+          primaryLabel = d.toLocaleDateString([], { month: 'short', year: '2-digit' });
+        } else if (timeSpanMs > 7 * DAY_MS) {
+          primaryLabel = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
         } else {
-          label = new Date(tickTs).toLocaleDateString([], { month: 'short', year: '2-digit' });
+          const dayStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          if (dayStr !== lastDayStr) {
+            lastDayStr = dayStr;
+            isDayBoundary = true;
+            primaryLabel = dayStr;
+            shownAmPm = false;
+          }
+
+          const hours = d.getHours();
+          if (timeSpanMs <= 6 * HOUR_MS) {
+            secondaryLabel = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+          } else {
+            if (!shownAmPm || hours === 0 || hours === 12) {
+              secondaryLabel = d.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+              shownAmPm = true;
+            } else {
+              const h12 = hours % 12 || 12;
+              secondaryLabel = `${h12}`;
+            }
+          }
         }
 
-        ticks.push({ x: tickX, label, ts: tickTs });
+        ticks.push({
+          x: tickX,
+          label: primaryLabel || secondaryLabel,
+          primaryLabel,
+          secondaryLabel,
+          isDayBoundary,
+          ts: tickTs,
+          align: k === 0 ? 'start' : (k === tickCount - 1 ? 'end' : 'center')
+        });
       }
     } else {
       for (let k = 0; k < tickCount; k++) {
         const frac = k / (tickCount - 1);
         const tradeIdx = Math.round(1 + frac * (count - 1));
         const tickX = frac * 100;
-        ticks.push({ x: tickX, label: `#${tradeIdx}`, tradeIdx });
+        ticks.push({
+          x: tickX,
+          label: `#${tradeIdx}`,
+          primaryLabel: '',
+          secondaryLabel: `#${tradeIdx}`,
+          tradeIdx,
+          align: k === 0 ? 'start' : (k === tickCount - 1 ? 'end' : 'center')
+        });
       }
     }
 
@@ -1204,7 +1328,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       maxRatio: ratioScaleMax,
       adaptiveTicks: ticks
     };
-  }, [filteredTradeItems, startingBalance, axisMode]);
+  }, [filteredTradeItems, startingBalance, axisMode, isGrouped]);
 
   const pnlPathD = useMemo(() => {
     if (!points.length) return '';
@@ -1240,9 +1364,12 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     return `${pnlPathD} L 100 ${zeroPnlY} L 0 ${zeroPnlY} Z`;
   }, [pnlPathD, points, zeroPnlY]);
 
+  // Exact Point Crosshair Interaction Handler (measured strictly against SVG plotRef)
   const handleInteraction = (clientX) => {
-    if (!containerRef.current || points.length < 2) return;
-    const rect = containerRef.current.getBoundingClientRect();
+    if (!plotRef.current || points.length < 2) return;
+    const rect = plotRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
     const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
 
     let closestIdx = 0;
@@ -1288,56 +1415,99 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     }
   };
 
-  // Draggable Mini Brush Range Slider Handlers
-  const handleBrushMouseDown = (e, type) => {
+  // Modern PointerEvent / Mobile Touch Drag Handlers for Zoom Slider (with Mouse fallback)
+  const handleBrushMouseDown = (e, type) => handlePointerDown(e, type);
+  const handlePointerDown = (e, type) => {
     e.stopPropagation();
+    if (!brushRef.current) return;
+
+    const pointerId = e.pointerId;
+    try {
+      e.currentTarget.setPointerCapture(pointerId);
+    } catch (_) {}
+
+    dragStateRef.current = {
+      isDragging: true,
+      type,
+      startX: e.clientX,
+      startSpan: [...rangeSpan],
+      pointerId
+    };
     setIsDraggingBrush(type);
-    setBrushDragStart(e.clientX);
   };
 
-  const handleBrushMouseMove = (e) => {
-    if (!isDraggingBrush || !brushRef.current) return;
+  const handlePointerMove = (e) => {
+    if (!dragStateRef.current.isDragging || !brushRef.current) return;
     const rect = brushRef.current.getBoundingClientRect();
-    const deltaX = e.clientX - brushDragStart;
+    if (rect.width <= 0) return;
+
+    const deltaX = e.clientX - dragStateRef.current.startX;
     const deltaPct = (deltaX / rect.width) * 100;
+    const [start0, start1] = dragStateRef.current.startSpan;
+    const type = dragStateRef.current.type;
+    const MIN_SPAN = 2.0;
 
-    setBrushDragStart(e.clientX);
-
-    if (isDraggingBrush === 'left') {
-      setRangeSpan(prev => [Math.max(0, Math.min(prev[1] - 5, prev[0] + deltaPct)), prev[1]]);
-    } else if (isDraggingBrush === 'right') {
-      setRangeSpan(prev => [prev[0], Math.min(100, Math.max(prev[0] + 5, prev[1] + deltaPct))]);
-    } else if (isDraggingBrush === 'move') {
-      const width = rangeSpan[1] - rangeSpan[0];
-      let newStart = rangeSpan[0] + deltaPct;
-      let newEnd = rangeSpan[1] + deltaPct;
+    if (type === 'left') {
+      const newStart = Math.max(0, Math.min(start1 - MIN_SPAN, start0 + deltaPct));
+      setRangeSpan([newStart, start1]);
+      setActivePreset('Custom');
+    } else if (type === 'right') {
+      const newEnd = Math.min(100, Math.max(start0 + MIN_SPAN, start1 + deltaPct));
+      setRangeSpan([start0, newEnd]);
+      setActivePreset('Custom');
+    } else if (type === 'move') {
+      const spanWidth = start1 - start0;
+      let newStart = start0 + deltaPct;
+      let newEnd = start1 + deltaPct;
 
       if (newStart < 0) {
         newStart = 0;
-        newEnd = width;
+        newEnd = spanWidth;
       }
       if (newEnd > 100) {
         newEnd = 100;
-        newStart = 100 - width;
+        newStart = 100 - spanWidth;
       }
       setRangeSpan([newStart, newEnd]);
+      setActivePreset('Custom');
     }
   };
 
-  const handleBrushMouseUp = () => {
-    setIsDraggingBrush(false);
+  const handlePointerUp = (e) => {
+    if (dragStateRef.current.isDragging) {
+      try {
+        if (e.currentTarget && e.pointerId !== undefined) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }
+      } catch (_) {}
+      dragStateRef.current.isDragging = false;
+      setIsDraggingBrush(false);
+    }
   };
 
-  useEffect(() => {
-    if (isDraggingBrush) {
-      window.addEventListener('mousemove', handleBrushMouseMove);
-      window.addEventListener('mouseup', handleBrushMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleBrushMouseMove);
-        window.removeEventListener('mouseup', handleBrushMouseUp);
-      };
+  const handleTrackClick = (e) => {
+    if (dragStateRef.current.isDragging || !brushRef.current) return;
+    const rect = brushRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+
+    const clickX = e.clientX - rect.left;
+    const clickPct = (clickX / rect.width) * 100;
+    const currentWidth = rangeSpan[1] - rangeSpan[0];
+
+    let newStart = clickPct - currentWidth / 2;
+    let newEnd = clickPct + currentWidth / 2;
+
+    if (newStart < 0) {
+      newStart = 0;
+      newEnd = Math.min(100, currentWidth);
     }
-  }, [isDraggingBrush, rangeSpan]);
+    if (newEnd > 100) {
+      newEnd = 100;
+      newStart = Math.max(0, 100 - currentWidth);
+    }
+    setRangeSpan([newStart, newEnd]);
+    setActivePreset('Custom');
+  };
 
   if (!trades || trades.length < 2) {
     return (
@@ -1349,9 +1519,9 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
 
   const activePoint = hoverData || (focusedIndex !== null ? points[focusedIndex] : points[points.length - 1]);
 
-  return (
-    <div className="flex flex-col gap-2.5 w-full select-none">
-      {/* Top Controls Bar: Axis Mode, Zoom Presets, Series Toggles */}
+  const mainChartContent = (
+    <div className={cn("flex flex-col gap-2.5 w-full select-none", isFullscreen && "h-full justify-between")}>
+      {/* Top Controls Bar: Axis Mode, Zoom Presets, Grouping, Fullscreen & Series Toggles */}
       <div className="flex items-center justify-between gap-3 px-1 flex-wrap text-xs font-mono">
         <div className="flex items-center gap-2 flex-wrap">
           {/* Axis Mode Switcher */}
@@ -1378,6 +1548,21 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
             </button>
           </div>
 
+          {/* Grouping Mode Switcher */}
+          <div className="flex items-center bg-surface/40 border border-border/30 rounded-lg p-0.5">
+            <button
+              type="button"
+              onClick={() => setGroupingMode(groupingMode === 'grouped' ? 'raw' : 'grouped')}
+              title={isGrouped ? "Grouped Points Active (Click for All Raw Points)" : "Show Grouped Points"}
+              className={cn(
+                "flex items-center gap-1 px-1.5 py-0.5 rounded text-[9.5px] font-bold transition-all cursor-pointer",
+                isGrouped ? "bg-accent/20 text-accent font-black border border-accent/30" : "text-dim/60 hover:text-text"
+              )}
+            >
+              <Layers size={11} /> {isGrouped ? "Grouped" : "Raw"}
+            </button>
+          </div>
+
           {/* Time Zoom Range Presets */}
           <div className="flex items-center bg-surface/40 border border-border/30 rounded-lg p-0.5">
             {['1W', '1M', '3M', '6M', 'YTD', '1Y', 'ALL'].map(p => (
@@ -1399,7 +1584,9 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
         {/* Dynamic Active Point Indicator Banner */}
         <div className="flex items-center gap-2.5 flex-wrap">
           <span className="text-[10px] text-dim/80 uppercase tracking-wider font-sans font-bold bg-surface/50 border border-border/30 px-2 py-0.5 rounded-lg">
-            {hoverData || focusedIndex !== null ? `Trade #${activePoint?.tradeIndex} (${activePoint?.symbol})` : 'Strategy Totals'}
+            {hoverData || focusedIndex !== null
+              ? (activePoint?.isBucket ? `Bucket (${activePoint?.bucketTradeCount} Trades)` : `Trade #${activePoint?.tradeIndex} (${activePoint?.symbol})`)
+              : 'Strategy Totals'}
           </span>
           {showPnl && (
             <span className={cn("font-bold text-xs font-mono", (activePoint?.cumPnl || 0) >= 0 ? "text-green" : "text-red")}>
@@ -1428,8 +1615,8 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
           )}
         </div>
 
-        {/* Series Toggles */}
-        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+        {/* Action controls & Series Toggles */}
+        <div className="flex items-center gap-2 flex-wrap text-[10px]">
           {onToggleSeries ? (
             <>
               <button
@@ -1464,23 +1651,37 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
               {showSortino && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-cyan-400 rounded-full inline-block" /> Sortino</span>}
             </>
           )}
+
+          {/* Fullscreen Expansion Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(!isFullscreen)}
+            aria-label="Toggle full screen chart view"
+            title="Toggle Fullscreen Chart View"
+            className="p-1 rounded bg-surface/60 border border-border/40 text-dim hover:text-text hover:bg-surface transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none ml-1"
+          >
+            {isFullscreen ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+          </button>
         </div>
       </div>
 
-      {/* Chart Frame with Dual Axes & Focus Ring */}
+      {/* Chart Frame with Exact Crosshairs & Dual Axes */}
       <div
         ref={containerRef}
-        className="relative w-full overflow-hidden rounded-xl border border-border/30 bg-surface/20 p-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none tab-focus-ring"
-        style={{ height: `${height}px`, touchAction: 'pan-y' }}
+        className={cn(
+          "relative w-full overflow-hidden rounded-xl border border-border/30 bg-surface/20 p-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none tab-focus-ring",
+          isFullscreen && "flex-1 min-h-[400px]"
+        )}
+        style={{ height: isFullscreen ? '100%' : `${height}px`, touchAction: 'pan-y' }}
         onMouseMove={(e) => handleInteraction(e.clientX)}
         onTouchMove={(e) => e.touches[0] && handleInteraction(e.touches[0].clientX)}
         onMouseLeave={() => { setHoverData(null); }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="region"
-        aria-label={`Strategy Performance Overlay chart with ${points.length} trades. Active Trade #${activePoint?.tradeIndex}: Cumulative PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%. Use Left and Right arrow keys to step through trade points.`}
+        aria-label={`Strategy Performance Overlay chart with ${points.length} points. Active Trade #${activePoint?.tradeIndex}: Cumulative PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%. Use Left and Right arrow keys to step through trade points.`}
       >
-        {/* Dual Axis Labels Overlay (Left: PnL $, Right: Hit Rate / Ratio) */}
+        {/* Dual Axis Labels Overlay */}
         <div className="absolute inset-y-2 left-2 flex flex-col justify-between text-[8px] font-mono font-bold text-dim/60 pointer-events-none z-10">
           <span>{fmtUSD(pnlMax)}</span>
           <span>{fmtUSD((pnlMax + pnlMin) / 2)}</span>
@@ -1492,329 +1693,343 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
           <span>{showHitRate ? `${Math.round(hrMin)}%` : '0.0R'}</span>
         </div>
 
-        <svg className="w-full h-full overflow-visible px-6 pb-4" viewBox="0 0 100 100" preserveAspectRatio="none">
-          <defs>
-            <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="var(--color-green)" stopOpacity="0.0" />
-            </linearGradient>
-            <linearGradient id={`${pnlGradientId}-neg`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0.0" />
-            </linearGradient>
-            <filter id={`${chartId}-glow`} x="-10%" y="-10%" width="120%" height="120%">
-              <feGaussianBlur stdDeviation="0.15" result="blur" />
-              <feComposite in="SourceGraphic" in2="blur" operator="over" />
-            </filter>
-          </defs>
+        {/* Inner SVG plot wrapper ref for exact coordinate math */}
+        <div ref={plotRef} className="relative w-full h-full">
+          <svg className="w-full h-full overflow-visible px-6 pb-4" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.18" />
+                <stop offset="100%" stopColor="var(--color-green)" stopOpacity="0.0" />
+              </linearGradient>
+              <linearGradient id={`${pnlGradientId}-neg`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--color-red)" stopOpacity="0.18" />
+                <stop offset="100%" stopColor="var(--color-red)" stopOpacity="0.0" />
+              </linearGradient>
+              <filter id={`${chartId}-glow`} x="-10%" y="-10%" width="120%" height="120%">
+                <feGaussianBlur stdDeviation="0.15" result="blur" />
+                <feComposite in="SourceGraphic" in2="blur" operator="over" />
+              </filter>
+            </defs>
 
-          {/* Background Grid Lines & Ticks */}
-          {[0, 25, 50, 75, 100].map(y => (
-            <g key={y}>
-              <line
-                x1="0"
-                y1={y}
-                x2="100"
-                y2={y}
-                stroke="var(--color-border)"
-                strokeWidth="0.25"
-                strokeDasharray="1,3"
-                opacity="0.4"
-              />
-            </g>
-          ))}
-
-          {showPnl && (
-            <line
-              x1="0"
-              y1={zeroPnlY}
-              x2="100"
-              y2={zeroPnlY}
-              stroke="var(--color-text)"
-              strokeWidth="0.4"
-              strokeDasharray="2,2"
-              opacity="0.3"
-            />
-          )}
-
-          {showPnl && pnlAreaD && (
-            <path
-              d={pnlAreaD}
-              fill={`url(#${pnlGradientId}-${(activePoint?.cumPnl || 0) >= 0 ? 'pos' : 'neg'})`}
-            />
-          )}
-
-          {showPnl && pnlPathD && (
-            <path
-              d={pnlPathD}
-              fill="none"
-              stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
-              strokeWidth="0.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              filter={`url(#${chartId}-glow)`}
-            />
-          )}
-
-          {showPf && pfPathD && (
-            <path
-              d={pfPathD}
-              fill="none"
-              stroke="var(--color-purple)"
-              strokeWidth="0.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              filter={`url(#${chartId}-glow)`}
-            />
-          )}
-
-          {showSharpe && sharpePathD && (
-            <path
-              d={sharpePathD}
-              fill="none"
-              stroke="var(--color-amber)"
-              strokeWidth="0.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              filter={`url(#${chartId}-glow)`}
-            />
-          )}
-
-          {showSortino && sortinoPathD && (
-            <path
-              d={sortinoPathD}
-              fill="none"
-              stroke="#06b6d4"
-              strokeWidth="0.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              filter={`url(#${chartId}-glow)`}
-            />
-          )}
-
-          {showHitRate && hrPathD && (
-            <path
-              d={hrPathD}
-              fill="none"
-              stroke="var(--color-accent)"
-              strokeWidth="0.6"
-              strokeDasharray={showPnl ? '2.5,2' : 'none'}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              filter={`url(#${chartId}-glow)`}
-            />
-          )}
-
-          {/* Bottom Baseline Win/Loss Markers */}
-          {points.map((pt, i) => {
-            const isWin = pt.pnl > 0;
-            const isLoss = pt.pnl < 0;
-            if (!isWin && !isLoss) return null;
-
-            return (
-              <circle
-                key={`wl-marker-${i}`}
-                cx={pt.x}
-                cy={96}
-                r={points.length > 300 ? "0.8" : "1.2"}
-                fill={isWin ? "var(--color-green)" : "var(--color-red)"}
-                opacity={activePoint?.tradeIndex === pt.tradeIndex ? "1" : "0.6"}
-              />
-            );
-          })}
-
-          {/* Config Change Event Markers */}
-          {configChanges && configChanges.length > 0 && configChanges.map((cc, i) => {
-            const minTs = points[0]?.ts || 0;
-            const maxTs = points[points.length - 1]?.ts || Date.now();
-            const tsRange = Math.max(1, maxTs - minTs);
-            const clampedTs = Math.max(minTs, Math.min(maxTs, cc.ts || minTs));
-            const x = ((clampedTs - minTs) / tsRange) * 100;
-            const isSelected = activeConfigDiff?.ts === cc.ts;
-
-            return (
-              <g
-                key={`cfg-ev-${i}`}
-                className="cursor-pointer group/marker"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActiveConfigDiff(isSelected ? null : cc);
-                }}
-                tabIndex={0}
-                role="button"
-                aria-label={`Config change at ${new Date(cc.ts).toLocaleTimeString()}: ${cc.label || 'Parameters updated'}. Click to view diff.`}
-              >
+            {/* Background Grid Lines */}
+            {[0, 25, 50, 75, 100].map(y => (
+              <g key={y}>
                 <line
-                  x1={x} y1="0" x2={x} y2="100"
-                  stroke="var(--color-amber)"
-                  strokeWidth={isSelected ? "0.8" : "0.4"}
-                  strokeDasharray="2,2"
-                  className="opacity-80 group-hover/marker:opacity-100"
+                  x1="0" y1={y} x2="100" y2={y}
+                  stroke="var(--color-border)"
+                  strokeWidth="0.25"
+                  strokeDasharray="1,3"
+                  opacity="0.4"
                 />
               </g>
-            );
-          })}
+            ))}
 
-          {/* Vertical Crosshair Guide Line */}
-          {activePoint && (
-            <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1.5,1.5" opacity="0.8" />
-          )}
-        </svg>
-
-        {/* Perfectly Circular Crosshair Overlay Markers using CSS absolute positioning */}
-        {activePoint && (
-          <div className="absolute inset-0 pointer-events-none px-6 pb-4">
             {showPnl && (
-              <div
-                className="absolute w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border border-surface shadow-md transition-all duration-75 flex items-center justify-center"
-                style={{
-                  left: `${activePoint.x}%`,
-                  top: `${activePoint.yPnl}%`,
-                  backgroundColor: activePoint.cumPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)'
-                }}
-              >
-                <div
-                  className="w-5 h-5 -ml-1 -mt-1 rounded-full border animate-ping"
-                  style={{ borderColor: activePoint.cumPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}
-                />
-              </div>
-            )}
-            {showHitRate && (
-              <div
-                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-accent border border-surface shadow-md transition-all duration-75"
-                style={{
-                  left: `${activePoint.x}%`,
-                  top: `${activePoint.yHr}%`
-                }}
+              <line
+                x1="0" y1={zeroPnlY} x2="100" y2={zeroPnlY}
+                stroke="var(--color-text)"
+                strokeWidth="0.4"
+                strokeDasharray="2,2"
+                opacity="0.3"
               />
             )}
-            {showPf && (
-              <div
-                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-purple-500 border border-surface shadow-md transition-all duration-75"
-                style={{
-                  left: `${activePoint.x}%`,
-                  top: `${activePoint.yPf}%`
-                }}
-              />
-            )}
-            {showSharpe && (
-              <div
-                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-amber border border-surface shadow-md transition-all duration-75"
-                style={{
-                  left: `${activePoint.x}%`,
-                  top: `${activePoint.ySharpe}%`
-                }}
-              />
-            )}
-            {showSortino && (
-              <div
-                className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-cyan-400 border border-surface shadow-md transition-all duration-75"
-                style={{
-                  left: `${activePoint.x}%`,
-                  top: `${activePoint.ySortino}%`
-                }}
-              />
-            )}
-          </div>
-        )}
 
-        {/* Rich Hover Floating Tooltip */}
-        {hoverData && (
-          <div
-            className="absolute top-2 z-30 bg-surface/95 border border-border/80 backdrop-blur-md p-2.5 rounded-xl shadow-2xl flex flex-col gap-1 text-[10.5px] font-mono pointer-events-none transition-all duration-75"
-            style={{
-              left: hoverData.x > 60 ? 'auto' : `${Math.max(2, hoverData.x + 2)}%`,
-              right: hoverData.x > 60 ? `${Math.max(2, 100 - hoverData.x + 2)}%` : 'auto'
-            }}
-          >
-            <div className="flex items-center justify-between gap-3 border-b border-border/30 pb-1 font-bold">
-              <span className="text-text">Trade #{hoverData.tradeIndex}</span>
-              <span className="text-accent">{hoverData.symbol} ({hoverData.direction})</span>
+            {showPnl && pnlAreaD && (
+              <path
+                d={pnlAreaD}
+                fill={`url(#${pnlGradientId}-${(activePoint?.cumPnl || 0) >= 0 ? 'pos' : 'neg'})`}
+              />
+            )}
+
+            {showPnl && pnlPathD && (
+              <path
+                d={pnlPathD}
+                fill="none"
+                stroke={(activePoint?.cumPnl || 0) >= 0 ? 'var(--color-green)' : 'var(--color-red)'}
+                strokeWidth="0.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                filter={`url(#${chartId}-glow)`}
+              />
+            )}
+
+            {showPf && pfPathD && (
+              <path
+                d={pfPathD}
+                fill="none"
+                stroke="var(--color-purple)"
+                strokeWidth="0.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                filter={`url(#${chartId}-glow)`}
+              />
+            )}
+
+            {showSharpe && sharpePathD && (
+              <path
+                d={sharpePathD}
+                fill="none"
+                stroke="var(--color-amber)"
+                strokeWidth="0.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                filter={`url(#${chartId}-glow)`}
+              />
+            )}
+
+            {showSortino && sortinoPathD && (
+              <path
+                d={sortinoPathD}
+                fill="none"
+                stroke="#06b6d4"
+                strokeWidth="0.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                filter={`url(#${chartId}-glow)`}
+              />
+            )}
+
+            {showHitRate && hrPathD && (
+              <path
+                d={hrPathD}
+                fill="none"
+                stroke="var(--color-accent)"
+                strokeWidth="0.6"
+                strokeDasharray={showPnl ? '2.5,2' : 'none'}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                filter={`url(#${chartId}-glow)`}
+              />
+            )}
+
+            {/* Bottom Baseline Win/Loss Markers */}
+            {points.map((pt, i) => {
+              const isWin = pt.pnl > 0;
+              const isLoss = pt.pnl < 0;
+              if (!isWin && !isLoss) return null;
+
+              return (
+                <circle
+                  key={`wl-marker-${i}`}
+                  cx={pt.x}
+                  cy={96}
+                  r={points.length > 300 ? "0.8" : "1.2"}
+                  fill={isWin ? "var(--color-green)" : "var(--color-red)"}
+                  opacity={activePoint?.tradeIndex === pt.tradeIndex ? "1" : "0.6"}
+                />
+              );
+            })}
+
+            {/* Config Change Event Markers */}
+            {configChanges && configChanges.length > 0 && configChanges.map((cc, i) => {
+              const minTs = points[0]?.ts || 0;
+              const maxTs = points[points.length - 1]?.ts || Date.now();
+              const tsRange = Math.max(1, maxTs - minTs);
+              const clampedTs = Math.max(minTs, Math.min(maxTs, cc.ts || minTs));
+              const x = ((clampedTs - minTs) / tsRange) * 100;
+              const isSelected = activeConfigDiff?.ts === cc.ts;
+
+              return (
+                <g
+                  key={`cfg-ev-${i}`}
+                  className="cursor-pointer group/marker"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActiveConfigDiff(isSelected ? null : cc);
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Config change at ${new Date(cc.ts).toLocaleTimeString()}: ${cc.label || 'Parameters updated'}. Click to view diff.`}
+                >
+                  <line
+                    x1={x} y1="0" x2={x} y2="100"
+                    stroke="var(--color-amber)"
+                    strokeWidth={isSelected ? "0.8" : "0.4"}
+                    strokeDasharray="2,2"
+                    className="opacity-80 group-hover/marker:opacity-100"
+                  />
+                </g>
+              );
+            })}
+
+            {/* Vertical & Horizontal Crosshair Guide Lines */}
+            {activePoint && (
+              <g>
+                <line x1={activePoint.x} y1="0" x2={activePoint.x} y2="100" stroke="var(--color-accent)" strokeWidth="0.4" strokeDasharray="1.5,1.5" opacity="0.8" />
+                {showPnl && (
+                  <line x1="0" y1={activePoint.yPnl} x2="100" y2={activePoint.yPnl} stroke="var(--color-accent)" strokeWidth="0.25" strokeDasharray="1,2" opacity="0.4" />
+                )}
+              </g>
+            )}
+          </svg>
+
+          {/* Perfectly Circular Crosshair Target Markers */}
+          {activePoint && (
+            <div className="absolute inset-0 pointer-events-none px-6 pb-4">
+              {showPnl && (
+                <div
+                  className="absolute w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border border-surface shadow-md transition-all duration-75 flex items-center justify-center"
+                  style={{
+                    left: `${activePoint.x}%`,
+                    top: `${activePoint.yPnl}%`,
+                    backgroundColor: activePoint.cumPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)'
+                  }}
+                >
+                  <div
+                    className="w-5 h-5 -ml-1 -mt-1 rounded-full border animate-ping"
+                    style={{ borderColor: activePoint.cumPnl >= 0 ? 'var(--color-green)' : 'var(--color-red)' }}
+                  />
+                </div>
+              )}
+              {showHitRate && (
+                <div
+                  className="absolute w-2.5 h-2.5 -ml-1.25 -mt-1.25 rounded-full bg-accent border border-surface shadow-md transition-all duration-75"
+                  style={{
+                    left: `${activePoint.x}%`,
+                    top: `${activePoint.yHr}%`
+                  }}
+                />
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-0.5">
-              <div>
-                <span className="text-dim text-[9px]">Entry: </span>
-                <span className="text-text font-bold">${hoverData.entryPrice ? hoverData.entryPrice.toLocaleString() : '---'}</span>
+          )}
+
+          {/* Rich Floating Tooltip */}
+          {hoverData && (
+            <div
+              className="absolute top-2 z-30 bg-surface/95 border border-border/80 backdrop-blur-md p-2.5 rounded-xl shadow-2xl flex flex-col gap-1 text-[10.5px] font-mono pointer-events-none transition-all duration-75"
+              style={{
+                left: hoverData.x > 60 ? 'auto' : `${Math.max(2, hoverData.x + 2)}%`,
+                right: hoverData.x > 60 ? `${Math.max(2, 100 - hoverData.x + 2)}%` : 'auto'
+              }}
+            >
+              <div className="flex items-center justify-between gap-3 border-b border-border/30 pb-1 font-bold">
+                <span className="text-text">
+                  {hoverData.isBucket ? `Bucket (${hoverData.bucketTradeCount} Trades)` : <>Trade #{hoverData.tradeIndex}</>}
+                </span>
+                <span className="text-accent">{hoverData.symbol} ({hoverData.direction})</span>
               </div>
-              <div>
-                <span className="text-dim text-[9px]">Exit: </span>
-                <span className="text-text font-bold">${hoverData.exitPrice ? hoverData.exitPrice.toLocaleString() : '---'}</span>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 pt-0.5">
+                {hoverData.isBucket ? (
+                  <>
+                    <div>
+                      <span className="text-dim text-[9px]">Wins/Losses: </span>
+                      <span className="text-text font-bold">{hoverData.bucketWins}W / {hoverData.bucketLosses}L</span>
+                    </div>
+                    <div>
+                      <span className="text-dim text-[9px]">Bucket P&L: </span>
+                      <span className={cn("font-bold", pnlClass(hoverData.pnl))}>{fmtUSD(hoverData.pnl)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <span className="text-dim text-[9px]">Entry: </span>
+                      <span className="text-text font-bold">${hoverData.entryPrice ? hoverData.entryPrice.toLocaleString() : '---'}</span>
+                    </div>
+                    <div>
+                      <span className="text-dim text-[9px]">Exit: </span>
+                      <span className="text-text font-bold">${hoverData.exitPrice ? hoverData.exitPrice.toLocaleString() : '---'}</span>
+                    </div>
+                    <div>
+                      <span className="text-dim text-[9px]">P&L: </span>
+                      <span className={cn("font-bold", pnlClass(hoverData.pnl))}>{fmtUSD(hoverData.pnl)}</span>
+                    </div>
+                    <div>
+                      <span className="text-dim text-[9px]">Duration: </span>
+                      <span className="text-text font-bold">{hoverData.durationMs ? formatDuration(hoverData.durationMs) : '---'}</span>
+                    </div>
+                  </>
+                )}
               </div>
-              <div>
-                <span className="text-dim text-[9px]">P&L: </span>
-                <span className={cn("font-bold", pnlClass(hoverData.pnl))}>{fmtUSD(hoverData.pnl)}</span>
-              </div>
-              <div>
-                <span className="text-dim text-[9px]">Duration: </span>
-                <span className="text-text font-bold">{hoverData.durationMs ? formatDuration(hoverData.durationMs) : '---'}</span>
+              <div className="border-t border-border/20 pt-1 text-[9px] text-dim flex items-center justify-between">
+                <span>Strategy: <span className="text-text font-semibold">{hoverData.strategy}</span></span>
+                <span>Cum PnL: <span className={cn("font-bold", pnlClass(hoverData.cumPnl))}>{fmtUSD(hoverData.cumPnl)}</span></span>
               </div>
             </div>
-            <div className="border-t border-border/20 pt-1 text-[9px] text-dim flex items-center justify-between">
-              <span>Strategy: <span className="text-text font-semibold">{hoverData.strategy}</span></span>
-              <span>Cum PnL: <span className={cn("font-bold", pnlClass(hoverData.cumPnl))}>{fmtUSD(hoverData.cumPnl)}</span></span>
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* Draggable Mini Range Brush Slider Underneath Chart */}
+      {/* Touch-Friendly Draggable Range Brush Slider */}
       {sortedRawTrades.length >= 2 && (
         <div className="flex flex-col gap-1 px-1">
           <div
             ref={brushRef}
-            className="relative h-4 bg-surface/40 border border-border/30 rounded-md overflow-hidden cursor-pointer"
-            onMouseDown={(e) => handleBrushMouseDown(e, 'move')}
+            className="relative h-4 bg-surface/40 border border-border/30 rounded-md overflow-hidden cursor-pointer select-none touch-none"
+            onClick={handleTrackClick}
           >
-            {/* Background Mini Path representation */}
-            <div className="absolute inset-0 opacity-20 bg-accent/20" />
+            {/* Background Mini Path */}
+            <div className="absolute inset-0 opacity-20 bg-accent/20 pointer-events-none" />
 
-            {/* Selected Range Overlay Window */}
+            {/* Selected Zoom Window */}
             <div
-              className="absolute top-0 bottom-0 bg-accent/25 border-x-2 border-accent transition-none"
+              className="absolute top-0 bottom-0 bg-accent/25 border-x-2 border-accent transition-none cursor-grab active:cursor-grabbing"
               style={{
                 left: `${rangeSpan[0]}%`,
                 width: `${rangeSpan[1] - rangeSpan[0]}%`
               }}
+              onPointerDown={(e) => handlePointerDown(e, 'move')}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
             >
               {/* Left Handle */}
               <div
-                className="absolute left-0 top-0 bottom-0 w-2.5 bg-accent/80 hover:bg-accent cursor-ew-resize flex items-center justify-center"
-                onMouseDown={(e) => handleBrushMouseDown(e, 'left')}
+                className="absolute left-0 top-0 bottom-0 w-3 bg-accent/80 hover:bg-accent cursor-ew-resize flex items-center justify-center -ml-1.5 z-10 touch-none"
+                onPointerDown={(e) => handlePointerDown(e, 'left')}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                tabIndex={0}
+                role="slider"
+                aria-label="Zoom range left boundary handle"
+                aria-valuenow={Math.round(rangeSpan[0])}
               >
-                <div className="w-0.5 h-2 bg-background rounded-full" />
+                <div className="w-0.5 h-2 bg-background rounded-full pointer-events-none" />
               </div>
+
               {/* Right Handle */}
               <div
-                className="absolute right-0 top-0 bottom-0 w-2.5 bg-accent/80 hover:bg-accent cursor-ew-resize flex items-center justify-center"
-                onMouseDown={(e) => handleBrushMouseDown(e, 'right')}
+                className="absolute right-0 top-0 bottom-0 w-3 bg-accent/80 hover:bg-accent cursor-ew-resize flex items-center justify-center -mr-1.5 z-10 touch-none"
+                onPointerDown={(e) => handlePointerDown(e, 'right')}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                tabIndex={0}
+                role="slider"
+                aria-label="Zoom range right boundary handle"
+                aria-valuenow={Math.round(rangeSpan[1])}
               >
-                <div className="w-0.5 h-2 bg-background rounded-full" />
+                <div className="w-0.5 h-2 bg-background rounded-full pointer-events-none" />
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Adaptive X-Axis Labels (Max 8-12 ticks, Non-overlapping) */}
+      {/* Smart Hierarchical X-Axis Labels (Non-overlapping) */}
       {adaptiveTicks.length > 0 && (
-        <div className="flex items-center justify-between px-2 pt-0.5 text-[8.5px] font-mono text-dim/70 relative">
+        <div className="relative w-full h-6 pt-1 font-mono text-[8.5px] text-dim/80 select-none overflow-hidden px-6">
           {adaptiveTicks.map((tick, idx) => {
-            const isFirst = idx === 0;
-            const isLast = idx === adaptiveTicks.length - 1;
-
             return (
               <div
                 key={idx}
-                className={cn(
-                  "flex flex-col gap-0.5 transition-colors duration-150",
-                  isFirst && "items-start text-left",
-                  isLast && "items-end text-right",
-                  !isFirst && !isLast && "items-center text-center"
-                )}
+                className="absolute flex flex-col items-center justify-start text-center pointer-events-none transition-all duration-150"
+                style={{
+                  left: `${tick.x}%`,
+                  transform: tick.align === 'start' ? 'translateX(0%)' : (tick.align === 'end' ? 'translateX(-100%)' : 'translateX(-50%)')
+                }}
               >
-                <span className="font-bold text-[8.5px] text-text/70">
-                  {tick.label}
-                </span>
+                {tick.primaryLabel && (
+                  <span className="font-bold text-[8.5px] text-text/90 bg-surface/80 px-1 rounded border border-border/20 leading-none py-0.5">
+                    {tick.primaryLabel}
+                  </span>
+                )}
+                {tick.secondaryLabel && (
+                  <span className="font-semibold text-[8px] text-dim/70 leading-tight">
+                    {tick.secondaryLabel}
+                  </span>
+                )}
               </div>
             );
           })}
@@ -1855,6 +2070,34 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       )}
     </div>
   );
+
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-background/95 backdrop-blur-2xl p-4 md:p-6 flex flex-col gap-4 animate-in fade-in duration-200 overflow-hidden select-none">
+        <div className="flex items-center justify-between border-b border-border/40 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
+            <span className="font-bold text-sm uppercase tracking-wider text-text font-mono">
+              Strategy Performance Overlay — Fullscreen Mode
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsFullscreen(false)}
+            className="p-1.5 rounded-lg bg-surface border border-border/50 text-dim hover:text-text hover:bg-surface/80 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            aria-label="Close fullscreen chart view"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="flex-1 w-full overflow-hidden">
+          {mainChartContent}
+        </div>
+      </div>
+    );
+  }
+
+  return mainChartContent;
 };
 
 export const HitRateTrend = ({ trades = [], height = 180 }) => {

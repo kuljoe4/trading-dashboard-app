@@ -77,3 +77,7 @@
 ## 2026-09-04 - Chart Minimal Stroke Widths & Risk Metric Tooltips Standard
 **Learning:** Dense trading dashboards require minimal SVG stroke widths (0.4px - 0.8px) and minimal blur stdDev (0.15) to prevent visual clutter and chart line distortion. Additionally, technical risk metrics like Sharpe (Sh), Sortino (So), Profit Factor (PF), and dynamic Win Rate targets should always be presented alongside strategy cards and details with Radix `<Tooltip>` wrappers providing explicit recommended value tiers for actionable user guidance.
 **Action:** Always maintain minimal SVG stroke widths on chart curves and wrap Sharpe/Sortino/PF metrics in focusable tooltips with benchmark threshold guidance.
+
+## 2026-09-05 - DecisionLog Collapsible Section & Log Entry Accessibility Standard
+**Learning:** Collapsible summary headers and expandable truncated items in activity logs (such as `VariantGatingSummary` and `LogEntry` in `DecisionLog.jsx`) often lack `aria-expanded` state attributes and dynamic `aria-label` descriptions. Supplying dynamic `aria-expanded` and contextual `aria-label` strings ("Expand log message", "Collapse log message", "Toggle variant gating details") alongside standard WCAG focus-visible rings (`focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none`) ensures screen readers and keyboard users can seamlessly navigate dense activity logs.
+**Action:** Always include dynamic `aria-expanded` and state-aware `aria-label` descriptors on collapsible section triggers and inline expandable log entries.

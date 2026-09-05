@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, memo, useRef } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight,
-  Edit3, Sliders, Plus, Trash
+  Edit3, Sliders, Plus, Trash, Copy, ClipboardPaste
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { useTradingStore } from '../../store/trading'
@@ -112,6 +112,71 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
          <SectionLabel className="mb-0">
              <Zap size={14} className="text-accent" fill="currentColor" /> Guard Ladder
           </SectionLabel>
+          <div className="flex items-center gap-1.5">
+            <Tooltip content="Copy Guard Ladder Milestones to Clipboard">
+              <button
+                type="button"
+                onClick={() => {
+                  const text = triggers.map((trig, idx) => `${trig} -> ${exits[idx] ?? 0}`).join('\n');
+                  navigator.clipboard.writeText(text);
+                  useTradingStore.getState().addAlert({ level: 'info', title: 'Milestones Copied', message: 'Guard Ladder milestones copied to clipboard.' });
+                }}
+                className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                aria-label="Copy Guard Ladder Milestones to Clipboard"
+              >
+                <Copy size={10} /> Copy
+              </button>
+            </Tooltip>
+            {interactiveEnabled && (
+              <Tooltip content="Paste Guard Ladder Milestones (e.g. 1 -> 0, 2 -> 1, 4 -> 2)">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const text = await navigator.clipboard.readText();
+                      if (!text) return;
+                      const lines = text.split(/[\r\n]+/);
+                      const parsedPairs = [];
+                      lines.forEach(line => {
+                        const trimmed = line.trim();
+                        if (!trimmed) return;
+                        if (trimmed.includes('->') || trimmed.includes(':') || trimmed.includes(',')) {
+                          const parts = trimmed.split(/->|:|,/);
+                          const trig = parseFloat(parts[0]);
+                          const ex = parseFloat(parts[1] ?? '0');
+                          if (!isNaN(trig)) {
+                            parsedPairs.push({ trigger: trig, exit: isNaN(ex) ? 0 : ex });
+                          }
+                        } else {
+                          const val = parseFloat(trimmed);
+                          if (!isNaN(val)) {
+                            parsedPairs.push({ trigger: val, exit: Math.max(0, val - 1) });
+                          }
+                        }
+                      });
+                      if (parsedPairs.length > 0) {
+                        parsedPairs.sort((a, b) => a.trigger - b.trigger);
+                        const payload = {
+                          live_rr_sequence: parsedPairs.map(p => p.trigger),
+                          exit_rr_sequence: parsedPairs.map(p => p.exit)
+                        };
+                        const success = await updateActiveTradeConfig(trade.id || trade.symbol, payload);
+                        if (success) {
+                          useTradingStore.getState().addAlert({ level: 'success', title: 'Milestones Imported', message: `Imported ${parsedPairs.length} milestones to trade.` });
+                        }
+                      }
+                    } catch (err) {
+                      useTradingStore.getState().addAlert({ level: 'warn', title: 'Paste Failed', message: 'Could not read clipboard. Please check formatting.' });
+                    }
+                  }}
+                  className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                  aria-label="Paste Guard Ladder Milestones from Clipboard"
+                >
+                  <ClipboardPaste size={10} /> Paste
+                </button>
+              </Tooltip>
+            )}
+          </div>
       </div>
 
       <div className="relative flex items-center justify-between gap-2 overflow-x-auto no-scrollbar mb-4 md:mb-8 pb-3 pt-2 w-full">
@@ -159,24 +224,27 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                   </button>
                 </div>
               ) : (
-                <div
+                <button
+                  type="button"
+                  disabled={!interactiveEnabled}
                   onClick={() => {
                     if (!interactiveEnabled) return;
                     setEditingMilestone({ idx: i, type: 'trigger' });
                     setTempValue(String(trigger));
                   }}
                   className={cn(
-                    "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300 border-b border-dashed border-transparent flex items-center gap-1 group/trig",
+                    "text-[10px] md:text-xs font-black tracking-tighter mb-2 text-center transition-all duration-300 border-b border-dashed border-transparent flex items-center gap-1 group/trig focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-sm",
                     interactiveEnabled
                       ? "cursor-pointer hover:border-accent hover:text-accent"
                       : "cursor-not-allowed opacity-90",
                     current ? "text-accent scale-110" : done ? "text-green" : "text-dim"
                   )}
                   title={interactiveEnabled ? "Click to edit Trigger R" : "Trigger R (Read-Only)"}
+                  aria-label={interactiveEnabled ? `Edit milestone ${i + 1} trigger (current: ${trigger}R)` : `Milestone ${i + 1} trigger ${trigger}R (read only)`}
                 >
                   {trigger}R
                   {interactiveEnabled && <Edit3 size={8} className="opacity-0 group-hover/trig:opacity-100 transition-opacity text-accent" />}
-                </div>
+                </button>
               )}
 
               {/* Stepper Node Bubble */}
@@ -224,20 +292,23 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                   </button>
                 </div>
               ) : (
-                <div
+                <button
+                  type="button"
+                  disabled={!interactiveEnabled}
                   onClick={() => {
                     if (!interactiveEnabled) return;
                     setEditingMilestone({ idx: i, type: 'exit' });
                     setTempValue(String(exits[i] ?? 0));
                   }}
                   className={cn(
-                    "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300 border-b border-dashed border-transparent group/ex",
+                    "text-[9px] md:text-[10px] font-bold mt-2.5 uppercase tracking-widest text-center flex flex-col leading-tight transition-all duration-300 border-b border-dashed border-transparent group/ex focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-sm",
                     interactiveEnabled
                       ? "cursor-pointer hover:border-accent hover:text-accent"
                       : "cursor-not-allowed opacity-95",
                     done ? "text-text font-black" : "text-dim/60"
                   )}
                   title={interactiveEnabled ? "Click to edit Secured Stop R" : "Secured Stop R (Read-Only)"}
+                  aria-label={interactiveEnabled ? `Edit milestone ${i + 1} secured stop loss (current: SL ${exits[i] === 0 ? 'BE' : `${exits[i]}R`})` : `Milestone ${i + 1} secured stop loss SL ${exits[i] === 0 ? 'BE' : `${exits[i]}R`} (read only)`}
                 >
                   <span className="flex items-center gap-1 justify-center">
                     SL {exits[i] === 0 ? 'BE' : `${exits[i]}R`}
@@ -246,7 +317,7 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
                   <span className={cn("text-[8px] font-mono", done ? pnlClass(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i])) : "opacity-30")}>
                     {fmtUSD(getEstPnl(trade.direction === 'LONG' ? trade.entry_price + risk * exits[i] : trade.entry_price - risk * exits[i]))}
                   </span>
-                </div>
+                </button>
               )}
             </div>
           )
@@ -397,6 +468,16 @@ const getSignalInfo = (key, config) => {
       const slow = resolve('exit_ema_slow', resolve('entry_ema_slow', 21));
       params.push({ label: 'Fast', value: fast, key: 'exit_ema_fast', type: 'number' });
       params.push({ label: 'Slow', value: slow, key: 'exit_ema_slow', type: 'number' });
+      const macdFilter = resolve('ema_dual_macd_filter', false);
+      if (macdFilter) {
+        params.push({ label: 'MACD Filter', value: 'Enabled', rawValue: true, key: 'ema_dual_macd_filter', type: 'boolean' });
+        const mFast = resolve('macd_fast', 12);
+        const mSlow = resolve('macd_slow', 26);
+        const mSig = resolve('macd_signal', 9);
+        params.push({ label: 'MACD Fast', value: mFast, key: 'macd_fast', type: 'number' });
+        params.push({ label: 'MACD Slow', value: mSlow, key: 'macd_slow', type: 'number' });
+        params.push({ label: 'MACD Signal', value: mSig, key: 'macd_signal', type: 'number' });
+      }
       break;
     }
     case 'ma': {
@@ -499,10 +580,21 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
   const satisfiedCount = entries.filter(([_, s]) => s.fired && s.active).length
   const totalCount = entries.length
   const allFired = satisfiedCount === totalCount
-  const criteriaMet = logic === 'all' ? allFired : satisfiedCount > 0;
+
+  const reqExitSignals = trade.strategy_config?.required_exit_signals || trade.required_exit_signals || [];
+  const reqSatisfied = reqExitSignals.length > 0
+    ? reqExitSignals.every(k => status[k]?.fired && status[k]?.active)
+    : entries.filter(([k]) => !k.includes('_')).every(([_, s]) => s.fired && s.active);
+  const optSet = reqExitSignals.length > 0
+    ? entries.filter(([k]) => !reqExitSignals.includes(k))
+    : entries.filter(([k]) => k.includes('_'));
+  const optSatisfied = optSet.length === 0 || optSet.some(([_, s]) => s.fired && s.active);
+
+  const comboSatisfied = reqSatisfied && optSatisfied;
+  const criteriaMet = logic === 'all' ? allFired : logic === 'combo' ? comboSatisfied : satisfiedCount > 0;
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col">
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col text-left">
       <div className="flex items-center justify-between mb-2 md:mb-5">
         <div className="flex flex-col gap-0.5">
           <SectionLabel className={cn("mb-0 flex items-center gap-1.5", criteriaMet ? "text-red" : satisfiedCount > 0 ? "text-amber" : "text-dim")}>
@@ -511,7 +603,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
             <span className="md:hidden inline">{criteriaMet ? 'EXIT' : satisfiedCount > 0 ? 'RISK' : 'WAIT'}</span>
           </SectionLabel>
           <div className="text-[7px] md:text-[8px] text-dim font-bold uppercase tracking-widest opacity-60">
-            {logic === 'all' ? 'Match All' : 'Match Any'}
+            {logic === 'all' ? 'Match All (AND)' : logic === 'combo' ? 'Match Combo (AND + ANY)' : 'Match Any (OR)'}
           </div>
         </div>
         <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-end">
@@ -554,136 +646,166 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
       </div>
 
       <div className="space-y-1.5 md:space-y-4 flex-1">
+        {/* Dedicated Trailing Stop Loss Exit Guard Card */}
+        {trade.strategy_config?.trailing_stop_enabled && (() => {
+          const cfg = trade.strategy_config;
+          const trailingType = cfg.trailing_stop_type || 'pct';
+          const activationRr = Number(cfg.trailing_activation_rr || 0);
+          const currentRr = Number(trade.rr || 0);
+          const isActivated = activationRr <= 0 || currentRr >= activationRr;
+
+          const slPrice = Number(trade.sl_price || 0);
+          const slDistPct = mark > 0 && slPrice > 0 ? (Math.abs(mark - slPrice) / mark) * 100 : 0;
+          const slPnl = slPrice > 0 && entryPrice > 0 && qty > 0
+            ? (slPrice - entryPrice) * qty * (isLong ? 1 : -1)
+            : null;
+
+          const trailingDistLabel = trailingType === 'rr'
+            ? `${cfg.trailing_stop_rr || 1.0} R`
+            : `${cfg.trailing_stop_distance_pct || 1.0}%`;
+
+          return (
+            <div className="bg-background/60 border border-purple-500/25 rounded-xl p-2.5 md:p-3 shadow-sm flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <RefreshCw size={12} className="text-purple-400 animate-spin shrink-0" />
+                  <span className="text-xs font-black uppercase tracking-tight text-purple-300 font-mono">
+                    Trailing Stop Guard
+                  </span>
+                  <span className="text-[7.5px] font-mono font-bold bg-purple-500/15 border border-purple-500/30 text-purple-300 px-1.5 py-0.2 rounded uppercase">
+                    {trailingDistLabel}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <span className={cn(
+                    "text-[7.5px] font-mono font-black uppercase px-1.5 py-0.2 rounded border leading-none",
+                    isActivated
+                      ? "bg-green/10 text-green border-green/30 shadow-[0_0_6px_rgba(0,229,160,0.2)]"
+                      : "bg-amber/10 text-amber border-amber/30 animate-pulse"
+                  )}>
+                    {isActivated ? "⚡ ACTIVE (Trailing)" : `🎯 ACTIVATES AT ${activationRr}R`}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 bg-surface/60 rounded-lg p-2 border border-border/40 text-[9px] font-mono">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-dim/70 text-[7.5px] uppercase font-black">Live Trailing SL</span>
+                  <span className="font-bold text-text">{fmtUSD(slPrice)}</span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-dim/70 text-[7.5px] uppercase font-black">Dist to SL</span>
+                  <span className="font-bold text-amber">{slDistPct.toFixed(2)}%</span>
+                </div>
+                <div className="flex flex-col gap-0.5 col-span-2 md:col-span-1">
+                  <span className="text-dim/70 text-[7.5px] uppercase font-black">Floor P&L at Trigger</span>
+                  <span className={cn("font-bold", slPnl !== null ? pnlClass(slPnl) : "text-dim")}>
+                    {slPnl !== null ? fmtUSD(slPnl) : "---"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {entries.map(([key, s]) => {
           const isFired = s.fired && s.active
           const threshold = Number(s.threshold) || 0
 
-          // Estimated PnL at trigger
-          const estPnl = s.threshold_is_price
+          // Estimated PnL at trigger (capped at current unrealized live PnL to align with backend realizable exit PnL)
+          const rawEstPnl = s.threshold_is_price
             ? (threshold - entryPrice) * qty * (isLong ? 1 : -1)
             : null;
+          const livePnl = (mark && entryPrice && qty)
+            ? (mark - entryPrice) * qty * (isLong ? 1 : -1)
+            : null;
+          const estPnl = (rawEstPnl !== null && livePnl !== null)
+            ? Math.min(rawEstPnl, livePnl)
+            : rawEstPnl;
           const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null;
 
           const { timeframe, params } = getSignalInfo(key, trade.strategy_config);
 
           return (
-            <div key={key} className="space-y-1 md:space-y-3 p-2 bg-white/[0.01] border border-white/[0.02] rounded-xl hover:bg-white/[0.02] hover:border-white/[0.05] transition-all">
-              <div className="flex justify-between items-center text-[9px] md:text-[10px] font-black uppercase tracking-widest">
-                <div className="flex items-center gap-1.5 md:gap-2">
-                  <span className={isFired ? "text-red font-black" : s.fired ? "text-amber font-bold" : "text-dim"}>{s.label || key}</span>
-                  <span className="text-[8px] font-mono text-accent bg-accent/10 px-1.5 py-0.5 rounded font-bold uppercase shrink-0">
-                    {timeframe}
-                  </span>
-                  {isFired && (
-                    <span className="bg-red/20 text-red border border-red/30 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 animate-pulse shadow-[0_0_8px_rgba(255,68,102,0.3)]">
-                      CROSSED / TRIGGERED
-                    </span>
-                  )}
-                  {s.insufficientData ? (
-                    <span className="text-dim bg-background/50 border border-border/40 px-1 rounded flex items-center gap-1 scale-90 md:scale-100">
-                      Collecting
-                    </span>
-                  ) : s.remaining_delay > 0 && !isFired && (
-                    <div className={cn(
-                      "flex items-center gap-1 bg-amber/10 text-amber px-1 rounded transition-colors",
-                      interactiveEnabled ? "cursor-pointer hover:bg-amber/20" : "cursor-not-allowed opacity-80"
-                    )}>
-                      <Clock size={8} /> 
-                      {editingDelay === key && interactiveEnabled ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            type="text"
-                            className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded px-1"
-                            value={tempDelay}
-                            onChange={(e) => setTempDelay(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)}
-                            aria-label={`Edit exit delay for ${s.label || key}`}
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleUpdateDelay(key, tempDelay)}
-                            className="text-green focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
-                            aria-label={`Save exit delay for ${s.label || key}`}
-                          >
-                            <CheckCircle2 size={10} />
-                          </button>
-                        </div>
-                      ) : (
-                        <span
-                          className={cn(interactiveEnabled ? "cursor-pointer hover:underline" : "cursor-not-allowed")}
-                          onClick={() => {
-                            if (!interactiveEnabled) return;
-                            setEditingDelay(key);
-                            setTempDelay(String(s.config_delay || Math.round(s.remaining_delay)));
-                          }}
-                        >
-                          {s.config_delay && typeof s.config_delay === 'string' && s.config_delay.endsWith('c')
-                            ? `${s.config_delay} (${formatDuration(s.remaining_delay * 1000)})`
-                            : formatDuration(s.remaining_delay * 1000)
-                          }
-                        </span>
-                      )}
-                      {editingDelay !== key && interactiveEnabled && (
+            <SignalGauge
+              key={key}
+              label={s.label || key}
+              value={s.value}
+              threshold={s.threshold}
+              unit={s.unit}
+              fired={s.fired}
+              active={s.active}
+              remainingDelay={s.remaining_delay}
+              configDelay={s.config_delay}
+              insufficientData={s.insufficientData}
+              thresholdIsPrice={s.threshold_is_price}
+              isLong={isLong}
+              entryPrice={entryPrice}
+              markPrice={mark}
+              qty={qty}
+              riskUsdt={riskUsdt}
+              type="exit"
+            >
+              {/* Delay control overrides and inline editing */}
+              {s.remaining_delay > 0 && !isFired && (
+                <div className="flex items-center justify-between text-[9px] font-mono mb-1.5">
+                  <span className="text-dim/60 font-black uppercase">Delay Override:</span>
+                  <div className={cn(
+                    "flex items-center gap-1 bg-amber/10 text-amber px-1.5 py-0.5 rounded border border-amber/20 transition-colors",
+                    interactiveEnabled ? "cursor-pointer hover:bg-amber/20" : "cursor-not-allowed opacity-80"
+                  )}>
+                    <Clock size={8} />
+                    {editingDelay === key && interactiveEnabled ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          className="w-12 bg-transparent text-amber font-mono outline-none focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded px-1 text-[9px]"
+                          value={tempDelay}
+                          onChange={(e) => setTempDelay(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleUpdateDelay(key, tempDelay)}
+                          aria-label={`Edit exit delay for ${s.label || key}`}
+                          autoFocus
+                        />
                         <button
                           type="button"
-                          onClick={() => handleUpdateDelay(key, 0)}
-                          className="text-[7px] bg-red/20 px-1 rounded hover:bg-red/30 transition-colors focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
-                          aria-label={`Skip exit delay for ${s.label || key}`}
+                          onClick={() => handleUpdateDelay(key, tempDelay)}
+                          className="text-green focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none rounded p-0.5"
+                          aria-label={`Save exit delay for ${s.label || key}`}
                         >
-                          SKIP
+                          <CheckCircle2 size={10} />
                         </button>
-                      )}
-                    </div>
-                  )}
-                  <span className={cn(
-                    "md:hidden inline text-[8px] font-mono",
-                    isFired ? "text-red" : s.fired ? "text-amber" : "text-accent"
-                  )}>{s.insufficientData ? '---' : `${Number(s.progress || 0).toFixed(0)}%`}</span>
-                </div>
-                <div className="md:flex hidden items-center gap-2 font-mono">
-                  <span className="text-dim/60">Mark: {price(mark)}</span>
-                  <ArrowRight size={10} className="text-dim/40" />
-                  <span className={isFired ? "text-red" : "text-text"}>{price(threshold)}</span>
-                </div>
-              </div>
-
-              {/* Enhanced Proximity Bar (SignalGauge Style) */}
-              <div className="space-y-0.5 md:space-y-1.5">
-                <div className="h-1.5 md:h-2 bg-background/80 rounded-full overflow-hidden relative border border-white/5 shadow-inner">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${s.progress}%` }}
-                    transition={{ type: "spring", stiffness: 40, damping: 20 }}
-                    className={cn(
-                      "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
-                      isFired ? "bg-red shadow-[0_0_8px_rgba(255,68,102,0.4)]" : s.fired ? "bg-amber" : "bg-accent"
-                    )}
-                  />
-                </div>
-
-                <div className="flex justify-between items-center px-0.5 md:px-1">
-                   <div className="flex items-center gap-1.5 font-mono">
-                      <span className="text-[7.5px] md:text-[9px] text-dim uppercase font-bold md:inline-block hidden">
-                        {s.insufficientData ? 'Collecting' : `${Number(s.progress || 0).toFixed(1)}% Proxy`}
-                      </span>
-                      <span className="text-[7.5px] md:text-[9px] text-dim/60">{price(mark)}</span>
-                      <ArrowRight size={8} className="text-dim/20" />
-                      <span className={cn("text-[7.5px] md:text-[9px]", isFired ? "text-red" : "text-text/80")}>{price(threshold)}</span>
-                   </div>
-                   {estPnl !== null && (
-                      <div className={cn(
-                        "text-[8px] md:text-[9px] font-mono font-black",
-                        estPnl >= 0 ? "text-green" : "text-red"
-                      )}>
-                        {estPnl >= 0 ? '+' : ''}{fmtUSD(estPnl)} ({Number(estRr || 0).toFixed(1)}R)
                       </div>
-                   )}
+                    ) : (
+                      <span
+                        className={cn(interactiveEnabled ? "cursor-pointer hover:underline" : "cursor-not-allowed")}
+                        onClick={() => {
+                          if (!interactiveEnabled) return;
+                          setEditingDelay(key);
+                          setTempDelay(String(s.config_delay || Math.round(s.remaining_delay)));
+                        }}
+                      >
+                        {s.config_delay && typeof s.config_delay === 'string' && s.config_delay.endsWith('c')
+                          ? `${s.config_delay} (${formatDuration(s.remaining_delay * 1000)})`
+                          : formatDuration(s.remaining_delay * 1000)
+                        }
+                      </span>
+                    )}
+                    {editingDelay !== key && interactiveEnabled && (
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateDelay(key, 0)}
+                        className="text-[7px] bg-red/20 px-1 rounded hover:bg-red/30 transition-colors focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none"
+                        aria-label={`Skip exit delay for ${s.label || key}`}
+                      >
+                        SKIP
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Technical signal parameters and relevant live details */}
-              <div className="flex flex-col gap-1 mt-1 pt-1 border-t border-white/[0.03]">
+              <div className="flex flex-col gap-1">
                 {/* Parameters badges */}
                 {params.length > 0 && (
                   <div className="flex flex-wrap gap-1 items-center">
@@ -793,7 +915,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
                   </p>
                 )}
               </div>
-            </div>
+            </SignalGauge>
           )
         })}
       </div>
@@ -1136,6 +1258,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               )}>
                 ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
               </div>
+              {trade.is_knife && (
+                <div className="bg-amber/15 text-amber border border-amber/30 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1">
+                  🔪 KNIFE
+                </div>
+              )}
               {trade.is_reconciliation && (
                 <div className="bg-amber/10 text-amber border border-amber/20 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5">
                   <Activity size={12} /> Reconciled
@@ -1159,9 +1286,17 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           <div className="flex flex-col gap-0.5">
             <span className={cn(
               "text-[8px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
-              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 animate-pulse font-extrabold" : "text-red"
+              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 font-extrabold" : "text-red"
             )}>
-              <ShieldAlert size={8} /> {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
+              <ShieldAlert size={8} className={cn(trade.strategy_config?.trailing_stop_enabled && "animate-pulse")} />
+              {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
+              {trade.strategy_config?.trailing_stop_enabled && (
+                <span className="text-[7.5px] font-mono text-purple-300/90 font-semibold lowercase bg-purple-400/10 px-1 py-0.2 rounded border border-purple-400/20 ml-0.5">
+                  {trade.strategy_config.trailing_stop_type === 'rr'
+                    ? `${trade.strategy_config.trailing_stop_rr || 1.0}R`
+                    : `${trade.strategy_config.trailing_stop_distance_pct || 1.0}%`}
+                </span>
+              )}
             </span>
             {isEditingSl ? (
               <div className="flex items-center gap-1 mt-1.5">
@@ -1197,22 +1332,25 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 </button>
               </div>
             ) : (
-              <span
+              <button
+                type="button"
+                disabled={!interactiveEnabled}
                 onClick={() => {
                   if (!interactiveEnabled) return;
                   handleStartEditSl();
                 }}
                 className={cn(
-                  "font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none border-b border-dashed border-dim/30 transition-all flex items-center gap-1 mt-1 group/sl",
+                  "font-mono text-[9px] md:text-[10px] font-bold text-dim leading-none border-b border-dashed border-dim/30 transition-all flex items-center gap-1 mt-1 group/sl focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-sm",
                   interactiveEnabled
                     ? "cursor-pointer hover:border-accent hover:text-accent"
                     : "cursor-not-allowed opacity-95"
                 )}
                 title={interactiveEnabled ? "Click to edit Stop Loss Price" : "Stop Loss Price (Read-Only)"}
+                aria-label={interactiveEnabled ? `Edit stop loss price (current: ${price(sl)})` : `Stop loss price ${price(sl)} (read only)`}
               >
                 {price(sl)}
                 {interactiveEnabled && <Edit3 size={8} className="opacity-0 group-hover/sl:opacity-100 transition-opacity text-accent" />}
-              </span>
+              </button>
             )}
           </div>
           <div className="flex flex-col items-end gap-0.5">
@@ -1223,29 +1361,81 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           </div>
         </div>
 
-        <div
-          role="progressbar"
-          aria-valuenow={Math.round(progress)}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuetext={`Active trade price runway at ${Math.round(progress)}% of exit targets`}
-          className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]"
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
-          <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
+        <div className="relative pt-3 pb-0.5 min-h-[26px]">
           <div
-            className={cn(
-              "h-full transition-all duration-1000 ease-out relative",
-              trade.pnl >= 0 ? "bg-green/80" : "bg-red/80"
-            )}
-            style={{ width: `${progress}%` }}
+            role="progressbar"
+            aria-valuenow={Math.round(progress)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuetext={`Active trade price runway at ${Math.round(progress)}% of exit targets`}
+            className="h-2 w-full bg-border/20 rounded-full overflow-hidden relative shadow-[inset_0_1px_2px_rgba(0,0,0,0.3)]"
           >
-             <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[move-stripe_1s_linear_infinite]" />
-             {/* Beautiful custom tick marker with pulse dot at current leading price edge */}
-             <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20">
-               <PulseDot color={trade.pnl >= 0 ? "bg-green" : "bg-red"} />
-             </div>
+            <div className="absolute inset-0 bg-gradient-to-r from-red/5 via-transparent to-green/5 opacity-50" />
+            <div className="absolute top-0 bottom-0 w-1 bg-white/20 z-10 blur-[1px]" style={{ left: '50%' }} />
+            <div
+              className={cn(
+                "h-full transition-all duration-1000 ease-out relative",
+                trade.pnl >= 0 ? "bg-green/80" : "bg-red/80"
+              )}
+              style={{ width: `${progress}%` }}
+            >
+               <div className="absolute inset-0 bg-[linear-gradient(45deg,rgba(255,255,255,0.1)_25%,transparent_25%,transparent_50%,rgba(255,255,255,0.1)_50%,rgba(255,255,255,0.1)_75%,transparent_75%,transparent)] bg-[length:1rem_1rem] animate-[move-stripe_1s_linear_infinite]" />
+               {/* Beautiful custom tick marker with pulse dot at current leading price edge */}
+               <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 z-20">
+                 <PulseDot color={trade.pnl >= 0 ? "bg-green" : "bg-red"} />
+               </div>
+            </div>
           </div>
+
+          {/* Trailing Stop Activation RR Flag Marker on Runway Track */}
+          {trade.strategy_config?.trailing_stop_enabled && (trade.strategy_config?.trailing_activation_rr || 0) > 0 && (() => {
+            const activationRr = Number(trade.strategy_config.trailing_activation_rr);
+            const risk = Math.abs(entry - initialSl);
+            if (risk <= 0) return null;
+            const activationPrice = isLong ? entry + (risk * activationRr) : entry - (risk * activationRr);
+
+            // Compute position on track (0% to 100%) consistent with runway calculation
+            let activationPos = 50;
+            if (tp > 0) {
+              const totalRange = isLong ? (tp - sl) : (sl - tp);
+              const distFromSl = isLong ? (activationPrice - sl) : (sl - activationPrice);
+              activationPos = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100));
+            } else {
+              activationPos = Math.min(100, 50 + (activationRr / 3) * 50);
+            }
+
+            const currentRr = Number(trade.rr || 0);
+            const isActivated = currentRr >= activationRr;
+
+            return (
+              <Tooltip content={
+                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
+                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Trailing Activation Threshold</div>
+                  <div className="text-dim">Required RR: <span className="text-purple-300 font-mono font-semibold">+{activationRr.toFixed(2)}R</span></div>
+                  <div className="text-dim">Activation Price: <span className="text-text font-mono font-semibold">{fmtUSD(activationPrice)}</span></div>
+                  <div className="text-dim">Status: <span className={cn("font-mono font-semibold", isActivated ? "text-green" : "text-amber")}>{isActivated ? "ACTIVE (Trailing engaged)" : "PENDING (Awaiting R:R target)"}</span></div>
+                </div>
+              }>
+                <div
+                  className="absolute top-0 bottom-0 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  style={{ left: `${activationPos}%` }}
+                >
+                  <div className={cn(
+                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                    isActivated
+                      ? "bg-purple text-white shadow-[0_0_8px_rgba(168,85,247,0.8)] animate-pulse"
+                      : "bg-surface/90 border border-purple-400/40 text-purple-300/80"
+                  )}>
+                    🎯 {activationRr}R
+                  </div>
+                  <div className={cn(
+                    "flex-1 w-px border-l border-dashed",
+                    isActivated ? "border-purple" : "border-purple-400/40"
+                  )} />
+                </div>
+              </Tooltip>
+            );
+          })()}
         </div>
 
         <div className="flex justify-center scale-90">
@@ -1329,12 +1519,22 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                        { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
                        trade.strategy_config?.trailing_stop_enabled && {
                          label: 'Trailing Stop',
-                         value: `${trade.strategy_config.trailing_stop_distance_pct}%`,
+                         value: trade.strategy_config.trailing_stop_type === 'rr'
+                           ? `${trade.strategy_config.trailing_stop_rr || 1.0} R`
+                           : `${trade.strategy_config.trailing_stop_distance_pct || 1.0}%`,
                          color: 'text-purple-400',
-                         tooltip: 'Trailing stop-loss distance percentage.'
+                         tooltip: trade.strategy_config.trailing_stop_type === 'rr'
+                           ? 'Trailing stop-loss distance expressed as initial R multiple.'
+                           : 'Trailing stop-loss distance percentage.'
                        },
                        { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
                            { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },
+                           {
+                             label: 'Risk Lock State',
+                             value: trade.risk_usdt === 0 ? `Released (${trade.risk_lock_reason || 'BE'})` : `Locked (${fmtUSD(trade.risk_usdt)})`,
+                             color: trade.risk_usdt === 0 ? 'text-green' : 'text-amber',
+                             tooltip: `Risk lock state: ${trade.risk_lock_reason || (trade.risk_usdt === 0 ? 'SL at or above breakeven' : 'Active capital at risk')}`
+                           },
                            {
                              label: 'Daily Δ at Entry',
                              value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,

@@ -20,6 +20,7 @@ export const SignalGauge = React.memo(({
   markPrice,
   qty,
   riskUsdt,
+  children,
   type = 'entry' // 'entry' or 'exit'
 }) => {
   const isFired = fired && active
@@ -28,6 +29,12 @@ export const SignalGauge = React.memo(({
   const numValue = Number(value) || 0
   const numThreshold = Number(threshold) || 0
 
+  const isDualEma = !!(
+    (label && (label.toLowerCase().includes('dual') || label.toLowerCase().includes('cross'))) ||
+    (unit && (unit.toLowerCase().includes('dual') || unit.toLowerCase().includes('ema'))) ||
+    thresholdIsPrice
+  );
+
   // Calculate progress/convergence using centralized direction-aware helper
   const progress = calculateProximity({
     value,
@@ -35,7 +42,8 @@ export const SignalGauge = React.memo(({
     fired,
     active,
     insufficientData,
-    threshold_is_price: thresholdIsPrice
+    threshold_is_price: thresholdIsPrice,
+    is_indicator_pair: isDualEma
   }, markPrice, entryPrice, isLong, type === 'exit');
 
   const getStatus = () => {
@@ -49,10 +57,16 @@ export const SignalGauge = React.memo(({
 
   const status = getStatus()
 
-  // Estimated PnL / RR for exit signals
-  const estPnl = (thresholdIsPrice && entryPrice && qty)
+  // Estimated PnL / RR for exit signals (capped at current unrealized live PnL to align with backend realizable exit PnL)
+  const rawEstPnl = (thresholdIsPrice && entryPrice && qty)
     ? (numThreshold - entryPrice) * qty * (isLong ? 1 : -1)
     : null
+  const livePnl = (markPrice && entryPrice && qty)
+    ? (markPrice - entryPrice) * qty * (isLong ? 1 : -1)
+    : null
+  const estPnl = (rawEstPnl !== null && livePnl !== null)
+    ? Math.min(rawEstPnl, livePnl)
+    : rawEstPnl
   const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null
 
   const content = (
@@ -94,10 +108,33 @@ export const SignalGauge = React.memo(({
         </div>
       </div>
 
+      {/* Dual EMA / Indicator-Pair Aligned Markers & Design Tokens */}
+      {isDualEma && !insufficientData && numValue > 0 && numThreshold > 0 && (
+        <div className="mb-2.5 px-2 py-1.5 bg-background/60 rounded-lg border border-white/5 flex items-center justify-between font-mono text-[9px]">
+          <div className="flex items-center gap-1.5">
+            <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider">
+              FAST EMA
+            </span>
+            <span className="font-bold text-text/90">{price(numValue)}</span>
+          </div>
+
+          <div className="text-[8px] text-dim/60 font-black tracking-widest px-1">
+            Δ {price(Math.abs(numValue - numThreshold))}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-purple bg-purple/10 border border-purple/20 px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider">
+              SLOW EMA
+            </span>
+            <span className="font-bold text-text/90">{price(numThreshold)}</span>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-1.5">
         <div className="flex justify-between items-end px-1">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest">Proximity</span>
-          <span className={cn("text-[9px] font-mono font-black", fired ? "text-green" : "text-text/80")}>
+          <span className={cn("text-[9px] font-mono font-black", isFired ? "text-red" : fired ? "text-amber" : "text-accent")}>
             {insufficientData ? '0.0' : Number(progress).toFixed(1)}%
           </span>
         </div>
@@ -108,7 +145,7 @@ export const SignalGauge = React.memo(({
             transition={{ type: "spring", stiffness: 40, damping: 20 }}
             className={cn(
               "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
-              isFired ? "bg-red" : fired ? "bg-amber" : "bg-accent"
+              isFired ? "bg-gradient-to-r from-red/80 to-red shadow-[0_0_8px_rgba(255,68,102,0.5)]" : fired ? "bg-gradient-to-r from-amber/80 to-amber" : "bg-gradient-to-r from-accent/60 to-accent"
             )}
           />
         </div>
@@ -132,6 +169,12 @@ export const SignalGauge = React.memo(({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {children && (
+        <div className="mt-2 pt-2 border-t border-border/30">
+          {children}
         </div>
       )}
     </div>

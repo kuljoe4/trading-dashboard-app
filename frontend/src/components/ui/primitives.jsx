@@ -240,15 +240,15 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
             "font-black font-mono tracking-tighter transition-all duration-500 truncate leading-none",
             color,
             compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
-            syncing && "opacity-40 blur-[1px]"
+            syncing && "opacity-75"
           )}>{sanitizedValue}</div>
           {subValue && (
             <div className={cn(
               "text-dim font-mono font-black uppercase flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0",
               compact ? "text-[7px] md:text-[7.5px] mt-0.5" : "text-[8px] md:text-[9px] mt-0.5",
-              syncing && "text-accent/60 animate-pulse"
+              syncing && "text-accent/80 font-black"
             )}>
-              {syncing && <Loader2 size={compact ? 6 : 8} className="animate-spin shrink-0" aria-hidden="true" />}
+              {syncing && <RefreshCw size={compact ? 6 : 8} className="animate-spin shrink-0 text-accent" aria-hidden="true" />}
               <span className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</span>
             </div>
           )}
@@ -359,6 +359,13 @@ export const LiveBadge = () => (
   <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-green">
     <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0 animate-pulse" />
     Live
+  </span>
+)
+
+export const BacktestBadge = () => (
+  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-cyan-400">
+    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+    Backtest
   </span>
 )
 
@@ -612,6 +619,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
+                  {tradingMode === 'backtest' && <BacktestBadge />}
                   {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
                 </div>
               </div>

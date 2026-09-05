@@ -95,6 +95,14 @@ export class BinanceClientFactory implements OnModuleInit {
       if (result && (result as any).headers) {
         this.queue?.updateWeightFromHeaders((result as any).headers, label);
       }
+      if (result && typeof (result as any).status === 'number' && !(result as any).ok) {
+        const res = result as any;
+        let bodyMsg = '';
+        try {
+          bodyMsg = await res.clone().text();
+        } catch (_) {}
+        throw new Error(`HTTP ${res.status} (${res.statusText || 'Error'}): ${bodyMsg || res.statusText}`);
+      }
       return result;
     }, label, isEmergency);
   }

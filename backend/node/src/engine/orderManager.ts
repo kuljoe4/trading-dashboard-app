@@ -329,15 +329,13 @@ export class OrderManagerService {
               level: 'info'
             });
 
-            const isInitial = slType === 'INITIAL_SL';
-
             this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol,
               exitPrice,
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
               orderId, // DATA-ACCURACY: Pass orderId for authoritative recovery
-              feesAlreadyAccounted: !isInitial, // CHRONOS: Signal that commissions were already handled via UDS 'n' events unless initial
-              alreadyRealized: !isInitial // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events unless initial
+              feesAlreadyAccounted: true, // CHRONOS: Signal that commissions were already handled via UDS 'n' events
+              alreadyRealized: true // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
             });
           }
         }
@@ -425,13 +423,17 @@ export class OrderManagerService {
                trade.exit_signal_reason = `Manual close confirmed by exchange at ${exitPrice}`;
              } else if (isAppSignalClose) {
                // Find exact signal indicator and params
+               // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
                let foundSignal = '';
                if (trade.exit_signals_status) {
-                  const firedEntry = Object.entries(trade.exit_signals_status).find(
-                     ([_, status]: [string, any]) => status && status.fired === true
-                  );
-                  if (firedEntry) {
-                     foundSignal = firedEntry[0];
+                  for (const key in trade.exit_signals_status) {
+                     if (Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) {
+                        const status = (trade.exit_signals_status as Record<string, any>)[key];
+                        if (status && status.fired === true) {
+                           foundSignal = key;
+                           break;
+                        }
+                     }
                   }
                }
 
@@ -1691,7 +1693,10 @@ export class OrderManagerService {
     }
 
     // SRE: Immunity check. If we are currently banned, don't try to ratchet
-    if (this.sessionState.isBanned()) return { success: false };
+    if (this.sessionState.isBanned()) {
+       this.logger.warn(`[SL Ratchet] Ratchet blocked for ${trade.symbol}: IP is currently banned.`);
+       return { success: false };
+    }
 
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     this.ratchetLocks.set(trade.symbol, true);
@@ -1963,6 +1968,9 @@ export class OrderManagerService {
       'exit'
     );
 
+    // BOLT OPTIMIZATION: In-loop accumulation of satisfied active signal keys to avoid Object.keys().filter() allocations
+    const satisfiedActiveKeys: string[] = [];
+
     // Check each exit signal
     for (const exitSignal of config.exit_signals) {
       try {
@@ -2036,6 +2044,7 @@ export class OrderManagerService {
 
         if (isFired && isActive) {
           firedCount++;
+          satisfiedActiveKeys.push(exitSignal);
         }
         if (isActive) {
           activeCount++;
@@ -2057,15 +2066,43 @@ export class OrderManagerService {
     let exitSignalType: string | undefined;
 
     if (logic === 'any') {
-      exitTriggered = firedCount > 0;
+      exitTriggered = satisfiedActiveKeys.length > 0;
       if (exitTriggered) {
-        exitSignalType = Object.keys(statuses).find(k => statuses[k].fired && statuses[k].active);
+        exitSignalType = satisfiedActiveKeys[0];
       }
-    } else {
+    } else if (logic === 'all') {
       // 'all' logic: all signals must be active AND fired
-      exitTriggered = firedCount === allEnabled && activeCount === allEnabled;
+      exitTriggered = satisfiedActiveKeys.length === allEnabled;
       if (exitTriggered) {
         exitSignalType = 'combined';
+      }
+    } else if (logic === 'combo') {
+      const requiredConfigured = config.required_exit_signals || [];
+      let requiredSet: string[] = [];
+      let optionalSet: string[] = [];
+
+      if (requiredConfigured.length > 0) {
+        requiredSet = config.exit_signals.filter(s => requiredConfigured.includes(s));
+        optionalSet = config.exit_signals.filter(s => !requiredConfigured.includes(s));
+      } else {
+        const baseSignals = config.exit_signals.filter(s => {
+          const lastUnderscore = s.lastIndexOf('_');
+          return lastUnderscore <= 0;
+        });
+        if (baseSignals.length > 0 && baseSignals.length < config.exit_signals.length) {
+          requiredSet = baseSignals;
+          optionalSet = config.exit_signals.filter(s => !baseSignals.includes(s));
+        } else {
+          requiredSet = [config.exit_signals[0]];
+          optionalSet = config.exit_signals.slice(1);
+        }
+      }
+
+      const reqSatisfied = requiredSet.every(s => satisfiedActiveKeys.includes(s));
+      const optSatisfied = optionalSet.length === 0 || optionalSet.some(s => satisfiedActiveKeys.includes(s));
+      exitTriggered = reqSatisfied && optSatisfied;
+      if (exitTriggered) {
+        exitSignalType = 'combo';
       }
     }
 
@@ -2438,8 +2475,8 @@ export class OrderManagerService {
                       const isInitial = Math.abs(parseFloat(orderData.stopPrice || orderData.triggerPrice || '0') - trade.initial_sl) < trade.initial_sl * 0.0001;
                       const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
-                      // BOLT: Explicitly map milestone-based SLs to TRAILING_STOP for better UI awareness
-                      if (!isInitial && slType.includes('milestone')) {
+                      // Explicitly preserve slType (e.g. SL_HIT_M1, SL_HIT_BREAKEVEN, SL_HIT_TRAILING_STOP)
+                      if (!isInitial && (slType === 'TRAILING_STOP' || slType === 'trailing')) {
                         reason = EXIT_REASONS.TRAILING_STOP;
                       } else {
                         reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
@@ -2450,13 +2487,17 @@ export class OrderManagerService {
                       reason = EXIT_REASONS.TP_HIT;
                    } else if (clientOrderId && clientOrderId.startsWith('sig-')) {
                       // Dynamically resolve exact exit signal indicator and params
+                      // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
                       let foundSignal = '';
                       if (trade && trade.exit_signals_status) {
-                         const firedEntry = Object.entries(trade.exit_signals_status).find(
-                            ([_, status]: [string, any]) => status && status.fired === true
-                         );
-                         if (firedEntry) {
-                            foundSignal = firedEntry[0];
+                         for (const key in trade.exit_signals_status) {
+                            if (Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) {
+                               const status = (trade.exit_signals_status as Record<string, any>)[key];
+                               if (status && status.fired === true) {
+                                  foundSignal = key;
+                                  break;
+                               }
+                            }
                          }
                       }
 
@@ -2471,11 +2512,18 @@ export class OrderManagerService {
                          this.logger.log(`[Sync] Fallback to generic SIGNAL exit reason.`);
                       }
                    } else {
-                      // BOLT: Distinguish TRAILING_STOP from initial SL hits
+                      // Distinguish adjusted SL from initial SL hits
                       const currentExchangeSl = parseFloat(orderData.stopPrice || orderData.triggerPrice || '0');
                       const initialSl = Number(trade.initial_sl);
-                      if (currentExchangeSl > 0 && initialSl > 0 && Math.abs(currentExchangeSl - initialSl) > initialSl * 0.0001) {
-                        reason = EXIT_REASONS.TRAILING_STOP;
+                      const isInitial = Math.abs(currentExchangeSl - initialSl) <= initialSl * 0.0001;
+                      const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+
+                      if (currentExchangeSl > 0 && initialSl > 0 && !isInitial) {
+                        if (slType === 'TRAILING_STOP' || slType === 'trailing') {
+                          reason = EXIT_REASONS.TRAILING_STOP;
+                        } else {
+                          reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                        }
                       } else {
                         reason = EXIT_REASONS.EXCHANGE_SL_OR_MANUAL;
                       }
@@ -2490,7 +2538,7 @@ export class OrderManagerService {
                          const isInitial = Math.abs(currentSl - initialSl) < initialSl * 0.0001;
                          const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
-                         if (!isInitial && slType.includes('milestone')) {
+                         if (!isInitial && (slType === 'TRAILING_STOP' || slType === 'trailing')) {
                             reason = EXIT_REASONS.TRAILING_STOP;
                          } else {
                             reason = `${EXIT_REASONS.SL_HIT}_${slType}`;

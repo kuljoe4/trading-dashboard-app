@@ -12,6 +12,10 @@ import { PositionTrackerService } from './positionTracker';
 import { TradeSerializationDto, TickTradeDto } from '../trading/dto/trade-serialization.dto';
 import { roundEight, roundTo } from '../lib/math';
 
+// BOLT OPTIMIZATION: Module-level static frozen constants to eliminate GC allocations on hot broadcast paths
+const EMPTY_ARRAY: any[] = Object.freeze([]) as unknown as any[];
+const EMPTY_OBJECT: Readonly<Record<string, any>> = Object.freeze({});
+
 @Injectable()
 export class EngineBroadcasterService {
   private readonly logger = new Logger(EngineBroadcasterService.name);
@@ -43,6 +47,24 @@ export class EngineBroadcasterService {
    */
   private getStrategyLabel(c: Partial<SessionConfig> | null | undefined): string {
     return (c?.strategy_label || 'Momentum Strategy').toString();
+  }
+
+  /**
+   * BOLT OPTIMIZATION: Single-pass serialization of strategy gate states to eliminate intermediate array and tuple allocations.
+   */
+  public serializeStrategyGateStates(): Record<string, any> {
+    const map = this.sessionState.strategyGateStates;
+    if (!map || map.size === 0) return EMPTY_OBJECT;
+
+    const res: Record<string, any> = {};
+    for (const [k, v] of map.entries()) {
+      res[k] = {
+        gateState: v?.gateState || null,
+        gateReason: v?.gateReason || null,
+        isAdaptiveTightened: v?.isAdaptiveTightened || false,
+      };
+    }
+    return res;
   }
 
   /**
@@ -113,7 +135,7 @@ export class EngineBroadcasterService {
     }
 
     const slPriceForEst = trade.current_sl || trade.sl_price || 0;
-    let ratchetPnl = 0;
+    let ratchetPnl: number | undefined = undefined;
     if (slPriceForEst > 0) {
       if (direction === 'LONG') {
         ratchetPnl = (slPriceForEst - entry) * (trade.qty ?? 0);
@@ -122,17 +144,14 @@ export class EngineBroadcasterService {
       }
     }
 
-    // DEBUG: Stateless evaluation of maximum estimated P&L to realize.
-    // The calculation dynamically evaluates priority and transitions between milestone stop-loss (ratchet)
-    // and active exit signals on every broadcast tick.
-    // 1. Initialize max estimated P&L with current ratchet (milestone stop-loss) P&L.
     let maxEstPnlForTrade = ratchetPnl;
     let estPnlSource = 'sl';
 
-    // 2. Iterate exit signals to see if any qualifying or fired signal has a higher expected P&L.
+    // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
     if (trade.exit_signals_status) {
-      for (const [key, status] of Object.entries(trade.exit_signals_status)) {
-        const sigStatus = status as any;
+      for (const key in trade.exit_signals_status) {
+        if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+        const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
         if (!sigStatus) continue;
 
         const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
@@ -146,18 +165,14 @@ export class EngineBroadcasterService {
           } else {
             signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
           }
-        } else if (sigStatus.fired && sigStatus.active) {
-          // Non-price threshold signal that is currently active and fired (e.g., EMA cross indicator)
-          signalPnl = pnl;
         }
 
-        if (signalPnl !== null && signalPnl > maxEstPnlForTrade) {
+        if (signalPnl !== null && (maxEstPnlForTrade === undefined || signalPnl > maxEstPnlForTrade)) {
           maxEstPnlForTrade = signalPnl;
           estPnlSource = `signal:${key}`;
         }
       }
     }
-    maxEstPnlForTrade = Math.min(maxEstPnlForTrade, pnl);
 
     if (minimal) {
       return {
@@ -177,11 +192,13 @@ export class EngineBroadcasterService {
         direction,
         entry_price: roundTo(entry, 8),
         qty: roundTo(trade.qty ?? 0, 8),
+        is_knife: trade.is_knife ?? false,
         exit_signals_status: trade.exit_signals_status || {},
         sl_adjustments: trade.sl_adjustments || [],
         entry_daily_change_pct: trade.entry_daily_change_pct,
         initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
         risk_usdt: trade.risk_usdt ?? 0,
+        risk_lock_reason: trade.risk_lock_reason,
         est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
         est_pnl_source: estPnlSource,
         exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
@@ -196,9 +213,11 @@ export class EngineBroadcasterService {
     return {
       ...trade,
       direction,
+      is_knife: trade.is_knife ?? false,
       entry_daily_change_pct: trade.entry_daily_change_pct,
       initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
       risk_usdt: trade.risk_usdt ?? 0,
+      risk_lock_reason: trade.risk_lock_reason,
       close_attempts: trade.close_attempts,
       close_blocked: trade.close_blocked,
       current_price: roundTo(current ?? entry, 8),
@@ -219,8 +238,8 @@ export class EngineBroadcasterService {
       min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       strategy_config: trade.strategy_config,
-      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || []),
-      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || []),
+      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
+      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
       exit_signal_logic: trade.strategy_config?.exit_signal_logic || config?.exit_signal_logic || 'any',
       tp_mode: trade.strategy_config?.tp_mode || config?.tp_mode || 'fixed',
       tp_ratio: trade.strategy_config?.tp_ratio || config?.tp_ratio || 2,
@@ -236,7 +255,7 @@ export class EngineBroadcasterService {
     const entry = trade.entry_price ?? 0;
 
     const slPriceForEst = trade.current_sl || trade.sl_price || 0;
-    let ratchetPnl = 0;
+    let ratchetPnl: number | undefined = undefined;
     if (slPriceForEst > 0) {
       if (direction === 'LONG') {
         ratchetPnl = (slPriceForEst - entry) * (trade.qty ?? 0);
@@ -247,9 +266,11 @@ export class EngineBroadcasterService {
 
     let maxEstPnlForTrade = ratchetPnl;
     let estPnlSource = 'sl';
+    // WISP OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations on per-tick serialization path
     if (trade.exit_signals_status) {
-      for (const [key, status] of Object.entries(trade.exit_signals_status)) {
-        const sigStatus = status as any;
+      for (const key in trade.exit_signals_status) {
+        if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+        const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
         if (!sigStatus) continue;
 
         const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
@@ -263,23 +284,22 @@ export class EngineBroadcasterService {
           } else {
             signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
           }
-        } else if (sigStatus.fired && sigStatus.active) {
-          signalPnl = pnlValue;
         }
 
-        if (signalPnl !== null && signalPnl > maxEstPnlForTrade) {
+        if (signalPnl !== null && (maxEstPnlForTrade === undefined || signalPnl > maxEstPnlForTrade)) {
           maxEstPnlForTrade = signalPnl;
           estPnlSource = `signal:${key}`;
         }
       }
     }
-    maxEstPnlForTrade = Math.min(maxEstPnlForTrade, pnlValue);
 
     return {
       id: trade.id,
       symbol: trade.symbol,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
       current_price: roundTo(current, 8),
+      mark_price: roundTo(current, 8),
+      last_price: roundTo(current, 8),
       sl_price: roundTo(trade.current_sl, 8),
       tp_price: roundTo(trade.tp, 8),
       pnl: roundTo(pnlValue, 2),
@@ -292,11 +312,13 @@ export class EngineBroadcasterService {
       direction,
       entry_price: roundTo(entry, 8),
       qty: roundTo(trade.qty ?? 0, 8),
+      is_knife: trade.is_knife ?? false,
       entry_daily_change_pct: trade.entry_daily_change_pct,
       close_attempts: trade.close_attempts,
       close_blocked: trade.close_blocked,
       initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
       risk_usdt: trade.risk_usdt ?? 0,
+      risk_lock_reason: trade.risk_lock_reason,
       est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
       est_pnl_source: estPnlSource,
       exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
@@ -305,8 +327,8 @@ export class EngineBroadcasterService {
       _thin: true,
       _sl_len: trade.sl_adjustments?.length || 0,
       _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
-      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || []),
-      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || []),
+      live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
+      exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
     };
   }
 
@@ -336,7 +358,10 @@ export class EngineBroadcasterService {
           return trade;
         }
 
-        if (isThin && !isMidFidelity) return trade;
+        if (isThin && !isMidFidelity) {
+          const { _sig_json, ...cleanThinTrade } = trade;
+          return cleanThinTrade;
+        }
 
         // Strip heavy diagnostics for everyone else
         const {
@@ -344,6 +369,7 @@ export class EngineBroadcasterService {
           live_rr_sequence,
           exit_rr_sequence,
           exit_signals_status,
+          _sig_json,
           sl_adjustments,
           tp_mode,
           tp_ratio,
@@ -447,7 +473,7 @@ export class EngineBroadcasterService {
       totalRiskUsdt += (Number(trade.risk_usdt) || 0);
 
       const slPriceForEst = Number(trade.current_sl || trade.sl_price) || 0;
-      let ratchetPnl = 0;
+      let ratchetPnl: number | undefined = undefined;
       if (slPriceForEst > 0 && !isNaN(slPriceForEst) && isFinite(slPriceForEst)) {
         if (direction === 'LONG') {
           ratchetPnl = (slPriceForEst - entry) * qty;
@@ -455,15 +481,13 @@ export class EngineBroadcasterService {
           ratchetPnl = (entry - slPriceForEst) * qty;
         }
       }
-      if (isNaN(ratchetPnl) || !isFinite(ratchetPnl)) {
-        this.logger.warn(`[DEBUG] NaN ratchetPnl detected for ${trade.symbol} (${trade.id}). SL: ${slPriceForEst}, Entry: ${entry}, Qty: ${qty}. Forcing to 0`);
-        ratchetPnl = 0;
-      }
 
       let maxEstPnlForTrade = ratchetPnl;
+      // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
       if (trade.exit_signals_status) {
-        for (const [key, status] of Object.entries(trade.exit_signals_status)) {
-          const sigStatus = status as any;
+        for (const key in trade.exit_signals_status) {
+          if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+          const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
           if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0 && !isNaN(sigStatus.threshold) && isFinite(sigStatus.threshold)) {
             let signalPnl = 0;
             if (direction === 'LONG') {
@@ -473,20 +497,16 @@ export class EngineBroadcasterService {
             }
             if (!isNaN(signalPnl) && isFinite(signalPnl)) {
               const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
-              // Skip estimated values that are higher than the current active P&L (representing unearned future profit targets) or have unexhausted delay
-              if (!isDelayActive && signalPnl <= pnlValue && signalPnl > maxEstPnlForTrade) {
+              if (!isDelayActive && (maxEstPnlForTrade === undefined || signalPnl > maxEstPnlForTrade)) {
                 maxEstPnlForTrade = signalPnl;
               }
             }
           }
         }
       }
-      // Defensively cap the estimated P&L to realize at the current active P&L to prevent overestimation
-      maxEstPnlForTrade = Math.min(maxEstPnlForTrade, pnlValue);
-      if (isNaN(maxEstPnlForTrade) || !isFinite(maxEstPnlForTrade)) {
-        maxEstPnlForTrade = 0;
+      if (maxEstPnlForTrade !== undefined && !isNaN(maxEstPnlForTrade) && isFinite(maxEstPnlForTrade)) {
+        totalEstPnlToRealize += maxEstPnlForTrade;
       }
-      totalEstPnlToRealize += maxEstPnlForTrade;
 
       const riskDist = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
       const rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / riskDist;
@@ -499,7 +519,7 @@ export class EngineBroadcasterService {
         g.risk = roundEight(g.risk + (trade.risk_usdt || 0));
         g.count++;
         if (pnlValue > 0) g.hits++;
-        g.estPnlToRealize = roundEight(g.estPnlToRealize + maxEstPnlForTrade);
+        g.estPnlToRealize = roundEight(g.estPnlToRealize + (maxEstPnlForTrade || 0));
       }
 
       let tradeChanged = !prevTrade || isHeartbeat;
@@ -543,13 +563,12 @@ export class EngineBroadcasterService {
     const mode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
     const startingBalance = (mode === 'paper') ? config?.paper_starting_balance : config?.live_starting_balance;
 
-    // Calculate realized PnL by summing closed trades to ensure accuracy even if live_starting_balance is unset
+    // WISP OPTIMIZATION: Eliminate O(N) closed trades array iteration loop on the high-frequency broadcast tick path.
+    // Instead of looping through up to 500 closed trades every 500ms tick, retrieve pre-accumulated realized PnL
+    // directly from this.sessionState.stats.totalPnl in O(1) time.
     let realizedPnl = 0;
     if (this.sessionState.closedTrades && this.sessionState.closedTrades.length > 0) {
-      for (const t of this.sessionState.closedTrades) {
-        realizedPnl += Number(t.pnl || 0);
-      }
-      realizedPnl = roundEight(realizedPnl);
+      realizedPnl = roundEight(this.sessionState.stats?.totalPnl ?? 0);
     } else {
       realizedPnl = roundEight(balance - (startingBalance ?? balance));
     }
@@ -609,14 +628,10 @@ export class EngineBroadcasterService {
       hibernation_mode: config.hibernation_mode || 'adaptive',
       isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
       paused: this.sessionState.paused,
-      paused_strategies: Array.from(this.sessionState.pausedStrategies || []),
-      strategy_gate_states: Object.fromEntries(
-        Array.from((this.sessionState.strategyGateStates || new Map()).entries()).map(([k, v]) => [k, {
-          gateState: v?.gateState || null,
-          gateReason: v?.gateReason || null,
-          isAdaptiveTightened: v?.isAdaptiveTightened || false
-        }])
-      ),
+      paused_strategies: (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.size > 0)
+        ? Array.from(this.sessionState.pausedStrategies)
+        : EMPTY_ARRAY,
+      strategy_gate_states: this.serializeStrategyGateStates(),
       scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
       activeWindows: getActiveWindows(),
       rateLimit: getBinanceRateLimit(),

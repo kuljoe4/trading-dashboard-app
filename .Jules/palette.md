@@ -53,3 +53,31 @@
 ## 2026-08-15 - Keyboard Shortcut Cheatsheet Interactivity and Accessibility Standard
 **Learning:** Displaying shortcut keys inside a static modal list misses an opportunity to turn the cheatsheet into an interactive command palette. Converting shortcut rows into semantic `<button>` elements equipped with `aria-label` descriptions (including action label and keys), hover highlights, and `focus-visible:ring-2` focus indicators allows users to either press the hotkey or click the shortcut row directly to execute actions (like view navigation or search focusing).
 **Action:** Always render shortcut rows in cheatsheet modals as interactive `<button>` elements with clear `aria-label` strings and action handlers.
+
+## 2026-08-16 - Navigation Active Position Context & Button Semantics Standard
+**Learning:** Navigation buttons (such as bottom bar tabs or sidebar navigation buttons) that render visual notification badges (like active position counts) often fail to communicate those badge updates to screen reader users if the `aria-label` is static. Dynamically incorporating active position counts into the `aria-label` (e.g. "Trades (2 active positions)") alongside explicit `type="button"` and `cursor-pointer` declarations provides complete auditory parity and standard button semantics across both desktop and mobile viewports.
+**Action:** Ensure navigation items with badge indicators dynamically enrich their `aria-label` strings with badge context for screen readers.
+
+## 2026-08-31 - Confirmation Modal In-Flight Loading Backdrop & Accessible Button Standard
+**Learning:** Confirmation modals performing critical, asynchronous actions (such as emergency position liquidations) create UX and state-integrity risks if backdrop click-to-dismiss handlers or dialog close buttons remain active while requests are in flight. Guarding `onOpenChange` with `!loading`, switching the overlay backdrop to `cursor-wait`, disabling dialog close buttons during `loading={true}`, and supplying explicit `aria-label` and `type="button"` attributes ensures safe-by-default, WCAG-compliant dialog interactions.
+**Action:** Always guard dialog `onOpenChange` state dismissals against in-flight loading operations and enforce explicit button ARIA labels across confirmation modals.
+
+## 2026-09-01 - Informative System Metrics Tooltip & Keyboard Focus Standard
+**Learning:** Informative dashboard metric elements (such as rate limits or risk level badges) that render tooltips on mouse hover are often completely skipped during keyboard tabbing (`Tab` key) and ignored by screen readers if wrapped in plain, non-focusable `<div>` elements. Adding `tabIndex={0}`, dynamic/descriptive `aria-label` strings, and high-contrast theme focus rings (`focus-visible:ring-2 focus-visible:outline-none`) ensures screen readers announce the exact live values and keyboard users can reveal tooltips on focus.
+**Action:** Always ensure informative metric badges with tooltips feature `tabIndex={0}`, descriptive `aria-label` properties, and theme-aligned focus-visible rings.
+
+## 2026-09-02 - Active Position Bar Button Semantics and Landmark Role Avoidance
+**Learning:** Adding `role="region"` to small inline UI elements (such as estimated Stop Loss PnL badges inside active position bars) violates WAI-ARIA landmark guidelines and creates landmark pollution for screen readers. Instead, making inline informative badges focusable (`tabIndex={0}`) with explicit `aria-label` descriptions, Radix `<Tooltip>` wrappers, and focus-visible rings (`focus-visible:ring-1 focus-visible:ring-accent`) provides full keyboard and screen reader accessibility without landmark clutter.
+**Action:** Never apply landmark roles (`role="region"`) to small inline badges or buttons; use `tabIndex={0}` and descriptive `aria-label` attributes instead.
+
+## 2026-09-03 - Error Boundary Recovery Button Accessibility & Focus Ring Standard
+**Learning:** Top-level fallback error UI components (such as global error boundaries) are frequently overlooked during accessibility audits. Buttons in error fallback viewports that lack explicit `type="button"`, `cursor-pointer`, focus-visible rings (`focus-visible:ring-2 focus-visible:ring-blue-500`), and explicit `aria-label` descriptors trap keyboard-only and screen reader users when a unexpected runtime or chunk error occurs, preventing seamless recovery.
+**Action:** Always ensure all error recovery controls specify explicit `type="button"`, `cursor-pointer`, WCAG focus-visible rings, and descriptive `aria-label` attributes.
+
+## 2026-09-04 - Chart Minimal Stroke Widths & Risk Metric Tooltips Standard
+**Learning:** Dense trading dashboards require minimal SVG stroke widths (0.4px - 0.8px) and minimal blur stdDev (0.15) to prevent visual clutter and chart line distortion. Additionally, technical risk metrics like Sharpe (Sh), Sortino (So), Profit Factor (PF), and dynamic Win Rate targets should always be presented alongside strategy cards and details with Radix `<Tooltip>` wrappers providing explicit recommended value tiers for actionable user guidance.
+**Action:** Always maintain minimal SVG stroke widths on chart curves and wrap Sharpe/Sortino/PF metrics in focusable tooltips with benchmark threshold guidance.
+
+## 2026-09-05 - DecisionLog Collapsible Section & Log Entry Accessibility Standard
+**Learning:** Collapsible summary headers and expandable truncated items in activity logs (such as `VariantGatingSummary` and `LogEntry` in `DecisionLog.jsx`) often lack `aria-expanded` state attributes and dynamic `aria-label` descriptions. Supplying dynamic `aria-expanded` and contextual `aria-label` strings ("Expand log message", "Collapse log message", "Toggle variant gating details") alongside standard WCAG focus-visible rings (`focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none`) ensures screen readers and keyboard users can seamlessly navigate dense activity logs.
+**Action:** Always include dynamic `aria-expanded` and state-aware `aria-label` descriptors on collapsible section triggers and inline expandable log entries.

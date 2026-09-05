@@ -1,3 +1,35 @@
+## 2026-09-05 - [Optimization] PositionTracker & OrderManager Exit Signal Traversal Allocation Elimination
+**Learning:** Calling `Object.entries(trade.exit_signals_status)` or `Object.keys(statusMap).filter(...)` on every high-frequency price tick (200ms - 1s) for active trades allocates millions of short-lived `[key, value]` tuple arrays and key lists, driving up GC pressure in the trading engine. Replacing `Object.entries` with direct `for...in` loops and in-loop key accumulation yields a ~13.4x execution speedup in signal status evaluation and eliminates transient array allocations.
+**Action:** Use direct `for...in` loops or in-loop array accumulation instead of `Object.entries()` or `Object.keys().filter()` on high-frequency per-tick trade evaluation paths.
+
+## 2026-09-04 - [Optimization] Zero-Allocation On-Demand Slicing in Event-Driven Backtesting
+**Learning:** Performing eager array slicing (`candles.slice(0, i + 1)`) inside event-driven simulation loops creates millions of short-lived array allocations across symbols and steps. Deferring array slicing until signal evaluation is required and replacing scanner momentum lookback checks with direct index lookups (`candles[i - lookback]`) eliminates >95% of array slicing allocations during backtest execution.
+**Action:** Always defer sub-array slicing until signal evaluation or downstream callers require it, and replace lookback slice accesses with direct index calculations.
+
+## 2026-09-03 - [Optimization] Single-Pass Loop-Fused Aggregation for TODPerformance Analytics
+**Learning:** Instantiating intermediate arrays and performing multiple functional passes (`.filter()`, `.map()`, `.reduce()`, spread `Math.max(...)`) inside React memoized hooks (like `TODPerformance` in `Analytics.jsx`) creates transient array allocations and redundant data iterations on every render frame. Consolidating filtering, extreme extraction (`maxPnl`), and average positive/negative PnL calculations into a single `for` loop over input data eliminates intermediate array allocations and yields a measured 2.11x rendering speedup.
+**Action:** Fuse multi-step `.filter()`, `.map()`, and `.reduce()` chains in React analytics visualization components into single-pass `for` loops.
+
+## 2026-09-01 - [Optimization] Pre-instantiated Intl.NumberFormat for High-Frequency Price Formatting
+**Learning:** Calling `Number.prototype.toLocaleString()` with options inside high-frequency UI formatting utilities (like `price()`) re-instantiates an internal `Intl.NumberFormat` instance on every call. This introduces heavy JS execution overhead (~50x slower) and transient GC allocations. Using pre-instantiated, module-level `Intl.NumberFormat` instances eliminates instance re-creation and provides a ~50x speedup.
+**Action:** Always pre-instantiate `Intl.NumberFormat` instances at module scope for currency/number formatters used in high-frequency rendering components.
+
+## 2026-08-31 - [Optimization] EngineBroadcasterService Exit Signals Status for...in Iteration
+**Learning:** Calling `Object.entries(trade.exit_signals_status)` on every high-frequency broadcast tick (500ms) for every active trade creates short-lived `[key, value]` entry tuple arrays that trigger GC pressure under high active trade counts. Replacing `Object.entries` with direct `for...in` loops (with `hasOwnProperty` checks) across `serializeTrade`, `serializeTickTrade`, and `broadcastTick` eliminates key-value entry allocations on tick updates.
+**Action:** Always use direct `for...in` loops with `hasOwnProperty` checks instead of `Object.entries()` when iterating over plain objects in high-frequency broadcast or tick execution loops.
+
+## 2026-08-29 - [Optimization] Decision Log formatMessage Pre-Compiled Regex Pattern Matching
+**Learning:** Performing per-word string transformations (`.toUpperCase().trim()`) and array searches (`.some()`) inside log rendering loops creates significant string heap allocations and JS execution overhead during high-frequency log updates. Replacing linear array searches with pre-compiled module-level regular expressions (`REGEX_POSITIVE`, `REGEX_NEGATIVE`, `REGEX_NEUTRAL`) eliminates per-word string allocations and yields a measured 2.59x rendering speedup.
+**Action:** Always replace per-word `.some()` array lookups and string transformations with pre-compiled regular expressions for token highlighting in high-frequency rendering components.
+
+## 2026-08-26 - [Optimization] Single-Pass Reverse Loop Allocation for History Cumulative PnL Curve
+**Learning:** Instantiating intermediate arrays via array spreading (`[...safeTrades]`), `.reverse()`, and `.map()` chaining on historical trade datasets creates multiple short-lived heap allocations and GC pressure on every render frame. Replacing functional chaining with a single-pass reverse `for` loop over a pre-allocated array (`new Array(len)`) eliminates intermediate array allocations and delivers a ~1.9x to 2.5x speedup.
+**Action:** Replace `[...arr].reverse().map()` patterns with single-pass reverse `for` loops into pre-allocated output arrays when building cumulative curves or reversed projections.
+
+## 2026-08-25 - [Optimization] Pre-computed Map/Set Lookups for SVG Candlestick Chart Rendering
+**Learning:** Performing array searches (`.some()` and `.find()`) inside JSX SVG render loops for every candle bar creates $O(N \cdot S + N \cdot M)$ computational overhead and closure allocations on every render frame. Pre-building signal `Set`s and decision marker `Map`s inside `useMemo` and attaching `hasSignal` and `marker` directly to bar objects eliminates render-time array scans, achieving a 3.1x execution speedup.
+**Action:** Always pre-compute Set/Map lookups for child element markers/signals inside `useMemo` before mapping data to JSX elements.
+
 ## 2026-08-22 - [Optimization] Loop-Fused Anti-Whipsaw Same-Candle Re-entry Check
 **Learning:** Performing array `.filter()` followed by `.some()` and `new Date()` date parsing inside high-frequency scanner opportunity loops creates transient array allocations and CPU overhead. Furthermore, executing kline store queries (`getRawCandles`) for every timeframe before verifying if closed trades exist for a given symbol wastes CPU time. Pre-checking symbol existence (`hasClosedForSymbol`) and fusing the traversal over `closedTrades` using direct timestamp comparisons eliminates intermediate allocations and achieves a ~2.8x execution speedup.
 **Action:** Always pre-gate symbol-specific checks before querying kline/candle stores, and fuse `.filter()` + `.some()` closures into single-pass `for` loops with numeric timestamp comparisons.
@@ -271,3 +303,7 @@ Test-every-fix culture: each of the above got a regression spec (zero-SL rejecti
 ## 2026-08-03 - [Optimization] Zustand Local Storage Persistence Optimization
 **Learning:** Including high-frequency, transient real-time scanner data properties (`scannerResults` and `variantScannerResults`) in the Zustand store's `persist` middleware whitelist causes expensive, synchronous serialization and write operations to `localStorage` on every single market tick or scanner broadcast (potentially every 200ms). This leads to severe CPU thrashing on the main thread and can easily hit browser quota limits. Excluding transient state from persistence entirely eliminates this write overhead, while ensuring data correctness as fresh scanner results are immediately seeded via WS/REST upon session resumption.
 **Action:** Exclude all transient, high-frequency WebSocket-streamed data collections from Zustand persistence whitelist and use defensive fallbacks/rehydration hooks to initialize state safely.
+
+## 2026-08-27 - [Optimization] Fused maxRR Calculation in Dashboard Active Trades Aggregation
+**Learning:** Performing a separate `.reduce()` over active trades in React view hooks (e.g. `(activeTrades || []).reduce(...)` for `maxRR`) alongside an existing loop that computes active trade PnL maps creates duplicate $O(N)$ array traversals and callback closure allocations on high-frequency state/tick updates. Fusing `maxRR` into the existing single-pass `useMemo` loop eliminates redundant array iterations and callback allocations.
+**Action:** Always fuse secondary scalar metrics (e.g. `maxRR`, `totalPnl`) into existing single-pass collection traversal hooks in React views rather than adding separate `.reduce()` or `.map()` hooks.

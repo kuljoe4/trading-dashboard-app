@@ -249,6 +249,44 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.trailing_stop_distance_pct, 1.5)
     assert.deepEqual(sanitized.signal_timeframes, { ema: '5m' })
   })
+
+  it('preserves combo signal logic and required signal lists', () => {
+    const config = {
+      signal_logic: 'combo',
+      required_signals: ['macd_pbc'],
+      exit_signal_logic: 'combo',
+      required_exit_signals: ['macd_fade']
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.strictEqual(sanitized.signal_logic, 'combo')
+    assert.deepEqual(sanitized.required_signals, ['macd_pbc'])
+    assert.strictEqual(sanitized.exit_signal_logic, 'combo')
+    assert.deepEqual(sanitized.required_exit_signals, ['macd_fade'])
+  })
+
+  it('preserves MACD Histogram Filter fields inside signal_params for persistence', () => {
+    const config = {
+      enabled_signals: ['ema_dual_cross'],
+      signal_params: {
+        entry_ema_fast: 9,
+        entry_ema_slow: 21,
+        ema_dual_macd_filter: true,
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9
+      }
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.deepEqual(sanitized.enabled_signals, ['ema_dual_cross'])
+    assert.deepEqual(sanitized.signal_params, {
+      entry_ema_fast: 9,
+      entry_ema_slow: 21,
+      ema_dual_macd_filter: true,
+      macd_fast: 12,
+      macd_slow: 26,
+      macd_signal: 9
+    })
+  })
 })
 
 describe('presetsAPI', () => {

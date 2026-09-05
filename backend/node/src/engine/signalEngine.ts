@@ -66,6 +66,7 @@ export class SignalEngineService {
     macd_fade: this.macdFadeSignal.bind(this),
     macd_pbc: this.macdPbcSignal.bind(this),
     supertrend: this.supertrendSignal.bind(this),
+    knife_catch: this.knifeCatchSignal.bind(this),
   };
 
   constructor(private readonly klineStore: KlineStoreService) {}
@@ -151,6 +152,14 @@ export class SignalEngineService {
         const fast = parseInt(String(fastVal), 10);
         const slow = parseInt(String(slowVal), 10);
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
+
+        const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);
+        if (macdFilter === true || macdFilter === 'true') {
+          const mFast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
+          const mSlow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
+          const mSig = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
+          maxReq = Math.max(maxReq, (Math.max(mFast, mSlow) + mSig) * 2);
+        }
       } else if (baseType === 'engulfing') {
         const lookbackVal = resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1');
         const lookback = parseInt(String(lookbackVal), 10);
@@ -170,6 +179,10 @@ export class SignalEngineService {
         const periodVal = resolveParam(signalType, baseType, 'supertrend_period', '10');
         const period = parseInt(String(periodVal), 10);
         maxReq = Math.max(maxReq, period * 5);
+      } else if (baseType === 'knife_catch') {
+        const lookbackVal = resolveParam(signalType, baseType, 'knife_lookback', '3');
+        const lookback = parseInt(String(lookbackVal), 10);
+        maxReq = Math.max(maxReq, lookback + 1);
       }
     };
 
@@ -196,6 +209,7 @@ export class SignalEngineService {
     side?: 'LONG' | 'SHORT',
     purpose: 'entry' | 'exit' = 'entry',
     minimal: boolean = false,
+    passedCandles?: Candle[],
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
     // BOLT OPTIMIZATION: Dynamically select correct active signals depending on purpose.
     // Avoids requiring caller to clone the config object on every check.
@@ -211,7 +225,36 @@ export class SignalEngineService {
     }
 
     const logic = purpose === 'exit' ? (config.exit_signal_logic || 'any') : (config.signal_logic || 'all');
-    const candles = this.klineStore.getRawCandles(symbol, interval);
+    const requiredConfigured = purpose === 'exit' ? (config.required_exit_signals || []) : (config.required_signals || []);
+
+    let requiredSet: string[] = [];
+    let optionalSet: string[] = [];
+
+    if (logic === 'combo') {
+      if (requiredConfigured.length > 0) {
+        requiredSet = activeSignals.filter(s => requiredConfigured.includes(s));
+        optionalSet = activeSignals.filter(s => !requiredConfigured.includes(s));
+      } else {
+        const baseSignals = activeSignals.filter(s => {
+          let base = s;
+          const lastUnderscore = s.lastIndexOf('_');
+          if (lastUnderscore > 0) {
+            const potentialBase = s.substring(0, lastUnderscore);
+            if (this.signalHandlers[potentialBase]) base = potentialBase;
+          }
+          return s === base;
+        });
+        if (baseSignals.length > 0 && baseSignals.length < activeSignals.length) {
+          requiredSet = baseSignals;
+          optionalSet = activeSignals.filter(s => !baseSignals.includes(s));
+        } else {
+          requiredSet = [activeSignals[0]];
+          optionalSet = activeSignals.slice(1);
+        }
+      }
+    }
+
+    const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
 
     // Warm-up check for technical indicators
     if (purpose === 'entry') {
@@ -279,26 +322,29 @@ export class SignalEngineService {
         if (signalInterval === 'default') {
           signalInterval = interval;
         }
-        const signalCandles = (signalInterval !== interval)
+        const signalCandles = passedCandles || ((signalInterval !== interval)
           ? this.klineStore.getRawCandles(symbol, signalInterval)
-          : candles;
+          : candles);
 
-        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal);
+        const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal, signalType);
         const fired = typeof result === 'boolean' ? result : result.fired;
         
+        if (fired) firedSignals.push(signalType);
+        else failedSignals.push(signalType);
+
         if (!minimal) {
           if (typeof result !== 'boolean') details[signalType] = { ...result, metric: result.metric || baseSignalType };
-          if (fired) firedSignals.push(signalType);
-          else failedSignals.push(signalType);
         } else {
           // Early exit if logic is satisfied
           if (fired && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };
           if (!fired && logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+          if (!fired && logic === 'combo' && requiredSet.includes(signalType)) return { allFired: false, firedSignals: [], reason: 'minimal' };
         }
       } catch (error) {
         this.logger.warn(`Signal ${signalType} error for ${symbol}: ${error instanceof Error ? error.message : String(error)}`);
         if (minimal) {
           if (logic === 'all') return { allFired: false, firedSignals: [], reason: 'minimal' };
+          if (logic === 'combo' && requiredSet.includes(signalType)) return { allFired: false, firedSignals: [], reason: 'minimal' };
         } else {
           failedSignals.push(signalType);
         }
@@ -306,20 +352,29 @@ export class SignalEngineService {
     }
 
     if (minimal) {
-      // If we finished the loop in minimal mode:
-      // - any: none fired -> false
-      // - all: all fired -> true
+      if (logic === 'combo') {
+        const optionalSatisfied = optionalSet.length === 0 || optionalSet.some(s => firedSignals.includes(s));
+        return { allFired: optionalSatisfied, firedSignals: [], reason: 'minimal' };
+      }
       return { allFired: logic === 'all', firedSignals: [], reason: 'minimal' };
     }
 
-    const allFired = logic === 'any'
-      ? firedSignals.length > 0
-      : failedSignals.length === 0;
+    let allFired = false;
+    if (logic === 'any') {
+      allFired = firedSignals.length > 0;
+    } else if (logic === 'all') {
+      allFired = failedSignals.length === 0;
+    } else if (logic === 'combo') {
+      const requiredSatisfied = requiredSet.every(s => firedSignals.includes(s));
+      const optionalSatisfied = optionalSet.length === 0 || optionalSet.some(s => firedSignals.includes(s));
+      allFired = requiredSatisfied && optionalSatisfied;
+    }
 
-    const reason =
-      `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
-      (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
-      (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
+    const reason = logic === 'combo'
+      ? `Combo (${requiredSet.join(' AND ')} [Req] + ${optionalSet.join(' OR ')} [Opt]): ${firedSignals.length}/${activeSignals.length} fired`
+      : `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
+        (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
+        (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
 
     return { allFired, firedSignals, reason, details };
   }
@@ -770,7 +825,35 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      const signalTypeKey = arguments[7] || 'ema_dual_cross';
+      const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'ema_dual_macd_filter', false);
+      let macdRejected = false;
+      let macdHistValue = 0;
+
+      if (fired && (macdFilter === true || macdFilter === 'true')) {
+        const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_fast', '12')), 10);
+        const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_slow', '26')), 10);
+        const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_signal', '9')), 10);
+
+        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
+        if (macdRes.histogram && macdRes.histogram.length > 0) {
+          macdHistValue = macdRes.histogram[macdRes.histogram.length - 1];
+          if (side === 'SHORT' && macdHistValue >= 0) {
+            fired = false;
+            macdRejected = true;
+          } else if (side === 'LONG' && macdHistValue <= 0) {
+            fired = false;
+            macdRejected = true;
+          }
+        }
+      }
+
       if (minimal) return fired;
+
+      let description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`;
+      if (macdRejected) {
+        description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${side === 'SHORT' ? 'Red' : 'Green'})`;
+      }
 
       return {
         fired,
@@ -779,7 +862,7 @@ export class SignalEngineService {
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
-        description: `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`,
+        description,
         threshold_is_price: true,
         slPrice: roundTo(currSlow, 8),
       };
@@ -852,7 +935,36 @@ export class SignalEngineService {
         else fired = false;
       }
 
+      const signalTypeKey = arguments[7] || 'ema_dual_close';
+      const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'ema_dual_macd_filter', false);
+      let macdRejected = false;
+      let macdHistValue = 0;
+
+      if (fired && (macdFilter === true || macdFilter === 'true')) {
+        const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_fast', '12')), 10);
+        const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_slow', '26')), 10);
+        const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_signal', '9')), 10);
+
+        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
+        const completedIdx = candles.length - 2;
+        if (macdRes.histogram && macdRes.histogram.length > completedIdx) {
+          macdHistValue = macdRes.histogram[completedIdx];
+          if (side === 'SHORT' && macdHistValue >= 0) {
+            fired = false;
+            macdRejected = true;
+          } else if (side === 'LONG' && macdHistValue <= 0) {
+            fired = false;
+            macdRejected = true;
+          }
+        }
+      }
+
       if (minimal) return fired;
+
+      let description = `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`;
+      if (macdRejected) {
+        description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${side === 'SHORT' ? 'Red' : 'Green'})`;
+      }
 
       return {
         fired,
@@ -861,7 +973,7 @@ export class SignalEngineService {
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',
-        description: `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`,
+        description,
         threshold_is_price: true,
         slPrice: roundTo(slowEma, 8),
       };
@@ -1964,6 +2076,67 @@ export class SignalEngineService {
     this.supertrendCache.set(cacheKey, result);
 
     return result;
+  }
+
+  /**
+   * Knife Catch Signal: Quantifies rapid Rate-Of-Change (ROC) acceleration and wick rejection
+   */
+  public knifeCatchSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side: 'LONG' | 'SHORT' = 'LONG',
+    purpose: 'entry' | 'exit' = 'entry',
+    candles?: Candle[],
+    minimal = false,
+    signalType = 'knife_catch'
+  ): boolean | SignalDetail {
+    const klines = candles || this.klineStore.getRawCandles(symbol, interval);
+    const len = klines.length;
+
+    if (len < 3) {
+      if (minimal) return false;
+      return { fired: false, value: 0, threshold: 0, unit: '%', metric: 'ROC', description: 'Insufficient data' };
+    }
+
+    const params = config.signal_params || {};
+    const rocThreshold = parseFloat(String(this.resolveSignalParam(params, signalType, 'knife_catch', 'knife_roc_threshold', '2.0')));
+    const wickPctThreshold = parseFloat(String(this.resolveSignalParam(params, signalType, 'knife_catch', 'knife_wick_pct', '30.0')));
+    const lookback = parseInt(String(this.resolveSignalParam(params, signalType, 'knife_catch', 'knife_lookback', '3')), 10);
+
+    const curr = klines[len - 1];
+    const prevIndex = Math.max(0, len - 1 - lookback);
+    const baseCandle = klines[prevIndex];
+
+    if (!baseCandle || baseCandle.close <= 0) {
+      if (minimal) return false;
+      return { fired: false, value: 0, threshold: rocThreshold, unit: '%', metric: 'ROC', description: 'Invalid candle data' };
+    }
+
+    const roc = Math.abs((curr.close - baseCandle.close) / baseCandle.close) * 100;
+    const range = curr.high - curr.low;
+    let wickPct = 0;
+
+    if (range > 0) {
+      const lowerWick = Math.min(curr.open, curr.close) - curr.low;
+      const upperWick = curr.high - Math.max(curr.open, curr.close);
+      wickPct = side === 'LONG' ? (lowerWick / range) * 100 : (upperWick / range) * 100;
+    }
+
+    const fired = roc >= rocThreshold && wickPct >= wickPctThreshold;
+
+    if (minimal) return fired;
+
+    return {
+      fired,
+      value: roundTo(roc, 2),
+      threshold: rocThreshold,
+      unit: '%',
+      metric: 'ROC %',
+      description: fired
+        ? `Knife Catch triggered: ROC ${roc.toFixed(2)}% >= ${rocThreshold}%, Wick ${wickPct.toFixed(1)}% >= ${wickPctThreshold}%`
+        : `ROC ${roc.toFixed(2)}% / Wick ${wickPct.toFixed(1)}%`,
+    };
   }
 
   /**

@@ -59,7 +59,6 @@ export class MarketFeedService {
   private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
   private currentIsTestnet = false;
   private restSeedInFlight = false;
-  private lastRestSeedTs = 0;
 
   private lastMiniTickerMsgTs = 0;
   private lastMarkTickerMsgTs = 0;
@@ -78,7 +77,7 @@ export class MarketFeedService {
     signature: string;
   } | null = null;
 
-  private getWatchlistConfigSignature(config: SessionConfig): string {
+  private getWatchlistConfigSignature(config: SessionConfig, activeSymbolList: string[]): string {
     return JSON.stringify({
       smart: config.smart_watchlist_enabled,
       size: config.watchlist_size,
@@ -87,6 +86,7 @@ export class MarketFeedService {
       threshold: config.scan_pct_threshold,
       sensitivity: config.smart_watchlist_sensitivity,
       excluded: config.excluded_symbols || [],
+      active: activeSymbolList.sort(),
     });
   }
 
@@ -369,11 +369,13 @@ export class MarketFeedService {
       return;
     }
     if (this.restSeedInFlight) return;
-    const now = Date.now();
     const cacheSize = this.tickerCache.getCacheSize();
-    // Once seeded, only re-seed every 5 minutes to keep prices reasonably
-    // fresh without hammering the 40-weight endpoint.
-    if (cacheSize > 0 && (now - this.lastRestSeedTs) < 5 * 60 * 1000) return;
+    // CITADEL PROTOCOL: Skip REST seed if TickerCache is already populated via WS or previous seed.
+    // Weight Saved: 40 weight units per prevented REST call (GET /fapi/v1/ticker/24hr).
+    if (cacheSize > 0) {
+      this.logger.debug(`[MarketFeed] REST seed skipped: TickerCache already populated (${cacheSize} symbols).`);
+      return;
+    }
 
     this.restSeedInFlight = true;
     try {
@@ -392,7 +394,6 @@ export class MarketFeedService {
       const data = (await response.json()) as any[];
       if (Array.isArray(data) && data.length > 0) {
         this.tickerCache.bulkUpdate(data);
-        this.lastRestSeedTs = Date.now();
         this.logger.log(`[MarketFeed] REST seed complete: ${data.length} symbols loaded into TickerCache.`);
         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
           msg: `[MarketFeed] Market data restored via REST fallback (${data.length} symbols).`,
@@ -511,7 +512,9 @@ export class MarketFeedService {
         level: 'error'
       });
       // Force reconnect
-      this.startGlobalDiscovery();
+      this.startGlobalDiscovery().catch(err => {
+        this.logger.error(`[MarketFeed] Health check global discovery restart failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
       // SRE: If the public WS is starved, seed from REST so the scanner survives.
       this.seedMarketDataFromRest().catch(() => {});
       return;
@@ -529,12 +532,16 @@ export class MarketFeedService {
        // SRE: Global discovery health check
        if (now - this.lastMiniTickerMsgTs > MAX_SILENCE_MS) {
           this.logger.warn('[MarketFeed] Global discovery stream stalled. Reconnecting...');
-          this.startGlobalDiscovery();
+          this.startGlobalDiscovery().catch(err => {
+            this.logger.error(`[MarketFeed] Global discovery reconnect failed: ${err instanceof Error ? err.message : String(err)}`);
+          });
        }
 
        // SRE: Watchlist stream health check
        if (this.activeWatchlist.size > 0) {
-          this.rebuildCombinedKlineStream();
+          this.rebuildCombinedKlineStream().catch(err => {
+            this.logger.error(`[MarketFeed] Watchlist stream rebuild failed: ${err instanceof Error ? err.message : String(err)}`);
+          });
        }
     }
   }
@@ -577,9 +584,17 @@ export class MarketFeedService {
 
       if (config.global_scanner_enabled !== false && !suppressScanner) {
         let symbols: string[];
-        if (config.symbols && config.symbols.length > 0) symbols = config.symbols;
-        else {
-          const signature = this.getWatchlistConfigSignature(config);
+        const activeSymbolList = activeTrades.map(t => t.symbol);
+        const activeExcludedSet = new Set<string>(activeSymbolList);
+        if (config.excluded_symbols && Array.isArray(config.excluded_symbols)) {
+          config.excluded_symbols.forEach(s => activeExcludedSet.add(s));
+        }
+        const combinedExcluded = Array.from(activeExcludedSet);
+
+        if (config.symbols && config.symbols.length > 0) {
+          symbols = config.symbols.filter(s => !activeSymbolList.includes(s));
+        } else {
+          const signature = this.getWatchlistConfigSignature(config, activeSymbolList);
           const now = Date.now();
           const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -604,7 +619,7 @@ export class MarketFeedService {
               const tickers = this.tickerCache.getLatestTickers();
               const smartCandidates = tickers
                 .filter(t => {
-                  if (config.excluded_symbols?.includes(t.symbol)) return false;
+                  if (activeExcludedSet.has(t.symbol)) return false;
                   if (this.getSymbolFilters(t.symbol) === undefined) return false;
 
                   // Estimate momentum if open_24h is available
@@ -622,23 +637,23 @@ export class MarketFeedService {
               // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
               const discoveryMode = config.discovery_mode || 'volume';
               const topSymbols = discoveryMode === 'change_pct'
-                ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
-                : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+                ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+                : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
               const volumeSymbols = topSymbols.map(t => t.symbol);
 
-              symbols = Array.from(new Set([...symbols, ...volumeSymbols]));
+              symbols = Array.from(new Set([...symbols, ...volumeSymbols])).filter(s => !activeExcludedSet.has(s));
             } else {
               const discoveryMode = config.discovery_mode || 'volume';
               const top = discoveryMode === 'change_pct'
-                ? await this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
-                : await this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+                ? await this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
+                : await this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
               const slicedTop = top.slice(offset);
 
               // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
               // that appear in miniTicker stream but are not tradable by the bot.
               symbols = slicedTop
                 .map((t: any) => t.symbol)
-                .filter(s => this.getSymbolFilters(s) !== undefined);
+                .filter(s => this.getSymbolFilters(s) !== undefined && !activeExcludedSet.has(s));
             }
 
             // Save to cache
@@ -776,7 +791,9 @@ export class MarketFeedService {
             }
           }
         }
-        this.processBackfillQueue();
+        this.processBackfillQueue().catch(err => {
+          this.logger.error(`[MarketFeed] Backfill queue execution failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
       }
 
       // BOLT: Throttled logging for watchlist updates to reduce noise during rapid config changes or trade entries
@@ -851,8 +868,12 @@ export class MarketFeedService {
         }
     );
     this.discoveryManagers.set('unified', manager);
-    await manager.connect();
-    await manager.subscribe(topics);
+    try {
+      await manager.connect();
+      await manager.subscribe(topics);
+    } catch (err) {
+      this.logger.error(`[MarketFeed] Failed to connect/subscribe global discovery manager: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
     this.globalDiscoveryOpenedAt = Date.now();
     this._globalDiscoveryConfirmed = false;
@@ -1047,8 +1068,12 @@ export class MarketFeedService {
             }
         );
         this.klineManagers.push(manager);
-        await manager.connect();
-        await manager.subscribe(chunk);
+        try {
+          await manager.connect();
+          await manager.subscribe(chunk);
+        } catch (err) {
+          this.logger.error(`[MarketFeed] Failed to connect/subscribe kline manager chunk (${chunk.length} streams): ${err instanceof Error ? err.message : String(err)}`);
+        }
     }
   }
 
@@ -1198,7 +1223,15 @@ export class MarketFeedService {
       return;
     }
     
-    const requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
+    let requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
+    if (this.sessionState.config?.strategy_variants) {
+      for (const variant of this.sessionState.config.strategy_variants) {
+        if ((variant as any).enabled !== false) {
+          const variantWarmup = this.signalEngine.getRequiredWarmup({ ...this.sessionState.config, ...variant } as SessionConfig);
+          if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
+        }
+      }
+    }
 
     // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
     let existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
@@ -1240,7 +1273,7 @@ export class MarketFeedService {
         this.updateWeight(response.headers);
         klines = (await response.data()) as any[][];
       } else {
-        const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
+        const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
         const response = await this.binanceClientFactory.genericRequest(
           () => fetch(url, { signal: AbortSignal.timeout(10000) }),
           'klineCandlestickData'

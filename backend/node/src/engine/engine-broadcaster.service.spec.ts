@@ -197,24 +197,205 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
   });
 
   describe('getFidelityTick', () => {
-    it('should skip stripping if trade is already _thin and not in focus', () => {
-      const thinTrade = { id: 't1', symbol: 'BTC', _thin: true, extra: 'should stay' };
+    it('should strip _sig_json from thin trades for low-fidelity clients', () => {
+      const thinTrade = { id: 't1', symbol: 'BTC', _thin: true, _sig_json: '{"s1":true}', extra: 'should stay' };
       const payload = { type: 'tick', trades: [thinTrade] };
       const client = { focusMode: false };
 
       const result = service.getFidelityTick(payload, client);
-      expect(result.trades[0]).toBe(thinTrade);
+      expect(result.trades[0]._sig_json).toBeUndefined();
       expect(result.trades[0].extra).toBe('should stay');
     });
 
-    it('should perform stripping if trade is NOT thin', () => {
-        const fatTrade = { id: 't1', symbol: 'BTC', strategy_config: {} };
-        const payload = { type: 'tick', trades: [fatTrade] };
-        const client = { focusMode: false };
+    it('should perform stripping of _sig_json and strategy_config if trade is NOT thin', () => {
+      const fatTrade = { id: 't1', symbol: 'BTC', _sig_json: '{"s1":true}', strategy_config: {} };
+      const payload = { type: 'tick', trades: [fatTrade] };
+      const client = { focusMode: false };
 
-        const result = service.getFidelityTick(payload, client);
-        expect(result.trades[0].strategy_config).toBeUndefined();
-        expect(result.trades[0]._thin).toBe(true);
+      const result = service.getFidelityTick(payload, client);
+      expect(result.trades[0].strategy_config).toBeUndefined();
+      expect(result.trades[0]._sig_json).toBeUndefined();
+      expect(result.trades[0]._thin).toBe(true);
+    });
+
+    it('should preserve full trade including _sig_json if client is focused on that specific trade ID', () => {
+      const trade = { id: 't1', symbol: 'BTC', _sig_json: '{"s1":true}', strategy_config: { k: 'v' } };
+      const payload = { type: 'tick', trades: [trade] };
+      const client = { focusMode: true, focusTradeId: 't1' };
+
+      const result = service.getFidelityTick(payload, client);
+      expect(result.trades[0]._sig_json).toBe('{"s1":true}');
+      expect(result.trades[0].strategy_config).toEqual({ k: 'v' });
+    });
+  });
+
+  describe('serializeStrategyGateStates & paused_strategies optimizations', () => {
+    it('should return frozen EMPTY_OBJECT when strategyGateStates is empty', () => {
+      sessionState.strategyGateStates = new Map();
+      const result = service.serializeStrategyGateStates();
+      expect(result).toEqual({});
+      expect(Object.isFrozen(result)).toBe(true);
+    });
+
+    it('should correctly format strategy gate states when map is populated', () => {
+      sessionState.strategyGateStates = new Map([
+        ['Strategy A', { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true }],
+        ['Strategy B', { gateState: null, gateReason: null, isAdaptiveTightened: false }],
+      ]);
+
+      const result = service.serializeStrategyGateStates();
+      expect(result).toEqual({
+        'Strategy A': { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true },
+        'Strategy B': { gateState: null, gateReason: null, isAdaptiveTightened: false },
       });
+    });
+
+    it('should return frozen EMPTY_ARRAY when pausedStrategies is empty in broadcastTick', () => {
+      sessionState.pausedStrategies = new Set();
+      (service as any).lastTickTime = 0; // force broadcast
+      service.broadcastTick([], {} as any, [], false, () => [], () => ({}));
+
+      const broadcastPayload = broadcastService.broadcast.mock.calls[0][1];
+      expect(broadcastPayload.paused_strategies).toEqual([]);
+      expect(Object.isFrozen(broadcastPayload.paused_strategies)).toBe(true);
+    });
+
+    it('benchmark: serializeStrategyGateStates 1,000,000 calls', () => {
+      sessionState.strategyGateStates = new Map([
+        ['Strategy 1', { gateState: 'max_trades', gateReason: 'Limit', isAdaptiveTightened: false }],
+        ['Strategy 2', { gateState: 'sl_guard', gateReason: 'Stop loss hit', isAdaptiveTightened: true }],
+      ]);
+
+      const iterations = 1000000;
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        service.serializeStrategyGateStates();
+      }
+      const end = performance.now();
+      const totalMs = end - start;
+      console.log(`[BENCHMARK] serializeStrategyGateStates ${iterations} calls: ${totalMs.toFixed(2)}ms (${((totalMs / iterations) * 1000000).toFixed(2)}ns/call)`);
+      expect(totalMs).toBeGreaterThan(0);
+    });
+  });
+
+  describe('realizedPnl broadcastTick O(1) optimization', () => {
+    it('should correctly calculate total_pnl using pre-accumulated sessionState.stats.totalPnl without looping', () => {
+      const closedTrades: any[] = [];
+      let expectedPnlSum = 0;
+      for (let i = 0; i < 50; i++) {
+        const pnlVal = 10.5;
+        closedTrades.push({ id: `ct_${i}`, pnl: pnlVal, symbol: 'BTCUSDT' });
+        expectedPnlSum += pnlVal;
+      }
+
+      sessionState.closedTrades = closedTrades;
+      sessionState.stats = { entryCount: 50, hitCount: 50, totalPnl: expectedPnlSum };
+      sessionState.getBalance.mockReturnValue(10000);
+      (service as any).lastTickTime = 0; // force broadcast
+
+      service.broadcastTick([], { paper_mode: true, paper_starting_balance: 10000 } as any, [], false, () => [], () => ({}));
+
+      const broadcastPayload = broadcastService.broadcast.mock.calls[0][1];
+      expect(broadcastPayload.total_pnl).toBe(525);
+    });
+
+    it('benchmark: broadcastTick realizedPnl optimization across 10,000 ticks with 500 closed trades', () => {
+      const closedTrades: any[] = [];
+      for (let i = 0; i < 500; i++) {
+        closedTrades.push({ id: `t_${i}`, pnl: 2.5, symbol: 'SOLUSDT' });
+      }
+
+      sessionState.closedTrades = closedTrades;
+      sessionState.stats = { entryCount: 500, hitCount: 500, totalPnl: 1250 };
+      sessionState.getBalance.mockReturnValue(11250);
+
+      const iterations = 10000;
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        (service as any).lastTickTime = 0; // force broadcast
+        service.broadcastTick([], { paper_mode: true, paper_starting_balance: 10000 } as any, [], false, () => [], () => ({}));
+      }
+      const totalMs = performance.now() - start;
+
+      console.log(`[BENCHMARK] broadcastTick O(1) realizedPnl ${iterations} ticks (500 trades each): ${totalMs.toFixed(2)}ms (${(totalMs / iterations).toFixed(4)}ms/tick)`);
+      expect(totalMs).toBeGreaterThan(0);
+    });
+  });
+
+  describe('exit_signals_status for...in iteration optimization', () => {
+    it('should correctly evaluate exit signals status using for...in loop without Object.entries allocations', () => {
+      const trade = new Trade();
+      trade.id = 't1';
+      trade.symbol = 'BTCUSDT';
+      trade.entry_price = 50000;
+      trade.qty = 0.5;
+      trade.direction = 'LONG';
+      trade.current_sl = 49000;
+      trade.exit_signals_status = {
+        sig1: {
+          fired: true,
+          active: true,
+          label: 'Signal 1',
+          unit: 'USD',
+          value: 52000,
+          threshold_is_price: true,
+          threshold: 52000, // PnL: (52000 - 50000) * 0.5 = 1000
+          remaining_delay: 0,
+        },
+        sig2: {
+          fired: true,
+          active: true,
+          label: 'Signal 2',
+          unit: 'USD',
+          value: 51000,
+          threshold_is_price: true,
+          threshold: 51000, // PnL: (51000 - 50000) * 0.5 = 500
+          remaining_delay: 0,
+        },
+      };
+
+      const config = { strategy_label: 'Test' } as SessionConfig;
+
+      const serialized = (service as any).serializeTrade(trade, config, 51500);
+      expect(serialized.est_pnl_to_realize).toBe(1000);
+      expect(serialized.est_pnl_source).toBe('signal:sig1');
+
+      const tickTrade = service.serializeTickTrade(trade, config, 51500, 750, 1.5);
+      expect(tickTrade.est_pnl_to_realize).toBe(1000);
+      expect(tickTrade.est_pnl_source).toBe('signal:sig1');
+    });
+
+    it('benchmark: exit_signals_status iteration across 100,000 active trade evaluations', () => {
+      const activeTrades: Trade[] = [];
+      for (let i = 0; i < 20; i++) {
+        const t = new Trade();
+        t.id = `trade_${i}`;
+        t.symbol = `SYM_${i}`;
+        t.entry_price = 100 + i;
+        t.qty = 10;
+        t.direction = 'LONG';
+        t.current_sl = 95 + i;
+        t.exit_signals_status = {
+          ema_cross: { fired: false, active: true, label: 'EMA Cross', unit: 'USD', value: 105 + i, threshold_is_price: true, threshold: 105 + i, remaining_delay: 0 },
+          rsi_overbought: { fired: true, active: true, label: 'RSI Overbought', unit: 'USD', value: 110 + i, threshold_is_price: true, threshold: 110 + i, remaining_delay: 0 },
+          macd_histogram: { fired: false, active: true, label: 'MACD Histogram', unit: 'USD', value: 108 + i, threshold_is_price: true, threshold: 108 + i, remaining_delay: 0 },
+        };
+        activeTrades.push(t);
+      }
+
+      tickerCache.getPrice.mockReturnValue(105);
+      sessionState.getBalance.mockReturnValue(10000);
+
+      const iterations = 5000; // 5000 ticks * 20 trades = 100,000 trade exit signal evaluations
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        (service as any).lastTickTime = 0; // force broadcast
+        service.broadcastTick(activeTrades, { paper_mode: true, paper_starting_balance: 10000 } as any, [], false, () => [], () => ({}));
+      }
+      const totalMs = performance.now() - start;
+
+      console.log(`[BENCHMARK] exit_signals_status for...in iteration across 100,000 trade evaluations: ${totalMs.toFixed(2)}ms (${(totalMs / (iterations * 20) * 1000).toFixed(2)}ns/eval)`);
+      expect(totalMs).toBeGreaterThan(0);
+    });
   });
 });

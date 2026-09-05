@@ -13,7 +13,7 @@ export class Session {
   paperMode: boolean;
 
   @Column({ type: 'varchar', default: 'paper' })
-  tradingMode: 'paper' | 'testnet' | 'live';
+  tradingMode: 'paper' | 'testnet' | 'live' | 'backtest';
 
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   balance: number;

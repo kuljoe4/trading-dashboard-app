@@ -91,6 +91,7 @@ const sessionConfigAllowedKeys = [
   'symbols',
   'enabled_signals',
   'signal_logic',
+  'required_signals',
   'signal_params',
   'sl_type',
   'sl_distance_pct',
@@ -105,6 +106,7 @@ const sessionConfigAllowedKeys = [
   'exit_rr_sequence',
   'exit_signals',
   'exit_signal_logic',
+  'required_exit_signals',
   'exit_signal_delays',
   'exit_signal_actions',
   'exit_signals_override_ratchet',
@@ -156,7 +158,18 @@ const sessionConfigAllowedKeys = [
   'smart_watchlist_enabled',
   'smart_watchlist_sensitivity',
   'trailing_stop_enabled',
+  'trailing_stop_type',
   'trailing_stop_distance_pct',
+  'trailing_stop_rr',
+  'trailing_activation_rr',
+  'knife_trailing_enabled',
+  'knife_trailing_distance_pct',
+  'knife_auto_ratchet_be_rr',
+  'knife_auto_ratchet_lock_rr',
+  'anti_whipsaw_allow_knife',
+  'anti_whipsaw_candle_delay',
+  'anti_whipsaw_tf_delay_min',
+  'allow_knife_when_gated',
   'release_risk_on_est_pnl_be',
   'signal_timeframes',
   'paused',
@@ -229,6 +242,10 @@ export const createSessionAPI = (apiInstance = api) => ({
   deleteOrphans: () => apiInstance.delete('/session/trades/orphans'),
   getUntrackedPositions: () => apiInstance.get('/session/untracked-positions'),
   adoptPosition: (symbol, strategyLabel, initialSl, currentSl) => apiInstance.post('/session/adopt-position', { symbol, strategyLabel, initialSl, currentSl }),
+  backtest: (payload) => apiInstance.post('/session/backtest', {
+    ...payload,
+    config: sanitizeSessionConfig(payload.config || {}),
+  }),
 })
 
 export const sessionAPI = createSessionAPI()
@@ -243,6 +260,15 @@ export const presetsAPI = {
   list: () => api.get('/presets'),
   save: (name, config) => api.post('/presets', { name, config: sanitizeSessionConfig(config) }),
   delete: (name) => api.delete(`/presets/${encodeURIComponent(name)}`),
+}
+
+export const smartOptimizerAPI = {
+  run: (payload) => api.post('/session/smart-optimizer/run', {
+    ...payload,
+    baseConfig: sanitizeSessionConfig(payload?.baseConfig || {}),
+  }),
+  getRecommendations: () => api.get('/session/smart-optimizer/recommendations'),
+  clearRecommendations: () => api.delete('/session/smart-optimizer/recommendations'),
 }
 
 export { sanitizeSessionConfig }

@@ -1,5 +1,5 @@
 ux_state:
-  last_review: 2026-07-20
+  last_review: 2026-08-01
 
 findings:
   - id: UX-001
@@ -262,6 +262,17 @@ findings:
     notes: "Custom Radix switches and environment selections lack focus-visible rings."
     recommendation: "Enforce custom focus-visible:ring-2 styles on all toggle switches and environment buttons."
 
+  - id: UX-029
+    status: resolved
+    severity: high
+    category: accessibility
+    screens:
+      - global
+      - settings
+      - active-trade-card
+    notes: "Dim font contrast ratio in several light and dark themes fell below WCAG 2.1 AA standards (4.5:1 ratio)."
+    recommendation: "Boosted theme color tokens for dim text (--color-dim-theme) and border colors across all 9 theme presets in theme.js, and upgraded low-opacity text references."
+
 design_decisions:
   - DD-001: "Operator Cockpit vision - prioritize information density and real-time awareness over marketing aesthetics."
   - DD-002: "WebSocket-first data flow with delta merging to minimize network egress while keeping UI fresh."
@@ -274,9 +285,9 @@ design_decisions:
   - DD-009: "Direction-Aware Price Runway - Formula-based visual indicators relative to entry and direction instead of absolute ratios."
 
 metrics:
-  overall_score: 9.7
-  task_completion_rate: 0.98
-  accessibility_issues_open: 1
-  total_open_findings: 3
+  overall_score: 9.8
+  task_completion_rate: 0.99
+  accessibility_issues_open: 0
+  total_open_findings: 0
   performance_score_lighthouse: 98
   ws_latency_avg_ms: 110

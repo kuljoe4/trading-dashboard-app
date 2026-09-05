@@ -14,17 +14,74 @@ import {
 } from "@nestjs/common";
 import { Request } from "express";
 import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
 import { SessionService } from "./session.service";
+import { BacktestService, RunBacktestDto } from "../engine/backtest.service";
+import { SmartOptimizerService, RunOptimizationDto } from "../engine/smart-optimizer.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
 import { SessionConfig } from "../models/SessionConfig";
 import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto } from "./dto/session.dto";
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
+import { formatValidationErrors } from "../lib/logger";
 
 @Controller("session")
 @UseGuards(ApiKeyGuard)
 export class SessionController {
-  constructor(private readonly sessionService: SessionService) {}
+  constructor(
+    private readonly sessionService: SessionService,
+    private readonly backtestService: BacktestService,
+    private readonly smartOptimizerService: SmartOptimizerService,
+  ) {}
+
+  @Post("smart-optimizer/run")
+  async runSmartOptimization(@Body() body: RunOptimizationDto) {
+    const baseConfig = plainToInstance(SessionConfig, body.baseConfig || {});
+    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
+    const errors = await validate(baseConfig, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid base strategy configuration in smart optimizer",
+        detail: detailedErrors,
+      });
+    }
+    return this.smartOptimizerService.runOptimization({
+      ...body,
+      baseConfig,
+    });
+  }
+
+  @Get("smart-optimizer/recommendations")
+  async getSmartRecommendations() {
+    return {
+      recommendations: this.smartOptimizerService.getTopRecommendations(),
+    };
+  }
+
+  @Delete("smart-optimizer/recommendations")
+  async clearSmartRecommendations() {
+    this.smartOptimizerService.clearRecommendations();
+    return { success: true };
+  }
+
+  @Post("backtest")
+  async runBacktest(@Body() body: RunBacktestDto) {
+    const config = plainToInstance(SessionConfig, body.config || {});
+    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
+    const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid strategy configuration in backtest",
+        detail: detailedErrors,
+      });
+    }
+    return this.backtestService.runBacktest({
+      ...body,
+      config,
+    });
+  }
 
   @Post("start")
   async startSession(@Body() body: StartSessionDto, @Req() req: Request) {
@@ -32,20 +89,20 @@ export class SessionController {
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
 
-    if (body.sessionId) {
-      return this.sessionService.startSession(
-        body.config || ({} as any),
-        body.paper_mode ?? true,
-        body.sessionId,
-        clientIp,
-        userAgent,
-      );
-    }
     const config = plainToInstance(SessionConfig, body.config || {});
+    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
+    const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid strategy configuration",
+        detail: detailedErrors,
+      });
+    }
     return this.sessionService.startSession(
       config,
       body.paper_mode ?? true,
-      undefined,
+      body.sessionId,
       clientIp,
       userAgent,
     );
@@ -141,8 +198,8 @@ export class SessionController {
   async getTrade(@Param("id") id: string) {
     // SENTINEL: Input validation to ensure 'id' is a valid UUID or Binance symbol format.
     // Prevents potential probing attacks or malformed input issues.
-    // SENTINEL: Enforce maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse.
-    if (!id || id.length > 50) {
+    // SENTINEL: Enforce explicit string type assertion and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and HPP type confusion.
+    if (!id || typeof id !== "string" || id.length > 50) {
       throw new BadRequestException("Invalid trade ID or symbol format");
     }
     const isUuid =
@@ -163,8 +220,8 @@ export class SessionController {
     @Body() body: UpdateTradeConfigDto,
     @Req() req: Request,
   ) {
-    // SENTINEL: Enforce maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse.
-    if (!id || id.length > 50) {
+    // SENTINEL: Enforce explicit string type assertion and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and HPP type confusion.
+    if (!id || typeof id !== "string" || id.length > 50) {
       throw new BadRequestException("Invalid trade ID or symbol format");
     }
     const isUuid =
@@ -218,8 +275,8 @@ export class SessionController {
     @Req() req: Request,
   ) {
     // Basic input hardening: ensure symbol matches expected Binance format
-    // SENTINEL: Enforce maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse.
-    if (!symbol || symbol.length > 50 || !/^[A-Z0-9]{3,20}$/.test(symbol)) {
+    // SENTINEL: Enforce explicit string type assertion and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and HPP type confusion.
+    if (!symbol || typeof symbol !== "string" || symbol.length > 50 || !/^[A-Z0-9]{3,20}$/.test(symbol)) {
       throw new BadRequestException("Invalid symbol format");
     }
     const clientIp =
@@ -237,10 +294,13 @@ export class SessionController {
   async getLifetimeAnalytics(
     @Query("mode") mode: "paper" | "testnet" | "live",
   ) {
-    if (mode && (typeof mode !== "string" || !["paper", "testnet", "live"].includes(mode))) {
-      throw new BadRequestException(
-        "Invalid mode. Must be one of: paper, testnet, live",
-      );
+    // SENTINEL: Enforce type safety, maximum length constraint, and whitelisting to prevent ReDoS, HPP type confusion, and invalid query parameters.
+    if (mode) {
+      if (typeof mode !== "string" || mode.length > 20 || !["paper", "testnet", "live"].includes(mode)) {
+        throw new BadRequestException(
+          "Invalid mode. Must be one of: paper, testnet, live",
+        );
+      }
     }
     return this.sessionService.getLifetimeAnalytics(mode || "paper");
   }

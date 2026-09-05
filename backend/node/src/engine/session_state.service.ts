@@ -42,6 +42,8 @@ export class SessionStateService {
     entryCount: 0,
     hitCount: 0,
     totalPnl: 0,
+    totalRealizedFee: 0,
+    totalFundingFee: 0,
   };
   public statsVersion = 0;
   public gateState: string | null = null;
@@ -131,6 +133,8 @@ export class SessionStateService {
     this.localTradePnLAdjustments.clear();
 
     let totalPnlAcc = 0;
+    let totalRealizedFeeAcc = 0;
+    let totalFundingFeeAcc = 0;
     const processedTradeIds = new Set<string>();
 
     const processTrade = (trade: Trade) => {
@@ -146,6 +150,8 @@ export class SessionStateService {
 
       const pnl = trade.pnl || 0;
       totalPnlAcc += pnl;
+      totalRealizedFeeAcc += Number(trade.realized_fee) || 0;
+      totalFundingFeeAcc += Number(trade.funding_fee) || 0;
 
       // Populate idempotency maps/sets to prevent double-counting
       if (!trade.is_reconciliation) {
@@ -180,14 +186,14 @@ export class SessionStateService {
     };
 
     // BOLT: Optimize by using loop fusion and avoiding intermediate array spreads
-    // Filter by sessionId during processing to avoid redundant allocations
+    // Filter by sessionId during processing to preserve session isolation
     for (let i = 0; i < initialHistory.length; i++) {
-      if (!sessionId || initialHistory[i].sessionId === sessionId) {
+      if (!sessionId || !initialHistory[i].sessionId || initialHistory[i].sessionId === sessionId) {
         processTrade(initialHistory[i]);
       }
     }
     for (let i = 0; i < initialOpen.length; i++) {
-      if (!sessionId || initialOpen[i].sessionId === sessionId) {
+      if (!sessionId || !initialOpen[i].sessionId || initialOpen[i].sessionId === sessionId) {
         processTrade(initialOpen[i]);
       }
     }
@@ -196,7 +202,9 @@ export class SessionStateService {
     this.stats = {
         entryCount: this.countedGlobalEntries.size,
         hitCount: this.countedGlobalHits.size,
-        totalPnl: roundEight(totalPnlAcc)
+        totalPnl: roundEight(totalPnlAcc),
+        totalRealizedFee: roundEight(totalRealizedFeeAcc),
+        totalFundingFee: roundEight(totalFundingFeeAcc)
     };
 
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');

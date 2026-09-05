@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
-import { formatDuration, calculateSupertrend } from '../lib/formatters'
+import { formatDuration, calculateSupertrend, calculateProximity } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge, ModalAlertTicker } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
@@ -693,8 +693,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       results = results.filter(r => r.symbol.toLowerCase().includes(term))
     }
 
-    // 3. Filter by range
-    if (rangeFilter === 'pos') {
+    // 3. Filter by range and quote asset
+    if (rangeFilter === 'usdt') {
+      results = results.filter(r => (r.symbol || '').toUpperCase().endsWith('USDT'))
+    } else if (rangeFilter === 'non_usdt') {
+      results = results.filter(r => !(r.symbol || '').toUpperCase().endsWith('USDT'))
+    } else if (rangeFilter === 'pos') {
       results = results.filter(r => (r.pct || 0) > 0)
     } else if (rangeFilter === 'neg') {
       results = results.filter(r => (r.pct || 0) < 0)
@@ -715,8 +719,35 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
         .slice(0, 24);
     }
 
+    const enabledSigs = strategyConfig?.enabled_signals || [];
+    const scanThresh = strategyConfig?.scan_pct_threshold || 2.0;
+
+    const calcOppProximity = (opp) => {
+      if (opp.signalResult?.allFired) return 100;
+      const isLong = opp.pct >= 0;
+      const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
+
+      let sigSum = velocityProgress;
+      let count = 1;
+
+      if (opp.signalResult?.signals) {
+        for (const sigKey of enabledSigs) {
+          const s = opp.signalResult.signals[sigKey];
+          if (s) {
+            const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+            sigSum += prox;
+            count++;
+          }
+        }
+      }
+
+      return Math.round(count > 0 ? sigSum / count : 0);
+    };
+
     // 5. Apply sorting
-    if (sortBy === 'score') {
+    if (sortBy === 'proximity') {
+      results = [...results].sort((a, b) => calcOppProximity(b) - calcOppProximity(a));
+    } else if (sortBy === 'score') {
       results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0))
     } else if (sortBy === 'pct_desc') {
       results = [...results].sort((a, b) => (b.pct || 0) - (a.pct || 0))
@@ -889,10 +920,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             <select
               value={rangeFilter}
               onChange={(e) => setRangeFilter(e.target.value)}
-              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-36 transition-colors"
-              aria-label="Filter by 24h change range"
+              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-40 transition-colors"
+              aria-label="Filter by 24h change range or quote pair"
             >
               <option value="all">All Movements</option>
+              <option value="usdt">USDT Pairs Only</option>
+              <option value="non_usdt">Non-USDT Pairs</option>
               <option value="pos">Positive (&gt;0%)</option>
               <option value="neg">Negative (&lt;0%)</option>
               <option value="movers">Movers (&gt;2%)</option>
@@ -910,6 +943,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               aria-label="Sort options"
             >
               <option value="score">Scanner Score (Default)</option>
+              <option value="proximity">🔥 Proximity (Near Trigger)</option>
               <option value="pct_desc">Change % (High → Low)</option>
               <option value="pct_asc">Change % (Low → High)</option>
               <option value="vol_desc">Volume (High → Low)</option>
@@ -962,8 +996,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             <div className="text-[13px] text-dim font-bold uppercase tracking-widest">No matching symbols</div>
             <p className="text-[11px] text-dim/60 mt-1">Try adjusting your filter or search for another pair.</p>
             <button
-              onClick={() => setSearch('')}
-              className="mt-6 px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
+              type="button"
+              onClick={() => {
+                setSearch('');
+                searchInputRef.current?.focus();
+              }}
+              className="mt-6 px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
             >
               Clear Filter
             </button>

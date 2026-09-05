@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { ShieldCheck, Zap, Activity, AlertTriangle } from 'lucide-react';
-import { cn } from './ui/primitives';
+import { cn, Tooltip } from './ui/primitives';
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -23,9 +23,16 @@ export const RiskSummary = React.memo(({ cfg, balance }) => {
           <ShieldCheck size={12} /> Live Risk Projection
         </div>
         {isAggressive && (
-          <div className="flex items-center gap-1.5 px-2 py-0.5 bg-amber/10 border border-amber/20 rounded text-[8px] font-black text-amber uppercase tracking-tighter">
-            <AlertTriangle size={10} /> Aggressive Profile
-          </div>
+          <Tooltip content="Risk per trade exceeds 2% or Stop Loss distance exceeds 5%">
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Aggressive Risk Profile: Risk per trade exceeds 2% or Stop Loss distance exceeds 5%"
+              className="flex items-center gap-1.5 px-2 py-0.5 bg-amber/10 border border-amber/20 rounded text-[8px] font-black text-amber uppercase tracking-tighter cursor-help focus-visible:ring-2 focus-visible:ring-amber focus-visible:outline-none"
+            >
+              <AlertTriangle size={10} /> Aggressive Profile
+            </div>
+          </Tooltip>
         )}
       </div>
 

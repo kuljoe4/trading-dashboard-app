@@ -78,6 +78,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private inFlightExchangeCloses: Set<string> = new Set();
   private lastFullReconciliationTs = 0;
   private lastWatchdogTs = 0;
+  private loggedKnifeBypassMap: Map<string, number> = new Map();
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -770,13 +771,14 @@ export class TradingSessionService implements OnApplicationShutdown {
 
       const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs();
+      const activePositionSymbols = this.positionTracker.getPositionSymbols();
       const opportunitiesBySignature = new Map<string, any[]>();
       let primaryOpportunities: any[] = [];
       this.monitoringService.setLoopStage("SCANNING");
       for (const sc of strategyConfigs) {
         const sig = this.scanSignature(sc);
         if (!opportunitiesBySignature.has(sig))
-          opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc));
+          opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc, activePositionSymbols));
         if (primaryOpportunities.length === 0)
           primaryOpportunities = opportunitiesBySignature.get(sig) || [];
       }
@@ -868,7 +870,26 @@ export class TradingSessionService implements OnApplicationShutdown {
         // Check if strategy gating is active
         const gateInfo = this.sessionState.strategyGateStates ? this.sessionState.strategyGateStates.get(label) : null;
         const isGated = ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo?.gateState || '');
-        if (isGated) {
+
+        // Allow gated scan evaluating candidate entries if allow_knife_when_gated is active and 0 active knife trades exist
+        const activeKnifeTradesCount = this.positionTracker.activeList().filter(t => t.is_knife).length;
+        const allowKnifeGatedBypass = (sc.allow_knife_when_gated ?? false) && activeKnifeTradesCount === 0;
+
+        if (isGated && allowKnifeGatedBypass) {
+          const nowTs = Date.now();
+          const lastLogged = this.loggedKnifeBypassMap.get(label) || 0;
+          const gateReasonDetail = gateInfo?.gateReason ? `: "${gateInfo.gateReason}"` : '';
+          if (nowTs - lastLogged > 60000) {
+            this.loggedKnifeBypassMap.set(label, nowTs);
+            const bypassMsg = `[Knife Engine] Strategy "${label}" is gated (${gateInfo?.gateState}${gateReasonDetail}). No position opened yet — candidate opportunities are being evaluated for potential Knife Catch entry because 'allow_knife_when_gated' is active (0 active knife trades).`;
+            this.logger.log(bypassMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
+          } else {
+            this.logger.debug(`[Knife Engine] Strategy "${label}" is gated (${gateInfo?.gateState}${gateReasonDetail}). Candidate opportunities are being evaluated for Knife Catch entry.`);
+          }
+        }
+
+        if (isGated && !allowKnifeGatedBypass) {
           this.logger.debug(`Strategy ${label} is gated (${gateInfo?.gateState}). Skipping entries.`);
           continue;
         }

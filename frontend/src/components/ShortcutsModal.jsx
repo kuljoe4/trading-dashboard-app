@@ -70,7 +70,8 @@ export const ShortcutsModal = ({ isOpen, onClose }) => {
             <Tooltip content="Close [Esc]">
               <Dialog.Close asChild>
                 <button
-                  className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                  type="button"
+                  className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-dim hover:text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
                   aria-label="Close shortcuts dialog"
                 >
                   <X size={16} />
@@ -121,7 +122,8 @@ export const ShortcutsModal = ({ isOpen, onClose }) => {
           <div className="mt-8 pt-4 border-t border-border/30 flex justify-end">
             <Dialog.Close asChild>
               <button
-                className="px-5 py-2 bg-accent text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all active:scale-95 h-9"
+                type="button"
+                className="px-5 py-2 bg-accent text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all active:scale-95 h-9 cursor-pointer"
               >
                 Got It
               </button>

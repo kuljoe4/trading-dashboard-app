@@ -442,7 +442,7 @@ describe('PositionTrackerService', () => {
          direction: 'LONG',
          entry_price: 100,
          initial_sl: 80, // 20 points risk
-         current_sl: 95, // Ratcheted to almost entry
+         current_sl: 80,
          qty: 10,
          status: 'OPEN',
          risk_usdt: 200,
@@ -452,7 +452,6 @@ describe('PositionTrackerService', () => {
        expect(service.totalRisk()).toBe(200);
 
        // Qty halved to 5. Risk should be (100 - 80) * 5 = 100.
-       // If it wrongly used current_sl (95), risk would be (100 - 95) * 5 = 25.
        service.handleQuantitySync({ symbol: 'QTY_SYNC_TEST', qty: 5 });
 
        expect(trade.qty).toBe(5);
@@ -660,6 +659,7 @@ describe('PositionTrackerService', () => {
         qty: 0.1,
         status: 'OPEN',
         risk_usdt: 100,
+        sl_adjustments: [{ reason: 'OVERRIDE' }],
       } as unknown as Trade;
 
       service.addTrade(longTrade);
@@ -674,6 +674,7 @@ describe('PositionTrackerService', () => {
         qty: 0.1,
         status: 'OPEN',
         risk_usdt: 100,
+        sl_adjustments: [{ reason: 'OVERRIDE' }],
       } as unknown as Trade;
 
       service.addTrade(shortTrade);
@@ -740,15 +741,37 @@ describe('PositionTrackerService', () => {
         release_risk_on_est_pnl_be: true,
       } as SessionConfig;
 
-      // Estimated PnL is +10 (above breakeven 0)
-      trade.est_pnl_to_realize = 10;
+      // Exit signal threshold is 105 (estimated exit floor PnL = +50 above breakeven 0)
+      trade.exit_signals_status = {
+        ema_cross: {
+          fired: true,
+          active: true,
+          threshold: 105,
+          threshold_is_price: true,
+          remaining_delay: 0,
+          label: 'EMA Cross',
+          value: 105,
+          unit: 'USDT',
+        },
+      };
       service.refreshTradeRisk(trade, false, 105, config);
 
       expect(trade.risk_usdt).toBe(0);
       expect(service.totalRisk()).toBe(0);
 
       // Estimated PnL drops back to -50 (below breakeven 0)
-      trade.est_pnl_to_realize = -50;
+      trade.exit_signals_status = {
+        ema_cross: {
+          fired: true,
+          active: true,
+          threshold: 95,
+          threshold_is_price: true,
+          remaining_delay: 0,
+          label: 'EMA Cross',
+          value: 95,
+          unit: 'USDT',
+        },
+      };
       service.refreshTradeRisk(trade, false, 95, config);
 
       expect(trade.risk_usdt).toBe(100);

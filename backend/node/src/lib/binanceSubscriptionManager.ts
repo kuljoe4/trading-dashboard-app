@@ -179,6 +179,7 @@ export class BinanceSubscriptionManager {
 
   public async stop(): Promise<void> {
     this.isStopped = true;
+    this.messageQueue = [];
     this.stopQueueProcessor();
     this.stopPingInterval();
     this.stopStatsInterval();
@@ -246,7 +247,12 @@ export class BinanceSubscriptionManager {
     if (this.isStopped) return Promise.reject(new Error('Stopped'));
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      await this.connect();
+      try {
+        await this.connect();
+      } catch (err) {
+        this.logger.warn(`[SubscriptionManager] Connection attempt in sendRequest failed: ${err instanceof Error ? err.message : String(err)}`);
+        return Promise.reject(err);
+      }
     }
 
     return new Promise((resolve, reject) => {

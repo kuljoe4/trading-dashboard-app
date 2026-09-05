@@ -66,8 +66,21 @@ export class MomentumScannerService {
    * BOLT OPTIMIZATION: Unified loop with task deduplication and in-place results processing.
    * Reduces redundant technical analysis by ~30% when overlapping watchlists are used.
    */
-  scan(config: SessionConfig): Opportunity[] {
+  scan(config: SessionConfig, excludedSymbols?: string[] | Set<string>): Opportunity[] {
     try {
+      const activeExcluded = new Set<string>();
+      if (config.excluded_symbols && Array.isArray(config.excluded_symbols)) {
+        for (let i = 0; i < config.excluded_symbols.length; i++) {
+          activeExcluded.add(config.excluded_symbols[i]);
+        }
+      }
+      if (excludedSymbols) {
+        for (const sym of excludedSymbols) {
+          activeExcluded.add(sym);
+        }
+      }
+      const combinedExcluded = Array.from(activeExcluded);
+
       // 1. Task Collection (Deduplication)
       // BOLT: Collect all unique symbols and their configs before execution to avoid redundant scans.
       const tasks = new Map<string, { config: SessionConfig; volume_rank?: number; is_smart?: boolean }>();
@@ -80,7 +93,9 @@ export class MomentumScannerService {
         if (config.symbols && config.symbols.length > 0) {
           const syms = config.symbols;
           for (let i = 0; i < syms.length; i++) {
-            tasks.set(syms[i], { config, volume_rank: offset + i + 1 });
+            if (syms[i] && syms[i].toUpperCase().endsWith('USDT') && !activeExcluded.has(syms[i])) {
+              tasks.set(syms[i], { config, volume_rank: offset + i + 1 });
+            }
           }
         } else if (config.smart_watchlist_enabled) {
           // BOLT: Smart Watchlist Discovery logic inside scanner to match MarketFeed
@@ -90,7 +105,8 @@ export class MomentumScannerService {
           const tickers = this.tickerCache.getLatestTickers();
           const smartCandidates = tickers
             .filter(t => {
-              if (config.excluded_symbols?.includes(t.symbol)) return false;
+              if (!t.symbol || !t.symbol.toUpperCase().endsWith('USDT')) return false;
+              if (activeExcluded.has(t.symbol)) return false;
               if (!this.marketFeed.getSymbolFilters(t.symbol)) return false;
               if (t.open_24h && t.open_24h > 0) {
                 const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
@@ -108,21 +124,23 @@ export class MomentumScannerService {
           // Also include volume-based or change-pct-based leaders
           const discoveryMode = config.discovery_mode || 'volume';
           const topSymbols = discoveryMode === 'change_pct'
-            ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), config.excluded_symbols || [])
-            : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), config.excluded_symbols || []);
+            ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+            : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
           topSymbols.forEach((t, i) => {
-             if (!tasks.has(t.symbol)) {
+             if (t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !tasks.has(t.symbol) && !activeExcluded.has(t.symbol)) {
                 tasks.set(t.symbol, { config, volume_rank: i + 1 });
              }
           });
         } else {
           const discoveryMode = config.discovery_mode || 'volume';
           const topSymbols = discoveryMode === 'change_pct'
-            ? this.tickerCache.topByChangePct(watchlistSize + offset, config.excluded_symbols || [])
-            : this.tickerCache.topByVolume(watchlistSize + offset, config.excluded_symbols || []);
+            ? this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
+            : this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
           for (let i = offset; i < topSymbols.length; i++) {
             const t = topSymbols[i];
-            tasks.set(t.symbol, { config, volume_rank: i + 1 });
+            if (t && t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !activeExcluded.has(t.symbol)) {
+              tasks.set(t.symbol, { config, volume_rank: i + 1 });
+            }
           }
         }
       }
@@ -131,7 +149,7 @@ export class MomentumScannerService {
       if (config.single_symbol_configs && config.single_symbol_configs.length > 0) {
         for (let i = 0; i < config.single_symbol_configs.length; i++) {
           const sc = config.single_symbol_configs[i];
-          if (!sc.enabled) continue;
+          if (!sc.enabled || activeExcluded.has(sc.symbol)) continue;
 
           const symbolConfig = sc.use_custom_config && sc.custom_config
             ? { ...config, ...sc.custom_config }
@@ -199,6 +217,11 @@ export class MomentumScannerService {
     interval: string,
     config: SessionConfig,
   ): { opp: Opportunity, candles: Candle[] } | null {
+    // Enforce USDT quote asset pairing to prevent USDS-M non-USDT errors (-2019/-2010)
+    if (!symbol || !symbol.toUpperCase().endsWith('USDT')) {
+      return null;
+    }
+
     // BOLT OPTIMIZATION: Filter out symbols that are not in the current exchange info (e.g. not on Testnet)
     // before performing any calculations.
     const filters = this.marketFeed.getSymbolFilters(symbol);

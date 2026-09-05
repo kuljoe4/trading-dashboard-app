@@ -150,4 +150,78 @@ describe('Anti-Whipsaw Protection Unit Tests', () => {
     // Should NOT have called enter due to same-candle gating
     expect(orderManager.enter).not.toHaveBeenCalled();
   });
+
+  it('should block entry when a trade was EXITED during the current candle period or within timeframe delay', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1m';
+    config.paper_mode = true;
+
+    // Current candle starts at 2000. Closed trade was entered earlier (1500) but exited at 2050 (during current candle)
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'ARIAUSDT';
+    closedTrade.entry_ts = new Date(1500);
+    closedTrade.exit_ts = new Date(2050);
+    sessionState.closedTrades = [closedTrade];
+
+    const opportunities = [{ symbol: 'ARIAUSDT', direction: 'LONG', score: 1 }];
+
+    await executionService.processEntries(opportunities, config, 'MyStrategy');
+
+    expect(orderManager.enter).not.toHaveBeenCalled();
+  });
+
+  it('should apply anti-whipsaw protection strictly per-symbol', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1m';
+    config.paper_mode = true;
+
+    // Closed trade on ARIAUSDT in current candle period
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'ARIAUSDT';
+    closedTrade.entry_ts = new Date(2100);
+    closedTrade.exit_ts = new Date(2200);
+    sessionState.closedTrades = [closedTrade];
+
+    // Evaluate BTCUSDT (different symbol)
+    const opportunities = [{ symbol: 'BTCUSDT', direction: 'LONG', score: 1 }];
+
+    await executionService.processEntries(opportunities, config, 'MyStrategy');
+
+    // BTCUSDT should be allowed to enter
+    expect(orderManager.enter).toHaveBeenCalledWith(
+      expect.anything(),
+      'BTCUSDT',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it('should deduplicate anti-whipsaw log and alert emissions across consecutive scanner passes', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1m';
+    config.paper_mode = true;
+
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'ONTUSDT';
+    closedTrade.entry_ts = new Date(1500);
+    closedTrade.exit_ts = new Date(2050);
+    sessionState.closedTrades = [closedTrade];
+
+    const opportunities = [{ symbol: 'ONTUSDT', direction: 'LONG', score: 1 }];
+
+    // Pass 1
+    await executionService.processEntries(opportunities, config, 'MyStrategy');
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(broadcastService.broadcast).toHaveBeenCalledTimes(1);
+
+    // Pass 2 immediately after (same gating window)
+    await executionService.processEntries(opportunities, config, 'MyStrategy');
+    // Call counts should remain 1 because emissions were deduplicated for this window
+    expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+    expect(broadcastService.broadcast).toHaveBeenCalledTimes(1);
+  });
 });

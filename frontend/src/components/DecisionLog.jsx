@@ -5,21 +5,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { cn, CopyButton, Tooltip, VisuallyHidden } from './ui/primitives'
 
-const HIGHLIGHTS = {
-  positive: ['BUY', 'PROFIT', 'TP', 'HIT', 'SUCCESS', 'STARTED', 'ENTER'],
-  negative: ['SELL', 'LOSS', 'SL', 'REJECTED', 'ERROR', 'FAILED', 'STOPPED', 'CRITICAL', 'GATED', 'SLEEPING'],
-  neutral: ['MONITORING', 'WARM-UP', 'SYNC', 'LIFECYCLE', 'RECONCILING', 'ADAPTIVE', 'COOLDOWN', 'VARIANT']
-}
+// BOLT OPTIMIZATION: Module-level pre-compiled regexes replace linear .some() array lookups & string transformations per word in log rendering
+const REGEX_POSITIVE = /BUY|PROFIT|TP|HIT|SUCCESS|STARTED|ENTER/i;
+const REGEX_NEGATIVE = /SELL|LOSS|SL|REJECTED|ERROR|FAILED|STOPPED|CRITICAL|GATED|SLEEPING/i;
+const REGEX_NEUTRAL = /MONITORING|WARM-UP|SYNC|LIFECYCLE|RECONCILING|ADAPTIVE|COOLDOWN|VARIANT/i;
 
 const formatMessage = (msg) => {
   if (typeof msg !== 'string') return msg == null ? '' : String(msg);
   if (!msg) return msg;
   const words = msg.split(/(\s+)/);
   return words.map((word, i) => {
-    const clean = word.toUpperCase().trim();
-    if (HIGHLIGHTS.positive.some(h => clean.includes(h))) return <span key={i} className="text-green font-black">{word}</span>;
-    if (HIGHLIGHTS.negative.some(h => clean.includes(h))) return <span key={i} className="text-red font-black">{word}</span>;
-    if (HIGHLIGHTS.neutral.some(h => clean.includes(h))) return <span key={i} className="text-accent font-black">{word}</span>;
+    if (REGEX_POSITIVE.test(word)) return <span key={i} className="text-green font-black">{word}</span>;
+    if (REGEX_NEGATIVE.test(word)) return <span key={i} className="text-red font-black">{word}</span>;
+    if (REGEX_NEUTRAL.test(word)) return <span key={i} className="text-accent font-black">{word}</span>;
     return word;
   });
 }
@@ -44,7 +42,9 @@ const VariantGatingSummary = React.memo(() => {
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.01] transition-colors text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded-t-xl min-w-0"
+        aria-expanded={isOpen}
+        aria-label={`Toggle variant gating details (${activeStrategies.length} active strategy${activeStrategies.length === 1 ? '' : 's'})`}
+        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.01] transition-colors text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-t-xl min-w-0 cursor-pointer"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
           <Activity size={12} className="text-accent shrink-0" />
@@ -158,8 +158,9 @@ const LogEntry = React.memo(({ log }) => {
             }
           }}
           onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (shouldTruncate ? setIsExpanded(!isExpanded) : setIsOpen(true))}
-          className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2.5 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent/50 rounded-sm w-full text-left"
-          aria-label="View log details"
+          className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2.5 cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-sm w-full text-left"
+          aria-label={shouldTruncate ? (isExpanded ? "Collapse log message" : "Expand log message") : "View log details"}
+          aria-expanded={shouldTruncate ? isExpanded : undefined}
         >
           <span className="text-dim/60 whitespace-nowrap shrink-0 sm:mb-0 mb-0.5">[{logTimestamp}]</span>
           <span className={cn(
@@ -231,8 +232,10 @@ const LogEntry = React.memo(({ log }) => {
 
             <div className="mt-4 flex justify-end">
               <button
+                type="button"
                 onClick={() => setIsOpen(false)}
-                className="px-4 py-1.5 bg-surface border border-border rounded-lg text-[9px] font-black uppercase tracking-widest hover:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors h-8"
+                aria-label="Dismiss log details"
+                className="px-4 py-1.5 bg-surface border border-border rounded-lg text-[9px] font-black uppercase tracking-widest hover:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors h-8 cursor-pointer"
               >
                 Dismiss
               </button>
@@ -362,9 +365,10 @@ export const DecisionLog = React.memo(() => {
                   key={filter.level}
                   type="button"
                   aria-pressed={active}
+                  aria-label={`Filter by ${filter.label} logs`}
                   onClick={() => toggleLogFilter(filter.level)}
                   className={cn(
-                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                     active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
                     filter.level === 'warn' ? "text-amber" :
                     filter.level === 'error' ? "text-red" :
@@ -414,8 +418,12 @@ export const DecisionLog = React.memo(() => {
             </p>
             {search && (
               <button
-                onClick={() => setSearch('')}
-                className="mt-4 px-4 py-1.5 bg-accent/10 border border-accent/20 text-accent rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95"
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  searchInputRef.current?.focus();
+                }}
+                className="mt-4 px-4 py-1.5 bg-accent/10 border border-accent/20 text-accent rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
               >
                 Clear Search
               </button>

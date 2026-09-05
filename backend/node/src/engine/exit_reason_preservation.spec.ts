@@ -294,6 +294,67 @@ describe('Exit Reason Preservation and Dynamic Signal Resolution', () => {
 
       expect(recovery.reason).toBe(EXIT_REASONS.TP_HIT);
     });
+
+    it('should return SL_HIT_BREAKEVEN when order type is STOP and sl_adjustments indicates BREAKEVEN without trailing stop enabled', async () => {
+      const trade: Trade = {
+        id: 'trade-uuid-be-1',
+        symbol: 'ZROUSDT',
+        direction: 'LONG',
+        qty: 10,
+        entry_price: 1.15,
+        initial_sl: 1.0414,
+        current_sl: 1.1586,
+        status: 'OPEN',
+        sl_adjustments: [
+          { price: 1.1586, reason: 'BREAKEVEN', timestamp: Date.now() }
+        ]
+      } as any;
+
+      mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+        data: () => Promise.resolve({
+          orderId: '3000002157353725',
+          status: 'FILLED',
+          avgPrice: '1.1586',
+          type: 'STOP',
+          stopPrice: '1.1586',
+        }),
+      });
+
+      const recovery = await orderManager.recoverClosingContext('ZROUSDT', trade, 1.1586, '3000002157353725');
+
+      expect(recovery.reason).toBe('SL_HIT_BREAKEVEN');
+      expect(recovery.reason).not.toBe(EXIT_REASONS.TRAILING_STOP);
+    });
+
+    it('should return TRAILING_STOP when sl_adjustments indicates TRAILING_STOP', async () => {
+      const trade: Trade = {
+        id: 'trade-uuid-ts-1',
+        symbol: 'ZROUSDT',
+        direction: 'LONG',
+        qty: 10,
+        entry_price: 1.15,
+        initial_sl: 1.0414,
+        current_sl: 1.18,
+        status: 'OPEN',
+        sl_adjustments: [
+          { price: 1.18, reason: 'TRAILING_STOP', timestamp: Date.now() }
+        ]
+      } as any;
+
+      mockBinanceClient.restAPI.queryOrder.mockResolvedValue({
+        data: () => Promise.resolve({
+          orderId: '3000002157353726',
+          status: 'FILLED',
+          avgPrice: '1.18',
+          type: 'STOP',
+          stopPrice: '1.18',
+        }),
+      });
+
+      const recovery = await orderManager.recoverClosingContext('ZROUSDT', trade, 1.18, '3000002157353726');
+
+      expect(recovery.reason).toBe(EXIT_REASONS.TRAILING_STOP);
+    });
   });
 
   describe('closeTrade integration', () => {

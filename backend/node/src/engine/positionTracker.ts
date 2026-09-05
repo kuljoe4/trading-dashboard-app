@@ -83,6 +83,14 @@ export class PositionTrackerService {
     return Array.from(this.inFlightEntries.keys());
   }
 
+  getPositionSymbols(): string[] {
+    const set = new Set<string>();
+    for (const t of this.trades.values()) set.add(t.symbol);
+    for (const s of this.enteringSymbols) set.add(s);
+    for (const s of this.inFlightEntries.keys()) set.add(s);
+    return Array.from(set);
+  }
+
   getInFlightEntry(symbol: string): Trade | undefined {
     return this.inFlightEntries.get(symbol);
   }
@@ -240,8 +248,10 @@ export class PositionTrackerService {
     // Check trade.exit_signals_status which was populated by checkExitSignals above
     if (!trade.exit_signals_status) return false;
 
-    for (const [key, status] of Object.entries(trade.exit_signals_status)) {
-      const sigStatus = status as any;
+    // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
+    for (const key in trade.exit_signals_status) {
+      if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+      const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
       if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
         let signalPnl = 0;
         if (trade.direction === 'LONG') {
@@ -272,6 +282,7 @@ export class PositionTrackerService {
           trade.binance_stop_order_id = undefined;
           trade.binance_stop_order_type = undefined;
         }
+        this.logSlAdjustment(trade, trade.current_sl, 0, -5);
         trade.current_sl = 0;
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, undefined, config);
@@ -328,17 +339,13 @@ export class PositionTrackerService {
       }
     }
 
-    // If we crossed a new milestone, update SL
     const prevIndex = this.rrSequenceIndex.get(symbol) ?? -1;
-    if (currentIndex > prevIndex && currentIndex >= 0) {
-      // SRE: Ratchet Race Guard. If an exchange-side mutation is already in flight for this symbol,
-      // skip evaluation to prevent redundant overlapping requests.
-      if (this.orderManager.isRatcheting(symbol)) {
-         return;
-      }
 
-      // Get target RR for this milestone
-      const exitRr = exitRrSequence[currentIndex] ?? 0;
+    if (currentIndex >= 0) {
+      // Get target RR for this milestone (fallback to last valid element if sequence length mismatched)
+      const exitRr = exitRrSequence[currentIndex] !== undefined
+        ? exitRrSequence[currentIndex]
+        : (exitRrSequence.length > 0 ? exitRrSequence[exitRrSequence.length - 1] : 0);
 
       // Calculate new SL based on target RR
       let targetSl: number;
@@ -350,10 +357,28 @@ export class PositionTrackerService {
         targetSl = trade.entry_price - risk * exitRr;
       }
 
-      if (isNaN(targetSl) || !isFinite(targetSl) || targetSl <= 0) {
-        this.logger.debug(`[RrSequence] Derived target SL ${targetSl} for ${symbol} is invalid or non-positive. Skipping adjustment.`);
-        return;
+      // SRE/DEBUG: Catch-up evaluation. Check if current SL is lagging behind targetSl for the achieved milestone.
+      const minDelta = trade.entry_price * 0.0001;
+      let isSlBehindTarget = false;
+      if (trade.direction === 'LONG') {
+        isSlBehindTarget = !trade.current_sl || trade.current_sl < targetSl - Math.max(0.00000001, minDelta);
+      } else {
+        isSlBehindTarget = !trade.current_sl || trade.current_sl > targetSl + Math.max(0.00000001, minDelta);
       }
+
+      // If we crossed a new milestone OR current SL lags behind target SL for the achieved milestone, update SL
+      if (currentIndex > prevIndex || isSlBehindTarget) {
+        // SRE: Ratchet Race Guard. If an exchange-side mutation is already in flight for this symbol,
+        // skip evaluation to prevent redundant overlapping requests.
+        if (this.orderManager.isRatcheting(symbol)) {
+           this.logger.debug(`[SL Ratchet] Mutex lock active for ${symbol}, deferring ratchet evaluation.`);
+           return;
+        }
+
+        if (isNaN(targetSl) || !isFinite(targetSl) || targetSl <= 0) {
+          this.logger.debug(`[RrSequence] Derived target SL ${targetSl} for ${symbol} is invalid or non-positive. Skipping adjustment.`);
+          return;
+        }
 
       // DATA-07: Ensure the target SL is filtered/rounded to exchange tick size BEFORE comparison.
       // This prevents infinite cancel-replace loops caused by precision mismatches between
@@ -371,34 +396,44 @@ export class PositionTrackerService {
       const buffer = currentPrice * (bufferPct / 100);
       if (trade.direction === 'LONG') {
         if (newSl >= currentPrice - buffer) {
-          const msg = `[Trailing Guard] Long SL ${Number(newSl || 0).toFixed(5)} capped at ${ Number(currentPrice - buffer).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
+          const cappedSl = currentPrice - buffer;
+          const msg = `[Trailing Guard] Long SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
           this.logger.warn(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
-          newSl = currentPrice - buffer;
+          newSl = cappedSl;
+        }
+        // SAFETY: Never let trailing guard buffer push newSl below existing trade.current_sl!
+        if (trade.current_sl && trade.current_sl > 0 && newSl < trade.current_sl) {
+          newSl = trade.current_sl;
         }
       } else {
         if (newSl <= currentPrice + buffer) {
-          const msg = `[Trailing Guard] Short SL ${Number(newSl || 0).toFixed(5)} capped at ${ Number(currentPrice + buffer).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
+          const cappedSl = currentPrice + buffer;
+          const msg = `[Trailing Guard] Short SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
           this.logger.warn(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
-          newSl = currentPrice + buffer;
+          newSl = cappedSl;
+        }
+        // SAFETY: Never let trailing guard buffer push newSl above existing trade.current_sl for short!
+        if (trade.current_sl && trade.current_sl > 0 && newSl > trade.current_sl) {
+          newSl = trade.current_sl;
         }
       }
 
       // Only move SL deeper into profit (stricter protection)
-      // PERFORMANCE: Apply a minimum delta guard (0.01% of entry) to reduce order-count rate limit pressure.
-      const minDelta = trade.entry_price * 0.0001;
-
+      // For discrete milestone ratchets / catch-ups, compare against current_sl using micro-epsilon
+      // so tiny float differences or minDelta don't block reaching target breakeven/milestone SL.
       let shouldUpdate = false;
       if (trade.direction === 'LONG' && newSl) {
-        // BOLT: Use epsilon + minDelta comparison to avoid loops on tiny float differences
-        shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+        shouldUpdate = newSl > trade.current_sl + 0.00000001;
       } else if (trade.direction === 'SHORT' && newSl) {
-        shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+        shouldUpdate = newSl < trade.current_sl - 0.00000001;
       }
 
       if (shouldUpdate) {
         const prevSl = trade.current_sl;
+
+        this.logger.log(`[SL Ratchet] Initiating ratchet for ${symbol}: ${prevSl} → ${newSl} (Milestone ${currentIndex}, Target RR: ${exitRr})`);
 
         // Acknowledge-then-Update: Update exchange first in live mode
         const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
@@ -421,22 +456,27 @@ export class PositionTrackerService {
            // Notify of trade state change for persistence
            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         } else {
-           this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back due to exchange failure.`);
+           this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
         }
       } else {
-        // Active Trade Milestone State Committing & Synchronizing:
-        // Even if we skip the exchange SL adjustment because it's not deeper in profit,
-        // we must still advance and commit the local milestone sequence index and emit TRADE_UPDATED.
-        this.rrSequenceIndex.set(symbol, currentIndex);
-        trade.rr_sequence_index = currentIndex;
-        trade.updated_at = new Date();
+        // Check if current SL is ALREADY at or beyond target SL for this milestone
+        const targetDelta = trade.entry_price * 0.0001;
+        const isSlAtOrBeyondTarget = trade.direction === 'LONG'
+          ? (trade.current_sl >= targetSl - Math.max(0.00000001, targetDelta))
+          : (trade.current_sl <= targetSl + Math.max(0.00000001, targetDelta));
 
-        // Recalculate locked P&L and risk release for the newly committed milestone
-        this.refreshTradeRisk(trade, false, currentPrice, config);
-
-        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        if (isSlAtOrBeyondTarget) {
+          this.rrSequenceIndex.set(symbol, currentIndex);
+          trade.rr_sequence_index = currentIndex;
+          trade.updated_at = new Date();
+          this.refreshTradeRisk(trade, false, currentPrice, config);
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        } else {
+          this.logger.warn(`[SL Ratchet] ${symbol} milestone ${currentIndex} reached (Peak RR: ${Number(trade.max_rr_achieved).toFixed(2)}), but SL adjustment was constrained (current_sl: ${trade.current_sl}, targetSl: ${targetSl}, newSl: ${newSl}). Retrying on next tick.`);
+        }
       }
     }
+  }
   }
 
   private logSlAdjustment(
@@ -532,16 +572,27 @@ export class PositionTrackerService {
 
     if (exitTriggered) {
       // DYNAMIC MULTI-LAYER ACTIONS: Check if any of the active fired signals trigger a 'close' vs 'lock_sl'
+      // BOLT OPTIMIZATION: Single-pass for...in traversal to accumulate keys and check close action without array allocations
       const actions = config.exit_signal_actions || {};
       const statusMap = trade.exit_signals_status || {};
-      const firedActiveKeys = Object.keys(statusMap).filter(k => statusMap[k].fired && statusMap[k].active);
+      const firedActiveKeys: string[] = [];
+      let hasCloseAction = false;
 
-      const hasCloseAction = firedActiveKeys.some(k => !actions[k] || actions[k] === 'close');
+      for (const k in statusMap) {
+        if (!Object.prototype.hasOwnProperty.call(statusMap, k)) continue;
+        const status = statusMap[k];
+        if (status && status.fired && status.active) {
+          firedActiveKeys.push(k);
+          if (!actions[k] || actions[k] === 'close') {
+            hasCloseAction = true;
+          }
+        }
+      }
 
-      if (hasCloseAction || config.exit_signal_logic === 'all') {
+      if (hasCloseAction || config.exit_signal_logic === 'all' || config.exit_signal_logic === 'combo') {
         trade.exit_signal_type = exitSignalType;
-        if (exitSignalType === 'combined') {
-          trade.exit_signal_reason = `All signals fired: ${config.exit_signals?.join(', ')}`;
+        if (exitSignalType === 'combined' || exitSignalType === 'combo') {
+          trade.exit_signal_reason = `Combo exit signals triggered: ${config.exit_signals?.join(', ')}`;
         } else {
           const status = trade.exit_signals_status?.[exitSignalType || ''];
           trade.exit_signal_reason = status?.description || `Signal ${exitSignalType} fired`;
@@ -557,9 +608,11 @@ export class PositionTrackerService {
         for (const sigKey of firedActiveKeys) {
           if (actions[sigKey] === 'lock_sl') {
             const sigStatus = statusMap[sigKey];
-            let proposedSlPrice = sigStatus.value; // Value can be the crossover/EMA price
+            let proposedSlPrice = sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0
+              ? sigStatus.threshold
+              : (typeof sigStatus.value === 'number' && sigStatus.value > 0 ? sigStatus.value : currentPrice);
 
-            if (!sigStatus.threshold_is_price || isNaN(proposedSlPrice) || !isFinite(proposedSlPrice) || proposedSlPrice <= 0) {
+            if (isNaN(proposedSlPrice) || !isFinite(proposedSlPrice) || proposedSlPrice <= 0) {
               proposedSlPrice = currentPrice; // Fallback to current price if threshold is not price
             }
 
@@ -706,37 +759,107 @@ export class PositionTrackerService {
     // to handle exchange-side rounding/flooring that might place SL 1 tick below entry.
     const tolerance = Math.max(0.00000001, trade.entry_price * 0.0001);
 
-    // SRE: If current_sl is 0 but initial_sl > 0, the SL was removed on runtime while in profit (e.g. via exit_signals_override_ratchet)
-    let isBreakevenOrBetter = trade.current_sl > 0
-      ? (trade.direction === 'LONG'
-          ? trade.current_sl >= trade.entry_price - tolerance
-          : trade.current_sl <= trade.entry_price + tolerance)
-      : (trade.initial_sl > 0 ? true : false);
+    // SRE: Evaluate whether current_sl is at or better than breakeven
+    let isBreakevenOrBetter = false;
+    let lockReason = 'ACTIVE_RISK_LOCKED';
 
-    // Feature: Option to release risk lock when estimated exit floor PnL (trade.est_pnl_to_realize) is at or above breakeven (>= 0)
-    const activeConfig = config || trade.strategy_config;
-    if (!isBreakevenOrBetter && activeConfig?.release_risk_on_est_pnl_be) {
-      if (trade.est_pnl_to_realize !== undefined && trade.est_pnl_to_realize >= 0) {
+    if (trade.current_sl && trade.current_sl > 0) {
+      isBreakevenOrBetter = trade.direction === 'LONG'
+        ? trade.current_sl >= trade.entry_price - tolerance
+        : trade.current_sl <= trade.entry_price + tolerance;
+      if (isBreakevenOrBetter) {
+        lockReason = 'SL_AT_BREAKEVEN';
+      } else {
+        lockReason = 'SL_BELOW_ENTRY';
+      }
+    } else if (trade.current_sl === 0 && trade.initial_sl > 0) {
+      // If current_sl was set to 0, risk is only released if SL was adjusted in profit / milestone reached
+      if ((trade.rr_sequence_index ?? -1) >= 0 || (trade.sl_adjustments?.length ?? 0) > 0) {
         isBreakevenOrBetter = true;
+        lockReason = 'SL_REMOVED_IN_PROFIT';
       }
     }
 
+    // Dynamic Mark Price & Unrealized PnL Evaluation
+    const mark = currentPrice || (this.tickerCache?.getPrice ? this.tickerCache.getPrice(trade.symbol) : undefined) || trade.mark_price || trade.last_price;
+    let livePnl = 0;
+    if (mark && mark > 0 && trade.entry_price && trade.qty) {
+      livePnl = trade.direction === 'LONG'
+        ? (mark - trade.entry_price) * trade.qty
+        : (trade.entry_price - mark) * trade.qty;
+    }
+
+    // Dynamic Estimated Floor Exit PnL Re-evaluation strictly from Ratchet SL and Exit Signal targets (NOT live unrealized PnL)
+    const activeConfig = config || trade.strategy_config;
+    let estPnl: number | undefined = undefined;
+
+    if (trade.entry_price && trade.qty) {
+      const isLong = trade.direction === 'LONG';
+      const slPrice = trade.current_sl || trade.sl_price || 0;
+
+      // 1. Calculate PnL guaranteed by ratchet stop loss if SL > 0
+      let ratchetPnl: number | undefined = undefined;
+      if (slPrice > 0) {
+        ratchetPnl = isLong
+          ? (slPrice - trade.entry_price) * trade.qty
+          : (trade.entry_price - slPrice) * trade.qty;
+      }
+
+      let maxEstPnl = ratchetPnl;
+
+      // 2. Evaluate PnL from active exit signals / target thresholds
+      // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
+      if (trade.exit_signals_status) {
+        for (const key in trade.exit_signals_status) {
+          if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+          const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
+          if (!sigStatus) continue;
+          const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+          if (isDelayActive) continue;
+
+          let sigPnl: number | null = null;
+          if (sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+            sigPnl = isLong
+              ? (sigStatus.threshold - trade.entry_price) * trade.qty
+              : (trade.entry_price - sigStatus.threshold) * trade.qty;
+          }
+
+          if (sigPnl !== null && (maxEstPnl === undefined || sigPnl > maxEstPnl)) {
+            maxEstPnl = sigPnl;
+          }
+        }
+      }
+
+      estPnl = maxEstPnl !== undefined ? roundEight(maxEstPnl) : undefined;
+      trade.est_pnl_to_realize = estPnl;
+    }
+
+    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0) {
+      isBreakevenOrBetter = true;
+      lockReason = 'EST_PNL_BREAKEVEN';
+    }
+
     const isForcedRelease = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;
+    if (isForcedRelease) {
+      lockReason = 'FORCED_RISK_RELEASE';
+    }
 
     if (isBreakevenOrBetter || isForcedRelease) {
       trade.risk_usdt = 0;
+      trade.risk_lock_reason = lockReason;
     } else {
-      const slDistance = Math.abs(trade.entry_price - trade.initial_sl);
-      trade.risk_usdt = roundEight(slDistance * trade.qty);
+      const slDistance = Math.abs(trade.entry_price - (trade.current_sl || trade.initial_sl || trade.entry_price));
+      trade.risk_usdt = roundEight(slDistance * (trade.qty || 0));
+      trade.risk_lock_reason = lockReason;
     }
 
     if (!skipTotalRiskUpdate && this.trades.has(trade.symbol)) {
       if (prevRisk > 0 && trade.risk_usdt === 0) {
         this._totalRisk = roundEight(Math.max(0, this._totalRisk - prevRisk));
-        this.logger.log(`[Risk Mitigation] ${trade.symbol} reached breakeven. Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
+        this.logger.log(`[Risk Mitigation] ${trade.symbol} reached breakeven/release (${lockReason}). Risk released: ${prevRisk} USDT. New Total Risk: ${this._totalRisk}`);
       } else if (prevRisk === 0 && trade.risk_usdt > 0) {
         this._totalRisk = roundEight(this._totalRisk + trade.risk_usdt);
-        this.logger.log(`[Risk Mitigation] ${trade.symbol} re-locked risk: ${trade.risk_usdt} USDT. New Total Risk: ${this._totalRisk}`);
+        this.logger.log(`[Risk Mitigation] ${trade.symbol} re-locked risk (${lockReason}): ${trade.risk_usdt} USDT. New Total Risk: ${this._totalRisk}`);
       }
     }
   }
@@ -830,6 +953,96 @@ export class PositionTrackerService {
     return bestIndex;
   }
 
+  async checkKnifeTrailingStop(
+    symbol: string,
+    currentPrice: number,
+    config: SessionConfig,
+  ): Promise<void> {
+    const trade = this.trades.get(symbol);
+    if (!trade || trade.status !== 'OPEN' || !trade.is_knife) return;
+
+    const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+    const knifeTrailingEnabled = activeConfig.knife_trailing_enabled ?? true;
+    if (!knifeTrailingEnabled) return;
+
+    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+    if (risk <= 0) return;
+
+    const reward = trade.direction === 'LONG' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
+    const liveRr = reward / risk;
+
+    // High-velocity Auto-Ratchet Evaluation
+    const beRr = activeConfig.knife_auto_ratchet_be_rr ?? 0.5;
+    const lockRr = activeConfig.knife_auto_ratchet_lock_rr ?? 1.0;
+
+    let targetSl = trade.current_sl;
+    let ratchetReason = '';
+
+    if (liveRr >= lockRr) {
+      const lockedSl = trade.direction === 'LONG' ? trade.entry_price + (risk * 0.5) : trade.entry_price - (risk * 0.5);
+      if ((trade.direction === 'LONG' && lockedSl > targetSl) || (trade.direction === 'SHORT' && lockedSl < targetSl)) {
+        targetSl = lockedSl;
+        ratchetReason = 'knife_auto_ratchet_lock_0.5R';
+      }
+    } else if (liveRr >= beRr) {
+      const beSl = trade.entry_price;
+      if ((trade.direction === 'LONG' && beSl > targetSl) || (trade.direction === 'SHORT' && beSl < targetSl)) {
+        targetSl = beSl;
+        ratchetReason = 'knife_auto_ratchet_be';
+      }
+    }
+
+    // High-frequency trailing distance evaluation
+    const distancePct = activeConfig.knife_trailing_distance_pct || 0.5;
+    const distance = currentPrice * (distancePct / 100);
+    const trailSl = trade.direction === 'LONG' ? currentPrice - distance : currentPrice + distance;
+
+    if (trade.direction === 'LONG' && trailSl > targetSl) {
+      targetSl = trailSl;
+      if (!ratchetReason) ratchetReason = 'knife_trailing';
+    } else if (trade.direction === 'SHORT' && trailSl < targetSl) {
+      targetSl = trailSl;
+      if (!ratchetReason) ratchetReason = 'knife_trailing';
+    }
+
+    if (targetSl <= 0 || isNaN(targetSl) || !isFinite(targetSl)) return;
+
+    const filtered = this.orderManager.applyFilters(symbol, targetSl, trade.qty, {
+      priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+      skipNotionalCheck: true
+    });
+    let newSl = filtered.price;
+
+    const bufferPct = activeConfig.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+    const buffer = currentPrice * (bufferPct / 100);
+    if (trade.direction === 'LONG') {
+      newSl = Math.min(newSl, currentPrice - buffer);
+    } else {
+      newSl = Math.max(newSl, currentPrice + buffer);
+    }
+
+    const minDelta = trade.entry_price * 0.0001;
+    let shouldUpdate = false;
+    if (trade.direction === 'LONG') {
+      shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+    } else {
+      shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+    }
+
+    if (shouldUpdate && !this.orderManager.isRatcheting(symbol)) {
+      const prevSl = trade.current_sl;
+      const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+      if (updateRes.success) {
+        const finalSl = updateRes.price || newSl;
+        trade.current_sl = finalSl;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
+        this.logSlAdjustment(trade, prevSl, finalSl, -4, !!updateRes.price && updateRes.price !== newSl);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
+    }
+  }
+
   async checkTrailingStop(
     symbol: string,
     currentPrice: number,
@@ -844,8 +1057,32 @@ export class PositionTrackerService {
 
     if (!config.trailing_stop_enabled) return;
 
-    const distancePct = config.trailing_stop_distance_pct || 1.0;
-    const distance = trade.entry_price * (distancePct / 100);
+    // Trailing Activation R:R Threshold Check
+    if (config.trailing_activation_rr && config.trailing_activation_rr > 0) {
+      const risk = Math.abs(trade.entry_price - trade.initial_sl);
+      if (risk > 0) {
+        const reward = trade.direction === 'LONG' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
+        const liveRr = reward / risk;
+        if (liveRr < config.trailing_activation_rr) {
+          return;
+        }
+      }
+    }
+
+    let distance = 0;
+    if (config.trailing_stop_type === 'rr') {
+      const initialRisk = Math.abs(trade.entry_price - trade.initial_sl);
+      const rr = config.trailing_stop_rr || 1.0;
+      if (initialRisk > 0) {
+        distance = initialRisk * rr;
+      } else {
+        const distancePct = config.trailing_stop_distance_pct || 1.0;
+        distance = trade.entry_price * (distancePct / 100);
+      }
+    } else {
+      const distancePct = config.trailing_stop_distance_pct || 1.0;
+      distance = trade.entry_price * (distancePct / 100);
+    }
 
     let prospectiveSl: number;
     if (trade.direction === 'LONG') {

@@ -24,6 +24,7 @@ export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
   // BOLT: Mode-aware cooldowns to ensure Live mode failures don't block Paper mode testing
   private entryCooldowns: Map<string, number> = new Map();
+  private loggedAntiWhipsawMap: Map<string, number> = new Map();
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -45,6 +46,18 @@ export class ExecutionService {
 
   public setCooldown(symbol: string, mode: string, minutes: number) {
     this.entryCooldowns.set(`${mode}:${symbol}`, Date.now() + minutes * 60 * 1000);
+  }
+
+  private getTimeframeMs(tf: string): number {
+    if (!tf) return 60 * 1000;
+    const match = tf.toLowerCase().match(/^(\d+)([mhd])$/);
+    if (!match) return 60 * 1000;
+    const num = parseInt(match[1], 10);
+    const unit = match[2];
+    if (unit === 'm') return num * 60 * 1000;
+    if (unit === 'h') return num * 60 * 60 * 1000;
+    if (unit === 'd') return num * 24 * 60 * 60 * 1000;
+    return 60 * 1000;
   }
 
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
@@ -69,6 +82,7 @@ export class ExecutionService {
         if (!currentPrice) continue;
 
         const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+        await this.positionTracker.checkKnifeTrailingStop(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkTrailingStop(trade.symbol, currentPrice, tradeConfig);
 
@@ -93,9 +107,22 @@ export class ExecutionService {
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
 
-            // SRE: Immediate cooldown on exit (Issue 3). Uses config.min_trade_interval_min || 2m.
+            // SRE: Immediate cooldown on exit strictly per-symbol.
+            // Uses max of config.min_trade_interval_min and all active strategy candle timeframe durations (e.g. 60m for 1h candle).
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-            const cooldownMin = config.min_trade_interval_min || 2;
+            let maxTfMs = this.getTimeframeMs(tradeConfig.scan_interval || '1m');
+            if (tradeConfig.enabled_signals) {
+              for (const sig of tradeConfig.enabled_signals) {
+                const tf = tradeConfig.signal_timeframes?.[sig];
+                if (tf && tf !== 'default') {
+                  const ms = this.getTimeframeMs(tf);
+                  if (ms > maxTfMs) maxTfMs = ms;
+                }
+              }
+            }
+            const tfCooldownMin = Math.ceil(maxTfMs / (60 * 1000));
+            const configuredMin = tradeConfig.min_trade_interval_min || 2;
+            const cooldownMin = Math.max(configuredMin, tfCooldownMin);
             this.setCooldown(trade.symbol, mode, cooldownMin);
 
             const analytics = this.analyticsService.calculateAnalytics(
@@ -209,22 +236,98 @@ export class ExecutionService {
         }
 
         if (hasClosedForSymbol) {
+          // Check if candidate opportunity is a knife trade prior to anti-whipsaw checks
+          let isCandidateKnife = false;
+          if (symbolConfig.anti_whipsaw_allow_knife) {
+            try {
+              const knifeCheck = this.signalEngine.knifeCatchSignal(
+                opp.symbol,
+                symbolConfig,
+                symbolConfig.scan_interval || '1m',
+                opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+                'entry',
+                undefined,
+                true
+              );
+              isCandidateKnife = typeof knifeCheck === 'boolean' ? knifeCheck : knifeCheck.fired;
+            } catch (e) {
+              this.logger.debug(`Knife check for anti-whipsaw bypass skipped for ${opp.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+
           let sameCandleGated = false;
           let gatedTimeframe = '';
+          let gateReason = '';
 
           for (const tf of uniqueTimeframes) {
             const tfCandles = this.klineStore.getRawCandles(opp.symbol, tf);
+            const tfDurationMs = this.getTimeframeMs(tf);
+
             if (tfCandles.length > 0) {
               const currentCandleStart = tfCandles[tfCandles.length - 1].time;
 
               for (let i = 0; i < closedTrades.length; i++) {
                 const t = closedTrades[i];
-                if (t.symbol === opp.symbol && t.entry_ts) {
-                  const entryTsMs = typeof t.entry_ts === 'number' ? t.entry_ts : (t.entry_ts instanceof Date ? t.entry_ts.getTime() : new Date(t.entry_ts).getTime());
-                  if (entryTsMs >= currentCandleStart) {
-                    sameCandleGated = true;
-                    gatedTimeframe = tf;
-                    break;
+                if (t.symbol === opp.symbol) {
+                  // If anti_whipsaw_allow_knife is active, candidate is knife, and closed trade was a knife trade, bypass gating
+                  if (symbolConfig.anti_whipsaw_allow_knife && isCandidateKnife && t.is_knife) {
+                    const bypassMsg = `[Anti-Whipsaw Bypass] ${opp.symbol}: Knife re-entry allowed for closed knife trade.`;
+                    this.logger.log(bypassMsg);
+                    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
+                    this.broadcastService.broadcast('alert', {
+                      level: 'info',
+                      title: 'Anti-Whipsaw Knife Bypass',
+                      message: bypassMsg,
+                      symbol: opp.symbol
+                    });
+                    continue;
+                  }
+
+                  const toTimestampMs = (val: any): number => {
+                    if (!val) return 0;
+                    if (typeof val === 'number') return val;
+                    if (val instanceof Date) return val.getTime();
+                    if (typeof val === 'string') {
+                      const trimmed = val.trim();
+                      if (!trimmed) return 0;
+                      const normalized = trimmed.includes(' ') ? trimmed.replace(' ', 'T') : trimmed;
+                      const iso = (!normalized.endsWith('Z') && !normalized.includes('+') && !normalized.includes(' -')) ? normalized + 'Z' : normalized;
+                      const parsed = new Date(iso).getTime();
+                      return isNaN(parsed) ? 0 : parsed;
+                    }
+                    return 0;
+                  };
+
+                  const candleDelay = symbolConfig.anti_whipsaw_candle_delay ?? 1;
+                  const tfDelayMin = symbolConfig.anti_whipsaw_tf_delay_min ?? 0;
+                  const effectiveDelayMs = Math.max(candleDelay * tfDurationMs, tfDelayMin * 60 * 1000);
+
+                  if (effectiveDelayMs > 0) {
+                    if (t.entry_ts) {
+                      const entryTsMs = toTimestampMs(t.entry_ts);
+                      const nowMs = Date.now();
+                      if (entryTsMs > 0 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
+                        sameCandleGated = true;
+                        gatedTimeframe = tf;
+                        gateReason = `entered during the current ${tf} candle period`;
+                        break;
+                      }
+                    }
+
+                    if (t.exit_ts) {
+                      const exitTsMs = toTimestampMs(t.exit_ts);
+                      const nowMs = Date.now();
+                      const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
+                      if (validExitTsMs > 0 && (validExitTsMs >= currentCandleStart || nowMs < validExitTsMs + effectiveDelayMs)) {
+                        sameCandleGated = true;
+                        gatedTimeframe = tf;
+                        const cooldownMins = Math.ceil(effectiveDelayMs / 60000);
+                        gateReason = validExitTsMs >= currentCandleStart
+                          ? `exited during the active ${tf} candle`
+                          : `exited within the ${cooldownMins}m timeframe cooldown window`;
+                        break;
+                      }
+                    }
                   }
                 }
               }
@@ -234,7 +337,26 @@ export class ExecutionService {
           }
 
           if (sameCandleGated) {
-            this.logger.debug(`${opp.symbol}: Entry skipped - a trade was already entered during the current ${gatedTimeframe} candle period to prevent whipsawing.`);
+            const gateMsg = `[Anti-Whipsaw] ${opp.symbol}: Entry skipped - a trade was already ${gateReason}.`;
+            this.logger.debug(gateMsg);
+
+            const nowTs = Date.now();
+            const logKey = `${opp.symbol}:${gatedTimeframe}`;
+            const lastLoggedExpiry = this.loggedAntiWhipsawMap.get(logKey) || 0;
+
+            if (nowTs > lastLoggedExpiry) {
+              // Deduplicate alert & decision log emission once per gating window
+              const tfDurationMs = this.getTimeframeMs(gatedTimeframe);
+              this.loggedAntiWhipsawMap.set(logKey, nowTs + tfDurationMs);
+
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: gateMsg, level: 'info' });
+              this.broadcastService.broadcast('alert', {
+                level: 'info',
+                title: 'Anti-Whipsaw Protection',
+                message: gateMsg,
+                symbol: opp.symbol
+              });
+            }
             continue;
           }
         }
@@ -429,6 +551,34 @@ export class ExecutionService {
 
           if (result.status === ExecutionStatus.SUCCESS && result.data) {
             const trade = result.data;
+
+            // Evaluate if entry candle is a knife / velocity burst
+            // 1. Direct knife_catch signal check
+            let isKnifeTrade = signalResult.firedSignals?.includes('knife_catch') || signalResult.details?.knife_catch?.fired || false;
+
+            // 2. Proactive entry candle ROC check for other entry strategies
+            if (!isKnifeTrade) {
+              try {
+                const knifeRes = this.signalEngine.knifeCatchSignal(
+                  opp.symbol,
+                  symbolConfig,
+                  symbolConfig.scan_interval || '1m',
+                  opp.direction.toUpperCase() as 'LONG' | 'SHORT',
+                  'entry',
+                  undefined,
+                  true
+                );
+                isKnifeTrade = typeof knifeRes === 'boolean' ? knifeRes : knifeRes.fired;
+              } catch (e) {
+                this.logger.debug(`Proactive knife detection check skipped for ${opp.symbol}: ${e instanceof Error ? e.message : String(e)}`);
+              }
+            }
+
+            if (isKnifeTrade) {
+              trade.is_knife = true;
+              this.logger.log(`[Knife Engine] ${opp.symbol} tagged as IS_KNIFE trade on entry. High-frequency velocity trailing & auto-ratchet engaged.`);
+            }
+
             this.positionTracker.addTrade(trade);
             this.sessionState.updateStatsOnEntry(trade.id, trade.strategy_label);
 

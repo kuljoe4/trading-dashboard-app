@@ -1,4 +1,4 @@
-import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize, Matches } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsEnum, IsArray, IsBoolean, Min, Max, IsObject, ValidateNested, MaxLength, ArrayMaxSize, Matches, IsIn } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { CONFIG_LIMITS } from './constants';
 
@@ -175,9 +175,17 @@ export class SessionConfig {
   @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   enabled_signals?: string[] = ['momentum_pct'];
 
-  @IsEnum(['any', 'all'])
+  @IsEnum(['any', 'all', 'combo'])
   @IsOptional()
-  signal_logic?: 'any' | 'all' = 'all';
+  signal_logic?: 'any' | 'all' | 'combo' = 'all';
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
+  required_signals?: string[] = [];
 
   @IsObject()
   @IsOptional()
@@ -289,9 +297,17 @@ export class SessionConfig {
   @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
   exit_signals?: string[] = [];
 
-  @IsEnum(['any', 'all'])
+  @IsEnum(['any', 'all', 'combo'])
   @IsOptional()
-  exit_signal_logic?: 'any' | 'all' = 'any';
+  exit_signal_logic?: 'any' | 'all' | 'combo' = 'any';
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @ArrayMaxSize(CONFIG_LIMITS.MAX_SIGNALS)
+  @MaxLength(50, { each: true })
+  @Matches(/^[a-zA-Z0-9_]*$/, { each: true, message: 'Signals must contain only alphanumeric characters and underscores' })
+  required_exit_signals?: string[] = [];
 
   @IsBoolean()
   @IsOptional()
@@ -394,9 +410,9 @@ export class SessionConfig {
   @IsOptional()
   paper_mode?: boolean = true;
 
-  @IsEnum(['paper', 'testnet', 'live'])
+  @IsEnum(['paper', 'testnet', 'live', 'backtest'])
   @IsOptional()
-  trading_mode?: 'paper' | 'testnet' | 'live' = 'paper';
+  trading_mode?: 'paper' | 'testnet' | 'live' | 'backtest' = 'paper';
 
   @IsNumber()
   @Min(0)
@@ -486,11 +502,69 @@ export class SessionConfig {
   @IsOptional()
   trailing_stop_enabled?: boolean = false;
 
+  @IsIn(['pct', 'rr'])
+  @IsOptional()
+  trailing_stop_type?: 'pct' | 'rr' = 'pct';
+
   @IsNumber()
   @IsOptional()
   @Min(0.1)
   @Max(10.0)
   trailing_stop_distance_pct?: number = 1.0;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(10.0)
+  trailing_stop_rr?: number = 1.0;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.0)
+  @Max(10.0)
+  trailing_activation_rr?: number = 0.0;
+
+  @IsBoolean()
+  @IsOptional()
+  knife_trailing_enabled?: boolean = true;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(10.0)
+  knife_trailing_distance_pct?: number = 0.5;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(5.0)
+  knife_auto_ratchet_be_rr?: number = 0.5;
+
+  @IsNumber()
+  @IsOptional()
+  @Min(0.1)
+  @Max(10.0)
+  knife_auto_ratchet_lock_rr?: number = 1.0;
+
+  @IsBoolean()
+  @IsOptional()
+  anti_whipsaw_allow_knife?: boolean = false;
+
+  @IsNumber()
+  @Min(0)
+  @Max(20)
+  @IsOptional()
+  anti_whipsaw_candle_delay?: number = 1;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1440)
+  @IsOptional()
+  anti_whipsaw_tf_delay_min?: number = 0;
+
+  @IsBoolean()
+  @IsOptional()
+  allow_knife_when_gated?: boolean = false;
 
   @IsBoolean()
   @IsOptional()

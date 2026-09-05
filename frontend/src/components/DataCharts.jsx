@@ -42,7 +42,7 @@ export const Sparkline = React.memo(({ data = [], width = 60, height = 24, color
       <path
         fill="none"
         stroke={colorHex}
-        strokeWidth="1.5"
+        strokeWidth="0.8"
         strokeLinecap="round"
         strokeLinejoin="round"
         d={pathD}
@@ -77,108 +77,138 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
 
   const { bars, min, max, range, barWidth, gap, thresholdY, slY, supertrendPoints } = React.useMemo(() => {
     try {
-    const safeData = Array.isArray(data) ? data : [];
-    if (safeData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
-    // SEC: Validate all data points to prevent Infinity/NaN from breaking SVG layout or causing hangs
-    const validData = safeData.filter(d =>
-       d && Number.isFinite(d.low) && Number.isFinite(d.high) &&
-       Number.isFinite(d.open) && Number.isFinite(d.close)
-    );
+      const safeData = Array.isArray(data) ? data : [];
+      if (safeData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
 
-    if (validData.length < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
+      // BOLT OPTIMIZATION: Combine validation and min/max calculation into a single-pass loop
+      // avoiding intermediate array allocations (.filter) and repeated iterations.
+      const validData = [];
+      let dMin = Infinity;
+      let dMax = -Infinity;
 
-    // BOLT: Local declarations for min/max to avoid TDZ (Temporal Dead Zone) from destructuring.
-    // Also initialize from data extremes to ensure correct initial scale.
-    let dMin = Infinity;
-    let dMax = -Infinity;
-
-    for (let i = 0; i < validData.length; i++) {
-      if (validData[i].low < dMin) dMin = validData[i].low;
-      if (validData[i].high > dMax) dMax = validData[i].high;
-    }
-
-    if (Array.isArray(supertrendLine)) {
-      for (let i = 0; i < supertrendLine.length; i++) {
-        const val = supertrendLine[i]?.value;
-        if (val && val > 0) {
-          if (val < dMin) dMin = val;
-          if (val > dMax) dMax = val;
+      for (let i = 0; i < safeData.length; i++) {
+        const d = safeData[i];
+        if (d && Number.isFinite(d.low) && Number.isFinite(d.high) && Number.isFinite(d.open) && Number.isFinite(d.close)) {
+          validData.push(d);
+          if (d.low < dMin) dMin = d.low;
+          if (d.high > dMax) dMax = d.high;
         }
       }
-    }
 
-    const thresholdPrice = entryPrice ? entryPrice * (1 + (isLong ? threshold : -threshold) / 100) : null;
+      const validLen = validData.length;
+      if (validLen < 2) return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
 
-    if (thresholdPrice !== null) {
-      if (thresholdPrice < dMin) dMin = thresholdPrice;
-      if (thresholdPrice > dMax) dMax = thresholdPrice;
-    }
-    if (entryPrice !== null) {
-      if (entryPrice < dMin) dMin = entryPrice;
-      if (entryPrice > dMax) dMax = entryPrice;
-    }
-    if (slPrice !== null) {
-      if (slPrice < dMin) dMin = slPrice;
-      if (slPrice > dMax) dMax = slPrice;
-    }
-
-    // Safety fallback for empty/invalid data ranges
-    if (dMin === Infinity) dMin = 0;
-    if (dMax === -Infinity) dMax = 1;
-
-    const dRange = (dMax - dMin) || 1;
-    const bWidth = (width / data.length) * 0.7;
-    const bGap = (width / data.length) * 0.3;
-
-    const supertrendPoints = [];
-    if (Array.isArray(supertrendLine) && supertrendLine.length === validData.length) {
-      for (let i = 0; i < validData.length; i++) {
-        const val = supertrendLine[i]?.value;
-        if (val && val > 0) {
-          const x = i * (width / validData.length) + bGap / 2 + bWidth / 2;
-          const y = chartHeight - ((val - dMin) / dRange) * chartHeight;
-          supertrendPoints.push({
-            x,
-            y,
-            direction: supertrendLine[i]?.direction || 'up'
-          });
+      if (Array.isArray(supertrendLine)) {
+        for (let i = 0; i < supertrendLine.length; i++) {
+          const val = supertrendLine[i]?.value;
+          if (val && val > 0) {
+            if (val < dMin) dMin = val;
+            if (val > dMax) dMax = val;
+          }
         }
       }
-    }
 
-    const bars = validData.map((d, i) => {
-      const x = i * (width / validData.length) + bGap / 2;
-      const yHigh = chartHeight - ((d.high - dMin) / dRange) * chartHeight;
-      const yLow = chartHeight - ((d.low - dMin) / dRange) * chartHeight;
-      const yOpen = chartHeight - ((d.open - dMin) / dRange) * chartHeight;
-      const yClose = chartHeight - ((d.close - dMin) / dRange) * chartHeight;
+      const thresholdPrice = entryPrice ? entryPrice * (1 + (isLong ? threshold : -threshold) / 100) : null;
 
-      // Simple momentum oscillator calculation (pct change from 3 bars ago)
-      const prevPrice = validData[Math.max(0, i - 3)]?.close || d.open;
-      const momentum = ((d.close - prevPrice) / prevPrice) * 100;
+      if (thresholdPrice !== null) {
+        if (thresholdPrice < dMin) dMin = thresholdPrice;
+        if (thresholdPrice > dMax) dMax = thresholdPrice;
+      }
+      if (entryPrice !== null) {
+        if (entryPrice < dMin) dMin = entryPrice;
+        if (entryPrice > dMax) dMax = entryPrice;
+      }
+      if (slPrice !== null) {
+        if (slPrice < dMin) dMin = slPrice;
+        if (slPrice > dMax) dMax = slPrice;
+      }
 
-      return {
-        x,
-        wickX: x + bWidth / 2,
-        yHigh,
-        yLow,
-        yBodyTop: Math.min(yOpen, yClose),
-        bodyHeight: Math.max(Math.abs(yOpen - yClose), 1),
-        isUp: d.close >= d.open,
-        timestamp: d.time || d.t,
-        momentum
-      };
-    });
+      // Safety fallback for empty/invalid data ranges
+      if (dMin === Infinity) dMin = 0;
+      if (dMax === -Infinity) dMax = 1;
 
-    const thresholdY = thresholdPrice ? chartHeight - ((thresholdPrice - dMin) / dRange) * chartHeight : null;
-    const slY = slPrice ? chartHeight - ((slPrice - dMin) / dRange) * chartHeight : null;
+      const dRange = (dMax - dMin) || 1;
+      const bWidth = (width / data.length) * 0.7;
+      const bGap = (width / data.length) * 0.3;
 
-    return { bars, min: dMin, max: dMax, range: dRange, barWidth: bWidth, gap: bGap, thresholdY, slY, supertrendPoints };
+      const supertrendPoints = [];
+      if (Array.isArray(supertrendLine) && supertrendLine.length === validLen) {
+        for (let i = 0; i < validLen; i++) {
+          const val = supertrendLine[i]?.value;
+          if (val && val > 0) {
+            const x = i * (width / validLen) + bGap / 2 + bWidth / 2;
+            const y = chartHeight - ((val - dMin) / dRange) * chartHeight;
+            supertrendPoints.push({
+              x,
+              y,
+              direction: supertrendLine[i]?.direction || 'up'
+            });
+          }
+        }
+      }
+
+      // BOLT OPTIMIZATION: Pre-build signal timestamp set and decision marker map for O(1) bar lookups.
+      // This completely eliminates O(N*S) signals.some() and O(N*M) decisionMarkers.find() scans during JSX render.
+      const signalSet = new Set();
+      if (Array.isArray(signals)) {
+        for (let i = 0; i < signals.length; i++) {
+          const st = signals[i]?.time;
+          if (st) signalSet.add(st);
+        }
+      }
+
+      const markerIndexMap = new Map();
+      const markerTimeMap = new Map();
+      if (Array.isArray(decisionMarkers)) {
+        for (let i = 0; i < decisionMarkers.length; i++) {
+          const m = decisionMarkers[i];
+          if (!m) continue;
+          if (typeof m.index === 'number') markerIndexMap.set(m.index, m);
+          if (m.time) markerTimeMap.set(m.time, m);
+        }
+      }
+
+      const bars = new Array(validLen);
+      for (let i = 0; i < validLen; i++) {
+        const d = validData[i];
+        const x = i * (width / validLen) + bGap / 2;
+        const yHigh = chartHeight - ((d.high - dMin) / dRange) * chartHeight;
+        const yLow = chartHeight - ((d.low - dMin) / dRange) * chartHeight;
+        const yOpen = chartHeight - ((d.open - dMin) / dRange) * chartHeight;
+        const yClose = chartHeight - ((d.close - dMin) / dRange) * chartHeight;
+
+        // Simple momentum oscillator calculation (pct change from 3 bars ago)
+        const prevPrice = validData[Math.max(0, i - 3)]?.close || d.open;
+        const momentum = ((d.close - prevPrice) / prevPrice) * 100;
+
+        const timestamp = d.time || d.t;
+        const hasSignal = signalSet.has(timestamp);
+        const marker = markerIndexMap.get(i) || markerTimeMap.get(timestamp);
+
+        bars[i] = {
+          x,
+          wickX: x + bWidth / 2,
+          yHigh,
+          yLow,
+          yBodyTop: Math.min(yOpen, yClose),
+          bodyHeight: Math.max(Math.abs(yOpen - yClose), 1),
+          isUp: d.close >= d.open,
+          timestamp,
+          momentum,
+          hasSignal,
+          marker
+        };
+      }
+
+      const thresholdY = thresholdPrice ? chartHeight - ((thresholdPrice - dMin) / dRange) * chartHeight : null;
+      const slY = slPrice ? chartHeight - ((slPrice - dMin) / dRange) * chartHeight : null;
+
+      return { bars, min: dMin, max: dMax, range: dRange, barWidth: bWidth, gap: bGap, thresholdY, slY, supertrendPoints };
     } catch (err) {
       console.error('[CandlestickChart] Geometry calculation failed', err);
       return { bars: [], min: 0, max: 0, range: 1, barWidth: 0, gap: 0, thresholdY: null, slY: null, supertrendPoints: [] };
     }
-  }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers, slPrice, supertrendLine]);
+  }, [data, width, chartHeight, threshold, isLong, entryPrice, decisionMarkers, slPrice, supertrendLine, signals]);
 
   const oscMax = React.useMemo(() => {
     // BOLT: Zero-allocation max calculation for high-frequency oscillator lane
@@ -228,7 +258,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
                 x2={pt.x}
                 y2={pt.y}
                 stroke={color}
-                strokeWidth="1.5"
+                strokeWidth="0.8"
                 strokeLinecap="round"
                 opacity="0.8"
               />
@@ -246,7 +276,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
             x2={width}
             y2={slY}
             stroke="#ff4466"
-            strokeWidth="1.5"
+            strokeWidth="0.8"
             strokeDasharray="2 2"
             opacity="0.6"
           />
@@ -289,8 +319,8 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
       <g>
         {(bars || []).map((bar, i) => {
           const color = bar.isUp ? '#00e5a0' : '#ff4466';
-          const hasSignal = signals.some(s => s.time === bar.timestamp);
-          const marker = decisionMarkers.find(m => m.index === i || m.time === bar.timestamp);
+          const hasSignal = bar.hasSignal;
+          const marker = bar.marker;
 
           return (
             <g key={i}>
@@ -343,7 +373,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
                   cy={bar.isUp ? bar.yLow + 4 : bar.yHigh - 4}
                   r="2"
                   className="fill-accent animate-pulse"
-                />
+                 vectorEffect="non-scaling-stroke" />
               )}
             </g>
           );

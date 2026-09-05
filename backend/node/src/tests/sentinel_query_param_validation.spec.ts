@@ -11,7 +11,17 @@ describe("SessionController Query Parameter Validation", () => {
       getLifetimeAnalytics: jest.fn().mockResolvedValue({ totalPnl: 0 }),
     };
 
-    controller = new SessionController(mockSessionService);
+    const mockBacktestService: any = {
+      runBacktest: jest.fn().mockResolvedValue({ totalTrades: 0 }),
+    };
+
+    const mockSmartOptimizerService: any = {
+      getTopRecommendations: jest.fn().mockReturnValue([]),
+      clearRecommendations: jest.fn(),
+      runOptimization: jest.fn(),
+    };
+
+    controller = new SessionController(mockSessionService, mockBacktestService, mockSmartOptimizerService);
   });
 
   describe("getHistory", () => {
@@ -53,6 +63,12 @@ describe("SessionController Query Parameter Validation", () => {
 
     it("should reject invalid mode string", async () => {
       await expect(controller.getLifetimeAnalytics("invalid" as any)).rejects.toThrow(BadRequestException);
+      expect(mockSessionService.getLifetimeAnalytics).not.toHaveBeenCalled();
+    });
+
+    it("should reject mode string exceeding maximum length constraint (> 20 chars)", async () => {
+      const longMode = "paper_long_invalid_string_exceeding_twenty_chars" as any;
+      await expect(controller.getLifetimeAnalytics(longMode)).rejects.toThrow(BadRequestException);
       expect(mockSessionService.getLifetimeAnalytics).not.toHaveBeenCalled();
     });
   });

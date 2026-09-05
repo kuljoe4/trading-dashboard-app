@@ -418,6 +418,161 @@ test('RrWinRateCalculator single-pass return tracking correctness and performanc
   console.log(`  - Execution Speedup:                     ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
 });
 
+test('RrWinRateCalculator low RR targets below 0.5 correctness and exit distribution bucket verification', () => {
+  const trades = [
+    { exit_rr: -1.0, pnl: -100, max_rr_achieved: 0.1, min_rr_achieved: -1.0, initial_risk_usdt: 100 },
+    { exit_rr: 0.15, pnl: 15, max_rr_achieved: 0.2, min_rr_achieved: -0.1, initial_risk_usdt: 100 },
+    { exit_rr: 0.35, pnl: 35, max_rr_achieved: 0.4, min_rr_achieved: -0.2, initial_risk_usdt: 100 },
+    { exit_rr: 0.75, pnl: 75, max_rr_achieved: 0.8, min_rr_achieved: -0.1, initial_risk_usdt: 100 },
+    { exit_rr: 1.5,  pnl: 150, max_rr_achieved: 1.8, min_rr_achieved: -0.0, initial_risk_usdt: 100 },
+    { exit_rr: 2.5,  pnl: 250, max_rr_achieved: 2.8, min_rr_achieved: -0.0, initial_risk_usdt: 100 },
+    { exit_rr: 3.5,  pnl: 350, max_rr_achieved: 3.8, min_rr_achieved: -0.0, initial_risk_usdt: 100 },
+  ];
+
+  // Test target RR = 0.2R (sub-0.5 target)
+  const targetRr = 0.2;
+  let winCount = 0;
+  trades.forEach(t => {
+    if (Number(t.max_rr_achieved) >= targetRr) {
+      winCount++;
+    }
+  });
+
+  // max_rr_achieved values: 0.1 (L), 0.2 (W), 0.4 (W), 0.8 (W), 1.8 (W), 2.8 (W), 3.8 (W) -> 6 wins, 1 loss
+  assert.strictEqual(winCount, 6, 'Sub-0.5 target RR of 0.2 should evaluate 6 winning trades out of 7');
+
+  // Verify exit RR distribution buckets for sub-0.5 ranges and PnL aggregation
+  let rangeMinusToZero = 0;
+  let rangeZeroToQuarter = 0;
+  let rangeQuarterToHalf = 0;
+  let rangeHalfToOne = 0;
+  let rangeOneToTwo = 0;
+  let rangeTwoToThree = 0;
+  let rangeThreePlus = 0;
+
+  let pnlMinusToZero = 0;
+  let pnlZeroToQuarter = 0;
+  let pnlQuarterToHalf = 0;
+  let pnlHalfToOne = 0;
+  let pnlOneToTwo = 0;
+  let pnlTwoToThree = 0;
+  let pnlThreePlus = 0;
+
+  trades.forEach(t => {
+    const err = Number(t.exit_rr);
+    const pnl = Number(t.pnl || 0);
+    if (err <= 0) {
+      rangeMinusToZero++;
+      pnlMinusToZero += pnl;
+    } else if (err > 0 && err <= 0.25) {
+      rangeZeroToQuarter++;
+      pnlZeroToQuarter += pnl;
+    } else if (err > 0.25 && err <= 0.5) {
+      rangeQuarterToHalf++;
+      pnlQuarterToHalf += pnl;
+    } else if (err > 0.5 && err <= 1.0) {
+      rangeHalfToOne++;
+      pnlHalfToOne += pnl;
+    } else if (err > 1.0 && err <= 2.0) {
+      rangeOneToTwo++;
+      pnlOneToTwo += pnl;
+    } else if (err > 2.0 && err <= 3.0) {
+      rangeTwoToThree++;
+      pnlTwoToThree += pnl;
+    } else {
+      rangeThreePlus++;
+      pnlThreePlus += pnl;
+    }
+  });
+
+  assert.strictEqual(rangeMinusToZero, 1, '≤ 0 R count');
+  assert.strictEqual(rangeZeroToQuarter, 1, '0 to 0.25 R count');
+  assert.strictEqual(rangeQuarterToHalf, 1, '0.25 to 0.5 R count');
+  assert.strictEqual(rangeHalfToOne, 1, '0.5 to 1 R count');
+  assert.strictEqual(rangeOneToTwo, 1, '1 to 2 R count');
+  assert.strictEqual(rangeTwoToThree, 1, '2 to 3 R count');
+  assert.strictEqual(rangeThreePlus, 1, '3R + count');
+
+  assert.strictEqual(pnlMinusToZero, -100, '≤ 0 R aggregated PnL');
+  assert.strictEqual(pnlZeroToQuarter, 15, '0 to 0.25 R aggregated PnL');
+  assert.strictEqual(pnlQuarterToHalf, 35, '0.25 to 0.5 R aggregated PnL');
+  assert.strictEqual(pnlHalfToOne, 75, '0.5 to 1 R aggregated PnL');
+  assert.strictEqual(pnlOneToTwo, 150, '1 to 2 R aggregated PnL');
+  assert.strictEqual(pnlTwoToThree, 250, '2 to 3 R aggregated PnL');
+  assert.strictEqual(pnlThreePlus, 350, '3R + aggregated PnL');
+
+  // Verify dynamic recommendation generation rules
+  const total = trades.length;
+  const subHalfCount = rangeZeroToQuarter + rangeQuarterToHalf;
+  const subHalfPct = (subHalfCount / total) * 100;
+  assert.strictEqual(subHalfPct >= 28, true, 'Sub-0.5R exit percentage calculation');
+
+  const runnerCount = rangeTwoToThree + rangeThreePlus;
+  const runnerPnl = pnlTwoToThree + pnlThreePlus;
+  assert.strictEqual(runnerCount, 2, 'Runner count calculation');
+  assert.strictEqual(runnerPnl, 600, 'Runner PnL calculation');
+});
+
+test('buildCurve single-pass reverse loop correctness and performance benchmark', () => {
+  const safeNum = (v) => (v == null || isNaN(v) ? 0 : Number(v));
+
+  const originalImpl = (trades = []) => {
+    const safeTrades = Array.isArray(trades) ? trades : [];
+    let pnl = 0;
+    return [...safeTrades].reverse().map((trade) => {
+      pnl += safeNum(trade.pnl);
+      return { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl };
+    });
+  };
+
+  const optimizedImpl = (trades = []) => {
+    const safeTrades = Array.isArray(trades) ? trades : [];
+    const len = safeTrades.length;
+    const result = new Array(len);
+    let pnl = 0;
+    for (let i = len - 1; i >= 0; i--) {
+      const trade = safeTrades[i];
+      pnl += safeNum(trade.pnl);
+      result[len - 1 - i] = { ts: trade.exit_ts || trade.entry_ts || trade.createdAt, pnl };
+    }
+    return result;
+  };
+
+  const mockTrades = Array.from({ length: 500 }, (_, i) => ({
+    pnl: (i % 2 === 0 ? 1 : -1) * (i * 2.5),
+    exit_ts: '2026-07-20T10:00:00.000Z'
+  }));
+
+  // 1. Correctness
+  const resOriginal = originalImpl(mockTrades);
+  const resOptimized = optimizedImpl(mockTrades);
+  assert.deepStrictEqual(resOptimized, resOriginal, 'Optimized buildCurve output must match original exactly.');
+
+  // 2. Performance Benchmark
+  const iterations = 10000;
+  originalImpl(mockTrades);
+  optimizedImpl(mockTrades);
+
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalImpl(mockTrades);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedImpl(mockTrades);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (buildCurve cumulative curve computation, List size: ${mockTrades.length} trades, ${iterations} iterations):`);
+  console.log(`  - Original [...spread].reverse().map(): ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Pre-allocated reverse loop: ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                    ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});
+
 test('Search Filter Symbol check performance benchmark', () => {
   const listSize = 500;
   const mockTrades = Array.from({ length: listSize }, () => ({
@@ -465,4 +620,98 @@ test('Search Filter Symbol check performance benchmark', () => {
   console.log(`  - Original symbol.toLowerCase().includes(term): ${originalDuration.toFixed(4)} ms`);
   console.log(`  - Optimized symbol.includes(termUpper):         ${optimizedDuration.toFixed(4)} ms`);
   console.log(`  - Execution Speedup:                            ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});
+
+test('SessionDetailsModal single-pass trade metrics loop-fusion correctness and benchmark', () => {
+  const strategyLabel = (item = {}) => item.strategy_label || item.strategyLabel || item.config?.strategy_label || item.strategy_config?.strategy_label || 'Momentum Strategy';
+  const safeNum = (v) => (v == null || isNaN(v) ? 0 : Number(v));
+
+  const originalMultiPass = (trades) => {
+    const variantPnls = new Map();
+    if (trades) {
+      for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        const label = strategyLabel(t);
+        const pnl = safeNum(t.pnl);
+        variantPnls.set(label, (variantPnls.get(label) || 0) + pnl);
+      }
+    }
+    const activeLabels = Array.from(new Set(trades?.map(t => strategyLabel(t)) || []));
+    const knifeTrades = trades?.filter(t => t.is_knife) || [];
+    const knifeCount = knifeTrades.length;
+    let knifeAccPnl = 0;
+    for (let i = 0; i < knifeTrades.length; i++) {
+      knifeAccPnl += safeNum(knifeTrades[i].pnl);
+    }
+    return { variantPnls, activeLabels, knifeCount, knifeAccPnl };
+  };
+
+  const optimizedSinglePass = (trades) => {
+    const map = new Map();
+    const labelsSet = new Set();
+    let knifeCount = 0;
+    let knifeAccPnl = 0;
+
+    if (trades && trades.length > 0) {
+      for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        const label = strategyLabel(t);
+        const pnl = safeNum(t.pnl);
+
+        map.set(label, (map.get(label) || 0) + pnl);
+        labelsSet.add(label);
+
+        if (t.is_knife) {
+          knifeCount++;
+          knifeAccPnl += pnl;
+        }
+      }
+    }
+
+    return {
+      variantPnls: map,
+      activeLabels: Array.from(labelsSet),
+      knifeCount,
+      knifeAccPnl
+    };
+  };
+
+  const mockTrades = Array.from({ length: 200 }, (_, i) => ({
+    pnl: (i % 2 === 0 ? 10 : -5) * (i + 1),
+    is_knife: i % 3 === 0,
+    strategy_label: i % 4 === 0 ? 'Momentum Strategy' : `Variant ${i % 3}`
+  }));
+
+  // 1. Correctness
+  const resOriginal = originalMultiPass(mockTrades);
+  const resOptimized = optimizedSinglePass(mockTrades);
+
+  assert.strictEqual(resOptimized.knifeCount, resOriginal.knifeCount, 'Knife count must match');
+  assert.strictEqual(resOptimized.knifeAccPnl, resOriginal.knifeAccPnl, 'Knife acc PnL must match');
+  assert.deepStrictEqual(resOptimized.activeLabels, resOriginal.activeLabels, 'Active labels must match');
+  assert.deepStrictEqual(Array.from(resOptimized.variantPnls.entries()), Array.from(resOriginal.variantPnls.entries()), 'Variant PnLs must match');
+
+  // 2. Performance Benchmark
+  const iterations = 20000;
+  originalMultiPass(mockTrades);
+  optimizedSinglePass(mockTrades);
+
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalMultiPass(mockTrades);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedSinglePass(mockTrades);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (SessionDetailsModal single-pass trade metrics, List size: ${mockTrades.length} trades, ${iterations} iterations):`);
+  console.log(`  - Original Multi-pass (.map(), .filter(), multiple loops): ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Single-pass (loop-fused useMemo):               ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                                         ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
 });

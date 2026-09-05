@@ -22,3 +22,8 @@
 **Vulnerability:** `BinanceSubscriptionManager` was completely unaware of the centralized/persistent IP ban status, continuing to schedule reconnection attempts and hammer exchange endpoints even when a 24-hour IP ban was active. It also failed to propagate handshake status codes like 418/429 back to the centralized ban tracking systems.
 **Learning:** Reconnection policies and stream-level managers must be tightly integrated with centralized rate-limiting and ban protection services to avoid compounding IP ban penalties.
 **Prevention:** Pass an `isBanned` predicate and `onBan` status propagation callback from `MarketFeedService` (hooked into `SessionStateService`) to all `BinanceSubscriptionManager` instances, checking ban status before every connection attempt and gracefully deferring.
+
+## 2026-08-24 - Generic Request Queue HTTP Response Status Bypass
+**Vulnerability:** `BinanceClientFactory.genericRequest` passed `fetch` calls to `BinanceRequestQueue`, but `fetch` resolves (does not throw) on HTTP error status codes like 418 or 429. Because no error was thrown, `BinanceRequestQueue`'s `catch` block never executed, completely bypassing terminal lock, cooldown timers, and ban status persistence.
+**Learning:** A request queue wrapper cannot assume native HTTP clients (like `fetch`) throw on status codes >= 400. Non-2xx responses must be explicitly checked and converted to thrown exceptions inside the queue worker to trigger rate-limit and ban circuit breakers.
+**Prevention:** Inspect `result.ok` and `result.status` for `Response` objects in `genericRequest`. Throw an explicit error for status 418/429 (and other non-ok codes) so the queue's error handler intercepts ban statuses and engages terminal lock immediately.

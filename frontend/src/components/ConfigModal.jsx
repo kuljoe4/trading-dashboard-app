@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock } from 'lucide-react'
-import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker } from './ui/primitives'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award } from 'lucide-react'
+import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
-import { settingsAPI, presetsAPI } from '../api/client'
+import { settingsAPI, presetsAPI, sessionAPI, smartOptimizerAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -71,6 +71,7 @@ const SIGNALS = [
   ['macd_fade', 'MACD Fade', 'Phase 5 momentum exit when histogram weakens.'],
   ['macd_pbc', 'MACD PBC', 'Premium Pullback-to-Continuation pullback entry.'],
   ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
+  ['knife_catch', 'Knife Catch', 'Velocity ROC & wick rejection burst entry.'],
 ]
 
 const getBaseSignalType = (signalType) => {
@@ -85,7 +86,7 @@ const getBaseSignalType = (signalType) => {
   return signalType;
 };
 
-const getSignalParamsSchema = (sigKey, baseType) => {
+const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) => {
   const suffix = sigKey === baseType ? '' : sigKey.substring(baseType.length); // e.g. '_2'
   const schema = [];
 
@@ -113,13 +114,21 @@ const getSignalParamsSchema = (sigKey, baseType) => {
     addParam('ma_period', 'number', 20, null, { min: 1 }, 'MA Period');
   } else if (['ema', 'ema_cross', 'ema_price_cross', 'ema_close'].includes(baseType)) {
     addParam('ema_period', 'number', 12, null, { min: 1 }, 'EMA Period');
-    addParam('entry_ema_period', 'number', 12, null, { min: 1 }, 'Entry Period');
-    addParam('exit_ema_period', 'number', 12, null, { min: 1 }, 'Exit Period');
+    if (isEntry || (!isEntry && !isExit)) addParam('entry_ema_period', 'number', 12, null, { min: 1 }, 'Entry Period');
+    if (isExit || (!isEntry && !isExit)) addParam('exit_ema_period', 'number', 12, null, { min: 1 }, 'Exit Period');
   } else if (['ema_dual_cross', 'ema_dual_close'].includes(baseType)) {
-    addParam('entry_ema_fast', 'number', 9, null, { min: 1 }, 'Entry Fast');
-    addParam('entry_ema_slow', 'number', 21, null, { min: 1 }, 'Entry Slow');
-    addParam('exit_ema_fast', 'number', 9, null, { min: 1 }, 'Exit Fast');
-    addParam('exit_ema_slow', 'number', 21, null, { min: 1 }, 'Exit Slow');
+    if (isEntry || (!isEntry && !isExit)) {
+      addParam('entry_ema_fast', 'number', 9, null, { min: 1 }, 'Entry Fast');
+      addParam('entry_ema_slow', 'number', 21, null, { min: 1 }, 'Entry Slow');
+    }
+    if (isExit || (!isEntry && !isExit)) {
+      addParam('exit_ema_fast', 'number', 9, null, { min: 1 }, 'Exit Fast');
+      addParam('exit_ema_slow', 'number', 21, null, { min: 1 }, 'Exit Slow');
+    }
+    addParam('ema_dual_macd_filter', 'boolean', false, null, {}, 'MACD Filter');
+    addParam('macd_fast', 'number', 12, null, { min: 1 }, 'MACD Fast');
+    addParam('macd_slow', 'number', 26, null, { min: 1 }, 'MACD Slow');
+    addParam('macd_signal', 'number', 9, null, { min: 1 }, 'MACD Signal');
   } else if (baseType === 'engulfing') {
     addParam('engulfing_lookback', 'number', 1, null, { min: 1, max: 20 }, 'Search Window');
     addParam('engulfing_streak', 'number', 1, null, { min: 1, max: 10 }, 'Required Streak');
@@ -170,6 +179,7 @@ const TOOLTIPS = {
   engulfing_streak: "Required streak: Number of consecutive reversal candles to find within the window.",
   engulfing_sequential: "If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.",
   engulfing_volume_confirm: "When enabled, the engulfing candle MUST have higher volume than the engulfed candle.",
+  ema_dual_macd_filter: "When enabled, requires MACD histogram to be Red (bearish) when fast EMA crosses below slow EMA for SHORT, or Green (bullish) when fast EMA crosses above slow EMA for LONG.",
   macd_fast: "The fast EMA period for MACD line calculation.",
   macd_slow: "The slow EMA period for MACD line calculation.",
   macd_signal: "The signal line EMA period.",
@@ -241,7 +251,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
         {error && <span role="alert" className="text-[9px] text-red font-bold uppercase">{error}</span>}
         {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warning}</span>}
       </div>
-      {opts ? (
+      {Array.isArray(opts) ? (
         <select
           id={id}
           value={localValue ?? ''}
@@ -249,8 +259,8 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         >
           {opts.map((o) => {
-            const val = typeof o === 'string' ? o : o.value;
-            const lbl = typeof o === 'string' ? o : o.label;
+            const val = typeof o === 'string' ? o : o?.value;
+            const lbl = typeof o === 'string' ? o : o?.label;
             return <option key={val} value={val}>{lbl}</option>;
           })}
         </select>
@@ -279,6 +289,9 @@ const ExitSignalCard = React.memo(({
   delays,
   actions,
   timeframes,
+  isComboMode,
+  isRequired,
+  onToggleRequired,
   onToggle,
   onAddLayer,
   onRemoveLayer,
@@ -303,6 +316,25 @@ const ExitSignalCard = React.memo(({
           <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
         </Switch.Root>
       </div>
+
+      {active && isComboMode && (
+        <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
+          <span className="text-[9px] font-black uppercase text-dim tracking-wider">Condition Role</span>
+          <button
+            type="button"
+            onClick={() => onToggleRequired(key)}
+            className={cn(
+              "px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none",
+              isRequired
+                ? "bg-red text-white shadow-sm"
+                : "bg-surface text-dim border border-border/50 hover:text-text"
+            )}
+            aria-label={`Set ${label} exit role to ${isRequired ? 'Optional' : 'Required'}`}
+          >
+            {isRequired ? '⚡ REQUIRED (AND)' : '⚪ OPTIONAL (ANY)'}
+          </button>
+        </div>
+      )}
 
       {active && (
         <div className="space-y-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -491,6 +523,9 @@ const EntrySignalCard = React.memo(({
   active,
   layers,
   timeframes,
+  isComboMode,
+  isRequired,
+  onToggleRequired,
   onToggle,
   onAddLayer,
   onRemoveLayer,
@@ -514,6 +549,25 @@ const EntrySignalCard = React.memo(({
           <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
         </Switch.Root>
       </div>
+
+      {active && isComboMode && (
+        <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
+          <span className="text-[9px] font-black uppercase text-dim tracking-wider">Condition Role</span>
+          <button
+            type="button"
+            onClick={() => onToggleRequired(key)}
+            className={cn(
+              "px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+              isRequired
+                ? "bg-accent text-white shadow-sm"
+                : "bg-surface text-dim border border-border/50 hover:text-text"
+            )}
+            aria-label={`Set ${label} role to ${isRequired ? 'Optional' : 'Required'}`}
+          >
+            {isRequired ? '⚡ REQUIRED (AND)' : '⚪ OPTIONAL (ANY)'}
+          </button>
+        </div>
+      )}
 
       {active && (
         <div className="space-y-3 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -669,6 +723,7 @@ ManualMonitorInput.displayName = 'ManualMonitorInput'
 const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) => {
   const [name, setName] = useState(defaultName || '');
   const inputId = useId();
+  const inputRef = useRef(null);
 
   useEffect(() => {
     if (defaultName) setName(defaultName);
@@ -679,14 +734,32 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
       <VisuallyHidden>
         <label htmlFor={inputId}>Preset Name</label>
       </VisuallyHidden>
-      <input
-        id={inputId}
-        type="text"
-        placeholder="Preset name (e.g. Scalp High Vol)"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="flex-1 bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-      />
+      <div className="relative flex-1 group">
+        <input
+          ref={inputRef}
+          id={inputId}
+          type="text"
+          placeholder="Preset name (e.g. Scalp High Vol)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+        />
+        {name && (
+          <Tooltip content="Clear Preset Name">
+            <button
+              type="button"
+              onClick={() => {
+                setName('');
+                inputRef.current?.focus();
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+              aria-label="Clear Preset Name"
+            >
+              <X size={16} />
+            </button>
+          </Tooltip>
+        )}
+      </div>
       <Tooltip
         content={
           isSaving
@@ -735,6 +808,12 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
       const matchesSearch = opp.symbol.toLowerCase().includes(searchTerm.toLowerCase());
       if (!matchesSearch) return false;
 
+      if (rangeFilter === 'usdt') {
+        return (opp.symbol || '').toUpperCase().endsWith('USDT');
+      }
+      if (rangeFilter === 'non_usdt') {
+        return !(opp.symbol || '').toUpperCase().endsWith('USDT');
+      }
       if (rangeFilter === 'pos') {
         return (opp.pct || 0) > 0;
       }
@@ -803,6 +882,8 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
           <span className="text-[9px] font-black text-dim uppercase tracking-wider px-1.5">Filters:</span>
           {[
             { id: 'all', label: 'All' },
+            { id: 'usdt', label: 'USDT Pairs' },
+            { id: 'non_usdt', label: 'Non-USDT' },
             { id: 'pos', label: 'Positive' },
             { id: 'neg', label: 'Negative' },
             { id: 'high_mover', label: 'Movers >2%' },
@@ -954,6 +1035,8 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     { id: 'strategy', label: 'Strategy', icon: Zap },
     { id: 'risk', label: 'Risk', icon: ShieldCheck },
     { id: 'env', label: 'Env', icon: Briefcase },
+    { id: 'smart', label: 'Smart Auto', icon: Sparkles },
+    { id: 'backtest', label: 'Backtest', icon: TrendingUp },
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
@@ -1003,22 +1086,546 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 })
 SectionTabs.displayName = 'SectionTabs'
 
-const EnvironmentButton = React.memo(({ mode, isSelected, onClick }) => (
+const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePreset }) => {
+  const [iterations, setIterations] = useState(15);
+  const [days, setDays] = useState(14);
+  const [startingBalance, setStartingBalance] = useState(10000);
+  const [symbolsText, setSymbolsText] = useState('BTCUSDT, ETHUSDT, SOLUSDT');
+  const [isRunning, setIsRunning] = useState(false);
+  const [recommendations, setRecommendations] = useState([]);
+  const [error, setError] = useState(null);
+  const addAlert = useTradingStore(state => state.addAlert);
+
+  useEffect(() => {
+    const fetchRecs = async () => {
+      try {
+        const res = await smartOptimizerAPI.getRecommendations();
+        if (res?.data?.recommendations) {
+          setRecommendations(res.data.recommendations);
+        }
+      } catch (err) {
+        console.warn('[SmartOptimizer] Failed to fetch top recommendations:', err);
+      }
+    };
+    fetchRecs();
+  }, []);
+
+  const handleRunOptimization = async () => {
+    setIsRunning(true);
+    setError(null);
+    try {
+      const parsedSymbols = symbolsText.split(',').map(s => s.trim().toUpperCase()).filter(s => s.endsWith('USDT'));
+      const res = await smartOptimizerAPI.run({
+        iterations: Number(iterations),
+        days: Number(days),
+        startingBalance: Number(startingBalance),
+        symbols: parsedSymbols.length > 0 ? parsedSymbols : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+        baseConfig: cfg,
+        topCount: 5,
+      });
+
+      if (res?.data?.topRecommendations) {
+        setRecommendations(res.data.topRecommendations);
+        if (addAlert) {
+          addAlert({
+            level: 'success',
+            title: 'Smart Optimization Complete',
+            message: `Evaluated ${res.data.testedCount} randomized strategy candidates in ${res.data.executionTimeMs}ms! Top strategy recommendations updated in memory.`,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[SmartOptimizer] Run error:', err);
+      const msg = err.response?.data?.message || err.message || 'Smart optimization failed.';
+      setError(msg);
+      if (addAlert) {
+        addAlert({ level: 'error', title: 'Optimizer Error', message: msg });
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleClear = async () => {
+    try {
+      await smartOptimizerAPI.clearRecommendations();
+      setRecommendations([]);
+      if (addAlert) {
+        addAlert({ level: 'info', title: 'Recommendations Cleared', message: 'In-memory top strategy recommendations cleared.' });
+      }
+    } catch (err) {
+      console.error('[SmartOptimizer] Clear error:', err);
+    }
+  };
+
+  return (
+    <div
+      id="config-panel-smart"
+      role="tabpanel"
+      aria-labelledby="config-tab-smart"
+      className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+    >
+      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+              <Sparkles size={16} />
+            </div>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-tight">Smart Intelligence Auto-Optimizer</h3>
+              <p className="text-[9px] text-dim font-medium uppercase">Generates & paper-tests randomized strategy variations to find top performers</p>
+            </div>
+          </div>
+          <Btn
+            variant="primary"
+            onClick={handleRunOptimization}
+            loading={isRunning}
+            className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+          >
+            {isRunning ? 'Testing Strategies...' : '⚡ Run Smart Auto Optimizer'}
+          </Btn>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2 border-t border-border/40">
+          <div>
+            <label htmlFor="smart-iterations" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Randomized Variations</label>
+            <select
+              id="smart-iterations"
+              value={iterations}
+              onChange={(e) => setIterations(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+            >
+              <option value={10}>10 Variations (Fast)</option>
+              <option value={15}>15 Variations (Recommended)</option>
+              <option value={25}>25 Variations (Thorough)</option>
+              <option value={50}>50 Variations (Deep Search)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="smart-days" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Testing Period (Days)</label>
+            <select
+              id="smart-days"
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+            >
+              <option value={7}>7 Days (1 Week)</option>
+              <option value={14}>14 Days (2 Weeks)</option>
+              <option value={30}>30 Days (1 Month)</option>
+              <option value={60}>60 Days (2 Months)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="smart-balance" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Paper Capital ($)</label>
+            <input
+              id="smart-balance"
+              type="number"
+              min={10}
+              step={1000}
+              value={startingBalance}
+              onChange={(e) => setStartingBalance(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="smart-symbols" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Target Symbols</label>
+            <input
+              id="smart-symbols"
+              type="text"
+              placeholder="BTCUSDT, ETHUSDT..."
+              value={symbolsText}
+              onChange={(e) => setSymbolsText(e.target.value)}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+            />
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red/10 border border-red/30 rounded-xl text-xs text-red font-semibold flex items-center gap-2">
+            <XCircle size={14} className="shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Leaderboard of Top In-Memory Recommendations */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <div className="flex items-center gap-2">
+            <Award size={14} className="text-accent" />
+            <span className="text-xs font-black uppercase tracking-widest text-text">Top Recommended Strategies (In-Memory Leaderboard)</span>
+            <span className="text-[9px] text-dim font-bold font-mono">({recommendations.length})</span>
+          </div>
+          {recommendations.length > 0 && (
+            <button
+              type="button"
+              onClick={handleClear}
+              className="text-[9px] font-black uppercase tracking-widest text-red/70 hover:text-red transition-colors flex items-center gap-1"
+            >
+              <Trash2 size={11} /> Clear Leaderboard
+            </button>
+          )}
+        </div>
+
+        {recommendations.length === 0 ? (
+          <div className="p-10 border border-dashed border-border/60 rounded-2xl text-center space-y-2">
+            <Sparkles size={28} className="mx-auto text-dim/30 animate-pulse" />
+            <div className="text-xs font-bold text-dim uppercase">No strategy recommendations stored in memory yet</div>
+            <p className="text-[10px] text-dim/70 max-w-sm mx-auto">
+              Click <strong className="text-accent">"⚡ Run Smart Auto Optimizer"</strong> above to paper-test randomized setting candidates and discover top strategy configurations.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recommendations.map((rec) => {
+              const isTopRank = rec.rank === 1;
+              return (
+                <div
+                  key={rec.id}
+                  className={cn(
+                    "p-4 rounded-2xl border transition-all space-y-3 bg-background/60",
+                    isTopRank
+                      ? "border-accent/50 shadow-[0_0_20px_rgba(91,111,255,0.1)] bg-accent/[0.02]"
+                      : "border-border/60 hover:border-border-hover"
+                  )}
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/30 pb-2">
+                    <div className="flex items-center gap-2.5">
+                      <span className={cn(
+                        "w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center font-mono",
+                        isTopRank ? "bg-accent text-white" : "bg-surface border border-border text-dim"
+                      )}>
+                        #{rec.rank}
+                      </span>
+                      <div>
+                        <h4 className="text-xs font-bold font-mono text-text flex items-center gap-2">
+                          {rec.name}
+                          {isTopRank && (
+                            <span className="text-[8px] px-1.5 py-0.5 rounded bg-accent/20 text-accent font-black uppercase">
+                              ★ Top Recommendation
+                            </span>
+                          )}
+                        </h4>
+                        <p className="text-[9px] text-dim/80 font-mono">
+                          Score: <strong className="text-accent">{rec.score}</strong> · Timeframe: <strong className="text-text">{rec.config.scan_interval}</strong> · SL: <strong className="text-text">{rec.config.sl_distance_pct}%</strong> ({rec.config.sl_type}) · TP: <strong className="text-text">{rec.config.tp_ratio}R</strong>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Btn
+                        variant="primary"
+                        onClick={() => onLoadRecommendation(rec.config)}
+                        className="px-3 py-1.5 text-[10px] font-bold bg-accent text-white hover:bg-accent/90 flex items-center gap-1"
+                      >
+                        <Zap size={12} /> Apply Settings
+                      </Btn>
+
+                      <Btn
+                        variant="ghost"
+                        onClick={() => savePreset(rec.name)}
+                        className="px-3 py-1.5 text-[10px] font-bold border border-border hover:border-accent/40 text-dim hover:text-text flex items-center gap-1"
+                      >
+                        <Save size={12} /> Save as Preset
+                      </Btn>
+                    </div>
+                  </div>
+
+                  {/* Metrics Badges Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 pt-1">
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Win Rate</span>
+                      <span className="text-xs font-bold font-mono text-accent">{rec.metrics.winRate}%</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Profit Factor</span>
+                      <span className="text-xs font-bold font-mono text-purple-400">{rec.metrics.profitFactor}</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Total PnL</span>
+                      <span className={cn("text-xs font-bold font-mono", rec.metrics.totalPnl >= 0 ? "text-green" : "text-red")}>
+                        {fmtUSD(rec.metrics.totalPnl)}
+                      </span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Expectancy</span>
+                      <span className="text-xs font-bold font-mono text-text">${rec.metrics.expectancy}</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Max Drawdown</span>
+                      <span className="text-xs font-bold font-mono text-red">{rec.metrics.maxDrawdownPct}%</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Sharpe Ratio</span>
+                      <span className="text-xs font-bold font-mono text-text">{rec.metrics.sharpeRatio}</span>
+                    </div>
+
+                    <div className="bg-surface/50 p-2 rounded-xl border border-border/30 text-center col-span-2 sm:col-span-1">
+                      <span className="text-[8px] text-dim font-black uppercase block tracking-wider">Trades Count</span>
+                      <span className="text-xs font-bold font-mono text-text">{rec.metrics.totalTrades} ({rec.metrics.wins}W/{rec.metrics.losses}L)</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+});
+SmartAutoDiscoveryPanel.displayName = 'SmartAutoDiscoveryPanel';
+
+const EnvironmentButton = React.memo(({ mode, isSelected, onClick, disabled = false }) => (
   <button
     type="button"
+    disabled={disabled}
     onClick={() => onClick(mode)}
-    className={cn("p-4 rounded-xl border-2 text-left transition-all relative group", isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover")}
+    className={cn(
+      "p-4 rounded-xl border-2 text-left transition-all relative group",
+      isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover",
+      disabled && !isSelected && "opacity-50 cursor-not-allowed hover:border-border"
+    )}
   >
     <div className="flex items-center justify-between mb-1">
       <span className="text-xs font-black uppercase tracking-tighter capitalize">{mode}</span>
-      {isSelected && <CheckCircle2 size={16} className="text-accent" />}
+      {isSelected ? <CheckCircle2 size={16} className="text-accent" /> : disabled ? <Lock size={14} className="text-dim" /> : null}
     </div>
     <p className="text-[9px] text-dim font-bold uppercase tracking-widest">
-      {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : 'Real Capital'}
+      {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : mode === 'backtest' ? 'Historical Test' : 'Real Capital'}
     </p>
   </button>
 ))
 EnvironmentButton.displayName = 'EnvironmentButton'
+
+const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave }) => {
+  const [days, setDays] = useState(14);
+  const [startingBalance, setStartingBalance] = useState(10000);
+  const [symbolText, setSymbolSearchText] = useState(() => (cfg.symbols && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
+  const [useGlobalScanner, setUseGlobalScanner] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+  const addAlert = useTradingStore(state => state.addAlert);
+
+  const handleRunBacktest = async () => {
+    setIsRunning(true);
+    setError(null);
+    try {
+      const configToRun = buildConfigToSave();
+      const parsedSymbols = symbolText.split(',').map(s => s.trim().toUpperCase()).filter(s => s.endsWith('USDT'));
+      const res = await sessionAPI.backtest({
+        config: configToRun,
+        symbols: parsedSymbols.length > 0 ? parsedSymbols : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
+        days: Number(days),
+        startingBalance: Number(startingBalance),
+        useGlobalScanner: Boolean(useGlobalScanner),
+      });
+
+      if (res && res.data) {
+        setResult(res.data);
+        if (addAlert) {
+          addAlert({
+            level: 'success',
+            title: 'Backtest Completed',
+            message: `Completed in ${res.data.executionTimeMs}ms across ${res.data.totalTrades} trades! Total PnL: ${fmtUSD(res.data.totalPnl)}`,
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[Backtest] Run error:', err);
+      const msg = err.response?.data?.message || err.message || 'Backtest failed.';
+      setError(msg);
+      if (addAlert) {
+        addAlert({ level: 'error', title: 'Backtest Error', message: msg });
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  return (
+    <div
+      id="config-panel-backtest"
+      role="tabpanel"
+      aria-labelledby="config-tab-backtest"
+      className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+    >
+      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+              <TrendingUp size={16} />
+            </div>
+            <div>
+              <h3 className="text-xs font-black uppercase tracking-tight">Backtesting Workbench</h3>
+              <p className="text-[9px] text-dim font-medium uppercase">Simulate strategy on Binance historical klines</p>
+            </div>
+          </div>
+          <Btn
+            variant="primary"
+            onClick={handleRunBacktest}
+            loading={isRunning}
+            className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+          >
+            {isRunning ? 'Running Simulation...' : 'Run Backtest'}
+          </Btn>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-border/40">
+          <div>
+            <label htmlFor="backtest-days" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Time Horizon (Days)</label>
+            <select
+              id="backtest-days"
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+            >
+              <option value={7}>7 Days (1 Week)</option>
+              <option value={14}>14 Days (2 Weeks)</option>
+              <option value={30}>30 Days (1 Month)</option>
+              <option value={60}>60 Days (2 Months)</option>
+              <option value={90}>90 Days (3 Months)</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="backtest-balance" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Starting Capital ($)</label>
+            <input
+              id="backtest-balance"
+              type="number"
+              min={10}
+              step={100}
+              value={startingBalance}
+              onChange={(e) => setStartingBalance(Number(e.target.value))}
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="backtest-symbols" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Target Symbol(s)</label>
+            <input
+              id="backtest-symbols"
+              type="text"
+              placeholder="BTCUSDT, ETHUSDT..."
+              disabled={useGlobalScanner}
+              value={symbolText}
+              onChange={(e) => setSymbolSearchText(e.target.value)}
+              className={cn(
+                "w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent",
+                useGlobalScanner && "opacity-50 cursor-not-allowed"
+              )}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between p-3 bg-surface/40 border border-border/30 rounded-xl">
+          <div className="flex flex-col text-left">
+            <span className="text-[10px] font-black uppercase tracking-widest text-text">Simulate Market-Wide Global Scanner</span>
+            <span className="text-[9px] text-dim font-medium uppercase mt-0.5">Filter & rank candidate opportunities across candidate symbols dynamically</span>
+          </div>
+          <Toggle value={useGlobalScanner} onChange={setUseGlobalScanner} color="bg-accent" />
+        </div>
+
+        {error && (
+          <div className="p-3 bg-red/10 border border-red/30 rounded-xl text-xs text-red font-semibold flex items-center gap-2">
+            <XCircle size={14} className="shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+      </div>
+
+      {result && (
+        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <StatCard label="Total PnL" value={`${fmtUSD(result.totalPnl)}`} subValue={`${result.pnlPct >= 0 ? '+' : ''}${result.pnlPct}%`} color={result.totalPnl >= 0 ? 'text-green' : 'text-red'} />
+            <StatCard label="Win Rate" value={`${result.winRate}%`} subValue={`${result.wins}W / ${result.losses}L (${result.totalTrades} Total)`} color="text-accent" />
+            <StatCard label="Profit Factor" value={`${result.profitFactor}`} subValue={`Avg Win: $${result.avgWin}`} color="text-purple-400" />
+            <StatCard label="Max Drawdown" value={`${result.maxDrawdownPct}%`} subValue={`$${result.maxDrawdown}`} color="text-red" />
+            <StatCard label="Expectancy" value={`$${result.expectancy}`} subValue={`Avg Trade: $${result.avgTradePnl}`} color="text-text" />
+            <StatCard label="Sharpe Ratio" value={`${result.sharpeRatio}`} subValue={`Fees: $${result.totalFees}`} color="text-text" />
+          </div>
+
+          {result.equityCurve && result.equityCurve.length > 0 && (
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Equity Curve ($)</span>
+                <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
+              </div>
+              <div className="h-28 w-full flex items-end gap-1 pt-2 px-1">
+                {result.equityCurve.map((pt, idx) => {
+                  const minBal = Math.min(...result.equityCurve.map(p => p.equity));
+                  const maxBal = Math.max(...result.equityCurve.map(p => p.equity));
+                  const range = Math.max(1, maxBal - minBal);
+                  const heightPct = Math.max(8, ((pt.equity - minBal) / range) * 100);
+                  const isUp = pt.equity >= result.startingBalance;
+
+                  return (
+                    <Tooltip key={idx} content={`$${pt.equity} (${pt.drawdownPct}% DD)`}>
+                      <div
+                        className={cn(
+                          "flex-1 rounded-t-sm transition-all hover:opacity-100 opacity-70",
+                          isUp ? "bg-accent" : "bg-red"
+                        )}
+                        style={{ height: `${heightPct}%` }}
+                      />
+                    </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {result.trades && result.trades.length > 0 && (
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Trade Log ({result.trades.length})</span>
+                <span className="text-[9px] text-dim font-bold">Taker Fee: 0.04% / side</span>
+              </div>
+
+              <div className="max-h-64 overflow-y-auto no-scrollbar space-y-1.5 pr-1">
+                {result.trades.map((t) => {
+                  const isWin = t.pnl >= 0;
+                  return (
+                    <div key={t.id} className="flex items-center justify-between p-2.5 bg-surface/60 border border-border/40 rounded-xl text-xs font-mono">
+                      <div className="flex items-center gap-2">
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider",
+                          t.direction === 'LONG' ? "bg-green/10 text-green" : "bg-red/10 text-red"
+                        )}>
+                          {t.direction}
+                        </span>
+                        <span className="font-bold text-text">{t.symbol}</span>
+                        {t.is_knife && <span className="text-[9px]">🔪</span>}
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <span className="text-[9px] text-dim/70 truncate max-w-[120px]">{t.exit_reason}</span>
+                        <span className={cn("font-bold font-mono", isWin ? "text-green" : "text-red")}>
+                          {isWin ? '+' : ''}${t.pnl} ({t.pnl_pct}%)
+                        </span>
+                        <span className="text-[9px] text-dim/60 font-mono w-10 text-right">{t.rr}R</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+BacktestWorkbenchPanel.displayName = 'BacktestWorkbenchPanel';
 
 const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant, sessionActive }, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
@@ -1031,7 +1638,7 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "flex items-center justify-between p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer",
+        "flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer",
         isLoaded
           ? "border-accent/40 shadow-[0_0_12px_rgba(var(--accent-rgb),0.06)] bg-accent/[0.01]"
           : isVariant
@@ -1042,11 +1649,11 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       <button
         type="button"
         onClick={() => onLoad(preset)}
-        className="flex-1 flex items-center gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-1 transition-all"
+        className="flex-1 min-w-0 flex items-center gap-2.5 sm:gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-0.5 sm:p-1 transition-all"
         aria-label={`Load preset ${preset.name}`}
       >
         <div className={cn(
-          "w-10 h-10 rounded-xl flex items-center justify-center border transition-all duration-300",
+          "w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border shrink-0 transition-all duration-300",
           isLoaded
             ? "bg-accent/15 border-accent/30 text-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.15)]"
             : isVariant
@@ -1056,31 +1663,31 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
           {isLoaded ? <CheckCircle2 size={18} /> : isVariant ? <ShieldCheck size={18} /> : <Zap size={18} />}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-2 flex-wrap">
-             <span className="truncate">{preset.name}</span>
+          <div className="text-xs sm:text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
+             <span className="truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[320px] font-mono tracking-tight" title={preset.name}>{preset.name}</span>
              <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
                {pMode === 'paper' && <PaperBadge />}
                {pMode === 'testnet' && <DemoBadge />}
                {pMode === 'live' && <LiveBadge />}
              </div>
              {isLoaded && (
-               <span className={cn("text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
+               <span className={cn("text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
                  {isDirty ? "Modified" : "Active"}
                </span>
              )}
              {isVariant && !isLoaded && (
-               <span className="text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase bg-purple/10 text-purple">
+               <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none bg-purple/10 text-purple">
                  Variant
                </span>
              )}
           </div>
-          <div className="text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5">
+          <div className="text-[9.5px] sm:text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5 truncate">
             {preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk
           </div>
         </div>
       </button>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
         <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
           <button
             type="button"
@@ -1143,7 +1750,16 @@ const flattenConfig = (config) => {
       hibernation_grace_period_sec: config.hibernation_grace_period_sec || 30,
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
       trailing_stop_enabled: !!config.trailing_stop_enabled,
+      trailing_stop_type: config.trailing_stop_type || 'pct',
       trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
+      trailing_stop_rr: config.trailing_stop_rr !== undefined ? Number(config.trailing_stop_rr) : 1.0,
+      trailing_activation_rr: config.trailing_activation_rr !== undefined ? Number(config.trailing_activation_rr) : 0.0,
+      knife_trailing_enabled: config.knife_trailing_enabled !== false,
+      knife_trailing_distance_pct: config.knife_trailing_distance_pct !== undefined ? config.knife_trailing_distance_pct : 0.5,
+      knife_auto_ratchet_be_rr: config.knife_auto_ratchet_be_rr !== undefined ? config.knife_auto_ratchet_be_rr : 0.5,
+      knife_auto_ratchet_lock_rr: config.knife_auto_ratchet_lock_rr !== undefined ? config.knife_auto_ratchet_lock_rr : 1.0,
+      anti_whipsaw_allow_knife: !!config.anti_whipsaw_allow_knife,
+      allow_knife_when_gated: !!config.allow_knife_when_gated,
       release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
@@ -1157,6 +1773,8 @@ const flattenConfig = (config) => {
       engulfing_lookback: config.engulfing_lookback || 1,
       engulfing_streak: config.engulfing_streak || 1,
       engulfing_sequential: config.engulfing_sequential !== false,
+      required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
+      required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
     };
 
     // Dynamically map all params (including suffixes) directly to flattened keys
@@ -1202,6 +1820,10 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'max_single_trade_risk_pct',
       'smart_watchlist_sensitivity',
       'trailing_stop_distance_pct',
+      'trailing_stop_rr',
+      'knife_trailing_distance_pct',
+      'knife_auto_ratchet_be_rr',
+      'knife_auto_ratchet_lock_rr',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
@@ -1426,9 +2048,45 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [testnetConfigured, liveConfigured]);
 
   const generatedPresetName = useMemo(() => {
-    const i = cfg.scan_interval || 'Custom'; const r = cfg.risk_pct_per_trade ? `${cfg.risk_pct_per_trade}% risk` : '';
-    const parts = [i, r].filter(Boolean); return parts.join(' · ') || 'New session preset';
-  }, [cfg.scan_interval, cfg.risk_pct_per_trade])
+    if (loadedPresetName && typeof loadedPresetName === 'string' && loadedPresetName.trim()) {
+      return loadedPresetName.trim();
+    }
+
+    const sigs = cfg.enabled_signals || [];
+    let sigAbbr = '';
+    if (sigs.length === 0) {
+      sigAbbr = 'Scl';
+    } else if (sigs.length === 1) {
+      const s = sigs[0];
+      if (s.startsWith('ema_dual')) sigAbbr = 'Dul';
+      else if (s.startsWith('ema')) sigAbbr = 'EMA';
+      else if (s.startsWith('macd')) sigAbbr = 'MCD';
+      else if (s === 'supertrend') sigAbbr = 'ST';
+      else if (s === 'breakout_hl') sigAbbr = 'Brk';
+      else if (s === 'momentum_pct') sigAbbr = 'Mom';
+      else if (s === 'engulfing') sigAbbr = 'Eng';
+      else if (s === 'knife_catch') sigAbbr = 'Knf';
+      else sigAbbr = 'Sig';
+    } else {
+      sigAbbr = 'Mlt';
+    }
+
+    let modifier = '';
+    if (cfg.trailing_stop_enabled) {
+      modifier = 'Trail';
+    } else if (cfg.sl_distance_pct !== undefined && cfg.sl_distance_pct !== null && cfg.sl_distance_pct !== '') {
+      modifier = `${cfg.sl_distance_pct}SL`;
+    } else if (cfg.tp_ratio !== undefined && cfg.tp_ratio !== null && cfg.tp_ratio !== '') {
+      modifier = `${cfg.tp_ratio}R`;
+    } else if (cfg.risk_pct_per_trade !== undefined && cfg.risk_pct_per_trade !== null && cfg.risk_pct_per_trade !== '') {
+      modifier = `${cfg.risk_pct_per_trade}%`;
+    }
+
+    const parts = [sigAbbr, modifier].filter(Boolean);
+    const name = parts.join(' ');
+
+    return name.length > 10 ? name.slice(0, 10).trim() : name;
+  }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade, loadedPresetName]);
 
   useEffect(() => {
     const loadPresets = async () => {
@@ -1493,6 +2151,26 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         }
       }
       return next;
+    });
+  }, []);
+
+  const handleToggleRequiredEntry = React.useCallback((sigKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const currentReq = prev.required_signals || [];
+      const isReq = currentReq.includes(sigKey);
+      const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
+      return { ...prev, required_signals: nextReq };
+    });
+  }, []);
+
+  const handleToggleRequiredExit = React.useCallback((sigKey) => {
+    setIsDirty(true);
+    setCfg(prev => {
+      const currentReq = prev.required_exit_signals || [];
+      const isReq = currentReq.includes(sigKey);
+      const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
+      return { ...prev, required_exit_signals: nextReq };
     });
   }, []);
 
@@ -1735,6 +2413,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'max_single_trade_risk_pct',
       'smart_watchlist_sensitivity',
       'trailing_stop_distance_pct',
+      'trailing_stop_rr',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
@@ -1884,6 +2563,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     delete cleanedConfig.paused;
     delete cleanedConfig.paused_strategies;
 
+    if (isEdit || sessionActive) {
+      cleanedConfig.trading_mode = cfg.trading_mode;
+      cleanedConfig.paper_mode = cfg.paper_mode;
+    }
+
     const next = flattenConfig(cleanedConfig);
     setCfg(next);
     setLoadedPresetName(p.name);
@@ -1891,8 +2575,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setPresetLoaded(true);
     validate(next);
     setIsDirty(false);
-    addAlert({ level: 'success', title: 'Preset Loaded', message: `Active configuration set to "${p.name}".` });
-  }, [validate, addAlert]);
+    addAlert({
+      level: 'success',
+      title: 'Preset Loaded',
+      message: (isEdit || sessionActive)
+        ? `Preset "${p.name}" strategy parameters loaded into active ${cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'} session.`
+        : `Active configuration set to "${p.name}".`
+    });
+  }, [validate, addAlert, isEdit, sessionActive, cfg.trading_mode, cfg.paper_mode]);
 
   const deletePreset = React.useCallback(async (name) => {
     if (sessionActive) {
@@ -2250,7 +2940,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
                 {renderField('Discovery Mode', 'discovery_mode', 'text', ['volume', 'change_pct'])}
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
-                {renderField('Lookback (Candles)', 'scan_lookback', 'number', null, { min: 1 })}
+                <Tooltip content="Number of recent candles evaluated for price momentum percentage change. Shorter lookback captures immediate price velocity, while longer lookback filters short-term wicks.">
+                  {renderField('Momentum Lookback', 'scan_lookback', 'number', null, { min: 1, max: 100 })}
+                </Tooltip>
+                <Tooltip content="CRITICAL FOR TARGET EXITS: Evaluates average candle range expansion over recent candles. A higher number of candles (e.g. recommended 48) is advised so volatility measurement is smooth and trades have sufficient price room to reach profit targets (TP/RR) and absorb spread/fees rather than stalling in consolidation.">
+                  {renderField('Volatility Lookback', 'volatility_lookback', 'number', null, { min: 1, max: 100 })}
+                </Tooltip>
+                <Tooltip content="Number of recent candles evaluated for consecutive close-to-close directional consistency. Ensures momentum moves have solid trend confirmation instead of single-wick noise.">
+                  {renderField('Trend Lookback', 'trend_lookback', 'number', null, { min: 2, max: 100 })}
+                </Tooltip>
                 <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
                   {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
                 </Tooltip>
@@ -2373,16 +3071,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <section className="pt-6 border-t border-border/40">
                <div className="flex justify-between items-center mb-4">
                  <SectionHeader icon={ShieldCheck} title="Manual Monitors" subtitle="Specific symbols to track" />
-                 {(cfg.single_symbol_configs || []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
+                 {(Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).length > 0 && <button type="button" onClick={() => setField('single_symbol_configs', [])} className="text-[10px] font-black uppercase tracking-widest text-red/60 hover:text-red transition-colors flex items-center gap-1.5"><Trash2 size={12} /> Clear All</button>}
                </div>
                <ManualMonitorInput
-                 onAdd={(val) => setField('single_symbol_configs', [...(cfg.single_symbol_configs || []), { symbol: val, enabled: true, follow_schedule: true }])}
+                 onAdd={(val) => setField('single_symbol_configs', [...(Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []), { symbol: val, enabled: true, follow_schedule: true }])}
                />
                <div className="flex flex-wrap gap-2 mt-4">
-                 {(cfg.single_symbol_configs || []).length === 0 ? (
+                 {(Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).length === 0 ? (
                    <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">No symbols tracked manually</p>
-                 ) : cfg.single_symbol_configs.map((sc, i) => (
-                   <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" aria-label={`Remove ${sc.symbol}`} onClick={() => setField('single_symbol_configs', cfg.single_symbol_configs.filter((_, idx) => idx !== i))}>{sc.symbol} <X size={10} className="inline ml-1" /></Chip>
+                 ) : (Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).map((sc, i) => (
+                   <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" aria-label={`Remove ${sc?.symbol || ''}`} onClick={() => setField('single_symbol_configs', (Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).filter((_, idx) => idx !== i))}>{sc?.symbol} <X size={10} className="inline ml-1" /></Chip>
                  ))}
                </div>
             </section>
@@ -2404,11 +3102,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'strategy_entry'}
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_entry' ? null : 'strategy_entry')}
             >
-              <div className="flex justify-end mb-4">
-                <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL</button>
-                 </div>
+              <div className="flex flex-col gap-2 mb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Entry Signal Logic</span>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL (AND)</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'combo' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'combo')}>COMBO</button>
+                  </div>
+                </div>
+                {cfg.signal_logic === 'combo' && (
+                  <div className="p-2.5 bg-accent/5 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-wider flex items-center gap-2 text-left">
+                    <Zap size={13} className="shrink-0 text-accent" />
+                    <span>COMBO Mode: Position enters when ALL <strong>Required (AND)</strong> signals fire + at least ONE <strong>Optional (ANY)</strong> signal fires.</span>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {SIGNALS.map((signal) => (
@@ -2416,6 +3124,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     key={signal[0]}
                     signal={signal}
                     active={(cfg.enabled_signals || []).includes(signal[0])}
+                    isComboMode={cfg.signal_logic === 'combo'}
+                    isRequired={(cfg.required_signals || []).includes(signal[0])}
+                    onToggleRequired={handleToggleRequiredEntry}
                     layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
                     timeframes={cfg.signal_timeframes || {}}
                     onToggle={handleToggleEntrySignal}
@@ -2452,7 +3163,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                   uniqueActiveSignals.forEach(sigKey => {
                     const baseType = getBaseSignalType(sigKey);
-                    const schema = getSignalParamsSchema(sigKey, baseType);
+                    const isEntry = entrySignals.includes(sigKey);
+                    const isExit = exitSignals.includes(sigKey);
+                    const schema = getSignalParamsSchema(sigKey, baseType, isEntry, isExit);
                     if (schema.length > 0) {
                       const sigInfo = SIGNALS.find(s => s[0] === baseType);
                       const displayLabel = sigInfo ? sigInfo[1] : baseType;
@@ -2613,8 +3326,56 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <p className="text-[11px] text-dim leading-relaxed font-medium">
                     Based on your actual history of <span className="text-text font-bold">{lifetimeAnalytics.rrOptimization.sampleSize}</span> closed trades, the statistical model recommends the following optimized parameter settings:
                   </p>
+
+                  {lifetimeAnalytics.rrOptimization.avgDurationToBreakevenMs !== undefined && (
+                    <div className="p-3 bg-surface/40 border border-border/40 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between text-[9.5px] font-black uppercase text-accent tracking-wider">
+                        <span className="flex items-center gap-1.5"><Clock size={12} /> Time-to-Breakeven Dynamics</span>
+                        <span className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[8.5px] font-mono font-bold">
+                          {lifetimeAnalytics.rrOptimization.breakevenEfficiencyRatio || 0}% BE Rate
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
+                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg BE Time</span>
+                          <span className="text-xs font-bold font-mono text-text">
+                            {(lifetimeAnalytics.rrOptimization.avgDurationToBreakevenMs / 60000).toFixed(1)}m
+                          </span>
+                        </div>
+                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
+                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg Peak Time</span>
+                          <span className="text-xs font-bold font-mono text-text">
+                            {((lifetimeAnalytics.rrOptimization.avgDurationToPeakMs || 0) / 60000).toFixed(1)}m
+                          </span>
+                        </div>
+                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
+                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg Loss Time</span>
+                          <span className="text-xs font-bold font-mono text-text">
+                            {((lifetimeAnalytics.rrOptimization.avgDurationToLossMs || 0) / 60000).toFixed(1)}m
+                          </span>
+                        </div>
+                      </div>
+                      {lifetimeAnalytics.rrOptimization.ratchetOscillationRate !== undefined && (
+                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/20 text-center">
+                          <div className="bg-background/40 p-1.5 rounded-lg border border-border/20">
+                            <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Oscillation Rate</span>
+                            <span className="text-[11px] font-bold font-mono text-accent">
+                              {lifetimeAnalytics.rrOptimization.ratchetOscillationRate}% Trades
+                            </span>
+                          </div>
+                          <div className="bg-background/40 p-1.5 rounded-lg border border-border/20">
+                            <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Peak Realization</span>
+                            <span className="text-[11px] font-bold font-mono text-green">
+                              {lifetimeAnalytics.rrOptimization.ratchetProgressionEfficiency}% Efficiency
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {lifetimeAnalytics.rrOptimization.recommendedExitSignals.map((rec) => (
+                    {(Array.isArray(lifetimeAnalytics?.rrOptimization?.recommendedExitSignals) ? lifetimeAnalytics.rrOptimization.recommendedExitSignals : []).map((rec) => (
                       <div key={rec.signalType} className="p-3 bg-surface/30 border border-border/40 rounded-xl flex flex-col gap-1.5 hover:border-accent/20 transition-all relative group/rec">
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] text-text font-black uppercase tracking-wider">{rec.signalType.replace(/_/g, ' ')}</span>
@@ -2647,6 +3408,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               setField('signal_params_macd_slow', slow);
                               setField('signal_params_macd_signal', signal);
                               addAlert({ level: 'success', title: 'Applied MACD Parameters', message: `Set MACD to ${fast}/${slow}/${signal}.` });
+                            } else if (rec.signalType === 'entry_spacing') {
+                              setField('min_trade_interval_min', Number(rec.recommendedValue));
+                              addAlert({ level: 'success', title: 'Applied Entry Spacing', message: `Set minimum trade interval to ${rec.recommendedValue}m based on TTBE.` });
+                            } else if (rec.signalType === 'exit_delays') {
+                              const val = String(rec.recommendedValue);
+                              setField('exit_signal_delays', { default: val });
+                              addAlert({ level: 'success', title: 'Applied Exit Delay', message: `Set default exit signal delay to ${val} based on TTBE.` });
+                            } else if (rec.signalType === 'ratchet_spacing') {
+                              const parts = String(rec.recommendedValue).split(' -> ');
+                              if (parts.length === 2) {
+                                const liveSeq = parts[0].split(',').map(s => Number(s.trim()));
+                                const exitSeq = parts[1].split(',').map(s => Number(s.trim()));
+                                setField('live_rr_sequence', liveSeq);
+                                setField('exit_rr_sequence', exitSeq);
+                                addAlert({ level: 'success', title: 'Applied Ratchet Milestones', message: `Updated Live/Exit RR sequences to ${parts[0]} -> ${parts[1]}.` });
+                              }
                             }
                           }}
                           className="absolute bottom-2 right-2 opacity-0 group-hover/rec:opacity-100 transition-opacity bg-accent text-white px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider hover:bg-accent/80 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
@@ -2678,11 +3455,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   onChange={(v) => setField('exit_signals_override_ratchet', v)}
                 />
               </div>
-              <div className="flex justify-end mb-4">
-                 <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
-                   <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL</button>
-                 </div>
+              <div className="flex flex-col gap-2 mb-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Signal Logic</span>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL (AND)</button>
+                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'combo' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'combo')}>COMBO</button>
+                  </div>
+                </div>
+                {cfg.exit_signal_logic === 'combo' && (
+                  <div className="p-2.5 bg-red/5 border border-red/20 rounded-xl text-[9px] font-bold text-red uppercase tracking-wider flex items-center gap-2 text-left">
+                    <Zap size={13} className="shrink-0 text-red" />
+                    <span>COMBO Mode: Exit triggers when ALL <strong>Required (AND)</strong> exit signals fire + at least ONE <strong>Optional (ANY)</strong> exit signal fires.</span>
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {SIGNALS.map((signal) => (
@@ -2690,6 +3477,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     key={signal[0]}
                     signal={signal}
                     active={(cfg.exit_signals || []).includes(signal[0])}
+                    isComboMode={cfg.exit_signal_logic === 'combo'}
+                    isRequired={(cfg.required_exit_signals || []).includes(signal[0])}
+                    onToggleRequired={handleToggleRequiredExit}
                     layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
                     delays={cfg.exit_signal_delays || {}}
                     actions={cfg.exit_signal_actions || {}}
@@ -2701,6 +3491,100 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     engulfingMode={cfg.engulfing_mode}
                   />
                 ))}
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="strategy_whipsaw"
+              icon={ShieldCheck}
+              title="Anti-Whipsaw Re-Entry Gating"
+              subtitle="Execution cooldowns between consecutive trades"
+              isOpen={openSectionId === 'strategy_whipsaw'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_whipsaw' ? null : 'strategy_whipsaw')}
+            >
+              <div className="space-y-4">
+                <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl space-y-3">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Tooltip content="Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay). Applies to all standard strategy signals.">
+                      {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, { min: 0, max: 20 })}
+                    </Tooltip>
+                    <Tooltip content="Custom time delay (in minutes) after an exit before re-entry is permitted on the symbol. Overrides candle delay if time delay is longer.">
+                      {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, { min: 0, max: 1440 })}
+                    </Tooltip>
+                  </div>
+                  <p className="text-[8.5px] text-dim/70 leading-snug">
+                    Anti-whipsaw gating prevents rapid oscillation and double-dipping on the same symbol right after an exit. High-velocity Knife Catch trades can optionally bypass this delay via the "Allow Knife Re-entry" setting under Knife Catch.
+                  </p>
+                </div>
+              </div>
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="strategy_knife"
+              icon={Zap}
+              title="Knife Catch & Risk Bypass"
+              subtitle="Velocity ROC trailing, auto-ratchet & gating bypass"
+              isOpen={openSectionId === 'strategy_knife'}
+              onToggle={() => setOpenSectionId(openSectionId === 'strategy_knife' ? null : 'strategy_knife')}
+            >
+              <div className="space-y-4">
+                <div className="p-4 bg-amber/5 border border-amber/20 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-amber/10 flex items-center justify-center text-amber">
+                      <Zap size={20} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold">Knife Trailing Stop</div>
+                      <div className="text-[10px] text-dim font-medium uppercase">High-frequency velocity ROC trailing stop</div>
+                    </div>
+                  </div>
+                  <Toggle value={cfg.knife_trailing_enabled !== false} onChange={(v) => setField('knife_trailing_enabled', v)} color="bg-amber" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <Tooltip content="Dynamic trailing distance (%) applied strictly to high-velocity Knife Catch trades on fast ticks.">
+                    {renderField('Knife Trailing Distance (%)', 'knife_trailing_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                  </Tooltip>
+                  <Tooltip content="Target R:R threshold where Stop Loss instantly ratchets to Breakeven (0.0R) upon price crossing velocity threshold.">
+                    {renderField('Auto-Ratchet Breakeven (RR)', 'knife_auto_ratchet_be_rr', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                  </Tooltip>
+                  <Tooltip content="Target R:R threshold where Stop Loss instantly ratchets to Lock Profit (0.5R or configured) upon price expansion.">
+                    {renderField('Auto-Ratchet Lock Profit (RR)', 'knife_auto_ratchet_lock_rr', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                  </Tooltip>
+                </div>
+
+                <div className="pt-4 border-t border-border/40 space-y-3">
+                  <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col text-left">
+                        <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
+                          <Zap size={12} /> Allow Knife Re-entry (Anti-Whipsaw Bypass)
+                        </span>
+                        <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">If a trade was closed by Knife Catch engine, allow re-entering the symbol in the same candle provided the candidate is still a Knife Catch trade.</p>
+                      </div>
+                      <Toggle value={cfg.anti_whipsaw_allow_knife === true} onChange={(v) => setField('anti_whipsaw_allow_knife', v)} color="bg-amber" />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/20">
+                      <Tooltip content="Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay).">
+                        {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, { min: 0, max: 20 })}
+                      </Tooltip>
+                      <Tooltip content="Custom time delay (in minutes) after an exit before re-entry is permitted. Overrides candle delay if time delay is longer.">
+                        {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, { min: 0, max: 1440 })}
+                      </Tooltip>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-amber/20 transition-all">
+                    <div className="flex flex-col text-left">
+                      <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
+                        <Zap size={12} /> Allow 1 Knife Trade When Gated
+                      </span>
+                      <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Allow entering up to 1 Knife Catch trade even when strategy gating is active (e.g. max open trades, SL guard, or rolling period limits), provided 0 active knife trades exist.</p>
+                    </div>
+                    <Toggle value={cfg.allow_knife_when_gated === true} onChange={(v) => setField('allow_knife_when_gated', v)} color="bg-amber" />
+                  </div>
+                </div>
               </div>
             </CollapsibleSection>
 
@@ -2950,9 +3834,74 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               {cfg.tp_mode === 'exp_rr_seq' && (
                 <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
-                  <div className="flex justify-between text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
-                    <span>RR Milestone (Target)</span>
-                    <span>Adjust SL to (R)</span>
+                  <div className="flex justify-between items-center text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
+                    <div className="flex items-center gap-2">
+                      <span>RR Milestone (Target)</span>
+                      <span>→ Adjust SL (R)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Tooltip content="Copy RR Milestones to Clipboard">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const l = Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0];
+                            const ex = Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0];
+                            const text = l.map((trig, idx) => `${trig} -> ${ex[idx] ?? 0}`).join('\n');
+                            navigator.clipboard.writeText(text);
+                            addAlert({ level: 'info', title: 'Milestones Copied', message: 'RR Milestones copied to clipboard.' });
+                          }}
+                          className="px-2 py-1 bg-surface border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                          aria-label="Copy RR Milestones to Clipboard"
+                        >
+                          <Copy size={10} /> Copy
+                        </button>
+                      </Tooltip>
+                      <Tooltip content="Paste RR Milestones (e.g., 1 -> 0, 2 -> 1, 4 -> 2 or 1,2,4)">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const text = await navigator.clipboard.readText();
+                              if (!text) return;
+                              const lines = text.split(/[\r\n]+/);
+                              const parsedPairs = [];
+                              lines.forEach(line => {
+                                const trimmed = line.trim();
+                                if (!trimmed) return;
+                                if (trimmed.includes('->') || trimmed.includes(':') || trimmed.includes(',')) {
+                                  const parts = trimmed.split(/->|:|,/);
+                                  const trig = parseFloat(parts[0]);
+                                  const ex = parseFloat(parts[1] ?? '0');
+                                  if (!isNaN(trig)) {
+                                    parsedPairs.push({ trigger: trig, exit: isNaN(ex) ? 0 : ex });
+                                  }
+                                } else {
+                                  const val = parseFloat(trimmed);
+                                  if (!isNaN(val)) {
+                                    parsedPairs.push({ trigger: val, exit: Math.max(0, val - 1) });
+                                  }
+                                }
+                              });
+                              if (parsedPairs.length > 0) {
+                                parsedPairs.sort((a, b) => a.trigger - b.trigger);
+                                setCfg(prev => ({
+                                  ...prev,
+                                  live_rr_sequence: parsedPairs.map(p => p.trigger),
+                                  exit_rr_sequence: parsedPairs.map(p => p.exit)
+                                }));
+                                addAlert({ level: 'success', title: 'Milestones Imported', message: `Imported ${parsedPairs.length} RR milestones.` });
+                              }
+                            } catch (err) {
+                              addAlert({ level: 'warn', title: 'Paste Failed', message: 'Could not read clipboard. Please grant permission or check input.' });
+                            }
+                          }}
+                          className="px-2 py-1 bg-surface border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                          aria-label="Paste RR Milestones from Clipboard"
+                        >
+                          <ClipboardPaste size={10} /> Paste
+                        </button>
+                      </Tooltip>
+                    </div>
                   </div>
                   {sequence.map(([live, exit], i) => (
                     <div key={i} className="flex items-center gap-3">
@@ -3109,7 +4058,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  {cfg.trailing_stop_enabled && (
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
+                          {renderField('Trailing Method', 'trailing_stop_type', 'text', [
+                            { value: 'pct', label: 'Percentage Distance (%)' },
+                            { value: 'rr', label: 'Risk Multiple (R:R)' }
+                          ])}
+                          {renderField('Trailing Activation R:R', 'trailing_activation_rr', 'number', 'Required R:R before trailing stop activates (0 = immediate)', { min: 0, max: 10, step: 0.1 })}
+                       </div>
+
+                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {cfg.trailing_stop_type === 'rr' ? (
+                            renderField('Trailing Distance (R:R)', 'trailing_stop_rr', 'number', 'Distance expressed as a multiple of initial SL risk distance (e.g. 1.0R = initial risk width)', { min: 0.1, max: 10, step: 0.1 })
+                          ) : (
+                            renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', 'Distance expressed as percentage of price', { min: 0.1, max: 10, step: 0.1 })
+                          )}
                        </div>
                        <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="trailing" />
                     </motion.div>
@@ -3197,17 +4158,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="space-y-3">
                  <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 px-1"><Clock size={12} /> Daily Execution Windows (UTC)</div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                   {(cfg.trading_windows || []).map((w, i) => (
+                   {(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).map((w, i) => (
                      <div key={i} className="flex gap-2 p-3 bg-surface/50 border border-border rounded-xl items-center shadow-sm">
-                       <input type="text" value={w.start} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].start = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
+                       <input type="text" value={w?.start || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], start: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
                        <span className="text-dim/40 font-mono text-[10px]">to</span>
-                       <input type="text" value={w.end} onChange={(e) => { const wins = [...(cfg.trading_windows || [])]; wins[i].end = e.target.value; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
+                       <input type="text" value={w?.end || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], end: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
                        <Tooltip content="Remove Window">
-                        <button type="button" onClick={() => setField('trading_windows', cfg.trading_windows.filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                        <button type="button" onClick={() => setField('trading_windows', (Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
                        </Tooltip>
                      </div>
                    ))}
-                   <button type="button" onClick={() => setField('trading_windows', [...(cfg.trading_windows || []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
+                   <button type="button" onClick={() => setField('trading_windows', [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
                  </div>
                </div>
             </CollapsibleSection>
@@ -3229,16 +4190,26 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'adv_env'}
               onToggle={() => setOpenSectionId(openSectionId === 'adv_env' ? null : 'adv_env')}
             >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {['paper', 'testnet', 'live'].map(m => (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {['paper', 'testnet', 'live', 'backtest'].map(m => (
                   <EnvironmentButton
                     key={m}
                     mode={m}
                     isSelected={cfg.trading_mode === m || (m === 'paper' && cfg.paper_mode && !cfg.trading_mode)}
                     onClick={handleModeSelect}
+                    disabled={isEdit && m !== cfg.trading_mode}
                   />
                 ))}
               </div>
+              {isEdit && (
+                <div className="mt-3 p-3 bg-accent/10 border border-accent/20 rounded-lg flex items-start gap-2.5 text-xs text-text-muted">
+                  <Lock size={16} className="text-accent flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-text-primary">Execution Mode Fixed: </span>
+                    Trading mode ({cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'}) is fixed while this session is running. Strategy parameters hot-reload dynamically on save.
+                  </div>
+                </div>
+              )}
               {modeWarning && (
                 <div className="mt-4 p-3 bg-orange/10 border border-orange/30 rounded-lg flex items-start gap-3 animate-in slide-in-from-top">
                   <XCircle size={16} className="text-orange mt-0.5 flex-shrink-0" />
@@ -3264,62 +4235,122 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </div>
         )}
 
+        {section === 'smart' && (
+          <SmartAutoDiscoveryPanel
+            cfg={cfg}
+            onLoadRecommendation={(recommendedConfig) => {
+              const flattened = flattenConfig(recommendedConfig);
+              setCfg(flattened);
+              setIsDirty(true);
+              validate(flattened);
+              addAlert({
+                level: 'success',
+                title: 'Recommendation Applied',
+                message: `Applied smart strategy "${recommendedConfig.strategy_label || 'Recommended'}" settings to active draft.`,
+              });
+            }}
+            savePreset={savePreset}
+          />
+        )}
+
+        {section === 'backtest' && (
+          <BacktestWorkbenchPanel
+            cfg={cfg}
+            setField={setField}
+            buildConfigToSave={buildConfigToSave}
+            onSave={onSave}
+          />
+        )}
 
         {section === 'presets' && (
           <div
             id="config-panel-presets"
             role="tabpanel"
             aria-labelledby="config-tab-presets"
-            className="space-y-6 lg:space-y-8 animate-in fade-in duration-300"
+            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
           >
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <SectionHeader icon={Save} title="Save Strategy" subtitle="Store current configuration as a preset" />
-                <SavePresetInput defaultName={loadedPresetName} onSave={(name) => { savePreset(name); }} isSaving={isSaving} success={saveSuccess} />
-              </div>
-              <div className="space-y-4">
-                <SectionHeader icon={RefreshCw} title="Transfer Config" subtitle="Portable strategy definitions" />
-                <div className="grid grid-cols-2 gap-3">
-                  <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-3 border-border hover:bg-accent/5 hover:border-accent/40">
-                    <Download size={16} /> Export JSON
-                  </Btn>
-                  <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
-                    <input type="file" accept=".json" aria-label="Import JSON config file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
-                    <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer">
-                      <Upload size={16} /> Import JSON
-                    </div>
-                  </label>
+            {/* Top Toolbar: Save / Update Controls & Compact Actions */}
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <SavePresetInput
+                    defaultName={loadedPresetName || generatedPresetName}
+                    onSave={(name) => { savePreset(name); }}
+                    isSaving={isSaving}
+                    success={saveSuccess}
+                  />
                 </div>
-              </div>
-              <div className="space-y-4">
-                <SectionHeader icon={XCircle} title="Reset Slate" subtitle={isEdit ? "Restore original session configuration" : "Prune active custom configurations"} />
-                <Btn
-                  variant="ghost"
-                  onClick={handleClearActiveConfig}
-                  className="w-full flex items-center justify-center gap-2 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-3 text-xs font-bold"
-                  aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
-                >
-                  <RefreshCw size={14} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset to Saved State" : "Clear Active Config"}
-                </Btn>
-              </div>
-            </section>
 
-            {/* Premium, glassmorphic UI/UX notice describing clean slate state management */}
-            <div className="flex items-start gap-3 p-4 rounded-2xl bg-accent/[0.02] border border-border/60 text-xs text-dim shadow-sm backdrop-blur-sm select-none animate-in fade-in duration-300">
-              <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                <Info size={14} />
+                {/* Direct Action Buttons: Update Preset & Save New */}
+                {loadedPresetName && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Tooltip content={`Overwrite active preset "${loadedPresetName}" with current configuration settings`}>
+                      <Btn
+                        variant="primary"
+                        onClick={() => savePreset(loadedPresetName)}
+                        loading={isSaving}
+                        className="px-3.5 py-2.5 text-xs font-bold bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 flex items-center gap-1.5 shrink-0"
+                      >
+                        <RefreshCw size={13} className={cn(isSaving && "animate-spin")} /> Update "{loadedPresetName}"
+                      </Btn>
+                    </Tooltip>
+
+                    <Tooltip content="Save current settings under a new preset name">
+                      <Btn
+                        variant="ghost"
+                        onClick={() => { setPresetName(''); setLoadedPresetName(null); }}
+                        className="px-3 py-2.5 text-xs font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
+                      >
+                        <Plus size={13} /> Save As New
+                      </Btn>
+                    </Tooltip>
+                  </div>
+                )}
               </div>
-              <div className="space-y-1">
-                <h4 className="font-bold text-text/90 flex items-center gap-1.5 leading-none">
-                  Intuitive Preset State Management
-                </h4>
-                <p className="leading-relaxed text-dim/90 font-medium">
-                  To ensure a completely clean slate and prevent configuration pollution, any active loaded preset name and temporary drafts are automatically cleared from memory when a session is closed. Starting a new session will always begin with a fresh configuration.
-                </p>
+
+              {/* Collapsible Utility & Transfer Tools (JSON Export/Import & Reset Slate) */}
+              <div className="pt-2 border-t border-border/30">
+                <CollapsibleSection
+                  id="presets_tools"
+                  icon={Settings2}
+                  title="Export, Import & Reset Tools"
+                  subtitle="Backup JSON strategy definitions or clear active draft"
+                  isOpen={openSectionId === 'presets_tools'}
+                  onToggle={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3">
+                    <Tooltip content="Export complete strategy definition as a downloadable JSON file">
+                      <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-xs font-bold">
+                        <Download size={14} /> Export JSON
+                      </Btn>
+                    </Tooltip>
+
+                    <Tooltip content="Import a strategy definition file from your disk">
+                      <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
+                        <input type="file" accept=".json" aria-label="Import JSON config file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
+                        <div className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer text-text">
+                          <Upload size={14} /> Import JSON
+                        </div>
+                      </label>
+                    </Tooltip>
+
+                    <Tooltip content={isEdit ? "Revert parameter edits back to last saved session state" : "Reset custom strategy parameters to baseline defaults"}>
+                      <Btn
+                        variant="ghost"
+                        onClick={handleClearActiveConfig}
+                        className="flex items-center justify-center gap-2 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-2 text-xs font-bold"
+                        aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
+                      >
+                        <RefreshCw size={13} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset to Saved State" : "Clear Active Config"}
+                      </Btn>
+                    </Tooltip>
+                  </div>
+                </CollapsibleSection>
               </div>
             </div>
 
-            <section className="pt-6 border-t border-border/40 space-y-4">
+            {/* Presets List Section */}
+            <section className="space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex justify-between items-center w-full sm:w-auto">
                   <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
@@ -3675,6 +4706,9 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
   }
 
   if (type === 'trailing') {
+     const dist = typeof opt.recommendedTrailingDistance === 'number' ? opt.recommendedTrailingDistance : null;
+     if (dist === null) return null;
+
      return (
        <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center justify-between">
@@ -3685,11 +4719,11 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
           <div className="flex items-center justify-between gap-4">
              <div className="flex flex-col">
                 <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5">Statistical Distance</span>
-                <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{opt.recommendedTrailingDistance.toFixed(2)}%</span>
+                <span className="text-lg font-black font-mono tracking-tighter text-text leading-none">{dist.toFixed(2)}%</span>
              </div>
              <Btn
                variant="ghost"
-               onClick={() => setField('trailing_stop_distance_pct', opt.recommendedTrailingDistance)}
+               onClick={() => setField('trailing_stop_distance_pct', dist)}
                className="px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest bg-purple/10 text-purple-400 border-purple/20 hover:bg-purple/20"
              >
                Use Recommended

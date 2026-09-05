@@ -19,15 +19,18 @@ import { AuthModule } from './auth/auth.module';
         autoLoadEntities: true,
         entities: [],
         synchronize: false, // Explicitly disable synchronize in all environments
-        // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce checkpoint spikes)
+        // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce connection pool memory overhead)
         extra: {
-          max: 20,
+          max: 5,
           idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 2000,
           // SRE: Optimize checkpoint behavior to protect the Node.js event loop from I/O stalls.
           // Note: These usually require superuser or postgresql.conf, but passing via connection parameters
           // where supported or documenting the requirement.
           statement_timeout: 10000,
+          // Enable TCP keepalive probes to prevent abrupt SSL EOF resets on idle pool connections
+          keepalives: true,
+          keepalives_idle: 10,
         },
         migrations: [__dirname + '/migrations/*.{ts,js}'],
         migrationsRun: true,

@@ -1,7 +1,22 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
-import { formatDuration } from '../lib/formatters'
+import { formatDuration, calculateProximity } from '../lib/formatters'
+import { calculatePerformanceMetrics } from '../lib/analytics'
+
+const formatTimeAgo = (ts) => {
+  if (!ts) return 'ago';
+  const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  if (isNaN(ms) || ms <= 0) return 'ago';
+  const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDays = Math.floor(diffHr / 24);
+  return `${diffDays}d ago`;
+};
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
 import { 
@@ -10,8 +25,8 @@ import {
   } from '../components/ui/primitives'
 import {
   ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
-  Settings as SettingsIcon, Activity, Zap, ShieldCheck,
-  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf,
+  Settings as SettingsIcon, Activity, Zap, ShieldCheck, Search, Filter,
+  BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf, DollarSign, Users, Clock, ArrowUpRight, ArrowDownRight,
   Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
 } from 'lucide-react'
 import { Drawer } from 'vaul'
@@ -125,6 +140,562 @@ const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay'
 const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.EquityCurve })))
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
+// --- Custom Reference Design KPI Card ---
+const ReferenceKPICard = React.memo(({ title, value, changePct, isPositive, icon: Icon, iconBg = "bg-accent/15 text-accent", subtext }) => {
+  return (
+    <div className="bg-surface border border-border/40 rounded-2xl p-5 shadow-sm hover:border-accent/30 transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-black uppercase tracking-widest text-dim">{title}</span>
+          <h3 className="text-xl md:text-2xl font-black font-mono tracking-tight text-text leading-tight">{value}</h3>
+        </div>
+        <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-inner transition-transform group-hover:scale-110", iconBg)}>
+          <Icon size={20} />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/10">
+        <div className="flex items-center gap-1">
+          <span className={cn(
+            "text-[10px] font-black font-mono px-2 py-0.5 rounded-full flex items-center gap-0.5",
+            isPositive
+              ? "bg-green/15 text-green border border-green/20"
+              : "bg-red/15 text-red border border-red/20"
+          )}>
+            {isPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+            {isPositive ? '+' : ''}{changePct}%
+          </span>
+          <span className="text-[9px] font-bold text-dim/70 uppercase tracking-wider ml-1">vs last period</span>
+        </div>
+        {subtext && <span className="text-[9px] font-mono font-bold text-dim/60 truncate max-w-[120px]">{subtext}</span>}
+      </div>
+    </div>
+  );
+});
+ReferenceKPICard.displayName = 'ReferenceKPICard';
+
+// --- Recent Transactions List Component ---
+const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [], onOpenScanner }) => {
+  const [isRecentExpanded, setIsRecentExpanded] = useState(false);
+
+  const allTransactions = useMemo(() => {
+    const list = [];
+
+    // Map active trades as 'Open'
+    (activeTrades || []).forEach(t => {
+      list.push({
+        id: t.id || t.symbol,
+        symbol: t.symbol,
+        type: t.direction || (t.amount > 0 ? 'LONG' : 'SHORT'),
+        amount: safeNum(t.pnl),
+        notional: safeNum(t.notional || t.entry_price * (t.qty || 1)),
+        status: 'Open',
+        timestamp: t.entry_ts_ms || Date.now(),
+        isKnife: t.is_knife
+      });
+    });
+
+    // Map closed trade history as 'Closed'
+    (tradeHistory || []).slice(0, 8).forEach(t => {
+      const pnl = safeNum(t.pnl);
+      list.push({
+        id: t.id || `${t.symbol}-${t.exit_ts}`,
+        symbol: t.symbol,
+        type: t.direction || 'CLOSED',
+        amount: pnl,
+        notional: safeNum(t.notional || t.exit_price * (t.qty || 1)),
+        status: 'Closed',
+        timestamp: t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : Date.now()),
+        isKnife: t.is_knife
+      });
+    });
+
+    return list.sort((a, b) => b.timestamp - a.timestamp).slice(0, 6);
+  }, [tradeHistory, activeTrades]);
+
+  return (
+    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setIsRecentExpanded(!isRecentExpanded)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsRecentExpanded(!isRecentExpanded))}
+        aria-expanded={isRecentExpanded}
+        aria-controls="recent-transactions-content"
+        className="flex items-center justify-between cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
+            <History size={16} />
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <h3 className="text-xs sm:text-sm md:text-base font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+              Recent Transactions
+            </h3>
+            <span className="text-[10px] text-dim font-bold uppercase tracking-widest truncate">Live Execution Feed ({allTransactions.length})</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); window.location.hash = '#/history'; }}
+            className="text-[10px] font-black text-accent hover:text-accent/80 uppercase tracking-widest transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
+          >
+            See All
+          </button>
+          <div className={cn(
+            "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+            isRecentExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
+          )}>
+            <ChevronLeft size={14} className="-rotate-90" />
+          </div>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isRecentExpanded && (
+          <motion.div
+            id="recent-transactions-content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden pt-2 border-t border-border/20 space-y-2.5"
+          >
+        {allTransactions.length === 0 ? (
+          <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
+            No Recent Transactions Recorded
+          </div>
+        ) : (
+          allTransactions.map((tx) => {
+            const isClosed = tx.status === 'Closed';
+            const isOpen = tx.status === 'Open';
+
+            return (
+              <div
+                key={tx.id}
+                className="flex items-center justify-between p-3 rounded-xl bg-background/30 hover:bg-white/5 border border-border/20 transition-all group"
+              >
+                {/* Symbol Avatar & Info */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={cn(
+                    "w-9 h-9 rounded-full flex items-center justify-center font-black text-xs font-mono shrink-0 shadow-inner border border-white/5",
+                    tx.amount >= 0 ? "bg-accent/10 text-accent" : "bg-red/10 text-red"
+                  )}>
+                    {tx.symbol.substring(0, 3)}
+                  </div>
+
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black font-mono uppercase truncate text-text group-hover:text-accent transition-colors">
+                        {tx.symbol.replace('USDT', '')}
+                      </span>
+                      {tx.isKnife && (
+                        <span className="text-[8px] bg-red/20 text-red border border-red/30 font-black px-1.5 py-0.2 rounded uppercase">🗡️ Knife</span>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-dim font-bold font-mono">
+                      {formatTimeAgo(tx.timestamp)} · {tx.type}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Amount & Status Badge */}
+                <div className="flex items-center gap-4 shrink-0">
+                  <div className="flex flex-col items-end">
+                    <span className={cn("text-xs font-mono font-black", pnlClass(tx.amount))}>
+                      {tx.amount >= 0 ? '+' : ''}{fmtUSD(tx.amount)}
+                    </span>
+                    <span className="text-[8px] font-mono text-dim/60">
+                      ${tx.notional.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+
+                  {/* Status Badge Matching Domain Terminology */}
+                  <span className={cn(
+                    "px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border flex items-center gap-1.5 shrink-0",
+                    isClosed && "bg-green/10 border-green/30 text-green",
+                    isOpen && "bg-amber/10 border-amber/30 text-amber animate-pulse"
+                  )}>
+                    <span className={cn(
+                      "w-1.5 h-1.5 rounded-full",
+                      isClosed && "bg-green",
+                      isOpen && "bg-amber"
+                    )} />
+                    {tx.status}
+                  </span>
+                </div>
+              </div>
+            );
+          })
+        )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+RecentTransactionsList.displayName = 'RecentTransactionsList';
+
+// --- Observable Periodic Revenue Bar Chart (Daily, Weekly, Monthly) ---
+const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) => {
+  const [timeframe, setTimeframe] = useState('7D'); // '7D' (Daily), '4W' (Weekly), '6M' (Monthly), '1Y' (Monthly)
+  const [hoveredIndex, setHoveredIndex] = useState(null);
+  const [selectedIndex, setSelectedIndex] = useState(null);
+  const [isChartExpanded, setIsChartExpanded] = useState(false);
+
+  const periodicData = useMemo(() => {
+    const trades = tradeHistory || [];
+    const now = new Date();
+    const buckets = [];
+
+    if (timeframe === '7D' || timeframe === '14D') {
+      const numDays = timeframe === '7D' ? 7 : 14;
+      for (let i = numDays - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+        const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const label = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+        buckets.push({
+          id: dateKey,
+          label,
+          subLabel: d.toLocaleDateString([], { weekday: 'short' }),
+          startMs: new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(),
+          endMs: new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime() - 1,
+          pnl: 0,
+          tradesCount: 0,
+          winCount: 0
+        });
+      }
+    } else if (timeframe === '4W' || timeframe === '8W') {
+      const numWeeks = timeframe === '4W' ? 4 : 8;
+      for (let i = numWeeks - 1; i >= 0; i--) {
+        const start = new Date(now);
+        start.setDate(now.getDate() - (now.getDay() + i * 7));
+        start.setHours(0, 0, 0, 0);
+
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        end.setHours(23, 59, 59, 999);
+
+        const label = `W${numWeeks - i}`;
+        const subLabel = `${start.getDate()} ${start.toLocaleDateString([], { month: 'short' })}`;
+
+        buckets.push({
+          id: `week-${i}`,
+          label,
+          subLabel,
+          startMs: start.getTime(),
+          endMs: end.getTime(),
+          pnl: 0,
+          tradesCount: 0,
+          winCount: 0
+        });
+      }
+    } else {
+      // Monthly: '3M', '6M', '1Y'
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const numMonths = timeframe === '3M' ? 3 : timeframe === '1Y' ? 12 : 6;
+
+      for (let i = numMonths - 1; i >= 0; i--) {
+        const first = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const last = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59, 999);
+        buckets.push({
+          id: `month-${first.getFullYear()}-${first.getMonth()}`,
+          label: monthNames[first.getMonth()],
+          subLabel: String(first.getFullYear()),
+          startMs: first.getTime(),
+          endMs: last.getTime(),
+          pnl: 0,
+          tradesCount: 0,
+          winCount: 0
+        });
+      }
+    }
+
+    // Populate trade metrics in buckets
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if (!t) continue;
+      const ts = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      if (!ts) continue;
+
+      for (let b = 0; b < buckets.length; b++) {
+        const bucket = buckets[b];
+        if (ts >= bucket.startMs && ts <= bucket.endMs) {
+          const pnl = Number(t.pnl || 0);
+          bucket.pnl += pnl;
+          bucket.tradesCount++;
+          if (pnl > 0) bucket.winCount++;
+          break;
+        }
+      }
+    }
+
+    // Determine scale bounds
+    let maxVal = 0;
+    for (let i = 0; i < buckets.length; i++) {
+      const absVal = Math.abs(buckets[i].pnl);
+      if (absVal > maxVal) maxVal = absVal;
+    }
+    if (maxVal === 0) maxVal = 500; // baseline scale
+
+    return { buckets, maxVal };
+  }, [tradeHistory, timeframe]);
+
+  const { buckets, maxVal } = periodicData;
+  const totalRevenue = buckets.reduce((acc, m) => acc + m.pnl, 0);
+
+  // Period Quick Badges (Today, 7D, 30D)
+  const periodBadges = useMemo(() => {
+    const trades = tradeHistory || [];
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+
+    let today = 0;
+    let d7 = 0;
+    let d30 = 0;
+
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if (!t) continue;
+      const ts = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      if (!ts) continue;
+
+      const pnl = Number(t.pnl || 0);
+      if (ts >= todayStart) today += pnl;
+      if (ts >= sevenDaysAgo) d7 += pnl;
+      if (ts >= thirtyDaysAgo) d30 += pnl;
+    }
+
+    return { today, d7, d30 };
+  }, [tradeHistory]);
+
+  return (
+    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setIsChartExpanded(!isChartExpanded)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsChartExpanded(!isChartExpanded))}
+        aria-expanded={isChartExpanded}
+        aria-controls="periodic-chart-content"
+        className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
+            <BarChart3 size={16} />
+          </div>
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <h3 className="text-xs sm:text-sm md:text-base font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+              Periodic Performance
+            </h3>
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <span className="text-[10px] text-dim font-bold uppercase tracking-widest shrink-0">
+                Net P&L: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
+              </span>
+
+              {/* Quick Period Badges */}
+              <div className="flex items-center gap-1 sm:gap-1.5 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase flex-wrap">
+                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                  Today: {fmtUSD(periodBadges.today)}
+                </span>
+                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                  7D: {fmtUSD(periodBadges.d7)}
+                </span>
+                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                  30D: {fmtUSD(periodBadges.d30)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <div className={cn(
+            "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+            isChartExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
+          )}>
+            <ChevronLeft size={14} className="-rotate-90" />
+          </div>
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {isChartExpanded && (
+          <motion.div
+            id="periodic-chart-content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden space-y-4 pt-2 border-t border-border/20"
+          >
+            {/* Multi-Horizon Granularity Controls */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="text-[9px] text-dim font-black uppercase tracking-widest">Timeframe Horizon:</span>
+              <div className="flex items-center gap-1 sm:gap-1.5 bg-background/50 border border-border/40 p-1 rounded-xl overflow-x-auto no-scrollbar shrink-0">
+                {[
+                  { id: '7D', shortLabel: '7D', fullLabel: '7 Days' },
+                  { id: '14D', shortLabel: '14D', fullLabel: '14 Days' },
+                  { id: '4W', shortLabel: '4W', fullLabel: '4 Weeks' },
+                  { id: '6M', shortLabel: '6M', fullLabel: '6 Months' },
+                  { id: '1Y', shortLabel: '1Y', fullLabel: '1 Year' }
+                ].map((tf) => (
+                  <button
+                    key={tf.id}
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setTimeframe(tf.id); }}
+                    className={cn(
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] sm:text-[9.5px] font-black uppercase tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer whitespace-nowrap shrink-0",
+                      timeframe === tf.id
+                        ? "bg-accent text-white shadow-md shadow-accent/20"
+                        : "text-dim hover:text-text hover:bg-white/5"
+                    )}
+                  >
+                    <span className="hidden sm:inline">{tf.fullLabel}</span>
+                    <span className="inline sm:hidden">{tf.shortLabel}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Active Selected Period Detail Banner */}
+            <AnimatePresence>
+        {(() => {
+          const activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex;
+          if (activeIdx === null || !buckets[activeIdx]) return null;
+          const activeBucket = buckets[activeIdx];
+          const activePct = balance > 0 ? (activeBucket.pnl / balance) * 100 : 0;
+
+          return (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="bg-accent/10 border border-accent/25 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap"
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                <span className="font-black uppercase tracking-wider text-accent">
+                  {activeBucket.label} ({activeBucket.subLabel})
+                </span>
+              </div>
+              <div className="flex items-center gap-3 font-bold flex-wrap">
+                <span>
+                  Net P&L: <span className={pnlClass(activeBucket.pnl)}>{activeBucket.pnl >= 0 ? '+' : ''}{fmtUSD(activeBucket.pnl)} ({activePct >= 0 ? '+' : ''}{activePct.toFixed(2)}%)</span>
+                </span>
+                <span className="text-dim/60">•</span>
+                <span className="text-dim">
+                  Trades: <strong className="text-text">{activeBucket.tradesCount}</strong>
+                </span>
+                <span className="text-dim/60">•</span>
+                <span className="text-dim">
+                  Win Rate: <strong className="text-text">{activeBucket.tradesCount > 0 ? Math.round((activeBucket.winCount / activeBucket.tradesCount) * 100) : 0}%</strong>
+                </span>
+              </div>
+            </motion.div>
+          );
+        })()}
+            </AnimatePresence>
+
+      {/* Bar Canvas Container with Responsive Scroll */}
+      <div className="relative pt-4 pb-2 w-full overflow-x-auto no-scrollbar">
+        {/* Background Gridlines */}
+        <div className="absolute inset-x-0 top-4 bottom-8 flex flex-col justify-between pointer-events-none opacity-20">
+          <div className="border-b border-dashed border-border/60 w-full" />
+          <div className="border-b border-dashed border-border/60 w-full" />
+          <div className="border-b border-dashed border-border/60 w-full" />
+        </div>
+
+        <div className="flex items-end justify-between h-[180px] px-0.5 sm:px-3 relative z-10 gap-1 xs:gap-1.5 sm:gap-3 min-w-[280px]">
+          {buckets.map((b, idx) => {
+            const isPos = b.pnl >= 0;
+            const heightPct = Math.min(100, Math.max(8, (Math.abs(b.pnl) / maxVal) * 100));
+            const isHovered = hoveredIndex === idx;
+            const winRate = b.tradesCount > 0 ? Math.round((b.winCount / b.tradesCount) * 100) : 0;
+            const barPct = balance > 0 ? (b.pnl / balance) * 100 : 0;
+
+            const tooltipCard = (
+              <div className="flex flex-col items-center text-center py-0.5 px-1 font-mono">
+                <span className="text-[10px] font-black uppercase text-accent tracking-wider">{b.label} ({b.subLabel})</span>
+                <span className={cn("text-xs font-bold my-0.5", pnlClass(b.pnl))}>{b.pnl >= 0 ? '+' : ''}{fmtUSD(b.pnl)} ({barPct >= 0 ? '+' : ''}{barPct.toFixed(2)}%)</span>
+                <span className="text-[9px] text-dim font-bold">{b.tradesCount} trades ({winRate}% WR)</span>
+              </div>
+            );
+            return (
+              <Tooltip
+                key={b.id}
+                content={tooltipCard}
+              >
+                <div
+                  className={cn(
+                    "flex-1 min-w-[20px] max-w-[56px] flex flex-col items-center h-full justify-end group relative cursor-pointer rounded-xl transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none p-0.5",
+                    isHovered && "bg-white/[0.04]"
+                  )}
+                  onMouseEnter={() => setHoveredIndex(idx)}
+                  onMouseLeave={() => setHoveredIndex(null)}
+                  onClick={() => setSelectedIndex(prev => prev === idx ? null : idx)}
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`${b.label} (${b.subLabel}): ${fmtUSD(b.pnl)} (${barPct >= 0 ? '+' : ''}${barPct.toFixed(2)}%), ${b.tradesCount} trades, win rate ${winRate}%`}
+                >
+                  {/* Bar Value Annotation on Top */}
+                  <div className={cn(
+                    "text-[7.5px] xs:text-[8.5px] sm:text-[9.5px] font-mono font-black mb-1.5 transition-all leading-none truncate w-full text-center flex flex-col items-center gap-0.5",
+                    isHovered ? "opacity-100 scale-110 text-accent font-bold" : "opacity-75 text-dim",
+                    pnlClass(b.pnl)
+                  )}>
+                    <span>{b.pnl === 0 ? '$0' : fmtUSD(b.pnl)}</span>
+                    <span className="text-[7px] opacity-80 font-normal">({barPct >= 0 ? '+' : ''}{barPct.toFixed(1)}%)</span>
+                  </div>
+
+                  {/* Bar Container */}
+                  <div className="w-full max-w-[48px] h-[130px] flex items-end justify-center rounded-xl bg-background/30 p-0.5 sm:p-1 border border-border/20 group-hover:border-accent/40 transition-all">
+                    <motion.div
+                      initial={{ height: 0 }}
+                      animate={{ height: `${heightPct}%` }}
+                      transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                      className={cn(
+                        "w-full rounded-lg transition-all duration-300 relative overflow-hidden",
+                        isPos
+                          ? "bg-gradient-to-t from-accent/80 via-accent to-green shadow-[0_0_15px_rgba(91,111,255,0.2)]"
+                          : "bg-gradient-to-t from-red/80 via-red to-red-400 shadow-[0_0_15px_rgba(255,68,102,0.2)]",
+                        isHovered && "brightness-125 scale-x-105"
+                      )}
+                    >
+                      <div className="absolute inset-x-0 top-0 h-1 bg-white/40" />
+                    </motion.div>
+                  </div>
+
+                  {/* Label */}
+                  <div className="flex flex-col items-center mt-2 leading-tight w-full">
+                    <span className={cn(
+                      "text-[8.5px] xs:text-[9.5px] sm:text-xs font-bold uppercase tracking-wider transition-colors font-mono truncate w-full text-center",
+                      isHovered ? "text-accent font-black" : "text-dim"
+                    )}>
+                      {b.label}
+                    </span>
+                    <span className="text-[7px] xs:text-[7.5px] text-dim/60 font-mono hidden xs:inline truncate w-full text-center">
+                      {b.subLabel}
+                    </span>
+                  </div>
+                </div>
+              </Tooltip>
+            );
+          })}
+        </div>
+      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+MonthlyRevenueChart.displayName = 'MonthlyRevenueChart';
+
 const preloadStrategyDetailView = () => { import('./StrategyDetailView'); };
 const preloadConfigModal = () => { import('../components/ConfigModal'); };
 const preloadScannerOverlay = () => { import('../components/ScannerOverlay'); };
@@ -210,7 +781,8 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null, viewMode = 'detailed' }) => {
+  const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -233,8 +805,9 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
 
   const handlePauseClick = React.useCallback((e) => {
     e.stopPropagation();
+    if (isPausing) return;
     onPause(s.strategy_label);
-  }, [onPause, s.strategy_label]);
+  }, [onPause, s.strategy_label, isPausing]);
 
   const activeCount = s.activeTradeCount || 0;
   const maxOpen = config.max_open_trades || 5;
@@ -251,6 +824,123 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const closedPnl = safeNum(s.totalPnl) - safeNum(s.activePnl);
   const totalEstToRealize = closedPnl + activeEstPnl;
 
+  const isCompact = viewMode === 'compact';
+  const isList = viewMode === 'list';
+
+  // Ultra-compact single-row List view rendering (High-density, controls omitted, icon cues & color-coded PnL)
+  if (isList) {
+    const isPosActive = s.activePnl >= 0;
+    const isPosReturn = s.totalPnl >= 0;
+
+    const abbrevLabel = (() => {
+      const clean = (s.strategy_label || '').trim();
+      if (!clean) return 'STR';
+      const words = clean.split(/[\s_\-]+/).filter(Boolean);
+      if (words.length >= 3) {
+        return (words[0][0] + words[1][0] + words[2][0]).toUpperCase();
+      }
+      if (words.length === 2) {
+        return (words[0].substring(0, 2) + words[1][0]).toUpperCase();
+      }
+      return clean.substring(0, 3).toUpperCase();
+    })();
+
+    return (
+      <motion.div
+        layout
+        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+        onClick={handleCardClick}
+        onKeyDown={handleKeyDown}
+        onMouseEnter={onMouseEnter}
+        role="button"
+        tabIndex={0}
+        className={cn(
+          "bg-surface border border-border/40 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[38px]",
+          className,
+          isResuming && "opacity-80 border-accent/20"
+        )}
+        aria-label={`View details for ${s.strategy_label} strategy, active P&L ${fmtUSD(s.activePnl)}, session return ${fmtUSD(s.totalPnl)}`}
+      >
+        {/* Left: Color Status Dot Cue & Strategy Name */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Tooltip content={s.sessionActive ? "Engine Status: Active" : "Engine Status: Stopped"}>
+            <span className={cn(
+              "w-2 h-2 rounded-full shrink-0 transition-all",
+              s.sessionActive
+                ? "bg-green shadow-[0_0_8px_rgba(0,229,160,0.5)] animate-pulse"
+                : "bg-dim/40"
+            )} />
+          </Tooltip>
+
+          <Tooltip content={`Strategy: ${s.strategy_label}`}>
+            <h3 className="font-black font-mono text-xs tracking-tight uppercase text-text group-hover:text-accent transition-colors cursor-help">
+              {abbrevLabel}
+            </h3>
+          </Tooltip>
+
+          {/* Timeframe Icon Cue Badge */}
+          <Tooltip content={`Timeframe scan interval: ${config.scan_interval}`}>
+            <span className="text-[8px] font-mono font-black text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded uppercase shrink-0 flex items-center gap-1 cursor-help">
+              <Zap size={9} />
+              {config.scan_interval}
+            </span>
+          </Tooltip>
+
+          {paused && !isResuming && (
+            <Tooltip content="Strategy Engine Paused">
+              <div className="p-1 rounded bg-amber/10 border border-amber/20 text-amber shrink-0 flex items-center justify-center cursor-help">
+                <Pause size={10} fill="currentColor" />
+              </div>
+            </Tooltip>
+          )}
+
+          {isGated && !paused && !isResuming && (
+            <Tooltip content={gateInfo?.gateReason || 'Gated by Risk Rules'}>
+              <div className="p-1 rounded bg-amber/10 border border-amber/20 text-amber shrink-0 flex items-center justify-center cursor-help">
+                <AlertCircle size={10} className="animate-pulse" />
+              </div>
+            </Tooltip>
+          )}
+        </div>
+
+        {/* Right: Color-Coded Active PnL & Session Return Badges + Position Allocation Pill */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0 font-mono text-xs">
+          {/* Active PnL Color-Coded Badge */}
+          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)}`}>
+            <div className={cn(
+              "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0",
+              isPosActive ? "bg-green/10 border-green/25 text-green" : "bg-red/10 border-red/25 text-red"
+            )}>
+              {isPosActive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+              <span>{fmtUSD(s.activePnl)}</span>
+            </div>
+          </Tooltip>
+
+          {/* Session Return Color-Coded Badge */}
+          <Tooltip content={`Total Session Return: ${fmtUSD(s.totalPnl)} (${sessionReturnPct.toFixed(2)}%)`}>
+            <div className={cn(
+              "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0 hidden sm:flex",
+              isPosReturn ? "bg-green/10 border-green/20 text-green/90" : "bg-red/10 border-red/20 text-red/90"
+            )}>
+              <span>{sessionReturnPct >= 0 ? '+' : ''}{sessionReturnPct.toFixed(1)}%</span>
+            </div>
+          </Tooltip>
+
+          {/* Position Slot Capacity Pill */}
+          <Tooltip content={`Active Positions: ${activeCount} out of ${maxOpen} maximum slots`}>
+            <div className={cn(
+              "px-2 py-0.5 rounded-full border text-[10px] font-black font-mono shrink-0 flex items-center gap-1",
+              activeCount > 0 ? "bg-accent/15 border-accent/30 text-accent" : "bg-background/60 border-border/30 text-dim"
+            )}>
+              <Users size={10} />
+              <span>{activeCount}/{maxOpen}</span>
+            </div>
+          </Tooltip>
+        </div>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       layout
@@ -261,7 +951,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-2xl p-4 md:p-5 flex flex-col gap-4 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        "bg-surface border border-border/40 rounded-2xl flex flex-col w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        isCompact ? "p-3 gap-2.5" : "p-4 md:p-5 gap-4",
         className,
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
@@ -279,7 +970,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       <div className="flex justify-between items-start gap-3">
         <div className="flex flex-col gap-1 min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm md:text-base font-black font-mono tracking-tight truncate uppercase leading-none text-text group-hover:text-accent transition-colors">
+            <h3 className={cn("font-black font-mono tracking-tight truncate uppercase leading-none text-text group-hover:text-accent transition-colors", isCompact ? "text-xs sm:text-sm" : "text-sm md:text-base")}>
               {s.strategy_label}
             </h3>
 
@@ -310,14 +1001,59 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono">
               {config.scan_interval} · {config.scan_pct_threshold}% Move
             </span>
-            <span className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1">
-              {s.entryCount || 0} Entries · {s.hitCount || 0} Hits
-            </span>
+            {(() => {
+              const hitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
+              const baselineWr = typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50;
+              const hitRateRatio = baselineWr > 0 ? hitRate / baselineWr : 1.0;
+              const pfVal = stratMetrics ? stratMetrics.profitFactor : 0;
+              const sharpeVal = stratMetrics ? stratMetrics.sharpe : 0;
+              const sortinoVal = stratMetrics ? stratMetrics.sortino : 0;
+
+              const pfText = s.entryCount > 0 ? Number(pfVal).toFixed(2) : '---';
+              const sharpeText = s.entryCount > 0 ? Number(sharpeVal).toFixed(2) : '---';
+              const sortinoText = s.entryCount > 0 ? Number(sortinoVal).toFixed(2) : '---';
+
+              if (isCompact) {
+                return (
+                  <div className="bg-accent/10 border border-accent/25 text-accent text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1 flex-wrap font-mono">
+                    <span>HR: {hitRate.toFixed(0)}%</span>
+                    <span>·</span>
+                    <span>PF: {pfText}</span>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="bg-accent/10 border border-accent/25 text-accent text-[8px] md:text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded flex items-center gap-1.5 flex-wrap font-mono">
+                  <span>Hit Rate: {hitRate.toFixed(0)}% ({s.hitCount || 0}/{s.entryCount || 0})</span>
+                  <span>·</span>
+                  <span>Ratio: {hitRateRatio.toFixed(2)}x</span>
+                  <span>·</span>
+                  <Tooltip content="Profit Factor (Gross Wins / Gross Losses). Recommended: > 1.0 (Profitable), >= 2.0 (Strong)">
+                    <span className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-xs" tabIndex={0} aria-label={`Profit Factor: ${pfText}. Recommended greater than 1.0`}>
+                      PF: {pfText}
+                    </span>
+                  </Tooltip>
+                  <span>·</span>
+                  <Tooltip content="Sharpe Ratio (Risk-Adjusted Return). Recommended: >= 1.0 (Acceptable), >= 1.5 (Good), >= 2.0 (Excellent)">
+                    <span className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-xs" tabIndex={0} aria-label={`Sharpe Ratio: ${sharpeText}. Recommended >= 1.0 Acceptable, >= 1.5 Good, >= 2.0 Excellent`}>
+                      Sh: {sharpeText}
+                    </span>
+                  </Tooltip>
+                  <span>·</span>
+                  <Tooltip content="Sortino Ratio (Downside Risk-Adjusted Return). Recommended: >= 1.0 (Acceptable), >= 2.0 (Good), >= 3.0 (Excellent)">
+                    <span className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-xs" tabIndex={0} aria-label={`Sortino Ratio: ${sortinoText}. Recommended >= 1.0 Acceptable, >= 2.0 Good, >= 3.0 Excellent`}>
+                      So: {sortinoText}
+                    </span>
+                  </Tooltip>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
         {/* Action buttons and performance metrics aligned to the right */}
-        <div className="flex flex-col items-end shrink-0 min-w-[100px] gap-2">
+        <div className="flex flex-col items-end shrink-0 min-w-[80px] gap-2">
           {/* Inline Action Buttons */}
           <div className="flex items-center gap-1 relative z-20">
             <Tooltip content="Edit Strategy Config">
@@ -331,17 +1067,20 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
                 <Edit3 size={12.5} />
               </button>
             </Tooltip>
-            <Tooltip content={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}>
+            <Tooltip content={isPausing ? (paused ? "Resuming Strategy..." : "Pausing Strategy...") : (paused ? "Resume Strategy Engine" : "Pause Strategy Engine")}>
               <button
                 type="button"
                 onClick={handlePauseClick}
+                disabled={isPausing}
+                aria-busy={isPausing}
+                aria-disabled={isPausing}
                 className={cn(
-                  "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
-                  paused ? "hover:bg-green/10 text-green" : "hover:bg-amber/10 text-amber"
+                  "p-1.5 rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  isPausing ? "cursor-wait opacity-60 text-dim" : (paused ? "hover:bg-green/10 text-green cursor-pointer" : "hover:bg-amber/10 text-amber cursor-pointer")
                 )}
-                aria-label={paused ? "Resume Strategy Engine" : "Pause Strategy Engine"}
+                aria-label={isPausing ? (paused ? "Resuming Strategy Engine" : "Pausing Strategy Engine") : (paused ? "Resume Strategy Engine" : "Pause Strategy Engine")}
               >
-                {paused ? <Play size={12.5} fill="currentColor" /> : <Pause size={12.5} fill="currentColor" />}
+                {isPausing ? <Loader2 size={12.5} className="animate-spin text-accent" /> : (paused ? <Play size={12.5} fill="currentColor" /> : <Pause size={12.5} fill="currentColor" />)}
               </button>
             </Tooltip>
           </div>
@@ -349,32 +1088,34 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       </div>
 
       {/* Modern Metrics Row */}
-      <div className="grid grid-cols-3 gap-3 py-1 items-stretch border-t border-b border-border/10 py-3">
-        <div className="flex flex-col justify-between h-full min-h-[72px]">
+      <div className={cn("grid grid-cols-3 gap-3 items-stretch border-t border-b border-border/10", isCompact ? "py-2" : "py-3")}>
+        <div className={cn("flex flex-col justify-between h-full", isCompact ? "min-h-[50px]" : "min-h-[72px]")}>
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Active P&L</span>
-            <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.activePnl) }}>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start">Active P&L</span>
+            <span className={cn("font-black font-mono tracking-tighter leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")} style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
             </span>
           </div>
-          <div className="flex flex-col mt-1 gap-0.5 leading-none">
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
-              <span className="hidden xs:inline">Est. Target: </span>
-              <span className="xs:hidden inline">Est: </span>
-              <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>≈{fmtUSD(activeEstPnl)}</span>
-            </span>
-            <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
-              <span className="hidden xs:inline">Projected: </span>
-              <span className="xs:hidden inline">Proj: </span>
-              <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
-            </span>
-          </div>
+          {!isCompact && (
+            <div className="flex flex-col mt-1 gap-0.5 leading-none">
+              <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
+                <span className="hidden xs:inline">Est. Target: </span>
+                <span className="xs:hidden inline">Est: </span>
+                <span className="font-bold" style={{ color: pnlColor(activeEstPnl) }}>≈{fmtUSD(activeEstPnl)}</span>
+              </span>
+              <span className="text-[8px] text-dim/50 font-black uppercase tracking-widest leading-none">
+                <span className="hidden xs:inline">Projected: </span>
+                <span className="xs:hidden inline">Proj: </span>
+                <span className="font-bold" style={{ color: pnlColor(totalEstToRealize) }}>≈{fmtUSD(totalEstToRealize)}</span>
+              </span>
+            </div>
+          )}
         </div>
 
-        <div className="flex flex-col justify-between h-full min-h-[72px]">
+        <div className={cn("flex flex-col justify-between h-full", isCompact ? "min-h-[50px]" : "min-h-[72px]")}>
           <div className="flex flex-col">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start">Session Return</span>
-            <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter leading-none mt-1.5" style={{ color: pnlColor(s.totalPnl) }}>
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start">Session Return</span>
+            <span className={cn("font-black font-mono tracking-tighter leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")} style={{ color: pnlColor(s.totalPnl) }}>
               {fmtUSD(s.totalPnl)}
             </span>
           </div>
@@ -383,10 +1124,10 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </span>
         </div>
 
-        <div className="flex flex-col justify-between items-end text-right h-full min-h-[72px]">
+        <div className={cn("flex flex-col justify-between items-end text-right h-full", isCompact ? "min-h-[50px]" : "min-h-[72px]")}>
           <div className="flex flex-col items-end">
-            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] min-h-[22px] flex items-start justify-end text-right w-full">Positions</span>
-            <span className="text-xs sm:text-sm md:text-base font-black font-mono tracking-tighter text-text/90 leading-none mt-1.5">
+            <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start justify-end text-right w-full">Positions</span>
+            <span className={cn("font-black font-mono tracking-tighter text-text/90 leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")}>
               {activeCount} / {maxOpen}
             </span>
           </div>
@@ -397,7 +1138,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
       </div>
 
       {/* Position Slot Capacity Runway */}
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
         <div
           className="h-1.5 w-full bg-border/40 rounded-full overflow-hidden relative"
           role="progressbar"
@@ -414,12 +1155,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             style={{ width: `${capacityPct}%` }}
           />
         </div>
-        <div className="flex justify-between items-center text-[9px] font-bold text-dim uppercase tracking-wider leading-none">
-          <span>Capacity: {activeCount} Active</span>
-          <span className="text-[8px] bg-white/5 border border-white/5 px-1.5 py-0.5 rounded text-accent">
-            Open Cockpit
-          </span>
-        </div>
+        {!isCompact && (
+          <div className="flex justify-between items-center text-[9px] font-bold text-dim uppercase tracking-wider leading-none">
+            <span>Capacity: {activeCount} Active</span>
+            <span className="text-[8px] bg-white/5 border border-white/5 px-1.5 py-0.5 rounded text-accent">
+              Open Cockpit
+            </span>
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -545,14 +1288,47 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
   // Pre-allocate 5 slots to prevent layout shift
   const placeholders = Array.from({ length: Math.max(0, 5 - top.length) })
 
+  const weights = config?.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+  const momW = Math.round((weights.momentum ?? 0.5) * 100);
+  const volW = Math.round((weights.volatility ?? 0.3) * 100);
+  const trendW = Math.round((weights.trend ?? 0.2) * 100);
+  const enabledSigs = config?.enabled_signals || [];
+
+  const getOppProximity = (opp) => {
+    if (opp.signalResult?.allFired) return 100;
+    const isLong = opp.pct >= 0;
+    const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / threshold) * 100);
+
+    let sigSum = velocityProgress;
+    let count = 1;
+
+    if (opp.signalResult?.signals) {
+      for (const sigKey of enabledSigs) {
+        const s = opp.signalResult.signals[sigKey];
+        if (s) {
+          const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+          sigSum += prox;
+          count++;
+        }
+      }
+    }
+
+    return Math.round(count > 0 ? sigSum / count : 0);
+  };
+
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col">
+    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col text-left">
       <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
         <div className="flex flex-col">
           <SectionLabel className="mb-0">
             <Zap size={14} className="text-accent" /> Live Scanner
           </SectionLabel>
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Opportunities</span>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Top 5 Opportunities</span>
+            <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded">
+              Weights {momW}:{volW}:{trendW}
+            </span>
+          </div>
         </div>
         <button
           className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
@@ -604,7 +1380,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                         <InPosBadge className="opacity-60 scale-90 origin-right mt-0.5" />
                       )}
                     </div>
-                    <div className="w-12 flex justify-end">
+                    <div className="w-16 flex flex-col items-end justify-center gap-0.5">
                       {passing ? (
                         opp.signalResult?.allFired ? (
                           <b className="text-[10px] font-black text-green uppercase tracking-wider">TRIGGERED</b>
@@ -614,6 +1390,15 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                       ) : (
                         <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAITING</b>
                       )}
+                      <div className="w-12 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5 mt-0.5" title={`Proximity: ${getOppProximity(opp)}%`}>
+                        <div
+                          className={cn(
+                            "h-full rounded-full transition-all duration-500",
+                            opp.signalResult?.allFired ? "bg-green" : passing ? "bg-amber" : "bg-dim/40"
+                          )}
+                          style={{ width: `${getOppProximity(opp)}%` }}
+                        />
+                      </div>
                     </div>
                   </motion.div>
                 )
@@ -956,7 +1741,10 @@ ReconciliationCenter.displayName = 'ReconciliationCenter';
 
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
+  const [cardViewMode, setCardViewMode] = useState('detailed') // 'detailed' | 'compact'
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterActive, setFilterActive] = useState(false)
 
   useEffect(() => {
     setSelected(initialStrategy || null);
@@ -969,13 +1757,14 @@ export function DashboardView({ initialStrategy }) {
   const [editingVariantIndex, setEditingVariantIndex] = useState(null)
   const [confirmStop, setConfirmStop] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState(null)
+  const [pausingMap, setPausingMap] = useState({})
 
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
     scannerPaused, sessionList, fetchSessions, wsStatus,
-    updateStats, analytics,
+    updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
     nextSlotTs, fetchTradeHistory, fetchAnalytics, tradeHistory
@@ -1021,6 +1810,9 @@ export function DashboardView({ initialStrategy }) {
     isAdaptiveTightened: state.isAdaptiveTightened,
     apiStatus: state.apiStatus,
     analytics: state.analytics,
+    stats: state.stats,
+    lastUdsBalanceReason: state.lastUdsBalanceReason,
+    lastUdsBalanceTs: state.lastUdsBalanceTs,
     effectivePeriodMs: state.effectivePeriodMs,
     isSyncingOnResume: state.isSyncingOnResume,
     nextSlotTs: state.nextSlotTs,
@@ -1065,9 +1857,61 @@ export function DashboardView({ initialStrategy }) {
   }, [sessionList, tradeHistory]);
 
   // BOLT OPTIMIZATION: Loop-fused single-pass traversal (no intermediate array allocations)
-  // Combines activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, and totalActivePnl
-  // to avoid redundant iterations and allocation of three separate map states.
-  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl } = useMemo(() => {
+  // Combines activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, and maxRR
+  // to avoid redundant iterations and eliminate callback closure allocations on high-frequency ticks.
+  const { netFunding, netComm } = useMemo(() => {
+    if (stats?.totalFundingFee !== undefined && stats?.totalFundingFee !== 0 &&
+        stats?.totalRealizedFee !== undefined && stats?.totalRealizedFee !== 0) {
+      return { netFunding: stats.totalFundingFee, netComm: stats.totalRealizedFee };
+    }
+
+    let feeSum = stats?.totalRealizedFee || 0;
+    let fundingSum = stats?.totalFundingFee || 0;
+
+    const hist = tradeHistory || [];
+    for (let i = 0; i < hist.length; i++) {
+      feeSum += Number(hist[i].realized_fee) || 0;
+      fundingSum += Number(hist[i].funding_fee) || 0;
+    }
+
+    const active = activeTrades || [];
+    for (let i = 0; i < active.length; i++) {
+      feeSum += Number(active[i].realized_fee) || 0;
+      fundingSum += Number(active[i].funding_fee) || 0;
+    }
+
+    return { netFunding: fundingSum, netComm: feeSum };
+  }, [stats?.totalFundingFee, stats?.totalRealizedFee, tradeHistory, activeTrades]);
+
+  const stratMetricsMap = useMemo(() => {
+    const history = tradeHistory || [];
+    const grouped = new Map();
+
+    for (let i = 0; i < history.length; i++) {
+      const t = history[i];
+      const label = t.strategy_label || t.strategyLabel || 'Momentum Strategy';
+      if (!grouped.has(label)) {
+        grouped.set(label, []);
+      }
+      grouped.get(label).push(t);
+    }
+
+    const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+    const startingBal = tradingMode === 'paper'
+      ? (config?.paper_starting_balance || 10000)
+      : (tradingMode === 'testnet'
+          ? (config?.testnet_starting_balance || 10000)
+          : (config?.live_starting_balance || 10000));
+
+    const map = new Map();
+    for (const [label, trades] of grouped.entries()) {
+      map.set(label, calculatePerformanceMetrics(trades, startingBal));
+    }
+
+    return map;
+  }, [tradeHistory, config]);
+
+  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;
     const pnlMap = { [strategyLabel]: 0 };
     const estPnlMap = { [strategyLabel]: 0 };
@@ -1081,6 +1925,7 @@ export function DashboardView({ initialStrategy }) {
       countMap[label] = 0;
     }
 
+    let maxRrAchieved = 0;
     const trades = activeTrades || [];
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
@@ -1090,6 +1935,11 @@ export function DashboardView({ initialStrategy }) {
         pnlMap[label] += pnlVal;
         estPnlMap[label] += safeNum(t.est_pnl_to_realize);
         countMap[label]++;
+
+        const rrVal = Number(t.max_rr ?? t.max_rr_achieved ?? 0);
+        if (rrVal > maxRrAchieved) {
+          maxRrAchieved = rrVal;
+        }
       }
     }
 
@@ -1104,11 +1954,51 @@ export function DashboardView({ initialStrategy }) {
       activePnlMap: pnlMap,
       activeEstPnlToRealizeMap: estPnlMap,
       activeTradeCountsMap: countMap,
-      totalActivePnl: totPnl
+      totalActivePnl: totPnl,
+      maxRR: maxRrAchieved
     };
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
-  const maxRR = useMemo(() => (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0), [activeTrades])
+  const { todaysPnl, todaysPnlPct } = useMemo(() => {
+    const now = new Date();
+    const startOfDayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+    let closedTodayPnl = 0;
+    const history = tradeHistory || [];
+    for (let i = 0; i < history.length; i++) {
+      const t = history[i];
+      if (!t) continue;
+      const exitTs = t.exit_ts_ms ?? (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+      if (exitTs >= startOfDayMs) {
+        closedTodayPnl += Number(t.pnl || 0);
+      }
+    }
+
+    const netTodayPnl = closedTodayPnl + (totalActivePnl || 0);
+    const startOfDayBalance = balance - netTodayPnl;
+    const pct = startOfDayBalance > 0 ? (netTodayPnl / startOfDayBalance) * 100 : 0;
+
+    return { todaysPnl: netTodayPnl, todaysPnlPct: pct };
+  }, [tradeHistory, totalActivePnl, balance]);
+
+  const pendingScannerTriggers = useMemo(() => {
+    let count = 0;
+    const variantKeys = Object.keys(variantScannerResults || {});
+    const seenSymbols = new Set();
+    const thresh = config.scan_pct_threshold || 2;
+
+    for (const key of variantKeys) {
+      const opps = variantScannerResults[key] || [];
+      for (const o of opps) {
+        if (o && !seenSymbols.has(o.symbol) && Math.abs(o.pct || 0) >= thresh) {
+          seenSymbols.add(o.symbol);
+          count++;
+        }
+      }
+    }
+
+    return count;
+  }, [variantScannerResults, config.scan_pct_threshold]);
 
   const monitoredSymbolsSet = useMemo(() => {
     const set = new Set();
@@ -1253,6 +2143,15 @@ export function DashboardView({ initialStrategy }) {
   }, [config, isEditMode, strategyId, editingVariantIndex, updateConfig, setSessionActive, addAlert, fetchSessions, setSyncing]);
 
   const togglePause = React.useCallback(async (strategyLabel) => {
+    const key = strategyLabel || '__session__';
+    if (pausingMap[key]) {
+      console.log(`[Strategy Engine] Pause toggle already in flight for key: ${key}, ignoring duplicate trigger.`);
+      return;
+    }
+
+    setPausingMap(prev => ({ ...prev, [key]: true }));
+    console.log(`[Strategy Engine] Dispatching pause toggle request for strategy: ${key}`);
+
     try {
       const isTargetPaused = strategyLabel
         ? pausedStrategies.includes(strategyLabel)
@@ -1268,11 +2167,18 @@ export function DashboardView({ initialStrategy }) {
           ? `Engine is now actively scanning for opportunities on ${label.toLowerCase()}.`
           : `Scanning and entry logic suspended for ${label.toLowerCase()}.`
       });
+      console.log(`[Strategy Engine] Successfully toggled pause state for strategy: ${key}`);
     } catch (e) {
-      console.error('Pause toggle failed:', e);
+      console.error('[Strategy Engine] Pause toggle failed:', e);
       addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle pause state.' });
+    } finally {
+      setPausingMap(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
     }
-  }, [sessionPaused, pausedStrategies, addAlert]);
+  }, [sessionPaused, pausedStrategies, addAlert, pausingMap]);
 
   const handleResumeLast = React.useCallback(async () => {
     if (!lastSession) return;
@@ -1434,11 +2340,44 @@ export function DashboardView({ initialStrategy }) {
 
         {/* Header Bar */}
         <ViewHeader
-          title="Operator Cockpit"
+          title="Overview"
           subTitle="Real-time strategy management & market oversight"
           sticky={true}
         >
-          <div className="flex gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Search Input Bar matching design */}
+            <div className="relative flex items-center">
+              <Search size={14} className="absolute left-3 text-dim pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-1.5 bg-surface border border-border/60 hover:border-accent/40 focus:border-accent text-xs font-semibold rounded-xl text-text placeholder-dim focus-visible:ring-2 focus-visible:ring-accent outline-none transition-all w-36 sm:w-48"
+                aria-label="Search dashboard"
+              />
+            </div>
+
+            {/* Filter Toggle Button */}
+            <Tooltip content={filterActive ? "Filters Active" : "Toggle Filters"}>
+              <button
+                type="button"
+                onClick={() => setFilterActive(!filterActive)}
+                aria-label="Toggle dashboard filter"
+                className={cn(
+                  "p-2 rounded-xl border transition-all active:scale-95 flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                  filterActive
+                    ? "bg-accent/15 border-accent/40 text-accent shadow-[0_0_15px_rgba(91,111,255,0.15)]"
+                    : "bg-surface border-border/60 text-dim hover:text-text hover:border-accent/40"
+                )}
+              >
+                <Filter size={14} />
+                <span className="hidden md:inline text-[9px] font-black uppercase tracking-widest">
+                  Filter
+                </span>
+              </button>
+            </Tooltip>
+
             {config.frequency_shaping_enabled && (
               <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 bg-accent/10 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-widest animate-in fade-in zoom-in duration-500">
                 <Activity size={10} />
@@ -1451,10 +2390,10 @@ export function DashboardView({ initialStrategy }) {
                 onClick={() => setThrottled(!isThrottled)}
                 aria-label={isThrottled ? "Disable Eco Mode" : "Enable Eco Mode (Power Saver)"}
                 className={cn(
-                  "px-3 py-2 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  "px-3 py-2 rounded-xl border transition-all active:scale-95 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
                   isThrottled
                     ? "bg-green/10 border-green/30 text-green shadow-[0_0_15px_rgba(0,229,160,0.1)]"
-                    : "bg-surface border-border text-dim hover:text-accent hover:border-accent/40"
+                    : "bg-surface border-border/60 text-dim hover:text-accent hover:border-accent/40"
                 )}
               >
                 <Leaf size={14} fill={isThrottled ? "currentColor" : "none"} />
@@ -1470,7 +2409,7 @@ export function DashboardView({ initialStrategy }) {
                   type="button"
                   onClick={() => setConfirmStop(true)}
                   disabled={loading}
-                  className="p-2.5 bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 hover:scale-95 active:scale-90 transition-all focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
+                  className="p-2 bg-red/10 border border-red/20 text-red rounded-xl hover:bg-red/20 hover:scale-95 active:scale-90 transition-all focus-visible:ring-2 focus-visible:ring-red outline-none cursor-pointer"
                   aria-label="Terminate Session"
                 >
                   <XCircle size={14} />
@@ -1533,23 +2472,66 @@ export function DashboardView({ initialStrategy }) {
               <StatCard
                 label="Account Balance"
                 value={`$${balance.toLocaleString()}`}
-                tooltipText="Total available funds in the trading account."
+                tooltipText={(() => {
+                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : config?.live_starting_balance) || 10000;
+                  const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
+                  const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
+                  const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
+                  const tradeTimeStr = tradeTs ? `Last Trade: ${formatTimeAgo(tradeTs)}` : 'No closed trades';
+                  const syncTimeStr = lastUdsBalanceTs ? `UDS Sync: ${formatTimeAgo(lastUdsBalanceTs)}` : 'Sync: Active';
+                  const reasonText = lastUdsBalanceReason ? `UDS Reason: ${lastUdsBalanceReason}` : 'Real-time Stream';
+                  return `Available Funds: $${balance.toLocaleString()} | Starting: $${startBal.toLocaleString()} | Net Funding: ${fmtUSD(-netFunding)} (${fundPct.toFixed(2)}%) | Commission: ${fmtUSD(-netComm)} (${commPct.toFixed(2)}%) | ${tradeTimeStr} | ${syncTimeStr} (${reasonText})`;
+                })()}
                 ariaLabel={(() => {
-                  if (!lastTrade) return undefined;
+                  if (!lastTrade) return `Account Balance: $${balance.toLocaleString()}`;
                   const prevBalance = balance - (lastTrade.pnl || 0);
                   const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
-                  return `Account Balance: $${balance.toLocaleString()}. Last trade profit and loss was ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)}, representing a ${balPctChange >= 0 ? 'positive' : 'negative'} ${Math.abs(balPctChange || 0).toFixed(2)} percent change of account balance.`;
+                  const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
+                  const tradeTimeAgo = tradeTs ? formatTimeAgo(tradeTs) : '';
+                  return `Account Balance: $${balance.toLocaleString()}. Last trade closed ${tradeTimeAgo} with PnL ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)} (${Math.abs(balPctChange || 0).toFixed(2)}%).`;
                 })()}
                 subValue={(() => {
-                  if (!lastTrade) return null;
-                  const prevBalance = balance - (lastTrade.pnl || 0);
-                  const balPctChange = prevBalance > 0 ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
+                  const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
+                  const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
+                  const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
+                  const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0) || (lastTrade?.updated_at ? new Date(lastTrade.updated_at).getTime() : 0) || (lastTrade?.entry_ts ? new Date(lastTrade.entry_ts).getTime() : 0);
+                  const tradeTimeAgo = tradeTs ? formatTimeAgo(tradeTs) : null;
+                  const udsTimeAgo = lastUdsBalanceTs ? formatTimeAgo(lastUdsBalanceTs) : null;
+
                   return (
-                    <div className="flex items-center gap-1">
-                      {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
-                      <span className={pnlClass(lastTrade.pnl)}>
-                        {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%) Last
-                      </span>
+                    <div className="flex flex-col gap-1 text-[10px]">
+                      {lastTrade && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {Number(lastTrade.pnl || 0) >= 0 ? <TrendingUp size={10} className="text-green" /> : <TrendingDown size={10} className="text-red" />}
+                          <span className={pnlClass(lastTrade.pnl)}>
+                            {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
+                          </span>
+                          {tradeTimeAgo && (
+                            <span className="text-dim text-[9px] font-medium" title="Time since last closed trade">
+                              · Trade {tradeTimeAgo}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {!lastTrade && udsTimeAgo && (
+                        <div className="flex items-center gap-1 flex-wrap text-dim text-[9px] font-medium" title="Time since last UDS balance update">
+                          <span>UDS Sync {udsTimeAgo}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
+                        <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} <span className="opacity-80">({fundPct.toFixed(2)}%)</span></span></span>
+                        <span>•</span>
+                        <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)} <span className="opacity-80">({commPct.toFixed(2)}%)</span></span></span>
+                        {lastUdsBalanceReason && (
+                          <>
+                            <span>•</span>
+                            <span className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase" title={udsTimeAgo ? `Balance event ${udsTimeAgo}` : 'Latest balance event'}>
+                              ⚡ {lastUdsBalanceReason} {udsTimeAgo && <span className="text-dim font-normal font-sans ml-0.5">({udsTimeAgo})</span>}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   );
                 })()}
@@ -1629,6 +2611,31 @@ export function DashboardView({ initialStrategy }) {
           addAlert={addAlert}
         />
 
+
+
+        {/* Monthly Revenue Bar Chart (Observable Analytics) */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.35 }}
+          className="mb-5 lg:mb-6"
+        >
+          <MonthlyRevenueChart tradeHistory={tradeHistory} balance={balance} />
+        </motion.div>
+
+        {/* Recent Transactions List (Matching reference design) */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.38 }}
+          className="mb-5 lg:mb-6"
+        >
+          <RecentTransactionsList
+            tradeHistory={tradeHistory}
+            activeTrades={activeTrades}
+            onOpenScanner={handleOpenScanner}
+          />
+        </motion.div>
 
         {/* ROI Trends & Insights - Collapsible */}
         <motion.div
@@ -1869,10 +2876,50 @@ export function DashboardView({ initialStrategy }) {
               transition={{ delay: 0.3 }}
               className="bg-surface border border-border rounded-2xl p-6 flex flex-col shadow-sm"
             >
-              <SectionLabel className="mb-4 flex items-center gap-2">
-                <Zap size={14} className="text-accent" /> Active Strategy
-              </SectionLabel>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="flex items-center justify-between mb-4">
+                <SectionLabel className="mb-0 flex items-center gap-2">
+                  <Zap size={14} className="text-accent" /> Active Strategy
+                </SectionLabel>
+                <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setCardViewMode('detailed')}
+                    className={cn(
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      cardViewMode === 'detailed' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                    )}
+                    aria-label="Detailed strategy cards view"
+                  >
+                    Detailed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardViewMode('compact')}
+                    className={cn(
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      cardViewMode === 'compact' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                    )}
+                    aria-label="Compact strategy cards view"
+                  >
+                    Compact
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCardViewMode('list')}
+                    className={cn(
+                      "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      cardViewMode === 'list' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
+                    )}
+                    aria-label="List strategy cards view"
+                  >
+                    List
+                  </button>
+                </div>
+              </div>
+              <div className={cn(
+                "grid gap-3 sm:gap-4",
+                cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"
+              )}>
                 {sessionActive ? (
                   <>
                     {(() => {
@@ -1884,6 +2931,7 @@ export function DashboardView({ initialStrategy }) {
                             s={{
                               ...currentStrategy,
                               ...safeVariantStats[currentStrategy.strategy_label],
+                              totalPnl: safeVariantStats[currentStrategy.strategy_label]?.totalPnl ?? (stratMetricsMap.get(currentStrategy.strategy_label)?.totalPnl ?? currentStrategy.totalPnl),
                               activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
                               activeEstPnl: activeEstPnlToRealizeMap[currentStrategy.strategy_label] || 0,
                               activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0,
@@ -1892,6 +2940,7 @@ export function DashboardView({ initialStrategy }) {
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
                             paused={pausedStrategies.includes(currentStrategy.strategy_label) || sessionPaused}
+                            isPausing={!!pausingMap[currentStrategy.strategy_label]}
                             gateInfo={strategyGateStates[currentStrategy.strategy_label]}
                             onPause={togglePause}
                             onOpenScanner={handleOpenScanner}
@@ -1903,17 +2952,22 @@ export function DashboardView({ initialStrategy }) {
                             className={cn(totalCards % 2 !== 0 && "md:col-span-2")}
                             isResuming={isResuming}
                             showResumingFeedback={showResumingFeedback}
+                            stratMetrics={stratMetricsMap.get(currentStrategy.strategy_label)}
+                            viewMode={cardViewMode}
                           />
                           {activeVariants.map((variant, i) => {
                             const label = variant.strategy_label || `Variant ${i + 1}`;
                             const variantConfig = { ...config, ...variant };
+                            const stratMetric = stratMetricsMap.get(label);
+                            const variantTotalPnl = safeVariantStats[label]?.totalPnl ?? (stratMetric ? stratMetric.totalPnl + (activePnlMap[label] || 0) : (activePnlMap[label] || 0));
                             return (
                               <StrategyCard
-                                key={i}
+                                key={label}
                                 s={{
                                   ...currentStrategy,
                                   strategy_label: label,
                                   ...safeVariantStats[label],
+                                  totalPnl: variantTotalPnl,
                                   activePnl: activePnlMap[label] || 0,
                                   activeEstPnl: activeEstPnlToRealizeMap[label] || 0,
                                   activeTradeCount: activeTradeCountsMap[label] || 0,
@@ -1922,6 +2976,7 @@ export function DashboardView({ initialStrategy }) {
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}
                                 paused={pausedStrategies.includes(label) || sessionPaused}
+                                isPausing={!!pausingMap[label]}
                                 gateInfo={strategyGateStates[label]}
                                 onPause={togglePause}
                                 onOpenScanner={handleOpenScanner}
@@ -1932,6 +2987,8 @@ export function DashboardView({ initialStrategy }) {
                                 isMonitored={monitoredSymbolsSet.has(label)}
                                 isResuming={isResuming}
                                 showResumingFeedback={showResumingFeedback}
+                                stratMetrics={stratMetricsMap.get(label)}
+                                viewMode={cardViewMode}
                               />
                             );
                           })}

@@ -531,15 +531,27 @@ export class SessionService implements OnModuleInit {
       ...(config.exit_signals || []),
     ];
 
-    if (allEnabled.includes("ema_dual_cross")) {
-      const fast = parseInt(
-        signalParams.entry_ema_fast || signalParams.exit_ema_fast || "0",
-        10,
+    if (allEnabled.includes("ema_dual_cross") || allEnabled.includes("ema_dual_close")) {
+      const fastStr = String(
+        signalParams.entry_ema_fast ??
+        signalParams.exit_ema_fast ??
+        signalParams.ema_fast ??
+        signalParams.ema_dual_cross_fast ??
+        signalParams.ema_dual_close_fast ??
+        signalParams.fast_ema ??
+        "0"
       );
-      const slow = parseInt(
-        signalParams.entry_ema_slow || signalParams.exit_ema_slow || "0",
-        10,
+      const slowStr = String(
+        signalParams.entry_ema_slow ??
+        signalParams.exit_ema_slow ??
+        signalParams.ema_slow ??
+        signalParams.ema_dual_cross_slow ??
+        signalParams.ema_dual_close_slow ??
+        signalParams.slow_ema ??
+        "0"
       );
+      const fast = parseInt(fastStr, 10);
+      const slow = parseInt(slowStr, 10);
       if (fast <= 0 || slow <= 0)
         throw new BadRequestException(
           "EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)",
@@ -1285,7 +1297,7 @@ export class SessionService implements OnModuleInit {
     const rawHistory = await this.tradeRepository.find({
       where: { status: In(TERMINAL_STATUSES as any) },
       order: { exit_ts: "DESC" },
-      take: 500,
+      take: 1000,
     });
 
     const initialHistory = rawHistory
@@ -1296,7 +1308,7 @@ export class SessionService implements OnModuleInit {
           (tConfig.paper_mode === false ? "live" : "paper");
         return tMode === mode;
       })
-      .slice(0, 200);
+      .slice(0, 500);
 
     // Paper mode orphan handling (Simplified verification as there is no exchange)
     if (mode === "paper") {
@@ -1612,7 +1624,7 @@ export class SessionService implements OnModuleInit {
 
   private async finalizeOrphanedTrade(
     trade: TradeEntity,
-    mode: "live" | "paper" | "testnet",
+    mode: "live" | "paper" | "testnet" | "backtest",
     contextPrice?: number,
     contextReason?: string
   ): Promise<Partial<TradeEntity>> {
@@ -2135,9 +2147,14 @@ export class SessionService implements OnModuleInit {
 
       if (!session) throw new NotFoundException("Session not found");
 
-      // DATA-CONSISTENCY: Block modification of immutable fields while session is running
+      // DATA-CONSISTENCY: Block modification of starting balances while session is running
       if (this.sessionRunning && this.currentSessionId === id) {
-        for (const field of SessionService.IMMUTABLE_SESSION_FIELDS) {
+        const startingBalanceFields = [
+          "paper_starting_balance",
+          "testnet_starting_balance",
+          "live_starting_balance",
+        ];
+        for (const field of startingBalanceFields) {
           const typedPartial = partialConfig as any;
           if (
             typedPartial[field] !== undefined &&
@@ -2635,11 +2652,13 @@ export class SessionService implements OnModuleInit {
     };
   }
 
-  async getHistory(sessionId?: string) {
+  async getHistory(sessionId?: string, limit?: number) {
     // If no sessionId is provided, we default to the current session ID if one is running.
     // If we want GLOBAL history (all sessions), we must explicitly pass 'all' or similar.
     const filterId =
       sessionId === "all" ? undefined : sessionId || this.currentSessionId;
+
+    const takeLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 5000) : 1000;
 
     // WISP OPTIMIZATION: Sparse column selection prevents loading heavy JSON configurations like strategy_config and exit_signals_status, reducing memory and bandwidth.
     const closedTrades = await this.tradeRepository.find({
@@ -2676,7 +2695,7 @@ export class SessionService implements OnModuleInit {
         ...(filterId ? { sessionId: filterId } : {}),
       },
       order: { exit_ts: "DESC" },
-      take: 200,
+      take: takeLimit,
     });
 
     return { trades: closedTrades };
@@ -3123,6 +3142,7 @@ export class SessionService implements OnModuleInit {
 
     const output = { ...target };
     Object.keys(source).forEach(key => {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") return;
       if (source[key] instanceof Object && !Array.isArray(source[key]) && key in target) {
         output[key] = this.deepMerge(target[key], source[key]);
       } else {

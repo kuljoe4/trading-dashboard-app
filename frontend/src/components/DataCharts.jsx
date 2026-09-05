@@ -373,7 +373,7 @@ export const CandlestickChart = React.memo(({ data = [], width: initialWidth = 1
                   cy={bar.isUp ? bar.yLow + 4 : bar.yHigh - 4}
                   r="2"
                   className="fill-accent animate-pulse"
-                />
+                 vectorEffect="non-scaling-stroke" />
               )}
             </g>
           );

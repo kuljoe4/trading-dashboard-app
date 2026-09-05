@@ -423,13 +423,17 @@ export class OrderManagerService {
                trade.exit_signal_reason = `Manual close confirmed by exchange at ${exitPrice}`;
              } else if (isAppSignalClose) {
                // Find exact signal indicator and params
+               // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
                let foundSignal = '';
                if (trade.exit_signals_status) {
-                  const firedEntry = Object.entries(trade.exit_signals_status).find(
-                     ([_, status]: [string, any]) => status && status.fired === true
-                  );
-                  if (firedEntry) {
-                     foundSignal = firedEntry[0];
+                  for (const key in trade.exit_signals_status) {
+                     if (Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) {
+                        const status = (trade.exit_signals_status as Record<string, any>)[key];
+                        if (status && status.fired === true) {
+                           foundSignal = key;
+                           break;
+                        }
+                     }
                   }
                }
 
@@ -1964,6 +1968,9 @@ export class OrderManagerService {
       'exit'
     );
 
+    // BOLT OPTIMIZATION: In-loop accumulation of satisfied active signal keys to avoid Object.keys().filter() allocations
+    const satisfiedActiveKeys: string[] = [];
+
     // Check each exit signal
     for (const exitSignal of config.exit_signals) {
       try {
@@ -2037,6 +2044,7 @@ export class OrderManagerService {
 
         if (isFired && isActive) {
           firedCount++;
+          satisfiedActiveKeys.push(exitSignal);
         }
         if (isActive) {
           activeCount++;
@@ -2056,8 +2064,6 @@ export class OrderManagerService {
     const allEnabled = config.exit_signals.length;
     let exitTriggered = false;
     let exitSignalType: string | undefined;
-
-    const satisfiedActiveKeys = Object.keys(statuses).filter(k => statuses[k].fired && statuses[k].active);
 
     if (logic === 'any') {
       exitTriggered = satisfiedActiveKeys.length > 0;
@@ -2481,13 +2487,17 @@ export class OrderManagerService {
                       reason = EXIT_REASONS.TP_HIT;
                    } else if (clientOrderId && clientOrderId.startsWith('sig-')) {
                       // Dynamically resolve exact exit signal indicator and params
+                      // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
                       let foundSignal = '';
                       if (trade && trade.exit_signals_status) {
-                         const firedEntry = Object.entries(trade.exit_signals_status).find(
-                            ([_, status]: [string, any]) => status && status.fired === true
-                         );
-                         if (firedEntry) {
-                            foundSignal = firedEntry[0];
+                         for (const key in trade.exit_signals_status) {
+                            if (Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) {
+                               const status = (trade.exit_signals_status as Record<string, any>)[key];
+                               if (status && status.fired === true) {
+                                  foundSignal = key;
+                                  break;
+                               }
+                            }
                          }
                       }
 

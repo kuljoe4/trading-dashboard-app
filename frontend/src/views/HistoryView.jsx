@@ -1548,6 +1548,8 @@ export const HistoryView = () => {
   // for all its lifetime stats and analytical calculations, while active/session-level analytics
   // are already handled by other components or the global store, making the local fetch redundant.
   const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
+  const [timeRange, setTimeRange] = useState('ALL') // '24H', '7D', '30D', 'ALL'
+  const [tradeLimit, setTradeLimit] = useState(1000) // 50, 100, 250, 500, 1000, 'ALL'
   const [loading, setLoading] = useState(true)
   const isFirstRender = React.useRef(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
@@ -1598,13 +1600,30 @@ export const HistoryView = () => {
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, []);
 
-  // Extract mode-filtered trades
+  // Extract mode-, range-, and limit-filtered trades
   const modeTrades = useMemo(() => {
-    return (tradeHistory || []).filter(Boolean).filter(t => {
+    const now = Date.now();
+    let cutoff = 0;
+    if (timeRange === '24H') cutoff = now - 24 * 60 * 60 * 1000;
+    else if (timeRange === '7D') cutoff = now - 7 * 24 * 60 * 60 * 1000;
+    else if (timeRange === '30D') cutoff = now - 30 * 24 * 60 * 60 * 1000;
+
+    let filtered = (tradeHistory || []).filter(Boolean).filter(t => {
       const mode = t.paperMode || t.paper_mode ? 'paper' : (t.trading_mode || 'live');
-      return mode === lifetimeMode;
+      if (mode !== lifetimeMode) return false;
+
+      if (cutoff > 0) {
+        const exitTs = t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+        if (exitTs < cutoff) return false;
+      }
+      return true;
     });
-  }, [tradeHistory, lifetimeMode]);
+
+    if (tradeLimit && tradeLimit !== 'ALL') {
+      filtered = filtered.slice(0, Number(tradeLimit));
+    }
+    return filtered;
+  }, [tradeHistory, lifetimeMode, timeRange, tradeLimit]);
 
   // Extract unique available strategy labels across current mode trades along with counts & total PnL
   const availableStrategies = useMemo(() => {
@@ -1887,8 +1906,8 @@ export const HistoryView = () => {
           backAction={() => window.location.hash = '#/'}
         >
           <div className="flex items-center gap-3">
-             <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 whitespace-nowrap">
-               Latest 200 Trades
+             <span className="text-[9px] text-accent font-bold font-mono uppercase tracking-widest bg-accent/5 border border-accent/20 px-2.5 py-1 rounded-xl whitespace-nowrap">
+               Showing {modeTrades.length} of {(tradeHistory || []).length} Trades
              </span>
           </div>
         </ViewHeader>
@@ -1992,9 +2011,49 @@ export const HistoryView = () => {
             )}
           </div>
 
-          {/* Right: Sort controls */}
-          <div className="flex items-center gap-2 justify-between sm:justify-end w-full sm:w-auto shrink-0">
-             <span className="text-[8.5px] text-dim font-black uppercase tracking-widest shrink-0">Sort Sessions</span>
+          {/* Right: Range Filter & Limit Selectors */}
+          <div className="flex items-center gap-3 justify-between sm:justify-end w-full sm:w-auto shrink-0 flex-wrap">
+             {/* Time Range Filter */}
+             <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+                <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Range:</span>
+                {['24H', '7D', '30D', 'ALL'].map(r => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => setTimeRange(r)}
+                    aria-pressed={timeRange === r}
+                    aria-label={`Filter history to ${r} time range`}
+                    className={cn(
+                      "px-2 py-1 rounded-lg text-[8.5px] font-black font-mono tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                      timeRange === r ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                    )}
+                  >
+                    {r}
+                  </button>
+                ))}
+             </div>
+
+             {/* Limit Selector */}
+             <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+                <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Limit:</span>
+                {[50, 100, 250, 500, 1000, 'ALL'].map(l => (
+                  <button
+                    key={String(l)}
+                    type="button"
+                    onClick={() => setTradeLimit(l)}
+                    aria-pressed={tradeLimit === l}
+                    aria-label={`Set trade history limit to ${l}`}
+                    className={cn(
+                      "px-2 py-1 rounded-lg text-[8.5px] font-black font-mono tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                      tradeLimit === l ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                    )}
+                  >
+                    {l}
+                  </button>
+                ))}
+             </div>
+
+             {/* Sort controls */}
              <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
                 {[
                   { id: 'time', label: 'Recent' },

@@ -1297,7 +1297,7 @@ export class SessionService implements OnModuleInit {
     const rawHistory = await this.tradeRepository.find({
       where: { status: In(TERMINAL_STATUSES as any) },
       order: { exit_ts: "DESC" },
-      take: 500,
+      take: 1000,
     });
 
     const initialHistory = rawHistory
@@ -1308,7 +1308,7 @@ export class SessionService implements OnModuleInit {
           (tConfig.paper_mode === false ? "live" : "paper");
         return tMode === mode;
       })
-      .slice(0, 200);
+      .slice(0, 500);
 
     // Paper mode orphan handling (Simplified verification as there is no exchange)
     if (mode === "paper") {
@@ -2652,11 +2652,13 @@ export class SessionService implements OnModuleInit {
     };
   }
 
-  async getHistory(sessionId?: string) {
+  async getHistory(sessionId?: string, limit?: number) {
     // If no sessionId is provided, we default to the current session ID if one is running.
     // If we want GLOBAL history (all sessions), we must explicitly pass 'all' or similar.
     const filterId =
       sessionId === "all" ? undefined : sessionId || this.currentSessionId;
+
+    const takeLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 5000) : 1000;
 
     // WISP OPTIMIZATION: Sparse column selection prevents loading heavy JSON configurations like strategy_config and exit_signals_status, reducing memory and bandwidth.
     const closedTrades = await this.tradeRepository.find({
@@ -2693,7 +2695,7 @@ export class SessionService implements OnModuleInit {
         ...(filterId ? { sessionId: filterId } : {}),
       },
       order: { exit_ts: "DESC" },
-      take: 200,
+      take: takeLimit,
     });
 
     return { trades: closedTrades };

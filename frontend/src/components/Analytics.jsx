@@ -925,11 +925,12 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   );
 };
 
-export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance, configChanges = [] }) => {
+export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, showPnl = true, showHitRate = true, showPf = false, showSharpe = false, showSortino = false, startingBalance, configChanges = [], onToggleSeries }) => {
   const containerRef = useRef(null);
   const chartId = useId().replace(/:/g, '');
   const pnlGradientId = `pnl-grad-${chartId}`;
   const [hoverData, setHoverData] = useState(null);
+  const [focusedIndex, setFocusedIndex] = useState(null);
   const [activeConfigDiff, setActiveConfigDiff] = useState(null);
 
   const { points, pnlMin, pnlMax, pnlRange, hrMin, hrMax, hrRange, maxRatio } = useMemo(() => {
@@ -1124,19 +1125,49 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
   const handleInteraction = (clientX) => {
     if (!containerRef.current || points.length < 2) return;
     const rect = containerRef.current.getBoundingClientRect();
-    const xPct = ((clientX - rect.left) / rect.width) * 100;
+    const xPct = Math.max(0, Math.min(100, ((clientX - rect.left) / rect.width) * 100));
 
-    let closest = points[0];
+    let closestIdx = 0;
     let minDiff = Math.abs(points[0].x - xPct);
 
     for (let i = 1; i < points.length; i++) {
       const diff = Math.abs(points[i].x - xPct);
       if (diff < minDiff) {
         minDiff = diff;
-        closest = points[i];
+        closestIdx = i;
       }
     }
-    setHoverData(closest);
+    setHoverData(points[closestIdx]);
+    setFocusedIndex(closestIdx);
+  };
+
+  const handleKeyDown = (e) => {
+    if (points.length < 2) return;
+    const currentIdx = focusedIndex !== null ? focusedIndex : points.length - 1;
+
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const nextIdx = Math.min(points.length - 1, currentIdx + 1);
+      setFocusedIndex(nextIdx);
+      setHoverData(points[nextIdx]);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prevIdx = Math.max(0, currentIdx - 1);
+      setFocusedIndex(prevIdx);
+      setHoverData(points[prevIdx]);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setFocusedIndex(0);
+      setHoverData(points[0]);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      const lastIdx = points.length - 1;
+      setFocusedIndex(lastIdx);
+      setHoverData(points[lastIdx]);
+    } else if (e.key === 'Escape') {
+      setHoverData(null);
+      setFocusedIndex(null);
+    }
   };
 
   if (!trades || trades.length < 2) {
@@ -1147,15 +1178,15 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
     );
   }
 
-  const activePoint = hoverData || points[points.length - 1];
+  const activePoint = hoverData || (focusedIndex !== null ? points[focusedIndex] : points[points.length - 1]);
 
   return (
-    <div className="flex flex-col gap-2 w-full select-none">
+    <div className="flex flex-col gap-2.5 w-full select-none">
       {/* Static Non-Obscuring Metric Header Bar Above Chart Frame */}
       <div className="flex items-center justify-between gap-3 px-1 flex-wrap text-xs font-mono">
         <div className="flex items-center gap-2.5 flex-wrap">
-          <span className="text-[10px] text-dim/70 uppercase tracking-wider font-sans font-bold">
-            {hoverData ? `Trade #${hoverData.tradeIndex} (${hoverData.symbol})` : 'Current Strategy Totals'}
+          <span className="text-[10px] text-dim/80 uppercase tracking-wider font-sans font-bold bg-surface/50 border border-border/30 px-2 py-0.5 rounded-lg">
+            {hoverData || focusedIndex !== null ? `Trade #${activePoint?.tradeIndex} (${activePoint?.symbol})` : 'Strategy Totals'}
           </span>
           {showPnl && (
             <span className={cn("font-bold text-xs font-mono", (activePoint?.cumPnl || 0) >= 0 ? "text-green" : "text-red")}>
@@ -1184,27 +1215,73 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
           )}
         </div>
 
-        <div className="flex items-center gap-2.5 text-[8.5px] font-mono text-dim/60 flex-wrap">
-          {showPnl && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL ($)</span>}
-          {showHitRate && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate (%)</span>}
-          {showPf && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-purple rounded-full inline-block" /> Profit Factor</span>}
-          {showSharpe && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-amber rounded-full inline-block" /> Sharpe</span>}
-          {showSortino && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-cyan-400 rounded-full inline-block" /> Sortino</span>}
+        {/* Interactive Legend Toggles with A11Y Keyboard Accessibility */}
+        <div className="flex items-center gap-2 text-[9px] font-mono text-dim/70 flex-wrap">
+          {onToggleSeries ? (
+            <>
+              <button
+                type="button"
+                onClick={() => onToggleSeries('pnl')}
+                aria-pressed={showPnl}
+                aria-label="Toggle PnL series"
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                  showPnl ? "bg-green/10 border-green/30 text-green font-bold" : "bg-surface/30 border-border/20 text-dim/50 hover:text-text"
+                )}
+              >
+                <span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL ($)
+              </button>
+              <button
+                type="button"
+                onClick={() => onToggleSeries('hitRate')}
+                aria-pressed={showHitRate}
+                aria-label="Toggle Hit Rate series"
+                className={cn(
+                  "flex items-center gap-1.5 px-2 py-0.5 rounded border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                  showHitRate ? "bg-accent/10 border-accent/30 text-accent font-bold" : "bg-surface/30 border-border/20 text-dim/50 hover:text-text"
+                )}
+              >
+                <span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate (%)
+              </button>
+            </>
+          ) : (
+            <>
+              {showPnl && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-green rounded-full inline-block" /> PnL ($)</span>}
+              {showHitRate && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-accent rounded-full inline-block" /> Hit Rate (%)</span>}
+              {showPf && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-purple rounded-full inline-block" /> Profit Factor</span>}
+              {showSharpe && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-amber rounded-full inline-block" /> Sharpe</span>}
+              {showSortino && <span className="flex items-center gap-1.5"><span className="w-2 h-0.5 bg-cyan-400 rounded-full inline-block" /> Sortino</span>}
+            </>
+          )}
         </div>
       </div>
 
-      {/* Chart Frame */}
+      {/* Chart Frame with Dual Axes & Focus Ring */}
       <div
         ref={containerRef}
-        className="relative w-full overflow-hidden"
+        className="relative w-full overflow-hidden rounded-xl border border-border/30 bg-surface/20 p-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none tab-focus-ring"
         style={{ height: `${height}px`, touchAction: 'pan-y' }}
         onMouseMove={(e) => handleInteraction(e.clientX)}
         onTouchMove={(e) => e.touches[0] && handleInteraction(e.touches[0].clientX)}
-        onMouseLeave={() => setHoverData(null)}
+        onMouseLeave={() => { setHoverData(null); }}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
         role="region"
-        aria-label={`Strategy Performance Overlay chart, latest PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%.`}
+        aria-label={`Strategy Performance Overlay chart with ${points.length} trades. Active Trade #${activePoint?.tradeIndex}: Cumulative PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%. Use Left and Right arrow keys to step through trade points.`}
       >
-        <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
+        {/* Dual Axis Labels Overlay (Left: PnL $, Right: Hit Rate / Ratio) */}
+        <div className="absolute inset-y-2 left-2 flex flex-col justify-between text-[8px] font-mono font-bold text-dim/60 pointer-events-none z-10">
+          <span>{fmtUSD(pnlMax)}</span>
+          <span>{fmtUSD((pnlMax + pnlMin) / 2)}</span>
+          <span>{fmtUSD(pnlMin)}</span>
+        </div>
+        <div className="absolute inset-y-2 right-2 flex flex-col justify-between text-[8px] font-mono font-bold text-accent/80 text-right pointer-events-none z-10">
+          <span>{showHitRate ? `${Math.round(hrMax)}%` : `${maxRatio.toFixed(1)}R`}</span>
+          <span>{showHitRate ? `${Math.round((hrMax + hrMin) / 2)}%` : `${(maxRatio / 2).toFixed(1)}R`}</span>
+          <span>{showHitRate ? `${Math.round(hrMin)}%` : '0.0R'}</span>
+        </div>
+
+        <svg className="w-full h-full overflow-visible px-6" viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs>
             <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.18" />
@@ -1436,27 +1513,39 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
         </div>
       )}
 
-      {/* Explicit X-Axis Legend Bar Displaying Trade Numbers & Timestamps */}
+      {/* Intuitive 5-Milestone X-Axis Bar with Active Tracking Marker */}
       {points.length >= 2 && (
-        <div className="flex items-center justify-between px-1 pt-1 text-[9px] font-mono text-dim/70 border-t border-border/20">
-          <div className="flex items-center gap-1">
-            <span className="font-bold text-text">#{points[0].tradeIndex}</span>
-            {points[0].ts > 0 && (
-              <span>({new Date(points[0].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="font-bold text-text">#{points[Math.floor(points.length / 2)].tradeIndex}</span>
-            {points[Math.floor(points.length / 2)].ts > 0 && (
-              <span>({new Date(points[Math.floor(points.length / 2)].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="font-bold text-text">#{points[points.length - 1].tradeIndex}</span>
-            {points[points.length - 1].ts > 0 && (
-              <span>({new Date(points[points.length - 1].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
-            )}
-          </div>
+        <div className="flex items-center justify-between px-2 pt-1.5 text-[8.5px] font-mono text-dim/70 border-t border-border/20 relative">
+          {[0, 0.25, 0.5, 0.75, 1.0].map((fraction, idx) => {
+            const ptIdx = Math.min(points.length - 1, Math.floor(fraction * (points.length - 1)));
+            const pt = points[ptIdx];
+            if (!pt) return null;
+            const isFirst = idx === 0;
+            const isLast = idx === 4;
+            const isActive = activePoint?.tradeIndex === pt.tradeIndex;
+
+            return (
+              <div
+                key={idx}
+                className={cn(
+                  "flex flex-col gap-0.5 transition-colors duration-150",
+                  isFirst && "items-start text-left",
+                  isLast && "items-end text-right",
+                  !isFirst && !isLast && "items-center text-center",
+                  isActive ? "text-accent font-black" : "text-dim/70"
+                )}
+              >
+                <span className={cn("font-bold text-[9px]", isActive ? "text-accent" : "text-text/80")}>
+                  #{pt.tradeIndex}
+                </span>
+                {pt.ts > 0 && (
+                  <span className="text-[7.5px] text-dim/60 font-medium">
+                    {new Date(pt.ts).toLocaleDateString([], { month: 'numeric', day: 'numeric' })} {new Date(pt.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

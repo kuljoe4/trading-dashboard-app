@@ -248,8 +248,10 @@ export class PositionTrackerService {
     // Check trade.exit_signals_status which was populated by checkExitSignals above
     if (!trade.exit_signals_status) return false;
 
-    for (const [key, status] of Object.entries(trade.exit_signals_status)) {
-      const sigStatus = status as any;
+    // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
+    for (const key in trade.exit_signals_status) {
+      if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+      const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
       if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
         let signalPnl = 0;
         if (trade.direction === 'LONG') {
@@ -570,11 +572,22 @@ export class PositionTrackerService {
 
     if (exitTriggered) {
       // DYNAMIC MULTI-LAYER ACTIONS: Check if any of the active fired signals trigger a 'close' vs 'lock_sl'
+      // BOLT OPTIMIZATION: Single-pass for...in traversal to accumulate keys and check close action without array allocations
       const actions = config.exit_signal_actions || {};
       const statusMap = trade.exit_signals_status || {};
-      const firedActiveKeys = Object.keys(statusMap).filter(k => statusMap[k].fired && statusMap[k].active);
+      const firedActiveKeys: string[] = [];
+      let hasCloseAction = false;
 
-      const hasCloseAction = firedActiveKeys.some(k => !actions[k] || actions[k] === 'close');
+      for (const k in statusMap) {
+        if (!Object.prototype.hasOwnProperty.call(statusMap, k)) continue;
+        const status = statusMap[k];
+        if (status && status.fired && status.active) {
+          firedActiveKeys.push(k);
+          if (!actions[k] || actions[k] === 'close') {
+            hasCloseAction = true;
+          }
+        }
+      }
 
       if (hasCloseAction || config.exit_signal_logic === 'all' || config.exit_signal_logic === 'combo') {
         trade.exit_signal_type = exitSignalType;
@@ -795,9 +808,11 @@ export class PositionTrackerService {
       let maxEstPnl = ratchetPnl;
 
       // 2. Evaluate PnL from active exit signals / target thresholds
+      // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
       if (trade.exit_signals_status) {
-        for (const [key, status] of Object.entries(trade.exit_signals_status)) {
-          const sigStatus = status as any;
+        for (const key in trade.exit_signals_status) {
+          if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+          const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
           if (!sigStatus) continue;
           const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
           if (isDelayActive) continue;

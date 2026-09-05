@@ -1513,27 +1513,39 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 240, sho
         </div>
       )}
 
-      {/* Explicit X-Axis Legend Bar Displaying Trade Numbers & Timestamps */}
+      {/* Intuitive 5-Milestone X-Axis Bar with Active Tracking Marker */}
       {points.length >= 2 && (
-        <div className="flex items-center justify-between px-1 pt-1 text-[9px] font-mono text-dim/70 border-t border-border/20">
-          <div className="flex items-center gap-1">
-            <span className="font-bold text-text">#{points[0].tradeIndex}</span>
-            {points[0].ts > 0 && (
-              <span>({new Date(points[0].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="font-bold text-text">#{points[Math.floor(points.length / 2)].tradeIndex}</span>
-            {points[Math.floor(points.length / 2)].ts > 0 && (
-              <span>({new Date(points[Math.floor(points.length / 2)].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
-            )}
-          </div>
-          <div className="flex items-center gap-1">
-            <span className="font-bold text-text">#{points[points.length - 1].tradeIndex}</span>
-            {points[points.length - 1].ts > 0 && (
-              <span>({new Date(points[points.length - 1].ts).toLocaleTimeString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
-            )}
-          </div>
+        <div className="flex items-center justify-between px-2 pt-1.5 text-[8.5px] font-mono text-dim/70 border-t border-border/20 relative">
+          {[0, 0.25, 0.5, 0.75, 1.0].map((fraction, idx) => {
+            const ptIdx = Math.min(points.length - 1, Math.floor(fraction * (points.length - 1)));
+            const pt = points[ptIdx];
+            if (!pt) return null;
+            const isFirst = idx === 0;
+            const isLast = idx === 4;
+            const isActive = activePoint?.tradeIndex === pt.tradeIndex;
+
+            return (
+              <div
+                key={idx}
+                className={cn(
+                  "flex flex-col gap-0.5 transition-colors duration-150",
+                  isFirst && "items-start text-left",
+                  isLast && "items-end text-right",
+                  !isFirst && !isLast && "items-center text-center",
+                  isActive ? "text-accent font-black" : "text-dim/70"
+                )}
+              >
+                <span className={cn("font-bold text-[9px]", isActive ? "text-accent" : "text-text/80")}>
+                  #{pt.tradeIndex}
+                </span>
+                {pt.ts > 0 && (
+                  <span className="text-[7.5px] text-dim/60 font-medium">
+                    {new Date(pt.ts).toLocaleDateString([], { month: 'numeric', day: 'numeric' })} {new Date(pt.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

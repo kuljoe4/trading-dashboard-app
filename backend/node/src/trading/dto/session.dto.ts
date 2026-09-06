@@ -12,6 +12,7 @@ import {
   MaxLength,
   Matches,
   Min,
+  Max,
 } from "class-validator";
 import { Type } from "class-transformer";
 import { SessionConfig } from "../../models/SessionConfig";
@@ -90,12 +91,16 @@ export class UpdateTradeConfigDto {
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
+  @Min(0, { each: true, message: "live_rr_sequence elements must be non-negative" })
+  @Max(100, { each: true, message: "live_rr_sequence elements cannot exceed 100" })
   @ArrayMaxSize(10, { message: "live_rr_sequence cannot exceed 10 elements" })
   live_rr_sequence?: number[];
 
   @IsOptional()
   @IsArray()
   @IsNumber({}, { each: true })
+  @Min(0, { each: true, message: "exit_rr_sequence elements must be non-negative" })
+  @Max(100, { each: true, message: "exit_rr_sequence elements cannot exceed 100" })
   @ArrayMaxSize(10, { message: "exit_rr_sequence cannot exceed 10 elements" })
   exit_rr_sequence?: number[];
 

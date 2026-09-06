@@ -71,7 +71,7 @@ export class RunBacktestDto {
   @IsString({ each: true })
   @ArrayMaxSize(50, { message: 'symbols array cannot exceed 50 items' })
   @MaxLength(20, { each: true, message: 'Symbol cannot exceed 20 characters' })
-  @Matches(/^[a-zA-Z0-9_\-]*$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens' })
+  @Matches(/^[a-zA-Z0-9_\-]{3,20}$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens and be at least 3 characters long' })
   symbols?: string[];
 
   @IsOptional()

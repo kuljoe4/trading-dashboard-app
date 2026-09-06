@@ -1,10 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
 import { SessionController } from '../trading/session.controller';
 import { SessionService } from '../trading/session.service';
-import { BacktestService } from '../engine/backtest.service';
-import { SmartOptimizerService } from '../engine/smart-optimizer.service';
+import { BacktestService, RunBacktestDto } from '../engine/backtest.service';
+import { SmartOptimizerService, RunOptimizationDto } from '../engine/smart-optimizer.service';
 import { ConfigService } from '@nestjs/config';
+import { UpdateTradeConfigDto } from '../trading/dto/session.dto';
 
 describe('Sentinel: Parameter and Query Input Hardening', () => {
   let controller: SessionController;
@@ -281,6 +284,78 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       await expect(controller.runSmartOptimization(invalidPayload as any)).rejects.toThrow(
         BadRequestException
       );
+    });
+  });
+
+  describe('UpdateTradeConfigDto Sequence Element Bounds Validation', () => {
+    it('should accept valid non-negative sequence elements <= 100', async () => {
+      const dto = plainToInstance(UpdateTradeConfigDto, {
+        live_rr_sequence: [1.0, 2.5, 5.0],
+        exit_rr_sequence: [0.0, 1.5, 3.0],
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
+    it('should reject negative numbers in live_rr_sequence or exit_rr_sequence', async () => {
+      const dto = plainToInstance(UpdateTradeConfigDto, {
+        live_rr_sequence: [-1.0, 2.5],
+        exit_rr_sequence: [0.0, -0.5],
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      const liveErr = errors.find((e) => e.property === 'live_rr_sequence');
+      const exitErr = errors.find((e) => e.property === 'exit_rr_sequence');
+      expect(liveErr?.constraints?.min).toBeDefined();
+      expect(exitErr?.constraints?.min).toBeDefined();
+    });
+
+    it('should reject numbers exceeding 100 in live_rr_sequence or exit_rr_sequence', async () => {
+      const dto = plainToInstance(UpdateTradeConfigDto, {
+        live_rr_sequence: [100.5],
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      const liveErr = errors.find((e) => e.property === 'live_rr_sequence');
+      expect(liveErr?.constraints?.max).toBeDefined();
+    });
+  });
+
+  describe('RunBacktestDto & RunOptimizationDto Symbol Length Gating', () => {
+    it('should accept valid symbol strings with length >= 3', async () => {
+      const backtestDto = plainToInstance(RunBacktestDto, {
+        symbols: ['BTCUSDT', 'ETHUSDT'],
+      });
+      const optDto = plainToInstance(RunOptimizationDto, {
+        symbols: ['SOLUSDT', 'BNBUSDT'],
+      });
+
+      const backtestErrors = await validate(backtestDto);
+      const optErrors = await validate(optDto);
+
+      expect(backtestErrors.length).toBe(0);
+      expect(optErrors.length).toBe(0);
+    });
+
+    it('should reject empty or sub-3 character symbols in symbols array', async () => {
+      const backtestDto = plainToInstance(RunBacktestDto, {
+        symbols: ['BT', ''],
+      });
+      const optDto = plainToInstance(RunOptimizationDto, {
+        symbols: ['A', '12'],
+      });
+
+      const backtestErrors = await validate(backtestDto);
+      const optErrors = await validate(optDto);
+
+      expect(backtestErrors.length).toBeGreaterThan(0);
+      expect(optErrors.length).toBeGreaterThan(0);
+
+      const bErr = backtestErrors.find((e) => e.property === 'symbols');
+      const oErr = optErrors.find((e) => e.property === 'symbols');
+
+      expect(bErr?.constraints?.matches).toBeDefined();
+      expect(oErr?.constraints?.matches).toBeDefined();
     });
   });
 });

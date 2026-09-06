@@ -2378,6 +2378,14 @@ export class SessionService implements OnModuleInit {
       }
       engineTrade.strategy_config = strategyConfig;
 
+      // Trigger immediate trailing stop evaluation for instant live trade updates
+      const currentPrice = this.tickerCache.getPrice(engineTrade.symbol) || engineTrade.mark_price || engineTrade.last_price;
+      if (currentPrice && currentPrice > 0) {
+        this.tradingSessionService.positionTracker.checkTrailingStop(engineTrade.symbol, currentPrice, strategyConfig as any).catch(err => {
+          this.logger.warn(`Immediate checkTrailingStop failed for ${engineTrade.symbol}: ${err.message}`);
+        });
+      }
+
       // Seed update to WS clients & memory loops
       this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade: engineTrade });
     }

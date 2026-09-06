@@ -1370,6 +1370,18 @@ export class TradingSessionService implements OnApplicationShutdown {
       config,
     );
   }
+
+  async checkTrailingStop(
+    symbol: string,
+    currentPrice: number,
+    config: SessionConfig,
+  ): Promise<void> {
+    return this.positionTracker.checkTrailingStop(
+      symbol,
+      currentPrice,
+      config,
+    );
+  }
   getBinanceRateLimit() {
     return this.sessionState.getBinanceRateLimit();
   }

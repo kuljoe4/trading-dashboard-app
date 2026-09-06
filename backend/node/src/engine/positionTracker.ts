@@ -1033,13 +1033,16 @@ export class PositionTrackerService {
       : currentPrice >= newSl;
 
     if (isBreached) {
-      const prevSl = trade.current_sl;
-      if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
-        trade.current_sl = newSl;
-        trade.updated_at = new Date();
-        this.logSlAdjustment(trade, prevSl, newSl, -4, false);
+      const isPaper = activeConfig.paper_mode ?? true;
+      if (isPaper) {
+        const prevSl = trade.current_sl;
+        if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
+          trade.current_sl = newSl;
+          trade.updated_at = new Date();
+          this.logSlAdjustment(trade, prevSl, newSl, -4, false);
+        }
       }
-      this.logger.log(`[Knife Engine] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Exit pending.`);
+      this.logger.log(`[Knife Engine] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}, PaperMode: ${isPaper}). Exit pending.`);
       return;
     }
 
@@ -1163,14 +1166,17 @@ export class PositionTrackerService {
       : currentPrice >= newSl;
 
     if (isBreached) {
-      // Trailing SL breached! Directly update trade.current_sl to newSl without capping by trailing guard buffer
-      const prevSl = trade.current_sl;
-      if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
-        trade.current_sl = newSl;
-        trade.updated_at = new Date();
-        this.logSlAdjustment(trade, prevSl, newSl, -2, false);
+      // Trailing SL breached! Directly update trade.current_sl to newSl without capping by trailing guard buffer in paper mode
+      const isPaper = activeConfig.paper_mode ?? true;
+      if (isPaper) {
+        const prevSl = trade.current_sl;
+        if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
+          trade.current_sl = newSl;
+          trade.updated_at = new Date();
+          this.logSlAdjustment(trade, prevSl, newSl, -2, false);
+        }
       }
-      this.logger.log(`[TrailingStop] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Exit pending.`);
+      this.logger.log(`[TrailingStop] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}, PaperMode: ${isPaper}). Exit pending.`);
       return;
     }
 

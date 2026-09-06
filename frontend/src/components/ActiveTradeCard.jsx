@@ -455,6 +455,18 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               )}
               style={{ width: `${progress}%` }}
             />
+
+          {/* Live Mark Price Pointer Node */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 -ml-1 z-30 pointer-events-none transition-all duration-300 flex items-center justify-center"
+            style={{ left: `${progress}%` }}
+            aria-hidden="true"
+          >
+            <div className={cn(
+              "w-2.5 h-2.5 rounded-full border-2 border-white shadow-[0_0_8px_rgba(255,255,255,0.9)] transition-all duration-300",
+              trade.pnl >= 0 ? "bg-[#00e5a0] shadow-[#00e5a0]" : "bg-[#ff2a55] shadow-[#ff2a55]"
+            )} />
+          </div>
           </div>
 
           {/* Overlaid Tactical Map Indicators */}
@@ -516,6 +528,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                     🛡️ TRAIL
                   </div>
                   <div className="flex-1 w-0.5 bg-purple shadow-[0_0_8px_#a855f7]" />
+                  <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-purple -mt-0.5 shadow-[0_0_4px_#a855f7]" />
                 </div>
               </Tooltip>
             );

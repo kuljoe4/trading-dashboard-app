@@ -1860,28 +1860,33 @@ export function DashboardView({ initialStrategy }) {
   // BOLT OPTIMIZATION: Loop-fused single-pass traversal (no intermediate array allocations)
   // Combines activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, and maxRR
   // to avoid redundant iterations and eliminate callback closure allocations on high-frequency ticks.
-  const { netFunding, netComm } = useMemo(() => {
-    if (stats?.totalFundingFee !== undefined && stats?.totalFundingFee !== 0 &&
-        stats?.totalRealizedFee !== undefined && stats?.totalRealizedFee !== 0) {
-      return { netFunding: stats.totalFundingFee, netComm: stats.totalRealizedFee };
-    }
-
+  const { netFunding, netComm, lastFundingFee, lastRealizedFee } = useMemo(() => {
     let feeSum = stats?.totalRealizedFee || 0;
     let fundingSum = stats?.totalFundingFee || 0;
+    let lastFunding = null;
+    let lastFee = null;
 
     const hist = tradeHistory || [];
     for (let i = 0; i < hist.length; i++) {
-      feeSum += Number(hist[i].realized_fee) || 0;
-      fundingSum += Number(hist[i].funding_fee) || 0;
+      const rf = Number(hist[i].realized_fee) || 0;
+      const ff = Number(hist[i].funding_fee) || 0;
+      if (rf !== 0 && lastFee === null) lastFee = rf;
+      if (ff !== 0 && lastFunding === null) lastFunding = ff;
+      if (stats?.totalFundingFee === undefined) fundingSum += ff;
+      if (stats?.totalRealizedFee === undefined) feeSum += rf;
     }
 
     const active = activeTrades || [];
     for (let i = 0; i < active.length; i++) {
-      feeSum += Number(active[i].realized_fee) || 0;
-      fundingSum += Number(active[i].funding_fee) || 0;
+      const rf = Number(active[i].realized_fee) || 0;
+      const ff = Number(active[i].funding_fee) || 0;
+      if (rf !== 0 && lastFee === null) lastFee = rf;
+      if (ff !== 0 && lastFunding === null) lastFunding = ff;
+      if (stats?.totalFundingFee === undefined) fundingSum += ff;
+      if (stats?.totalRealizedFee === undefined) feeSum += rf;
     }
 
-    return { netFunding: fundingSum, netComm: feeSum };
+    return { netFunding: fundingSum, netComm: feeSum, lastFundingFee: lastFunding, lastRealizedFee: lastFee };
   }, [stats?.totalFundingFee, stats?.totalRealizedFee, tradeHistory, activeTrades]);
 
   const stratMetricsMap = useMemo(() => {
@@ -2521,9 +2526,23 @@ export function DashboardView({ initialStrategy }) {
                         </div>
                       )}
                       <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
-                        <span>Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} <span className="opacity-80">({fundPct.toFixed(2)}%)</span></span></span>
+                        <span title={lastFundingFee !== null ? `Latest funding fee entry: ${fmtUSD(-lastFundingFee)}` : 'Accumulated Net Funding Fee'}>
+                          Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} <span className="opacity-80">({fundPct.toFixed(2)}%)</span></span>
+                          {lastFundingFee !== null && lastFundingFee !== 0 && (
+                            <span className={cn("ml-1 px-1 py-0.2 rounded text-[7.5px] font-mono font-bold", lastFundingFee < 0 ? "bg-green/15 text-green" : "bg-red/15 text-red")}>
+                              {lastFundingFee < 0 ? '+' : ''}{fmtUSD(-lastFundingFee)}
+                            </span>
+                          )}
+                        </span>
                         <span>•</span>
-                        <span>Fee: <span className="text-red/80">{fmtUSD(-netComm)} <span className="opacity-80">({commPct.toFixed(2)}%)</span></span></span>
+                        <span title={lastRealizedFee !== null ? `Latest trade commission entry: ${fmtUSD(-lastRealizedFee)}` : 'Accumulated Commission'}>
+                          Fee: <span className="text-red/80">{fmtUSD(-netComm)} <span className="opacity-80">({commPct.toFixed(2)}%)</span></span>
+                          {lastRealizedFee !== null && lastRealizedFee !== 0 && (
+                            <span className="ml-1 px-1 py-0.2 rounded text-[7.5px] font-mono font-bold bg-red/15 text-red">
+                              {fmtUSD(-lastRealizedFee)}
+                            </span>
+                          )}
+                        </span>
                         {lastUdsBalanceReason && (
                           <>
                             <span>•</span>

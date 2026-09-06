@@ -459,11 +459,11 @@ export class PositionTrackerService {
            this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
         }
       } else {
-        // Check if current SL is ALREADY at or beyond target SL for this milestone
+        // Check if current SL is ALREADY at or beyond target SL for this milestone (or at max exchange tick precision newSl)
         const targetDelta = trade.entry_price * 0.0001;
         const isSlAtOrBeyondTarget = trade.direction === 'LONG'
-          ? (trade.current_sl >= targetSl - Math.max(0.00000001, targetDelta))
-          : (trade.current_sl <= targetSl + Math.max(0.00000001, targetDelta));
+          ? (trade.current_sl >= newSl || trade.current_sl >= targetSl - Math.max(0.00000001, targetDelta))
+          : (trade.current_sl <= newSl || trade.current_sl <= targetSl + Math.max(0.00000001, targetDelta));
 
         if (isSlAtOrBeyondTarget) {
           this.rrSequenceIndex.set(symbol, currentIndex);
@@ -971,6 +971,12 @@ export class PositionTrackerService {
     const reward = trade.direction === 'LONG' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
     const liveRr = reward / risk;
 
+    const oldMaxRr = Number(trade.max_rr_achieved || 0);
+    if (liveRr > oldMaxRr) {
+      trade.max_rr_achieved = liveRr;
+    }
+    const peakRr = Math.max(trade.max_rr_achieved || 0, liveRr);
+
     // High-velocity Auto-Ratchet Evaluation
     const beRr = activeConfig.knife_auto_ratchet_be_rr ?? 0.5;
     const lockRr = activeConfig.knife_auto_ratchet_lock_rr ?? 1.0;
@@ -978,29 +984,38 @@ export class PositionTrackerService {
     let targetSl = trade.current_sl;
     let ratchetReason = '';
 
-    if (liveRr >= lockRr) {
+    if (peakRr >= lockRr) {
       const lockedSl = trade.direction === 'LONG' ? trade.entry_price + (risk * 0.5) : trade.entry_price - (risk * 0.5);
-      if ((trade.direction === 'LONG' && lockedSl > targetSl) || (trade.direction === 'SHORT' && lockedSl < targetSl)) {
+      if ((trade.direction === 'LONG' && lockedSl > targetSl) || (trade.direction === 'SHORT' && (targetSl === 0 || lockedSl < targetSl))) {
         targetSl = lockedSl;
         ratchetReason = 'knife_auto_ratchet_lock_0.5R';
       }
-    } else if (liveRr >= beRr) {
+    } else if (peakRr >= beRr) {
       const beSl = trade.entry_price;
-      if ((trade.direction === 'LONG' && beSl > targetSl) || (trade.direction === 'SHORT' && beSl < targetSl)) {
+      if ((trade.direction === 'LONG' && beSl > targetSl) || (trade.direction === 'SHORT' && (targetSl === 0 || beSl < targetSl))) {
         targetSl = beSl;
         ratchetReason = 'knife_auto_ratchet_be';
       }
     }
 
     // High-frequency trailing distance evaluation
+    let peakPrice = currentPrice;
+    if (trade.direction === 'LONG') {
+      const peakFromRr = trade.entry_price + (risk * peakRr);
+      peakPrice = Math.max(currentPrice, peakFromRr);
+    } else {
+      const peakFromRr = trade.entry_price - (risk * peakRr);
+      peakPrice = Math.min(currentPrice, peakFromRr);
+    }
+
     const distancePct = activeConfig.knife_trailing_distance_pct || 0.5;
-    const distance = currentPrice * (distancePct / 100);
-    const trailSl = trade.direction === 'LONG' ? currentPrice - distance : currentPrice + distance;
+    const distance = peakPrice * (distancePct / 100);
+    const trailSl = trade.direction === 'LONG' ? peakPrice - distance : peakPrice + distance;
 
     if (trade.direction === 'LONG' && trailSl > targetSl) {
       targetSl = trailSl;
       if (!ratchetReason) ratchetReason = 'knife_trailing';
-    } else if (trade.direction === 'SHORT' && trailSl < targetSl) {
+    } else if (trade.direction === 'SHORT' && (targetSl === 0 || trailSl < targetSl)) {
       targetSl = trailSl;
       if (!ratchetReason) ratchetReason = 'knife_trailing';
     }
@@ -1013,20 +1028,41 @@ export class PositionTrackerService {
     });
     let newSl = filtered.price;
 
+    const isBreached = trade.direction === 'LONG'
+      ? currentPrice <= newSl
+      : currentPrice >= newSl;
+
+    if (isBreached) {
+      const prevSl = trade.current_sl;
+      if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
+        trade.current_sl = newSl;
+        trade.updated_at = new Date();
+        this.logSlAdjustment(trade, prevSl, newSl, -4, false);
+      }
+      this.logger.log(`[Knife Engine] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Exit pending.`);
+      return;
+    }
+
     const bufferPct = activeConfig.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
     const buffer = currentPrice * (bufferPct / 100);
     if (trade.direction === 'LONG') {
       newSl = Math.min(newSl, currentPrice - buffer);
+      if (trade.current_sl && trade.current_sl > 0 && newSl < trade.current_sl) {
+        newSl = trade.current_sl;
+      }
     } else {
       newSl = Math.max(newSl, currentPrice + buffer);
+      if (trade.current_sl && trade.current_sl > 0 && newSl > trade.current_sl) {
+        newSl = trade.current_sl;
+      }
     }
 
     const minDelta = trade.entry_price * 0.0001;
     let shouldUpdate = false;
     if (trade.direction === 'LONG') {
-      shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+      shouldUpdate = newSl > (trade.current_sl || 0) + Math.max(0.00000001, minDelta);
     } else {
-      shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+      shouldUpdate = !trade.current_sl || newSl < trade.current_sl - Math.max(0.00000001, minDelta);
     }
 
     if (shouldUpdate && !this.orderManager.isRatcheting(symbol)) {
@@ -1055,40 +1091,59 @@ export class PositionTrackerService {
       return;
     }
 
-    if (!config.trailing_stop_enabled) return;
+    const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+    const trailingEnabled = activeConfig.trailing_stop_enabled === true || activeConfig.sl_type === 'trailing';
+    if (!trailingEnabled) return;
 
-    // Trailing Activation R:R Threshold Check
-    if (config.trailing_activation_rr && config.trailing_activation_rr > 0) {
-      const risk = Math.abs(trade.entry_price - trade.initial_sl);
-      if (risk > 0) {
-        const reward = trade.direction === 'LONG' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
-        const liveRr = reward / risk;
-        if (liveRr < config.trailing_activation_rr) {
-          return;
-        }
+    const risk = Math.abs(trade.entry_price - trade.initial_sl);
+    const reward = trade.direction === 'LONG' ? currentPrice - trade.entry_price : trade.entry_price - currentPrice;
+    const liveRr = risk > 0 ? reward / risk : 0;
+
+    // Keep peak R:R updated
+    const oldMaxRr = Number(trade.max_rr_achieved || 0);
+    if (liveRr > oldMaxRr) {
+      trade.max_rr_achieved = liveRr;
+    }
+    const peakRr = Math.max(trade.max_rr_achieved || 0, liveRr);
+
+    // Trailing Activation R:R Threshold Check against peakRr so activation stays latched
+    if (activeConfig.trailing_activation_rr && activeConfig.trailing_activation_rr > 0) {
+      if (risk > 0 && peakRr < activeConfig.trailing_activation_rr) {
+        return;
+      }
+    }
+
+    // Determine Peak Price for trailing calculation
+    let peakPrice = currentPrice;
+    if (risk > 0) {
+      if (trade.direction === 'LONG') {
+        const peakFromRr = trade.entry_price + (risk * peakRr);
+        peakPrice = Math.max(currentPrice, peakFromRr);
+      } else {
+        const peakFromRr = trade.entry_price - (risk * peakRr);
+        peakPrice = Math.min(currentPrice, peakFromRr);
       }
     }
 
     let distance = 0;
-    if (config.trailing_stop_type === 'rr') {
-      const initialRisk = Math.abs(trade.entry_price - trade.initial_sl);
-      const rr = config.trailing_stop_rr || 1.0;
-      if (initialRisk > 0) {
-        distance = initialRisk * rr;
+    if (activeConfig.trailing_stop_type === 'rr') {
+      const rr = activeConfig.trailing_stop_rr || 1.0;
+      if (risk > 0) {
+        distance = risk * rr;
       } else {
-        const distancePct = config.trailing_stop_distance_pct || 1.0;
-        distance = trade.entry_price * (distancePct / 100);
+        const distancePct = activeConfig.trailing_stop_distance_pct || 1.0;
+        distance = peakPrice * (distancePct / 100);
       }
     } else {
-      const distancePct = config.trailing_stop_distance_pct || 1.0;
-      distance = trade.entry_price * (distancePct / 100);
+      const distancePct = activeConfig.trailing_stop_distance_pct || 1.0;
+      distance = peakPrice * (distancePct / 100);
     }
 
     let prospectiveSl: number;
     if (trade.direction === 'LONG') {
-      prospectiveSl = currentPrice - distance;
+      prospectiveSl = peakPrice - distance;
     } else {
-      prospectiveSl = currentPrice + distance;
+      prospectiveSl = peakPrice + distance;
     }
 
     if (isNaN(prospectiveSl) || !isFinite(prospectiveSl) || prospectiveSl <= 0) {
@@ -1102,22 +1157,45 @@ export class PositionTrackerService {
     });
     let newSl = filtered.price;
 
-    const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+    // Check if market price has breached prospective SL (or current_sl)
+    const isBreached = trade.direction === 'LONG'
+      ? currentPrice <= newSl
+      : currentPrice >= newSl;
+
+    if (isBreached) {
+      // Trailing SL breached! Directly update trade.current_sl to newSl without capping by trailing guard buffer
+      const prevSl = trade.current_sl;
+      if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
+        trade.current_sl = newSl;
+        trade.updated_at = new Date();
+        this.logSlAdjustment(trade, prevSl, newSl, -2, false);
+      }
+      this.logger.log(`[TrailingStop] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Exit pending.`);
+      return;
+    }
+
+    const bufferPct = activeConfig.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
     const buffer = currentPrice * (bufferPct / 100);
 
     if (trade.direction === 'LONG') {
       newSl = Math.min(newSl, currentPrice - buffer);
+      if (trade.current_sl && trade.current_sl > 0 && newSl < trade.current_sl) {
+        newSl = trade.current_sl;
+      }
     } else {
       newSl = Math.max(newSl, currentPrice + buffer);
+      if (trade.current_sl && trade.current_sl > 0 && newSl > trade.current_sl) {
+        newSl = trade.current_sl;
+      }
     }
 
     const minDelta = trade.entry_price * 0.0001;
     let shouldUpdate = false;
 
     if (trade.direction === 'LONG') {
-      shouldUpdate = newSl > trade.current_sl + Math.max(0.00000001, minDelta);
+      shouldUpdate = newSl > (trade.current_sl || 0) + Math.max(0.00000001, minDelta);
     } else {
-      shouldUpdate = newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+      shouldUpdate = !trade.current_sl || newSl < trade.current_sl - Math.max(0.00000001, minDelta);
     }
 
     if (shouldUpdate) {
@@ -1130,7 +1208,7 @@ export class PositionTrackerService {
         const finalSl = updateRes.price || newSl;
         trade.current_sl = finalSl;
         trade.updated_at = new Date();
-        this.refreshTradeRisk(trade, false, currentPrice, config);
+        this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
         this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }

@@ -49,13 +49,18 @@ export class RiskEngineService {
     const strategyLabel = config.strategy_label || 'Momentum Strategy';
     const isBaseStrategy = strategyLabel === 'Momentum Strategy';
 
-    // BOLT OPTIMIZATION: Fused loop to compute strategy trade metrics without intermediate .filter() arrays
+    // BOLT OPTIMIZATION: Fused loop to compute strategy trade metrics and active knife count without intermediate .filter() arrays
     let activeTradesCountForStrategy = 0;
     let symbolTradeCount = 0;
     let totalSlUsedForStrategy = 0;
+    let activeKnifeCount = 0;
 
     for (let i = 0; i < activeTrades.length; i++) {
       const t = activeTrades[i];
+      if (t.is_knife && t.status === 'OPEN') {
+        activeKnifeCount++;
+      }
+
       const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
       const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
 
@@ -81,7 +86,6 @@ export class RiskEngineService {
     }
 
     // Check if gated knife trade bypass applies: when allow_knife_when_gated is active and 0 active knife trades exist
-    const activeKnifeCount = activeTrades.filter(t => t.is_knife && t.status === 'OPEN').length;
     const isKnifeGatedBypass = (config.allow_knife_when_gated ?? false) && activeKnifeCount === 0;
 
     // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)

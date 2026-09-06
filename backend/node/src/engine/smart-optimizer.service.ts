@@ -62,7 +62,7 @@ export class RunOptimizationDto {
   @IsString({ each: true })
   @ArrayMaxSize(20)
   @MaxLength(20, { each: true })
-  @Matches(/^[a-zA-Z0-9_\-]*$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens' })
+  @Matches(/^[a-zA-Z0-9_\-]{3,20}$/, { each: true, message: 'Symbols must contain only alphanumeric characters, underscores, or hyphens and be at least 3 characters long' })
   symbols?: string[];
 
   @IsOptional()

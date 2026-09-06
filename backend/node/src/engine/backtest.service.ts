@@ -224,18 +224,17 @@ export class BacktestService {
 
           // 3. Trailing Ratchet SL logic & Peak RR calculation
           if (!closed) {
-            const currentPnl = pos.direction === 'LONG'
-              ? (currentCandle.close - pos.entry_price) * pos.qty
-              : (pos.entry_price - currentCandle.close) * pos.qty;
-
+            const candleExtremeReward = pos.direction === 'LONG'
+              ? currentCandle.high - pos.entry_price
+              : pos.entry_price - currentCandle.low;
             const slDist = Math.abs(pos.entry_price - pos.initial_sl);
-            const currentRr = slDist > 0 ? (currentPnl / pos.risk_usdt) : 0;
-            if (currentRr > pos.peak_rr) pos.peak_rr = currentRr;
+            const extremeRr = slDist > 0 ? (candleExtremeReward / slDist) : 0;
+            if (extremeRr > pos.peak_rr) pos.peak_rr = extremeRr;
 
             // Dynamic Trailing Stop Loss
             const trailingEnabled = pos.is_knife
               ? config.knife_trailing_enabled !== false
-              : config.trailing_stop_enabled === true;
+              : (config.trailing_stop_enabled === true || config.sl_type === 'trailing');
             const trailingDistancePct = pos.is_knife
               ? (config.knife_trailing_distance_pct ?? 0.5)
               : (config.trailing_stop_distance_pct ?? 1.0);
@@ -247,25 +246,27 @@ export class BacktestService {
 
               if (activationRr > 0 && !pos.is_knife) {
                 if (initialRisk > 0) {
-                  const currentReward = pos.direction === 'LONG'
-                    ? currentCandle.close - pos.entry_price
-                    : pos.entry_price - currentCandle.close;
-                  activationMet = (currentReward / initialRisk) >= activationRr;
+                  activationMet = pos.peak_rr >= activationRr;
                 }
               }
 
               if (activationMet) {
                 let trailSl = pos.current_sl;
 
+                const peakPrice = pos.direction === 'LONG'
+                  ? (initialRisk > 0 ? Math.max(currentCandle.high, pos.entry_price + initialRisk * pos.peak_rr) : currentCandle.high)
+                  : (initialRisk > 0 ? Math.min(currentCandle.low, pos.entry_price - initialRisk * pos.peak_rr) : currentCandle.low);
+
                 if (!pos.is_knife && config.trailing_stop_type === 'rr' && initialRisk > 0) {
                   const rrDist = initialRisk * (config.trailing_stop_rr || 1.0);
                   trailSl = pos.direction === 'LONG'
-                    ? currentCandle.high - rrDist
-                    : currentCandle.low + rrDist;
+                    ? peakPrice - rrDist
+                    : peakPrice + rrDist;
                 } else if (trailingDistancePct > 0) {
+                  const dist = peakPrice * (trailingDistancePct / 100);
                   trailSl = pos.direction === 'LONG'
-                    ? currentCandle.high * (1 - trailingDistancePct / 100)
-                    : currentCandle.low * (1 + trailingDistancePct / 100);
+                    ? peakPrice - dist
+                    : peakPrice + dist;
                 }
 
                 if (pos.direction === 'LONG') {

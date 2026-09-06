@@ -1682,12 +1682,12 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
         aria-label={`Strategy Performance Overlay chart with ${points.length} points. Active Trade #${activePoint?.tradeIndex}: Cumulative PnL ${fmtUSD(activePoint?.cumPnl)}, Hit Rate ${Number(activePoint?.hitRate || 0).toFixed(1)}%. Use Left and Right arrow keys to step through trade points.`}
       >
         {/* Dual Axis Labels Overlay */}
-        <div className="absolute inset-y-2 left-2 flex flex-col justify-between text-[8px] font-mono font-bold text-dim/60 pointer-events-none z-10">
+        <div className="absolute inset-y-2 left-1.5 flex flex-col justify-between text-[8px] font-mono font-bold text-dim/90 pointer-events-none z-10 bg-background/70 backdrop-blur-[2px] px-1 py-0.5 rounded border border-border/20 shadow-xs">
           <span>{fmtUSD(pnlMax)}</span>
           <span>{fmtUSD((pnlMax + pnlMin) / 2)}</span>
           <span>{fmtUSD(pnlMin)}</span>
         </div>
-        <div className="absolute inset-y-2 right-2 flex flex-col justify-between text-[8px] font-mono font-bold text-accent/80 text-right pointer-events-none z-10">
+        <div className="absolute inset-y-2 right-1.5 flex flex-col justify-between text-[8px] font-mono font-bold text-accent text-right pointer-events-none z-10 bg-background/70 backdrop-blur-[2px] px-1 py-0.5 rounded border border-border/20 shadow-xs">
           <span>{showHitRate ? `${Math.round(hrMax)}%` : `${maxRatio.toFixed(1)}R`}</span>
           <span>{showHitRate ? `${Math.round((hrMax + hrMin) / 2)}%` : `${(maxRatio / 2).toFixed(1)}R`}</span>
           <span>{showHitRate ? `${Math.round(hrMin)}%` : '0.0R'}</span>
@@ -1695,7 +1695,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
 
         {/* Inner SVG plot wrapper ref for exact coordinate math */}
         <div ref={plotRef} className="relative w-full h-full">
-          <svg className="w-full h-full overflow-visible px-6 pb-4" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <svg className="w-full h-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
               <linearGradient id={`${pnlGradientId}-pos`} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--color-green)" stopOpacity="0.18" />
@@ -1865,7 +1865,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
 
           {/* Perfectly Circular Crosshair Target Markers */}
           {activePoint && (
-            <div className="absolute inset-0 pointer-events-none px-6 pb-4">
+            <div className="absolute inset-0 pointer-events-none">
               {showPnl && (
                 <div
                   className="absolute w-3 h-3 -ml-1.5 -mt-1.5 rounded-full border border-surface shadow-md transition-all duration-75 flex items-center justify-center"

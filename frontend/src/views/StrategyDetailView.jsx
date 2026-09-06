@@ -100,7 +100,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     const metrics = calculatePerformanceMetrics(filtered, startingBal);
     const total = filtered.length;
 
-    const hitRate = total > 0 ? (metrics.wins / total) * 100 : 0;
+    const rawHitRate = total > 0 ? (metrics.wins / total) * 100 : 0;
+    const hitRate = Math.min(100, Math.max(0, rawHitRate));
     const overallWr = typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50;
     const hitRateRatio = overallWr > 0 ? hitRate / overallWr : 1.0;
 

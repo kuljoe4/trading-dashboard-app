@@ -1002,7 +1002,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               {config.scan_interval} · {config.scan_pct_threshold}% Move
             </span>
             {(() => {
-              const hitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
+              const rawHitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
+              const hitRate = Math.min(100, Math.max(0, rawHitRate));
               const baselineWr = typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50;
               const hitRateRatio = baselineWr > 0 ? hitRate / baselineWr : 1.0;
               const pfVal = stratMetrics ? stratMetrics.profitFactor : 0;

@@ -491,6 +491,36 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           )}
 
+          {/* Dedicated Trailing Stop Loss Flag Marker */}
+          {(trade.strategy_config?.trailing_stop_enabled || trade.strategy_config?.sl_type === 'trailing') && sl > 0 && (() => {
+            const trailingSlPos = slPos;
+            const isRrType = trade.strategy_config?.trailing_stop_type === 'rr';
+            const distanceLabel = isRrType
+              ? `${trade.strategy_config?.trailing_stop_rr || 1.0}R`
+              : `${trade.strategy_config?.trailing_stop_distance_pct || 1.0}%`;
+
+            return (
+              <Tooltip content={
+                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
+                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Active Trailing Stop Loss</div>
+                  <div className="text-dim">Trailing SL Level: <span className="text-purple-300 font-mono font-semibold">{fmtUSD(sl)}</span></div>
+                  <div className="text-dim">Trailing Distance: <span className="text-purple-300 font-mono font-semibold">{distanceLabel}</span></div>
+                  <div className="text-dim">Status: <span className="text-green font-mono font-semibold">ACTIVE (Dynamic Ratchet Engaged)</span></div>
+                </div>
+              }>
+                <div
+                  className="absolute top-0 bottom-0.5 z-25 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  style={{ left: `${trailingSlPos}%` }}
+                >
+                  <div className="px-0.5 py-0 text-[6px] font-black uppercase rounded tracking-tighter shadow-[0_0_8px_rgba(168,85,247,0.8)] mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 bg-purple text-white animate-pulse">
+                    🛡️ TRAIL
+                  </div>
+                  <div className="flex-1 w-0.5 bg-purple shadow-[0_0_8px_#a855f7]" />
+                </div>
+              </Tooltip>
+            );
+          })()}
+
           {/* Trailing Stop Activation RR Flag */}
           {trade.strategy_config?.trailing_stop_enabled && (trade.strategy_config?.trailing_activation_rr || 0) > 0 && (() => {
             const activationRr = Number(trade.strategy_config.trailing_activation_rr);

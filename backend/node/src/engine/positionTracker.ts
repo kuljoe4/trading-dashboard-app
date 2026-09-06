@@ -22,6 +22,7 @@ export class PositionTrackerService {
   private pendingRisk: Map<string, number> = new Map(); // symbol -> reserved risk amount
   private closingSymbols: Set<string> = new Set(); // symbols currently in the process of closing
   private rrSequenceIndex: Map<string, number> = new Map(); // symbol -> current milestone index
+  private dirtyTrailingSymbols: Map<string, { config: SessionConfig; lastReason: string }> = new Map();
   private _totalRisk = 0;
   private _pendingRiskTotal = 0; // BOLT: Track total pending risk in O(1)
   private _activeListCache: Trade[] | null = null;
@@ -58,11 +59,71 @@ export class PositionTrackerService {
     this.pendingRisk.clear();
     this.closingSymbols.clear();
     this.rrSequenceIndex.clear();
+    this.dirtyTrailingSymbols.clear();
     this._totalRisk = 0;
     this._pendingRiskTotal = 0;
     this.sessionState.setActiveTrades([]);
     this._activeListCache = null;
     this.logger.log('[PositionTracker] Internal state cleared.');
+  }
+
+  markDirty(symbol: string, config: SessionConfig, reason: string): void {
+    if (!config) return;
+    this.dirtyTrailingSymbols.set(symbol, { config, lastReason: reason });
+    this.logger.debug(`[SL Ratchet] Marked ${symbol} dirty for retry (Reason: ${reason}).`);
+  }
+
+  recordRatchetDeferral(trade: Trade, reason: string): void {
+    if (!trade) return;
+    const reasonText = `DEFERRED_${reason}`;
+    const adjustments = trade.sl_adjustments || [];
+    const lastAdj = adjustments.length > 0 ? adjustments[adjustments.length - 1] : null;
+
+    // Deduplicate consecutive identical deferral records to prevent sl_adjustments array bloat
+    if (lastAdj && lastAdj.reason === reasonText) {
+      return;
+    }
+
+    this.logSlAdjustment(trade, trade.current_sl || 0, trade.current_sl || 0, -6, false, reasonText);
+  }
+
+  async onRatchetComplete(symbol: string): Promise<void> {
+    const dirtyInfo = this.dirtyTrailingSymbols.get(symbol);
+    if (!dirtyInfo) return;
+
+    const currentPrice = (this.tickerCache?.getPrice ? this.tickerCache.getPrice(symbol) : null) || 0;
+    if (!currentPrice || currentPrice <= 0) return;
+
+    this.logger.log(`[SL Ratchet Retry] Ratchet lock released for ${symbol}. Retrying deferred trailing check (Prev reason: ${dirtyInfo.lastReason}) @ ${currentPrice}...`);
+    this.dirtyTrailingSymbols.delete(symbol);
+
+    await this.onTickerUpdate(symbol, currentPrice, dirtyInfo.config);
+  }
+
+  @OnEvent(ENGINE_EVENTS.TICKER_PRICE_UPDATED)
+  async handleTickerPriceUpdated(payload: { symbol: string; price: number }) {
+    if (!payload || !payload.symbol || !payload.price) return;
+    if (this.trades.has(payload.symbol)) {
+      await this.onTickerUpdate(payload.symbol, payload.price);
+    }
+  }
+
+  async onTickerUpdate(symbol: string, currentPrice: number, config?: SessionConfig): Promise<void> {
+    const trade = this.trades.get(symbol);
+    if (!trade || trade.status !== 'OPEN') {
+      this.dirtyTrailingSymbols.delete(symbol);
+      return;
+    }
+
+    const baseSessionConfig = this.sessionState?.config || {};
+    const activeConfig = { ...baseSessionConfig, ...(config || {}), ...(trade.strategy_config || {}) } as SessionConfig;
+    if (!activeConfig) return;
+
+    await this.checkRrSequenceAdjustments(symbol, currentPrice, activeConfig);
+    await this.checkTrailingStop(symbol, currentPrice, activeConfig);
+    if (trade.is_knife) {
+      await this.checkKnifeTrailingStop(symbol, currentPrice, activeConfig);
+    }
   }
 
   activeList(): Trade[] {
@@ -371,7 +432,9 @@ export class PositionTrackerService {
         // SRE: Ratchet Race Guard. If an exchange-side mutation is already in flight for this symbol,
         // skip evaluation to prevent redundant overlapping requests.
         if (this.orderManager.isRatcheting(symbol)) {
-           this.logger.debug(`[SL Ratchet] Mutex lock active for ${symbol}, deferring ratchet evaluation.`);
+           this.markDirty(symbol, config, 'MUTEX_LOCKED');
+           this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
+           this.logger.debug(`[SL Ratchet] Mutex lock active for ${symbol}, deferring ratchet evaluation and recording skip audit.`);
            return;
         }
 
@@ -485,12 +548,25 @@ export class PositionTrackerService {
     newSl: number,
     milestoneIndex: number,
     adaptive = false,
+    reasonOverride?: string,
   ): void {
+    const reasonText = reasonOverride
+      ? reasonOverride
+      : (milestoneIndex === -6
+        ? 'DEFERRED_CAPACITY'
+        : (milestoneIndex === -5
+          ? 'SL_OVERRIDE_REMOVED'
+          : (milestoneIndex === -4
+            ? 'knife_trailing'
+            : (milestoneIndex === -2
+              ? 'trailing_stop'
+              : `RR_sequence_milestone_${milestoneIndex}`))));
+
     const adjustment = {
       timestamp: new Date().toISOString(),
       prev_sl: prevSl,
       new_sl: newSl,
-      reason: `RR_sequence_milestone_${milestoneIndex}`,
+      reason: reasonText,
       milestone_index: milestoneIndex,
       max_rr_achieved: trade.max_rr_achieved,
       adaptive,
@@ -502,7 +578,7 @@ export class PositionTrackerService {
     trade.sl_adjustments.push(adjustment);
 
     this.logger.debug(
-      `SL Adjusted for ${trade.symbol}: ${prevSl} → ${newSl} (Milestone ${milestoneIndex})`,
+      `SL Adjusted for ${trade.symbol}: ${prevSl} → ${newSl} (Reason: ${reasonText})`,
     );
   }
 
@@ -1068,7 +1144,14 @@ export class PositionTrackerService {
       shouldUpdate = !trade.current_sl || newSl < trade.current_sl - Math.max(0.00000001, minDelta);
     }
 
-    if (shouldUpdate && !this.orderManager.isRatcheting(symbol)) {
+    if (shouldUpdate) {
+      if (this.orderManager.isRatcheting(symbol)) {
+        this.markDirty(symbol, activeConfig, 'MUTEX_LOCKED');
+        this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
+        this.logger.debug(`[Knife Engine] Mutex lock active for ${symbol}, deferring trailing update and recording skip audit.`);
+        return;
+      }
+
       const prevSl = trade.current_sl;
       const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
       if (updateRes.success) {
@@ -1205,7 +1288,12 @@ export class PositionTrackerService {
     }
 
     if (shouldUpdate) {
-      if (this.orderManager.isRatcheting(symbol)) return;
+      if (this.orderManager.isRatcheting(symbol)) {
+        this.markDirty(symbol, activeConfig, 'MUTEX_LOCKED');
+        this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
+        this.logger.debug(`[TrailingStop] Mutex lock active for ${symbol}, deferring trailing update and recording skip audit.`);
+        return;
+      }
 
       const prevSl = trade.current_sl;
       const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);

@@ -1689,19 +1689,18 @@ export class OrderManagerService {
     // SRE: Mutex guard to prevent concurrent overlapping ratchets
     if (this.ratchetLocks.has(trade.symbol)) {
        this.logger.warn(`[SL Ratchet] Concurrent update blocked for ${trade.symbol}. Ratchet already in progress.`);
+       this.positionTracker.markDirty(trade.symbol, (trade.strategy_config || this.sessionState.config) as any, 'MUTEX_LOCKED');
        return { success: false };
     }
 
     // SRE: Immunity check. If we are currently banned, don't try to ratchet
     if (this.sessionState.isBanned()) {
        this.logger.warn(`[SL Ratchet] Ratchet blocked for ${trade.symbol}: IP is currently banned.`);
+       this.positionTracker.markDirty(trade.symbol, (trade.strategy_config || this.sessionState.config) as any, 'IP_BANNED');
        return { success: false };
     }
 
-    // LOCK: Prevent Watchdog from interfering during the cancel/replace window
-    this.ratchetLocks.set(trade.symbol, true);
-
-    // CHRONOS: Pre-flight capacity check.
+    // CHRONOS: Pre-flight capacity check before acquiring mutex lock.
     // Ratcheting is a multi-part operation (Cancel + Replace + potential Rollback).
     // We budget for 2 slots (Replace + Rollback) with normal priority (1).
     if (!this.paperMode && this.binanceClient) {
@@ -1709,17 +1708,24 @@ export class OrderManagerService {
       const hasOrderSlots = this.sessionState.hasOrderCapacity(2, 1);
 
       if (!hasWeight || !hasOrderSlots) {
-         this.logger.warn(`[SL Ratchet] Deferring ratchet for ${trade.symbol} due to low capacity (WeightOK=${hasWeight}, SlotsOK=${hasOrderSlots}).`);
-         this.ratchetLocks.delete(trade.symbol);
+         const reason = !hasWeight ? 'WEIGHT_LIMIT_EXCEEDED' : 'ORDER_SLOTS_EXCEEDED';
+         this.logger.warn(`[SL Ratchet] Deferring ratchet for ${trade.symbol} due to low capacity (${reason}). Marking symbol dirty for next tick/cycle.`);
+         this.positionTracker.markDirty(trade.symbol, (trade.strategy_config || this.sessionState.config) as any, reason);
+         this.positionTracker.recordRatchetDeferral(trade, reason);
          return { success: false };
       }
     }
 
+    // LOCK: Prevent Watchdog from interfering during the cancel/replace window
+    let lockAcquired = false;
     const oldSlPrice = prevSlPrice || trade.current_sl;
     const oldStopOrderId = trade.binance_stop_order_id;
     const oldStopOrderType = trade.binance_stop_order_type;
 
     try {
+      this.ratchetLocks.set(trade.symbol, true);
+      lockAcquired = true;
+
       // 1. Explicitly cancel existing tracked SL order if it exists
       if (trade.binance_stop_order_id) {
          this.logger.debug(`[SL] Canceling existing tracked SL ${trade.binance_stop_order_id} before replacement.`);
@@ -1822,7 +1828,12 @@ export class OrderManagerService {
        this.logger.error(`[SL Ratchet] Unexpected exception during ratchet for ${trade.symbol}: ${err.message}`);
        return { success: false };
     } finally {
-      this.ratchetLocks.delete(trade.symbol);
+      if (lockAcquired) {
+        this.ratchetLocks.delete(trade.symbol);
+        this.positionTracker.onRatchetComplete(trade.symbol).catch((err) => {
+          this.logger.error(`Error in onRatchetComplete for ${trade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
     }
   }
 

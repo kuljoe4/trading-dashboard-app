@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ENGINE_EVENTS } from './events';
 
 export interface Ticker {
   symbol: string;
@@ -12,6 +14,10 @@ export interface Ticker {
 export class TickerCacheService {
   private readonly logger = new Logger(TickerCacheService.name);
   private tickers: Map<string, Ticker> = new Map();
+
+  constructor(
+    @Optional() @Inject(EventEmitter2) private readonly eventEmitter?: EventEmitter2,
+  ) {}
   private hasReceivedFirstData = false;
   private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
   private _topByChangeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
@@ -83,6 +89,11 @@ export class TickerCacheService {
         open_24h: (o !== undefined && !Number.isNaN(o) && o > 0) ? o : undefined,
       });
       this.latestTickersCache = null; // Invalidate cache on new symbol addition
+    }
+
+    const effectivePrice = (mp !== undefined && !Number.isNaN(mp) && mp > 0) ? mp : ((p !== undefined && !Number.isNaN(p) && p > 0) ? p : undefined);
+    if (effectivePrice && this.eventEmitter && this.eventEmitter.listenerCount(ENGINE_EVENTS.TICKER_PRICE_UPDATED) > 0) {
+      this.eventEmitter.emit(ENGINE_EVENTS.TICKER_PRICE_UPDATED, { symbol, price: effectivePrice });
     }
   }
 

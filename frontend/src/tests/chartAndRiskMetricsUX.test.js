@@ -36,6 +36,14 @@ describe('Chart Line Widths & Sharpe/Sortino Metrics UX Standard', () => {
     assert.ok(analyticsSource.includes('So: {Number(activePoint?.sortino || 0).toFixed(2)}'), 'StrategyPerformanceOverlayChart header must display Sortino ratio');
   });
 
+  test('StrategyPerformanceOverlayChart uses underlying cumulativeTradeCount for bucketed hit rate calculation and clamps 0-100%', () => {
+    assert.ok(analyticsSource.includes('let cumulativeTradeCount = 0;'), 'Must initialize running cumulativeTradeCount tracker');
+    assert.ok(analyticsSource.includes('const tradesInItem = item.isBucket ? item.bucketTradeCount : 1;'), 'Must track trades in item (bucket vs single)');
+    assert.ok(analyticsSource.includes('cumulativeTradeCount += tradesInItem;'), 'Must add tradesInItem to cumulativeTradeCount');
+    assert.ok(analyticsSource.includes('const rawHitRate = (totalWins / Math.max(1, cumulativeTradeCount)) * 100;'), 'Must divide totalWins by cumulativeTradeCount instead of display point index');
+    assert.ok(analyticsSource.includes('const hitRate = Math.min(100, Math.max(0, rawHitRate));'), 'Must defensively clamp hit rate between 0% and 100%');
+  });
+
   test('strategy cards in DashboardView render Sharpe (Sh) and Sortino (So) alongside PF with recommended value tooltips', () => {
     assert.ok(dashboardViewSource.includes('PF: {pfText}'), 'StrategyCard must render PF text');
     assert.ok(dashboardViewSource.includes('Sh: {sharpeText}'), 'StrategyCard must render Sharpe (Sh) text');

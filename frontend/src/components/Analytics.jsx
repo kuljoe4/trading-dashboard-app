@@ -1106,6 +1106,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     let totalWins = 0;
     let grossWin = 0;
     let grossLoss = 0;
+    let cumulativeTradeCount = 0;
 
     let rollingBal = startingBalance ? Math.max(1, startingBalance - totalNetPnl) : 10000;
     let sumReturnPct = 0;
@@ -1129,8 +1130,13 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       sumReturnPct += retPct;
       sumSqReturnPct += retPct * retPct;
 
+      const winsInItem = item.isBucket ? item.bucketWins : (pnl > 0 ? 1 : 0);
+      const tradesInItem = item.isBucket ? item.bucketTradeCount : 1;
+
+      totalWins += winsInItem;
+      cumulativeTradeCount += tradesInItem;
+
       if (pnl > 0) {
-        totalWins += item.isBucket ? item.bucketWins : 1;
         grossWin += pnl;
       } else if (pnl < 0) {
         grossLoss += Math.abs(pnl);
@@ -1138,7 +1144,8 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       }
 
       const tradeNum = idx + 1;
-      const hitRate = (totalWins / Math.max(1, idx + 1)) * 100;
+      const rawHitRate = (totalWins / Math.max(1, cumulativeTradeCount)) * 100;
+      const hitRate = Math.min(100, Math.max(0, rawHitRate));
       const pf = grossLoss > 0 ? (grossWin / grossLoss) : (grossWin > 0 ? 10 : 0);
 
       let sharpe = 0;

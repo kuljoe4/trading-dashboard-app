@@ -487,8 +487,9 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
         role="button"
         tabIndex={0}
         aria-expanded={isExpanded}
+        aria-label={`Toggle details for ${opp.symbol}, ${isLong ? 'Long' : 'Short'} ${Math.abs(opp.pct || 0).toFixed(2)}%, score ${Number(opp.score || 0).toFixed(0)}, status ${status.label}`}
         className={cn(
-          "flex md:grid md:grid-cols-[30px_1.5fr_1fr_1.2fr_120px] items-center px-3 py-1 md:py-1.5 md:px-4 transition-all h-[42px] md:h-[46px] group cursor-pointer outline-none focus-visible:bg-white/5",
+          "flex md:grid md:grid-cols-[30px_1.5fr_1fr_1.2fr_120px] items-center px-3 py-1 md:py-1.5 md:px-4 transition-all h-[42px] md:h-[46px] group cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:bg-white/5",
           !passing && "opacity-45 grayscale-[0.5]",
           isSingleMonitor && "bg-accent/5",
           passing && "hover:bg-white/5 active:bg-white/10",

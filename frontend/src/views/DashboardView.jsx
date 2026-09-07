@@ -2111,13 +2111,13 @@ export function DashboardView({ initialStrategy }) {
       delete newConfig._presetLoaded;
 
       let activeVariantIndex = editingVariantIndex;
-      if (wasPresetLoaded) {
-        activeVariantIndex = null;
-      }
 
       if (activeVariantIndex !== null) {
         const variants = [...(config.strategy_variants || [])];
-        variants[activeVariantIndex] = { ...newConfig, strategy_label: newConfig.strategy_label };
+        // Strip out top-level strategy_variants from the edited variant config to avoid recursive nesting
+        const variantClean = { ...newConfig };
+        delete variantClean.strategy_variants;
+        variants[activeVariantIndex] = { ...variantClean, strategy_label: variantClean.strategy_label };
         finalConfig = { ...config, strategy_variants: variants };
       }
 

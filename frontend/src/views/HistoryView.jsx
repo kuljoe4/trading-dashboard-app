@@ -27,23 +27,34 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
   // BOLT OPTIMIZATION: Loop-fused single-pass useMemo aggregates variant PnLs, active strategy labels,
   // knife trade count, and knife trade accumulated PnL in a single O(N) traversal over trades,
   // eliminating multiple array allocations (.map(), .filter(), Array.from(new Set())) and GC pressure.
-  const { variantPnls, activeLabels, knifeCount, knifeAccPnl, winCount, lossCount, totalTrades, winRate, profitFactor } = useMemo(() => {
+  const { variantPnls, variantFees, variantFunding, activeLabels, knifeCount, knifeAccPnl, winCount, lossCount, totalTrades, winRate, profitFactor, sessionFees, sessionFunding } = useMemo(() => {
     const map = new Map();
+    const feesMap = new Map();
+    const fundingMap = new Map();
     const labelsSet = new Set();
     let knifeCount = 0;
     let knifeAccPnl = 0;
     let wins = 0;
     let grossWins = 0;
     let grossLosses = 0;
+    let totalFees = 0;
+    let totalFunding = 0;
 
     if (trades && trades.length > 0) {
       for (let i = 0; i < trades.length; i++) {
         const t = trades[i];
         const label = strategyLabel(t);
         const pnl = safeNum(t.pnl);
+        const fee = safeNum(t.realized_fee || t.commission || 0);
+        const funding = safeNum(t.funding_fee || 0);
 
         map.set(label, (map.get(label) || 0) + pnl);
+        feesMap.set(label, (feesMap.get(label) || 0) + fee);
+        fundingMap.set(label, (fundingMap.get(label) || 0) + funding);
         labelsSet.add(label);
+
+        totalFees += fee;
+        totalFunding += funding;
 
         if (pnl > 0) {
           wins++;
@@ -65,6 +76,8 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 
     return {
       variantPnls: map,
+      variantFees: feesMap,
+      variantFunding: fundingMap,
       activeLabels: Array.from(labelsSet),
       knifeCount,
       knifeAccPnl,
@@ -72,7 +85,9 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
       lossCount: total - wins,
       totalTrades: total,
       winRate: wr,
-      profitFactor: pf
+      profitFactor: pf,
+      sessionFees: totalFees,
+      sessionFunding: totalFunding
     };
   }, [trades]);
 
@@ -173,6 +188,14 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                         {session.paperMode ? 'PAPER' : (session.config?.trading_mode || 'LIVE').toUpperCase()}
                       </span>
                     </div>
+
+                    <div className="flex justify-between items-center border-t border-border/10 pt-2.5">
+                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Total Fees & Funding</span>
+                      <div className="flex items-center gap-3 font-mono text-xs font-bold">
+                        <span className="text-red/80">Fees: {fmtUSD(-sessionFees)}</span>
+                        <span className={sessionFunding > 0 ? "text-red/80" : "text-green/80"}>Funding: {fmtUSD(-sessionFunding)}</span>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Timing details */}
@@ -224,6 +247,8 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                       {activeLabels.map(l => {
                         const isBase = l === 'Momentum Strategy' || l === (session?.config?.strategy_label || 'Momentum Strategy');
                         const pnlVal = variantPnls.get(l) || 0;
+                        const feeVal = variantFees.get(l) || 0;
+                        const fundingVal = variantFunding.get(l) || 0;
                         return (
                           <div key={l} className="flex items-center justify-between p-2.5 bg-surface/50 border border-border/20 rounded-lg hover:border-accent/15 transition-all">
                             <div className="flex flex-col gap-0.5 min-w-0">
@@ -234,6 +259,9 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                                   isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
                                 )}>
                                   {isBase ? 'Base' : 'Variant'}
+                                </span>
+                                <span className="text-[8px] font-mono text-dim/70">
+                                  Fees: {fmtUSD(-feeVal)} | Funding: {fmtUSD(-fundingVal)}
                                 </span>
                               </div>
                             </div>
@@ -1142,7 +1170,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     return formatDuration(end - start)
   }, [session.startTime, session.endTime])
 
-  // Extract unique available strategy labels across this session's trades with counts & total PnL
+  // Extract unique available strategy labels across this session's trades with counts, total PnL, fees & funding
   const availableSessionStrategies = useMemo(() => {
     const map = new Map();
     const safeTrades = trades || [];
@@ -1150,12 +1178,16 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       const t = safeTrades[i];
       const lbl = strategyLabel(t);
       const pnlVal = safeNum(t.pnl);
+      const feeVal = safeNum(t.realized_fee || t.commission || 0);
+      const fundingVal = safeNum(t.funding_fee || 0);
       if (!map.has(lbl)) {
-        map.set(lbl, { label: lbl, count: 0, pnl: 0 });
+        map.set(lbl, { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 });
       }
       const item = map.get(lbl);
       item.count += 1;
       item.pnl += pnlVal;
+      item.fees += feeVal;
+      item.funding += fundingVal;
     }
     return Array.from(map.values()).sort((a, b) => b.count - a.count);
   }, [trades]);
@@ -1195,11 +1227,20 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     const startingBalance = Number(session.balance) - Number(session.totalPnl);
     const pnlPct = startingBalance > 0 ? (m.totalPnl / startingBalance) * 100 : 0;
 
+    let totalSessionFees = 0;
+    let totalSessionFunding = 0;
+    for (let i = 0; i < filteredTrades.length; i++) {
+      totalSessionFees += safeNum(filteredTrades[i].realized_fee || filteredTrades[i].commission || 0);
+      totalSessionFunding += safeNum(filteredTrades[i].funding_fee || 0);
+    }
+
     return {
       ...m,
       winLossRatio,
       winLossRatioStr,
       pnlPct,
+      totalSessionFees,
+      totalSessionFunding,
       expectancyStatus: getExpectancyStatus(m.winRate / 100, winLossRatio),
       sharpeStatus: getSharpeStatus(m.sharpe),
       sortinoStatus: getSortinoStatus(m.sortino),
@@ -1207,7 +1248,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     };
   }, [filteredTrades, session.balance, session.totalPnl, expanded]);
 
-  const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
+  const { wins, winRate, winLossRatioStr, expectancyStatus, totalPnl: pnl, totalSessionFees, totalSessionFunding, curve, maxWinStreak, maxLossStreak, avgDuration } = metrics;
   const label = strategyLabel(session);
 
   // BOLT OPTIMIZATION: Loop-fused single-pass set population (no intermediate .map() array allocations)
@@ -1351,7 +1392,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             </Tooltip>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 xl:gap-8">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-6 xl:gap-8">
             <div className="flex flex-col">
               <span className="text-[8.5px] text-dim font-black uppercase tracking-[0.12em] mb-0.5 opacity-60">Interval</span>
               <span className="text-[11px] font-bold text-text flex items-center gap-1">
@@ -1361,7 +1402,13 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             </div>
             <div className="flex flex-col">
               <span className="text-[8.5px] text-dim font-black uppercase tracking-[0.12em] mb-0.5 opacity-60">Win Rate</span>
-              <span className="text-[11px] font-bold font-mono text-text">{winRate}% <span className="text-[9px] opacity-40 font-bold ml-0.5">({wins}/{trades.length})</span></span>
+              <span className="text-[11px] font-bold font-mono text-text">{winRate}% <span className="text-[9px] opacity-40 font-bold ml-0.5">({wins}/{filteredTrades.length})</span></span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[8.5px] text-dim font-black uppercase tracking-[0.12em] mb-0.5 opacity-60">Fees / Funding</span>
+              <span className="text-[10px] font-bold font-mono text-red/80">
+                {fmtUSD(-totalSessionFees)} / {fmtUSD(-totalSessionFunding)}
+              </span>
             </div>
             <div className="flex flex-col">
               <span className="text-[8.5px] text-dim font-black uppercase tracking-[0.12em] mb-0.5 opacity-60">Ratio</span>

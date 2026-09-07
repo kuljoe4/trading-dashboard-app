@@ -30,9 +30,7 @@ export const SignalGauge = React.memo(({
   const numThreshold = Number(threshold) || 0
 
   const isDualEma = !!(
-    (label && (label.toLowerCase().includes('dual') || label.toLowerCase().includes('cross'))) ||
-    (unit && (unit.toLowerCase().includes('dual') || unit.toLowerCase().includes('ema'))) ||
-    thresholdIsPrice
+    label && (label.toLowerCase().includes('dual') || label.toLowerCase().includes('cross'))
   );
 
   // Calculate progress/convergence using centralized direction-aware helper

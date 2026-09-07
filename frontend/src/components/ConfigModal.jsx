@@ -2594,10 +2594,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert]);
 
   const loadPreset = React.useCallback((p) => {
-    // Exclude saved strategy_variants and old paused states from the loaded preset config to avoid bringing along old/stale variants/states
+    // Preserve existing strategy_variants when loading/editing a preset so active variants and base strategy remain associated
     const cleanedConfig = {
       ...(p.config || {}),
-      strategy_variants: []
+      strategy_variants: cfg.strategy_variants || []
     };
     delete cleanedConfig.paused;
     delete cleanedConfig.paused_strategies;

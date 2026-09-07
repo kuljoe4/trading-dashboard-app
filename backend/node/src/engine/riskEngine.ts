@@ -27,6 +27,17 @@ export class RiskEngineService {
       oldestTradeInPeriodTs: number;
     }
   } | null = null;
+
+  /**
+   * Matches whether a trade belongs to the target strategy config.
+   * Handles legacy/unlabelled trades by mapping them to the base strategy label.
+   */
+  private matchesStrategyLabel(tradeLabel: string | undefined | null, targetLabel: string, baseLabel: string): boolean {
+    if (tradeLabel === targetLabel) return true;
+    const isTradeBase = !tradeLabel || tradeLabel === 'Momentum Strategy' || tradeLabel === baseLabel;
+    const isTargetBase = targetLabel === baseLabel || targetLabel === 'Momentum Strategy';
+    return isTargetBase && isTradeBase;
+  }
   
   /**
    * Check if a new trade can be entered based on risk limits
@@ -46,8 +57,9 @@ export class RiskEngineService {
   ): ReturnType<RiskEngineService['checkFrequencyAndPerformanceLimits']> {
     const now = Date.now();
 
-    const strategyLabel = config.strategy_label || 'Momentum Strategy';
-    const isBaseStrategy = strategyLabel === 'Momentum Strategy';
+    const targetLabel = config.strategy_label || 'Momentum Strategy';
+    const baseLabel = (config as any).base_strategy_label || targetLabel;
+    const isBaseStrategy = targetLabel === baseLabel || targetLabel === 'Momentum Strategy';
 
     // BOLT OPTIMIZATION: Fused loop to compute strategy trade metrics and active knife count without intermediate .filter() arrays
     let activeTradesCountForStrategy = 0;
@@ -61,8 +73,7 @@ export class RiskEngineService {
         activeKnifeCount++;
       }
 
-      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
-      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+      const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
 
       if (matchesStrategy) {
         activeTradesCountForStrategy++;
@@ -91,11 +102,11 @@ export class RiskEngineService {
     // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)
     if (!isKnifeGatedBypass && activeTradesCountForStrategy + enteringCount >= maxOpenTrades) {
       const maxOpenMsg = isBaseStrategy ? `Global max open trades (${maxOpenTrades}) reached` : `Strategy max open trades (${maxOpenTrades}) reached`;
-      return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
+      return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + targetLabel + '"' : ''}` };
     }
 
     if (symbolTradeCount >= maxOpenTradesPerSymbol) {
-      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
+      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached${!isBaseStrategy ? ' for label "' + targetLabel + '"' : ''}` };
     }
 
     const riskPerTrade = prospectiveRiskPct !== undefined ? prospectiveRiskPct : (config.risk_pct_per_trade ?? 1.0);
@@ -114,15 +125,15 @@ export class RiskEngineService {
       if (!allowScaleException) {
         return {
           canEnter: false,
-          reason: `Risk ceiling reached for label "${strategyLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
+          reason: `Risk ceiling reached for label "${targetLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
         };
       } else {
-        this.logger.log(`[Risk Engine] Allowing min_notional scaled risk overshoot exception for "${strategyLabel}": nominal ${nominalRisk.toFixed(2)}% fits, scaled is ${riskPerTrade.toFixed(2)}%`);
+        this.logger.log(`[Risk Engine] Allowing min_notional scaled risk overshoot exception for "${targetLabel}": nominal ${nominalRisk.toFixed(2)}% fits, scaled is ${riskPerTrade.toFixed(2)}%`);
       }
     }
 
     if (totalSlUsedForStrategy >= totalSlGuardUsdt) {
-      return { canEnter: false, reason: `Strategy Total SL ${Number(totalSlUsedForStrategy || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT for label "${strategyLabel}"` };
+      return { canEnter: false, reason: `Strategy Total SL ${Number(totalSlUsedForStrategy || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT for label "${targetLabel}"` };
     }
 
     // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS - strategy-scoped)
@@ -158,8 +169,8 @@ export class RiskEngineService {
     effectivePeriodMs?: number;
     jitterFactor?: number;
   } {
-    const strategyLabel = config.strategy_label || 'Momentum Strategy';
-    const isBaseStrategy = strategyLabel === 'Momentum Strategy';
+    const targetLabel = config.strategy_label || 'Momentum Strategy';
+    const baseLabel = (config as any).base_strategy_label || targetLabel;
 
     const maxTradesPeriod = config.max_trades_per_period || 0;
     const periodMinBase = config.trades_period_min || 60;
@@ -177,8 +188,7 @@ export class RiskEngineService {
     for (let i = 0; i < activeTrades.length; i++) {
       const t = activeTrades[i];
       // BOLT OPTIMIZATION: On-the-fly strategy check to bypass array allocations
-      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
-      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+      const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
       if (!matchesStrategy) continue;
 
       // Include all trades with a valid entry_ts in spacing calculation
@@ -195,8 +205,7 @@ export class RiskEngineService {
     let foundCount = 0;
     for (let i = 0; i < closedTrades.length; i++) {
       const t = closedTrades[i];
-      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
-      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+      const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
       if (!matchesStrategy) continue;
 
       // Include all trades with a valid entry_ts in spacing calculation
@@ -268,8 +277,7 @@ export class RiskEngineService {
       if (isClosed && entryTs < dayAgo) return false;
 
       // BOLT OPTIMIZATION: On-the-fly strategy check
-      const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
-      const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+      const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
       if (!matchesStrategy) return true;
 
       // Track rolling 24h limit
@@ -303,7 +311,7 @@ export class RiskEngineService {
     // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window.
     // SRE: Use 5s bucketing for the timestamps in the cache key to stabilize hits during high frequency loops.
     // Include strategy_label to prevent cache collision across different strategy variants.
-    const cacheKey = `${strategyLabel}_${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 5000)}_${Math.floor(periodStartMs / 5000)}`;
+    const cacheKey = `${targetLabel}_${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 5000)}_${Math.floor(periodStartMs / 5000)}`;
 
     if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
       const s = this._closedStatsCache.stats;
@@ -334,8 +342,7 @@ export class RiskEngineService {
         if (entryTs < dayAgo) return false;
 
         // BOLT OPTIMIZATION: On-the-fly strategy check
-        const isTradeBase = !t.strategy_label || t.strategy_label === 'Momentum Strategy';
-        const matchesStrategy = isBaseStrategy ? isTradeBase : t.strategy_label === strategyLabel;
+        const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
         if (!matchesStrategy) return true;
 
         if (entryTs >= dayAgo) {

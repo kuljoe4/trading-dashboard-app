@@ -1211,6 +1211,12 @@ export class PositionTrackerService {
       }
     }
 
+    // Diagnostic Coincident Threshold Logging
+    const currentMilestoneIdx = this.rrSequenceIndex.get(symbol) ?? -1;
+    if (currentMilestoneIdx >= 0) {
+      this.logger.log(`[Coincident Threshold] Milestone and trailing both eligible this tick for ${symbol} @ peakRr=${peakRr.toFixed(2)} (Milestone Index: ${currentMilestoneIdx})`);
+    }
+
     // Determine Peak Price for trailing calculation
     let peakPrice = currentPrice;
     if (risk > 0) {

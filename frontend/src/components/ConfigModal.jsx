@@ -2422,7 +2422,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [testnetConfigured, liveConfigured, validate]);
 
   const buildConfigToSave = React.useCallback(() => {
-    const c = { ...cfg, strategy_label: (cfg.strategy_label || presetName || generatedPresetName || 'Momentum Strategy').trim() };
+    const rawLabel = (cfg.strategy_label && cfg.strategy_label !== 'Momentum Strategy')
+      ? cfg.strategy_label
+      : (presetName || loadedPresetName || cfg.strategy_label || generatedPresetName || 'Momentum Strategy');
+    const c = { ...cfg, strategy_label: rawLabel.trim() };
 
     // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
     const sp = {};
@@ -2595,8 +2598,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const loadPreset = React.useCallback((p) => {
     // Preserve existing strategy_variants when loading/editing a preset so active variants and base strategy remain associated
+    const presetLabel = p.name || p.config?.strategy_label;
     const cleanedConfig = {
       ...(p.config || {}),
+      strategy_label: presetLabel || cfg.strategy_label,
       strategy_variants: cfg.strategy_variants || []
     };
     delete cleanedConfig.paused;

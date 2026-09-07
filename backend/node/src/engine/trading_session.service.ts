@@ -96,9 +96,11 @@ export class TradingSessionService implements OnApplicationShutdown {
   private getStrategyConfigs(): SessionConfig[] {
     if (this.cachedStrategyConfigs) return this.cachedStrategyConfigs;
     if (!this.config) return [];
+    const baseLabel = this.getStrategyLabel(this.config, 0);
     const base = {
       ...this.config,
-      strategy_label: this.getStrategyLabel(this.config, 0),
+      strategy_label: baseLabel,
+      base_strategy_label: baseLabel,
       strategy_variants: [],
     } as SessionConfig;
     const variants = (this.config.strategy_variants || [])
@@ -109,6 +111,7 @@ export class TradingSessionService implements OnApplicationShutdown {
             ...this.config,
             ...v,
             strategy_label: this.getStrategyLabel(v, i + 1),
+            base_strategy_label: baseLabel,
             strategy_variants: [],
           }) as SessionConfig,
       );

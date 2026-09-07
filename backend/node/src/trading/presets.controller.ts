@@ -118,6 +118,10 @@ export class PresetsController {
     if (/<[a-zA-Z!/]/.test(name)) {
       throw new BadRequestException("Preset name cannot contain HTML tags or tag-like structures");
     }
+    // SEC-SENTINEL: Enforce strict character whitelist matching CreateStrategyPresetDto to prevent injection vectors
+    if (!/^[a-zA-Z0-9_\s.\-()><=%+,\[\]]+$/.test(name)) {
+      throw new BadRequestException("Preset name contains invalid characters");
+    }
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
 

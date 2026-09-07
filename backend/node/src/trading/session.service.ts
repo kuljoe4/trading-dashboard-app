@@ -468,10 +468,21 @@ export class SessionService implements OnModuleInit {
   private validateConfig(config: Partial<SessionConfig>) {
     if (!config) throw new BadRequestException("Configuration is required");
 
-    // SENTINEL: Recursively validate nested strategy variants and custom symbol configs
+    // SENTINEL: Recursively validate nested strategy variants and guard against duplicate strategy labels
     if (config.strategy_variants && Array.isArray(config.strategy_variants)) {
+      const baseLabel = config.strategy_label || "Momentum Strategy";
+      const seenLabels = new Set<string>([baseLabel]);
+
       for (const variant of config.strategy_variants) {
         if (variant) {
+          if (variant.strategy_label) {
+            if (seenLabels.has(variant.strategy_label)) {
+              throw new BadRequestException(
+                `Duplicate strategy_label "${variant.strategy_label}" detected between base strategy and strategy_variants`
+              );
+            }
+            seenLabels.add(variant.strategy_label);
+          }
           this.validateConfig(variant);
         }
       }

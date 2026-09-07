@@ -722,12 +722,15 @@ ManualMonitorInput.displayName = 'ManualMonitorInput'
 
 const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) => {
   const [name, setName] = useState(defaultName || '');
+  const [isUserEdited, setIsUserEdited] = useState(false);
   const inputId = useId();
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (defaultName) setName(defaultName);
-  }, [defaultName]);
+    if (!isUserEdited && defaultName) {
+      setName(defaultName);
+    }
+  }, [defaultName, isUserEdited]);
 
   return (
     <div className="flex gap-2">
@@ -741,7 +744,10 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
           type="text"
           placeholder="Preset name (e.g. Scalp High Vol)"
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) => {
+            setName(e.target.value);
+            setIsUserEdited(true);
+          }}
           className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         {name && (
@@ -750,6 +756,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
               type="button"
               onClick={() => {
                 setName('');
+                setIsUserEdited(true);
                 inputRef.current?.focus();
               }}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
@@ -1672,7 +1679,7 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
              </div>
              {isLoaded && (
                <span className={cn("text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
-                 {isDirty ? "Modified" : "Active"}
+                 {isDirty ? "Modified Base" : "Active Base"}
                </span>
              )}
              {isVariant && !isLoaded && (
@@ -1688,21 +1695,29 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       </button>
 
       <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
-          <button
-            type="button"
-            onClick={(e) => onToggleVariant(e, preset)}
-            aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-            className={cn(
-              "p-2 rounded-lg transition-all active:scale-95 border focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-              isVariant
-                ? "bg-purple/10 text-purple border-purple/20 hover:bg-purple/20"
-                : "bg-surface border-border text-dim hover:text-accent hover:border-accent/20"
-            )}
-          >
-            {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-          </button>
-        </Tooltip>
+        {isLoaded ? (
+          <Tooltip content="Base Strategy (Cannot be added as variant of itself)">
+            <span className="px-2 py-1 bg-surface border border-border text-dim/60 text-[9px] font-mono font-bold uppercase rounded-lg cursor-not-allowed select-none">
+              Base Strategy
+            </span>
+          </Tooltip>
+        ) : (
+          <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
+            <button
+              type="button"
+              onClick={(e) => onToggleVariant(e, preset)}
+              aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
+              className={cn(
+                "p-2 rounded-lg transition-all active:scale-95 border focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                isVariant
+                  ? "bg-purple/10 text-purple border-purple/20 hover:bg-purple/20"
+                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/20"
+              )}
+            >
+              {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
+            </button>
+          </Tooltip>
+        )}
         <Tooltip content={sessionActive ? "Preset deletion is locked while a session is active. Disable or remove from active strategy variants instead." : "Delete Preset"}>
           <button
             type="button"
@@ -2551,7 +2566,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
 
-      const res = await presetsAPI.save(name, { ...pc, strategy_label: name });
+      // Strip strategy_variants when persisting a library preset so presets remain single-strategy definitions
+      const presetPayload = {
+        ...pc,
+        strategy_label: name,
+        strategy_variants: []
+      };
+
+      const res = await presetsAPI.save(name, presetPayload);
 
       if (res && res.data) {
         console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
@@ -2597,12 +2619,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert]);
 
   const loadPreset = React.useCallback((p) => {
-    // Preserve existing strategy_variants when loading/editing a preset so active variants and base strategy remain associated
     const presetLabel = p.name || p.config?.strategy_label;
+
+    // Deduplicate: If promoting preset "X" to base, strip any matching variant entry from strategy_variants
+    const existingVariants = cfg.strategy_variants || [];
+    const filteredVariants = existingVariants.filter(v => v.strategy_label !== p.name);
+    const wasDeduplicated = existingVariants.length !== filteredVariants.length;
+
     const cleanedConfig = {
       ...(p.config || {}),
       strategy_label: presetLabel || cfg.strategy_label,
-      strategy_variants: cfg.strategy_variants || []
+      strategy_variants: filteredVariants
     };
     delete cleanedConfig.paused;
     delete cleanedConfig.paused_strategies;
@@ -2620,14 +2647,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     recordRecentlyUsed(p.name);
     validate(next);
     setIsDirty(false);
+
+    const dedupNote = wasDeduplicated ? ` (Removed "${p.name}" from variants list)` : '';
     addAlert({
       level: 'success',
       title: 'Preset Loaded',
       message: (isEdit || sessionActive)
-        ? `Preset "${p.name}" strategy parameters loaded into active ${cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'} session.`
-        : `Active configuration set to "${p.name}".`
+        ? `Preset "${p.name}" strategy parameters loaded into active ${cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'} session.${dedupNote}`
+        : `Active base configuration set to "${p.name}".${dedupNote}`
     });
-  }, [validate, addAlert, isEdit, sessionActive, cfg.trading_mode, cfg.paper_mode]);
+  }, [validate, addAlert, isEdit, sessionActive, cfg.trading_mode, cfg.paper_mode, cfg.strategy_variants, cfg.strategy_label]);
 
   const deletePreset = React.useCallback(async (name) => {
     if (sessionActive) {
@@ -2840,6 +2869,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const toggleVariant = React.useCallback((e, p) => {
     e.stopPropagation()
+
+    // Guard 1: Prevent adding the current active base strategy as a variant of itself
+    const currentBaseLabel = loadedPresetName || cfg.strategy_label;
+    if (p.name === currentBaseLabel) {
+      addAlert({
+        level: 'warn',
+        title: 'Action Blocked',
+        message: `"${p.name}" is currently loaded as the base strategy and cannot be added as a variant of itself.`
+      });
+      return;
+    }
+
     const variants = cfg.strategy_variants || []
     const exists = variants.some((v) => v.strategy_label === p.name)
 
@@ -2855,7 +2896,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setField('strategy_variants', exists
       ? variants.filter((v) => v.strategy_label !== p.name)
       : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name })])
-  }, [cfg.strategy_variants, setField, addAlert]);
+  }, [cfg.strategy_variants, loadedPresetName, cfg.strategy_label, setField, addAlert]);
 
   const clearAllVariants = React.useCallback(() => {
     const count = (cfg.strategy_variants || []).length;

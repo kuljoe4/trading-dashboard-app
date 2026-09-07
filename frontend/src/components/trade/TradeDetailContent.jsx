@@ -511,15 +511,69 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
   const [tempParamVal, setTempParamVal] = useState('')
   const updateActiveTradeConfig = useTradingStore(state => state.updateActiveTradeConfig);
   
-  // Sort entries by proximity (triggerProgress descending)
-  const entries = useMemo(() => {
-    if (!status) return [];
-    return Object.entries(status).map(([key, s]) => {
-      const progress = s.distPct ?? 0;
-      return [key, { ...s, progress }];
-    }).sort((a, b) => b[1].progress - a[1].progress);
-  }, [status]);
-  
+  // BOLT OPTIMIZATION: Single-pass loop-fused exit signal evaluation
+  // Consolidates entry mapping, progress sorting, required/optional signal grouping, and fired/active count aggregations
+  // into a single traversal over status keys, eliminating transient intermediate array allocations (.filter(), .map(), .every(), .some())
+  // on high-frequency price ticks.
+  const { entries, satisfiedCount, totalCount, allFired, comboSatisfied, criteriaMet } = useMemo(() => {
+    if (!status) {
+      return { entries: [], satisfiedCount: 0, totalCount: 0, allFired: false, comboSatisfied: false, criteriaMet: false };
+    }
+
+    const reqExitSignals = trade?.strategy_config?.required_exit_signals || trade?.required_exit_signals || [];
+    const hasReqConfig = reqExitSignals.length > 0;
+    const reqSet = hasReqConfig ? new Set(reqExitSignals) : null;
+
+    let satisfied = 0;
+    let total = 0;
+    let reqCount = 0;
+    let reqSatisfiedCount = 0;
+    let optCount = 0;
+    let optSatisfiedCount = 0;
+
+    const list = [];
+    for (const key in status) {
+      if (Object.prototype.hasOwnProperty.call(status, key)) {
+        const s = status[key];
+        const progress = s.distPct ?? 0;
+        list.push([key, { ...s, progress }]);
+
+        total++;
+        const isFiredActive = Boolean(s.fired && s.active);
+        if (isFiredActive) satisfied++;
+
+        const isReq = reqSet ? reqSet.has(key) : !key.includes('_');
+        if (isReq) {
+          reqCount++;
+          if (isFiredActive) reqSatisfiedCount++;
+        } else {
+          optCount++;
+          if (isFiredActive) optSatisfiedCount++;
+        }
+      }
+    }
+
+    list.sort((a, b) => b[1].progress - a[1].progress);
+
+    const allFiredSignal = total > 0 && satisfied === total;
+    const reqSatisfiedSignal = hasReqConfig
+      ? reqSatisfiedCount === reqExitSignals.length
+      : (reqCount === 0 || reqSatisfiedCount === reqCount);
+
+    const optSatisfiedSignal = optCount === 0 || optSatisfiedCount > 0;
+    const comboSatisfiedSignal = reqSatisfiedSignal && optSatisfiedSignal;
+    const criteriaMetSignal = logic === 'all' ? allFiredSignal : logic === 'combo' ? comboSatisfiedSignal : satisfied > 0;
+
+    return {
+      entries: list,
+      satisfiedCount: satisfied,
+      totalCount: total,
+      allFired: allFiredSignal,
+      comboSatisfied: comboSatisfiedSignal,
+      criteriaMet: criteriaMetSignal
+    };
+  }, [status, trade?.strategy_config?.required_exit_signals, trade?.required_exit_signals, logic]);
+
   // These hooks must be called unconditionally
   const handleUpdateDelay = async (key, val) => {
     let newDelay;
@@ -570,28 +624,12 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
     setTempParamVal('');
   };
 
-  if (!status || Object.keys(status).length === 0) return null;
+  if (!status || entries.length === 0) return null;
   const mark = Number(trade.current_price || trade.mark_price || 0)
   const isLong = trade.direction === 'LONG'
   const entryPrice = Number(trade.entry_price || 0)
   const qty = Number(trade.qty || 0)
   const riskUsdt = Number(trade.initial_risk_usdt || trade.risk_usdt || Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price)) * trade.qty || 0)
-
-  const satisfiedCount = entries.filter(([_, s]) => s.fired && s.active).length
-  const totalCount = entries.length
-  const allFired = satisfiedCount === totalCount
-
-  const reqExitSignals = trade.strategy_config?.required_exit_signals || trade.required_exit_signals || [];
-  const reqSatisfied = reqExitSignals.length > 0
-    ? reqExitSignals.every(k => status[k]?.fired && status[k]?.active)
-    : entries.filter(([k]) => !k.includes('_')).every(([_, s]) => s.fired && s.active);
-  const optSet = reqExitSignals.length > 0
-    ? entries.filter(([k]) => !reqExitSignals.includes(k))
-    : entries.filter(([k]) => k.includes('_'));
-  const optSatisfied = optSet.length === 0 || optSet.some(([_, s]) => s.fired && s.active);
-
-  const comboSatisfied = reqSatisfied && optSatisfied;
-  const criteriaMet = logic === 'all' ? allFired : logic === 'combo' ? comboSatisfied : satisfiedCount > 0;
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col text-left">

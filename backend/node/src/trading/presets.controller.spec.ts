@@ -144,7 +144,11 @@ describe("PresetsController", () => {
         "test; DROP TABLE StrategyPreset;",
         "test<script>alert(1)</script>",
         "test\0",
-        "test/../../"
+        "test/../../",
+        "preset{invalid}",
+        "preset#1",
+        "preset$test",
+        "preset@admin"
       ];
       for (const name of maliciousNames) {
         await expect(controller.deletePreset(name, req)).rejects.toThrow(

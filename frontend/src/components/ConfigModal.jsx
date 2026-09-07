@@ -1935,6 +1935,26 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
   const [libraryExpanded, setLibraryExpanded] = useState(false);
+  const [recentExpanded, setRecentExpanded] = useState(true);
+  const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
+    try {
+      const stored = localStorage.getItem('recently_used_presets');
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const recordRecentlyUsed = React.useCallback((name) => {
+    if (!name) return;
+    setRecentlyUsedNames((prev) => {
+      const updated = [name, ...prev.filter(n => n !== name)].slice(0, 10);
+      try {
+        localStorage.setItem('recently_used_presets', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+  }, []);
   const [showPasteOverlay, setShowPasteOverlay] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState(null);
@@ -1981,20 +2001,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     );
 
     const active = [];
+    const recentlyUsed = [];
     const available = [];
 
+    const activeSet = new Set();
     filtered.forEach(p => {
       const isLoaded = loadedPresetName === p.name;
       const isVar = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
       if (isLoaded || isVar) {
         active.push(p);
+        activeSet.add(p.name);
+      }
+    });
+
+    const recentSet = new Set(recentlyUsedNames);
+    filtered.forEach(p => {
+      if (activeSet.has(p.name)) return;
+      if (recentSet.has(p.name)) {
+        recentlyUsed.push(p);
       } else {
         available.push(p);
       }
     });
 
-    return { active, available };
-  }, [presets, presetSearch, loadedPresetName, cfg.strategy_variants]);
+    // Sort recentlyUsed according to recentlyUsedNames order
+    recentlyUsed.sort((a, b) => {
+      const idxA = recentlyUsedNames.indexOf(a.name);
+      const idxB = recentlyUsedNames.indexOf(b.name);
+      return idxA - idxB;
+    });
+
+    return { active, recentlyUsed, available };
+  }, [presets, presetSearch, loadedPresetName, cfg.strategy_variants, recentlyUsedNames]);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -2520,6 +2558,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         });
         setPresetName('');
         setLoadedPresetName(name);
+        recordRecentlyUsed(name);
         sessionStorage.removeItem('config_draft');
         setIsDirty(false);
         setSaveSuccess(true);
@@ -2573,6 +2612,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setLoadedPresetName(p.name);
     setPresetName(p.name);
     setPresetLoaded(true);
+    recordRecentlyUsed(p.name);
     validate(next);
     setIsDirty(false);
     addAlert({
@@ -4397,7 +4437,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
                   <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
                 </div>
-              ) : partitionedPresets.active.length === 0 && partitionedPresets.available.length === 0 ? (
+              ) : partitionedPresets.active.length === 0 && partitionedPresets.recentlyUsed.length === 0 && partitionedPresets.available.length === 0 ? (
                 <div className="p-10 border border-dashed border-border rounded-2xl text-center space-y-3">
                   <Search size={28} className="mx-auto text-dim/30" />
                   <div className="text-xs font-bold text-dim uppercase">No matching presets found</div>
@@ -4412,7 +4452,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <div className="space-y-2.5 animate-in fade-in duration-300">
                       <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-accent">
                         <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                        Active Strategy & Enabled Variants
+                        Active Strategy & Enabled Variants ({partitionedPresets.active.length})
                       </div>
                       <motion.div layout className="space-y-2.5">
                         <AnimatePresence mode="popLayout">
@@ -4434,6 +4474,64 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                   )}
 
+                  {/* Recently Used Presets Section */}
+                  {partitionedPresets.recentlyUsed.length > 0 && (() => {
+                    const isRecentOpen = recentExpanded || !!presetSearch;
+                    return (
+                      <div className="space-y-2.5 animate-in fade-in duration-300">
+                        <button
+                          type="button"
+                          onClick={() => setRecentExpanded(!recentExpanded)}
+                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-text/90 hover:text-text transition-colors group/rec-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1 cursor-pointer"
+                          aria-expanded={isRecentOpen}
+                          aria-controls="presets-recently-used-content"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <Clock size={11} className="text-accent" />
+                            Recently Used Presets ({partitionedPresets.recentlyUsed.length})
+                          </span>
+                          <div className={cn(
+                            "w-4 h-4 rounded border border-border/60 flex items-center justify-center text-dim group-hover/rec-btn:text-text transition-all",
+                            isRecentOpen && "rotate-180 text-accent border-accent/30"
+                          )}>
+                            <ChevronDown size={10} />
+                          </div>
+                        </button>
+
+                        <AnimatePresence initial={false}>
+                          {isRecentOpen && (
+                            <motion.div
+                              id="presets-recently-used-content"
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              exit={{ height: 0, opacity: 0 }}
+                              transition={{ duration: 0.2, ease: "easeInOut" }}
+                              className="overflow-hidden"
+                            >
+                              <motion.div layout className="space-y-2.5 pt-1">
+                                <AnimatePresence mode="popLayout">
+                                  {partitionedPresets.recentlyUsed.map(p => (
+                                    <PresetItem
+                                      key={p.name}
+                                      preset={p}
+                                      isLoaded={loadedPresetName === p.name}
+                                      isDirty={isDirty}
+                                      onLoad={loadPreset}
+                                      onToggleVariant={toggleVariant}
+                                      onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                                      isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                                      sessionActive={sessionActive}
+                                    />
+                                  ))}
+                                </AnimatePresence>
+                              </motion.div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  })()}
+
                   {/* Preset Library Section */}
                   {partitionedPresets.available.length > 0 && (() => {
                     const isLibraryOpen = libraryExpanded || !!presetSearch;
@@ -4442,7 +4540,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         <button
                           type="button"
                           onClick={() => setLibraryExpanded(!libraryExpanded)}
-                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-dim hover:text-text transition-colors group/lib-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1"
+                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-dim hover:text-text transition-colors group/lib-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1 cursor-pointer"
                           aria-expanded={isLibraryOpen}
                           aria-controls="presets-library-content"
                         >

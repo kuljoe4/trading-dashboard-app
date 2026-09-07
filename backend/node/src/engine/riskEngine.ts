@@ -102,11 +102,11 @@ export class RiskEngineService {
     // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)
     if (!isKnifeGatedBypass && activeTradesCountForStrategy + enteringCount >= maxOpenTrades) {
       const maxOpenMsg = isBaseStrategy ? `Global max open trades (${maxOpenTrades}) reached` : `Strategy max open trades (${maxOpenTrades}) reached`;
-      return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
+      return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + targetLabel + '"' : ''}` };
     }
 
     if (symbolTradeCount >= maxOpenTradesPerSymbol) {
-      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached${!isBaseStrategy ? ' for label "' + strategyLabel + '"' : ''}` };
+      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached${!isBaseStrategy ? ' for label "' + targetLabel + '"' : ''}` };
     }
 
     const riskPerTrade = prospectiveRiskPct !== undefined ? prospectiveRiskPct : (config.risk_pct_per_trade ?? 1.0);
@@ -125,15 +125,15 @@ export class RiskEngineService {
       if (!allowScaleException) {
         return {
           canEnter: false,
-          reason: `Risk ceiling reached for label "${strategyLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
+          reason: `Risk ceiling reached for label "${targetLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
         };
       } else {
-        this.logger.log(`[Risk Engine] Allowing min_notional scaled risk overshoot exception for "${strategyLabel}": nominal ${nominalRisk.toFixed(2)}% fits, scaled is ${riskPerTrade.toFixed(2)}%`);
+        this.logger.log(`[Risk Engine] Allowing min_notional scaled risk overshoot exception for "${targetLabel}": nominal ${nominalRisk.toFixed(2)}% fits, scaled is ${riskPerTrade.toFixed(2)}%`);
       }
     }
 
     if (totalSlUsedForStrategy >= totalSlGuardUsdt) {
-      return { canEnter: false, reason: `Strategy Total SL ${Number(totalSlUsedForStrategy || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT for label "${strategyLabel}"` };
+      return { canEnter: false, reason: `Strategy Total SL ${Number(totalSlUsedForStrategy || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT for label "${targetLabel}"` };
     }
 
     // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS - strategy-scoped)

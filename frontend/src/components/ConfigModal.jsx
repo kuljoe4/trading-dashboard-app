@@ -2855,7 +2855,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setField('strategy_variants', exists
       ? variants.filter((v) => v.strategy_label !== p.name)
       : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name })])
-  }, [cfg.strategy_variants, setField]);
+  }, [cfg.strategy_variants, setField, addAlert]);
+
+  const clearAllVariants = React.useCallback(() => {
+    const count = (cfg.strategy_variants || []).length;
+    if (count === 0) return;
+    setField('strategy_variants', []);
+    addAlert({
+      level: 'info',
+      title: 'Variants Cleared',
+      message: `Removed ${count} strategy variant${count > 1 ? 's' : ''} from active orchestration.`
+    });
+  }, [cfg.strategy_variants, setField, addAlert]);
 
   const currentModeBalance = cfg.trading_mode === 'paper' ? (cfg.paper_starting_balance || 10000) : cfg.trading_mode === 'testnet' ? (cfg.testnet_starting_balance || 0) : (cfg.live_starting_balance || 0);
   const riskAmount = (currentModeBalance * ((cfg.risk_pct_per_trade || 0) / 100))
@@ -4431,8 +4442,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       </kbd>
                     )}
                   </div>
-                  <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border shrink-0">
-                    {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border">
+                      {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
+                    </div>
+                    {(cfg.strategy_variants || []).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={clearAllVariants}
+                        className="text-[9px] font-black uppercase tracking-wider text-red hover:text-red/80 bg-red/10 border border-red/20 hover:bg-red/20 px-2 py-1.5 rounded-lg transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none"
+                        aria-label="Clear all active strategy variants"
+                      >
+                        Clear All
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

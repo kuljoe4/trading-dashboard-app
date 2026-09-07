@@ -113,7 +113,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
               </div>
               <Tooltip content="Close Details">
                 <Drawer.Close asChild>
-                  <button className="p-1.5 hover:bg-white/5 rounded-xl transition-all text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none" aria-label="Close Details">
+                  <button type="button" className="p-1.5 hover:bg-white/5 rounded-xl transition-all text-dim hover:text-text active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close Details">
                     <X size={14} />
                   </button>
                 </Drawer.Close>

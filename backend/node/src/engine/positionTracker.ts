@@ -1109,16 +1109,25 @@ export class PositionTrackerService {
       : currentPrice >= newSl;
 
     if (isBreached) {
-      const isPaper = activeConfig.paper_mode ?? true;
-      if (isPaper) {
-        const prevSl = trade.current_sl;
-        if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
-          trade.current_sl = newSl;
-          trade.updated_at = new Date();
-          this.logSlAdjustment(trade, prevSl, newSl, -4, false);
-        }
+      const prevSl = trade.current_sl;
+      const isLong = trade.direction === 'LONG';
+      const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
+
+      if (isBetterSl) {
+        trade.current_sl = newSl;
+        trade.updated_at = new Date();
+        this.logSlAdjustment(trade, prevSl, newSl, -4, false);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
-      this.logger.log(`[Knife Engine] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}, PaperMode: ${isPaper}). Exit pending.`);
+
+      this.logger.log(`[Knife Engine] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Triggering trailing stop exit.`);
+
+      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+        symbol,
+        exitPrice: currentPrice,
+        reason: EXIT_REASONS.TRAILING_STOP,
+        needsMarketClose: true,
+      });
       return;
     }
 
@@ -1189,6 +1198,9 @@ export class PositionTrackerService {
     const oldMaxRr = Number(trade.max_rr_achieved || 0);
     if (liveRr > oldMaxRr) {
       trade.max_rr_achieved = liveRr;
+      if (liveRr - oldMaxRr >= 0.1) {
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
     }
     const peakRr = Math.max(trade.max_rr_achieved || 0, liveRr);
 
@@ -1249,17 +1261,25 @@ export class PositionTrackerService {
       : currentPrice >= newSl;
 
     if (isBreached) {
-      // Trailing SL breached! Directly update trade.current_sl to newSl without capping by trailing guard buffer in paper mode
-      const isPaper = activeConfig.paper_mode ?? true;
-      if (isPaper) {
-        const prevSl = trade.current_sl;
-        if (trade.direction === 'LONG' ? newSl > prevSl : (prevSl === 0 || newSl < prevSl)) {
-          trade.current_sl = newSl;
-          trade.updated_at = new Date();
-          this.logSlAdjustment(trade, prevSl, newSl, -2, false);
-        }
+      const prevSl = trade.current_sl;
+      const isLong = trade.direction === 'LONG';
+      const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
+
+      if (isBetterSl) {
+        trade.current_sl = newSl;
+        trade.updated_at = new Date();
+        this.logSlAdjustment(trade, prevSl, newSl, -2, false);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       }
-      this.logger.log(`[TrailingStop] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}, PaperMode: ${isPaper}). Exit pending.`);
+
+      this.logger.log(`[TrailingStop] Retracement breached trailing SL for ${symbol} (Market: ${currentPrice}, Target SL: ${newSl}, Peak RR: ${peakRr.toFixed(2)}). Triggering trailing stop exit.`);
+
+      this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
+        symbol,
+        exitPrice: currentPrice,
+        reason: EXIT_REASONS.TRAILING_STOP,
+        needsMarketClose: true,
+      });
       return;
     }
 

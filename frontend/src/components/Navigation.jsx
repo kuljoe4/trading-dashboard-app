@@ -204,7 +204,7 @@ export const BottomNav = ({ selected }) => {
             aria-label={item.path === '/trades' && activeTrades?.length > 0 ? `${item.label} (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : item.label}
             aria-current={isActive(item.path) ? 'page' : undefined}
             className={cn(
-              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+              "flex flex-col items-center justify-center w-full h-full gap-1 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer rounded-lg",
               isActive(item.path) ? "text-accent" : "text-dim hover:text-text"
             )}
           >

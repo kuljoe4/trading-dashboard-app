@@ -1230,16 +1230,23 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
     const slDistPct = mark ? (Math.abs(mark - sl) / mark) * 100 : 0
     const slInitialDistPct = entry ? (Math.abs(entry - initialSl) / entry) * 100 : 0
 
-    // Enhanced Exit Signals with proximity
+    // Enhanced Exit Signals with proximity (filtered by active config exit signals if defined)
     const exitSignals = trade.exit_signals_status || {}
-    const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
-      const distPct = calculateProximity(s, mark, entry, isLong, true);
+    const configuredExitSignals = trade.strategy_config?.exit_signals
+    const activeExitSet = Array.isArray(configuredExitSignals) && configuredExitSignals.length > 0
+      ? new Set(configuredExitSignals)
+      : null
 
-      acc[key] = {
-        ...s,
-        distPct,
-        label: (s.label || key).replace(/price/gi, '').trim(),
-        unit: (s.unit || '').replace(/price/gi, '').trim()
+    const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
+      if (!activeExitSet || activeExitSet.has(key) || activeExitSet.has(getBaseSignalType(key))) {
+        const distPct = calculateProximity(s, mark, entry, isLong, true);
+
+        acc[key] = {
+          ...s,
+          distPct,
+          label: (s.label || key).replace(/price/gi, '').trim(),
+          unit: (s.unit || '').replace(/price/gi, '').trim()
+        }
       }
       return acc
     }, {})

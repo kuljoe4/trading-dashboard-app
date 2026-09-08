@@ -1112,7 +1112,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 
   return (
     <div
-      className="flex items-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:p-3 overflow-x-auto no-scrollbar touch-pan-x outline-none relative"
+      className="flex items-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:p-3 overflow-visible outline-none relative z-40"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
@@ -1172,7 +1172,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 5 }}
               transition={{ duration: 0.15, ease: "easeInOut" }}
-              className="absolute right-0 top-full mt-2 w-48 bg-surface border border-border/80 rounded-xl shadow-2xl z-50 p-1.5 space-y-1 backdrop-blur-xl"
+              className="absolute right-0 top-full mt-2 w-48 bg-surface/95 border border-border/80 rounded-xl shadow-2xl z-[100] p-1.5 space-y-1 backdrop-blur-xl"
               role="menu"
               aria-orientation="vertical"
               aria-labelledby="config-tab-more"

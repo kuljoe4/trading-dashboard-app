@@ -126,6 +126,55 @@ describe('SessionService Validation', () => {
       expect(() => (service as any).validateConfig(config2)).not.toThrow();
     });
 
+    it('validates EMA Dual Cross when signal_params is empty by using default fast/slow fallbacks', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['ema_dual_cross'];
+      config.signal_params = {};
+      expect(() => (service as any).validateConfig(config)).not.toThrow();
+    });
+
+    it('validates suffixed EMA Dual Cross signal keys and parameter aliases', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['ema_dual_cross_2'];
+      config.signal_params = { entry_ema_fast_2: 12, entry_ema_slow_2: 26 };
+      expect(() => (service as any).validateConfig(config)).not.toThrow();
+
+      const invalidConfig = new SessionConfig();
+      invalidConfig.enabled_signals = ['ema_dual_cross_2'];
+      invalidConfig.signal_params = { entry_ema_fast_2: 26, entry_ema_slow_2: 12 };
+      expect(() => (service as any).validateConfig(invalidConfig)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
+    });
+
+    it('validates strategy variants inheriting base signal_params for EMA Dual Cross', () => {
+      const config = new SessionConfig();
+      config.strategy_label = 'Base Dual Strategy';
+      config.enabled_signals = ['momentum_pct'];
+      config.signal_params = { entry_ema_fast: 9, entry_ema_slow: 21 };
+      config.strategy_variants = [
+        {
+          strategy_label: 'Variant 1',
+          enabled_signals: ['ema_dual_cross'],
+          signal_params: {},
+        } as any,
+      ];
+      expect(() => (service as any).validateConfig(config)).not.toThrow();
+    });
+
+    it('throws error when exit EMA Dual Cross has invalid fast/slow relationship', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['momentum_pct'];
+      config.exit_signals = ['ema_dual_cross'];
+      config.signal_params = { exit_ema_fast: 21, exit_ema_slow: 9 };
+      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
+    });
+
+    it('throws error when EMA Dual Cross fast or slow period is zero, negative, or invalid', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['ema_dual_cross'];
+      config.signal_params = { entry_ema_fast: 0, entry_ema_slow: 21 };
+      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)');
+    });
+
     it('throws error if risk per trade exceeds max total risk', () => {
       const config = new SessionConfig();
       config.risk_pct_per_trade = 5;

@@ -683,7 +683,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
         </div>
       </div>
 
-      <div className="space-y-1.5 md:space-y-4 flex-1">
+      <div className="flex flex-col gap-1.5 md:gap-4 flex-1">
         {/* Dedicated Trailing Stop Loss Exit Guard Card */}
         {trade.strategy_config?.trailing_stop_enabled && (() => {
           const cfg = trade.strategy_config;
@@ -1326,7 +1326,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Price Runway */}
-      <div className="space-y-1.5 md:space-y-2">
+      <div className="flex flex-col gap-1.5 md:gap-2">
         <div className="flex justify-between items-end">
           <div className="flex flex-col gap-0.5">
             <span className={cn(
@@ -1536,11 +1536,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
-         <div className="lg:col-span-2 space-y-3 md:space-y-4">
+         <div className="lg:col-span-2 flex flex-col gap-3 md:gap-4">
             <RRLadder trade={trade} interactiveEnabled={interactiveEnabled} />
          </div>
 
-         <div className="space-y-3 md:space-y-4">
+         <div className="flex flex-col gap-3 md:gap-4">
             <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} interactiveEnabled={interactiveEnabled} setInteractiveEnabled={setInteractiveEnabled} />
 
             <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
@@ -1566,7 +1566,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 })();
 
                 return (
-                  <div className="space-y-1 md:space-y-3.5">
+                  <div className="flex flex-col gap-1 md:gap-3.5">
                      {[
                        sessionReturnBlock && {
                          label: sessionReturnBlock.label,
@@ -1667,7 +1667,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   <SectionLabel className="mb-3 md:mb-5">
                     <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
                   </SectionLabel>
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
                       <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
                         <div className="flex flex-col gap-1">
@@ -1744,10 +1744,10 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   transition={{ type: "spring", stiffness: 100, damping: 20 }}
                   className="overflow-hidden"
                 >
-                  <div className="bg-surface/60 border border-border/50 rounded-2xl p-4 md:p-6 shadow-lg backdrop-blur-md space-y-5 md:space-y-7 mt-3">
+                  <div className="bg-surface/60 border border-border/80 rounded-2xl p-4 md:p-6 shadow-lg shadow-black/20 backdrop-blur-md flex flex-col gap-5 md:gap-7 mt-3">
 
                     {/* Part 1: Stop-Loss Override */}
-                    <div className="space-y-2">
+                    <div className="flex flex-col gap-2">
                       <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase">
                         Stop-Loss Override
                       </SectionLabel>
@@ -1766,7 +1766,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                             aria-label="Edit stop loss price"
                           />
                         </div>
-                        <div className="text-[10px] md:text-xs font-mono text-dim/80 space-y-0.5">
+                        <div className="text-[10px] md:text-xs font-mono text-dim/80 flex flex-col gap-0.5">
                           <div className="flex justify-between">
                             <span>Risk Distance:</span>
                             <span className="font-bold text-red">
@@ -1813,7 +1813,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     </div>
 
                     {/* Part 2: Exponential RR Guard Ladder */}
-                    <div className="space-y-3 pt-4 border-t border-border/10">
+                    <div className="flex flex-col gap-3 pt-4 border-t border-border/20">
                       <div className="flex justify-between items-center">
                         <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0">
                           Profit-Locking Guard Ladder Milestones
@@ -1834,7 +1834,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         </div>
                       )}
 
-                      <div className="space-y-1.5 max-h-[240px] overflow-y-auto no-scrollbar pr-1">
+                      <div className="flex flex-col gap-1.5 max-h-[240px] overflow-y-auto no-scrollbar pr-1">
                         <AnimatePresence initial={false} mode="popLayout">
                           {formLadder.map((row, idx) => (
                             <motion.div
@@ -1898,11 +1898,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     </div>
 
                     {/* Part 3: Exit Monitors indicator parameter overrides */}
-                    <div className="space-y-3 pt-4 border-t border-border/10">
+                    <div className="flex flex-col gap-3 pt-4 border-t border-border/20">
                       <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
                         Technical Indicator Overrides
                       </SectionLabel>
-                      <div className="space-y-4">
+                      <div className="flex flex-col gap-4">
                         {activeSignalKeys.map(sigKey => {
                           const baseType = getBaseSignalType(sigKey);
                           const { timeframe, params } = getSignalInfo(sigKey, trade.strategy_config || {});
@@ -1913,7 +1913,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           const suffix = isLayered ? ` (Layer: _${sigKey.split('_').pop()})` : '';
 
                           return (
-                            <div key={sigKey} className="bg-white/[0.01] border border-white/[0.03] p-3 rounded-xl space-y-2.5">
+                            <div key={sigKey} className="bg-white/[0.01] border border-white/10 p-3 rounded-xl flex flex-col gap-2.5 shadow-sm">
                               <div className="flex justify-between items-center border-b border-white/[0.02] pb-1.5">
                                 <span className="text-[9px] font-black uppercase tracking-wider text-text/95">
                                   {label}{suffix}
@@ -1988,7 +1988,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                     </div>
 
                     {/* Part 4: Exit Signal Delay Overrides */}
-                    <div className="space-y-3 pt-4 border-t border-border/10">
+                    <div className="flex flex-col gap-3 pt-4 border-t border-border/20">
                       <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-1">
                         Exit Signal Delay Overrides
                       </SectionLabel>

@@ -233,7 +233,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-xl p-2 sm:p-2.5 md:p-3 flex flex-col gap-1.5 sm:gap-2 w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        "bg-surface border border-border/80 rounded-xl p-2 sm:p-2.5 md:p-3 flex flex-col gap-1.5 sm:gap-2 w-full shadow-md shadow-black/20 cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
       aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0).toFixed(2)}R`}

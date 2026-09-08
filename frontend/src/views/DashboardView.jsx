@@ -143,7 +143,7 @@ const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 // --- Custom Reference Design KPI Card ---
 const ReferenceKPICard = React.memo(({ title, value, changePct, isPositive, icon: Icon, iconBg = "bg-accent/15 text-accent", subtext }) => {
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-5 shadow-sm hover:border-accent/30 transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+    <div className="bg-surface border border-border rounded-2xl p-5 shadow-md shadow-black/20 hover:border-accent/40 transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-black uppercase tracking-widest text-dim">{title}</span>
@@ -214,7 +214,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
   }, [tradeHistory, activeTrades]);
 
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+    <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
       <div
         role="button"
         tabIndex={0}
@@ -261,7 +261,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="overflow-hidden pt-2 border-t border-border/20 space-y-2.5"
+            className="overflow-hidden pt-2 border-t border-border/20 flex flex-col gap-2.5"
           >
         {allTransactions.length === 0 ? (
           <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
@@ -474,7 +474,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
   }, [tradeHistory]);
 
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+    <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
       <div
         role="button"
         tabIndex={0}
@@ -482,38 +482,38 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsChartExpanded(!isChartExpanded))}
         aria-expanded={isChartExpanded}
         aria-controls="periodic-chart-content"
-        className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+        className="flex items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
       >
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
             <BarChart3 size={16} />
           </div>
-          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <h3 className="text-xs sm:text-sm md:text-base font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
-              Periodic Performance
-            </h3>
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <div className="flex items-center justify-between flex-wrap gap-2 min-w-0 flex-1 pr-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+                Periodic Performance
+              </h3>
               <span className="text-[10px] text-dim font-bold uppercase tracking-widest shrink-0">
-                Net P&L: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
+                Net: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
               </span>
+            </div>
 
-              {/* Quick Period Badges */}
-              <div className="flex items-center gap-1 sm:gap-1.5 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase flex-wrap">
-                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                  Today: {fmtUSD(periodBadges.today)}
-                </span>
-                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                  7D: {fmtUSD(periodBadges.d7)}
-                </span>
-                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                  30D: {fmtUSD(periodBadges.d30)}
-                </span>
-              </div>
+            {/* Ultra-Compact Period Badges */}
+            <div className="flex items-center gap-1 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase shrink-0">
+              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                24H: {fmtUSD(periodBadges.today)}
+              </span>
+              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0 hidden xs:inline-block", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                7D: {fmtUSD(periodBadges.d7)}
+              </span>
+              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0 hidden sm:inline-block", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                30D: {fmtUSD(periodBadges.d30)}
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
           <div className={cn(
             "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
             isChartExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
@@ -531,7 +531,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="overflow-hidden space-y-4 pt-2 border-t border-border/20"
+            className="overflow-hidden flex flex-col gap-4 pt-2 border-t border-border/20"
           >
             {/* Multi-Horizon Granularity Controls */}
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -562,21 +562,30 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
               </div>
             </div>
 
-            {/* Active Selected Period Detail Banner */}
-            <AnimatePresence>
+            {/* Reserved Period Detail Banner (Zero CLS on hover/click) */}
+            <div className="min-h-[38px] bg-accent/5 border border-accent/20 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap transition-all">
         {(() => {
           const activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex;
-          if (activeIdx === null || !buckets[activeIdx]) return null;
-          const activeBucket = buckets[activeIdx];
+          const activeBucket = activeIdx !== null ? buckets[activeIdx] : null;
+
+          if (!activeBucket) {
+            return (
+              <div className="flex items-center justify-between w-full text-dim/70 font-sans text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+                <span className="flex items-center gap-1.5">
+                  <Info size={12} className="text-accent/60 shrink-0" />
+                  Hover or tap a bar to inspect period breakdown
+                </span>
+                <span className="font-mono text-[9.5px] text-dim/80 hidden sm:inline">
+                  {buckets.length} Periods ({timeframe})
+                </span>
+              </div>
+            );
+          }
+
           const activePct = balance > 0 ? (activeBucket.pnl / balance) * 100 : 0;
 
           return (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-accent/10 border border-accent/25 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap"
-            >
+            <>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
                 <span className="font-black uppercase tracking-wider text-accent">
@@ -596,10 +605,10 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
                   Win Rate: <strong className="text-text">{activeBucket.tradesCount > 0 ? Math.round((activeBucket.winCount / activeBucket.tradesCount) * 100) : 0}%</strong>
                 </span>
               </div>
-            </motion.div>
+            </>
           );
         })()}
-            </AnimatePresence>
+            </div>
 
       {/* Bar Canvas Container with Responsive Scroll */}
       <div className="relative pt-4 pb-2 w-full overflow-x-auto no-scrollbar">
@@ -2826,7 +2835,7 @@ export function DashboardView({ initialStrategy }) {
                                 </div>
 
                                 {/* Win Rate Progress Bar */}
-                                <div className="space-y-1 mt-1">
+                                <div className="flex flex-col gap-1 mt-1">
                                   <div className="flex justify-between text-[8px] text-dim/60 font-bold font-mono">
                                     <span>WIN RATE</span>
                                     <span>{winRatePct}%</span>

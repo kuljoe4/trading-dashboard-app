@@ -122,7 +122,7 @@ const TradesView = () => {
         <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />
       </div>
 
-      <div className="space-y-6">
+      <div className="flex flex-col gap-6">
         <SectionLabel>Live Tactical Map</SectionLabel>
 
         {(!activeTrades || activeTrades.length === 0) ? (

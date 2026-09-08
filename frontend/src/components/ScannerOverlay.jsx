@@ -340,7 +340,7 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
               <DecisionPipeline steps={funnelSteps} />
 
               {/* Signal Checklist */}
-              <div className="space-y-2 flex-1 min-h-0">
+              <div className="flex flex-col gap-2 flex-1 min-h-0">
                 <div className="flex items-center justify-between">
                    <div className="text-[9px] font-black text-dim uppercase tracking-widest">Technical Checklist</div>
                    <div className={cn(

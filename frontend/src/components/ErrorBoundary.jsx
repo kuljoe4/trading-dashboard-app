@@ -36,7 +36,7 @@ class ErrorBoundary extends React.Component {
                 ? 'A new version of the dashboard has been deployed. Please reload to sync with the latest updates.'
                 : 'The dashboard encountered an unexpected error. Your active trades are still being managed by the backend engine.'}
             </p>
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               <button
                 type="button"
                 onClick={() => window.location.reload()}

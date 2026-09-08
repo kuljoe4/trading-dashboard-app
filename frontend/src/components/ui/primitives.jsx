@@ -817,7 +817,7 @@ export const ModalAlertTicker = React.memo(() => {
   const activeAlert = alerts[alertIndex % alerts.length];
 
   return (
-    <div className="relative flex items-center justify-center min-w-0 w-full px-4 py-2 border-b border-border/10 bg-surface/20 z-50 animate-in fade-in">
+    <div className="relative flex items-center justify-center min-w-0 w-full px-4 py-2 border-b border-border/10 bg-surface/20 z-20 animate-in fade-in">
       <div className="relative w-full max-w-[540px]">
         <div
           onClick={() => setShowDropdown(!showDropdown)}

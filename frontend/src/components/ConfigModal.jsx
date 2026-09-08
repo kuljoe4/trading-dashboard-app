@@ -1112,7 +1112,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 
   return (
     <div
-      className="flex items-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:p-3 overflow-visible outline-none relative z-40"
+      className="flex items-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:p-3 overflow-visible outline-none relative z-40 w-full"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
@@ -1131,7 +1131,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
       ))}
 
       {/* Overflow "More" Icon Trigger Dropdown */}
-      <div className="relative shrink-0" ref={dropdownRef}>
+      <div className="relative shrink-0 ml-auto" ref={dropdownRef}>
         <Tooltip content="More strategy sections (Env, Smart Auto, Backtest, Presets)">
           <button
             type="button"

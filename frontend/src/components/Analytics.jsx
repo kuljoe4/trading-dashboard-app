@@ -1,4 +1,5 @@
 import React, { useId, useMemo, useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { fmtUSD, solveSmoothing, pnlClass } from '../lib/theme';
 import { formatDuration } from '../lib/formatters';
 import { cn, Tooltip } from '../components/ui/primitives';
@@ -474,9 +475,12 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
           </div>
 
           {/* View Toggle (Grid / Agenda) */}
-          <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-xl">
+          <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-xl" role="tablist" aria-label="Strategy calendar view mode selection">
             <button
               type="button"
+              role="tab"
+              aria-selected={viewMode === 'GRID'}
+              aria-controls="strategy-calendar-view-container"
               onClick={() => setViewMode('GRID')}
               aria-label="Grid View"
               title="Calendar Grid View"
@@ -490,6 +494,9 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
             </button>
             <button
               type="button"
+              role="tab"
+              aria-selected={viewMode === 'LIST'}
+              aria-controls="strategy-calendar-view-container"
               onClick={() => setViewMode('LIST')}
               aria-label="Agenda View"
               title="Daily Agenda List View"
@@ -526,133 +533,144 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
       </div>
 
       {/* Main Calendar Render (Grid vs. Agenda) */}
-      {viewMode === 'GRID' ? (
-        <div className="grid grid-cols-7 gap-1 sm:gap-2">
-          {daysOfWeek.map((day) => (
-            <div key={day} className="text-center text-[8px] xs:text-[9px] text-dim font-black uppercase tracking-wider py-1 truncate">
-              {day}
-            </div>
-          ))}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={viewMode}
+          id="strategy-calendar-view-container"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.15, ease: "easeInOut" }}
+        >
+          {viewMode === 'GRID' ? (
+            <div className="grid grid-cols-7 gap-1 sm:gap-2">
+              {daysOfWeek.map((day) => (
+                <div key={day} className="text-center text-[8px] xs:text-[9px] text-dim font-black uppercase tracking-wider py-1 truncate">
+                  {day}
+                </div>
+              ))}
 
-          {/* Empty cells before month start */}
-          {Array.from({ length: startDayOfWeek }).map((_, i) => (
-            <div key={`empty-${i}`} className="min-h-[58px] sm:min-h-[72px] rounded-xl bg-surface/10 border border-border/10 opacity-30" />
-          ))}
+              {/* Empty cells before month start */}
+              {Array.from({ length: startDayOfWeek }).map((_, i) => (
+                <div key={`empty-${i}`} className="min-h-[58px] sm:min-h-[72px] rounded-xl bg-surface/10 border border-border/10 opacity-30" />
+              ))}
 
-          {/* Days of month */}
-          {Array.from({ length: daysInMonth }).map((_, i) => {
-            const dayNum = i + 1;
-            const key = `${year}-${String(mNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-            const stats = dailyStatsMap.get(key);
-            const hasTrades = stats && stats.count > 0;
-            const isProfitable = hasTrades && stats.pnl >= 0;
+              {/* Days of month */}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const dayNum = i + 1;
+                const key = `${year}-${String(mNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+                const stats = dailyStatsMap.get(key);
+                const hasTrades = stats && stats.count > 0;
+                const isProfitable = hasTrades && stats.pnl >= 0;
 
-            const tooltipContent = hasTrades
-              ? `${key}: PnL ${fmtUSD(stats.pnl)}, ${stats.wins}W / ${stats.losses}L (${stats.count} total trades). Tap for details.`
-              : `${key}: No trades recorded`;
+                const tooltipContent = hasTrades
+                  ? `${key}: PnL ${fmtUSD(stats.pnl)}, ${stats.wins}W / ${stats.losses}L (${stats.count} total trades). Tap for details.`
+                  : `${key}: No trades recorded`;
 
-            return (
-              <Tooltip key={key} content={tooltipContent}>
-                <button
-                  type="button"
-                  tabIndex={0}
-                  onClick={() => {
-                    if (hasTrades) {
-                      setSelectedDayDetail({ dateKey: key, dayNum, ...stats });
-                    }
-                  }}
-                  aria-label={tooltipContent}
-                  className={cn(
-                    "min-h-[58px] sm:min-h-[72px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none overflow-hidden text-left w-full",
-                    hasTrades
-                      ? isProfitable
-                        ? "bg-green/10 border-green/30 hover:border-green/60 hover:scale-[1.02] active:scale-95"
-                        : "bg-red/10 border-red/30 hover:border-red/60 hover:scale-[1.02] active:scale-95"
-                      : "bg-surface/20 border-border/20 hover:border-border/40"
-                  )}
-                >
-                  <div className="flex items-center justify-between gap-0.5 w-full min-w-0">
-                    <span className="text-[9.5px] sm:text-[11px] font-mono font-bold text-dim group-hover:text-text shrink-0">{dayNum}</span>
-                    {hasTrades && (
-                      <span className="text-[6.5px] xs:text-[7.5px] font-black uppercase font-mono px-1 py-0.2 rounded bg-background/60 border border-border/20 text-dim truncate">
-                        {stats.wins}W/{stats.losses}L
-                      </span>
-                    )}
-                  </div>
+                return (
+                  <Tooltip key={key} content={tooltipContent}>
+                    <button
+                      type="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (hasTrades) {
+                          setSelectedDayDetail({ dateKey: key, dayNum, ...stats });
+                        }
+                      }}
+                      aria-label={tooltipContent}
+                      className={cn(
+                        "min-h-[58px] sm:min-h-[72px] p-1.5 sm:p-2 rounded-xl border flex flex-col justify-between transition-all relative group cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none overflow-hidden text-left w-full",
+                        hasTrades
+                          ? isProfitable
+                            ? "bg-green/10 border-green/30 hover:border-green/60 hover:scale-[1.02] active:scale-95"
+                            : "bg-red/10 border-red/30 hover:border-red/60 hover:scale-[1.02] active:scale-95"
+                          : "bg-surface/20 border-border/20 hover:border-border/40"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-0.5 w-full min-w-0">
+                        <span className="text-[9.5px] sm:text-[11px] font-mono font-bold text-dim group-hover:text-text shrink-0">{dayNum}</span>
+                        {hasTrades && (
+                          <span className="text-[6.5px] xs:text-[7.5px] font-black uppercase font-mono px-1 py-0.2 rounded bg-background/60 border border-border/20 text-dim truncate">
+                            {stats.wins}W/{stats.losses}L
+                          </span>
+                        )}
+                      </div>
 
-                  {hasTrades ? (
-                    <div className="flex flex-col items-end w-full min-w-0 mt-1">
-                      <span className={cn("text-[9px] xs:text-[10.5px] sm:text-xs font-black font-mono tracking-tight truncate w-full text-right leading-tight", isProfitable ? "text-green" : "text-red")}>
-                        {fmtUSD(stats.pnl)}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center w-full my-auto">
-                      <span className="w-1 h-1 rounded-full bg-dim/20" />
-                    </div>
-                  )}
-                </button>
-              </Tooltip>
-            );
-          })}
-        </div>
-      ) : (
-        /* Agenda List View for Small Viewports & Accessibility */
-        <div className="flex flex-col gap-2">
-          {monthActiveDaysList.length === 0 ? (
-            <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
-              No Trades Recorded in {monthLabel} {year}
+                      {hasTrades ? (
+                        <div className="flex flex-col items-end w-full min-w-0 mt-1">
+                          <span className={cn("text-[9px] xs:text-[10.5px] sm:text-xs font-black font-mono tracking-tight truncate w-full text-right leading-tight", isProfitable ? "text-green" : "text-red")}>
+                            {fmtUSD(stats.pnl)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center w-full my-auto">
+                          <span className="w-1 h-1 rounded-full bg-dim/20" />
+                        </div>
+                      )}
+                    </button>
+                  </Tooltip>
+                );
+              })}
             </div>
           ) : (
-            monthActiveDaysList.map((day) => {
-              const isProfitable = day.pnl >= 0;
-              const winRate = day.count > 0 ? ((day.wins / day.count) * 100).toFixed(0) : 0;
+            /* Agenda List View for Small Viewports & Accessibility */
+            <div className="flex flex-col gap-2">
+              {monthActiveDaysList.length === 0 ? (
+                <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
+                  No Trades Recorded in {monthLabel} {year}
+                </div>
+              ) : (
+                monthActiveDaysList.map((day) => {
+                  const isProfitable = day.pnl >= 0;
+                  const winRate = day.count > 0 ? ((day.wins / day.count) * 100).toFixed(0) : 0;
 
-              return (
-                <button
-                  key={day.key}
-                  type="button"
-                  onClick={() => setSelectedDayDetail(day)}
-                  className="w-full text-left p-3 rounded-xl bg-surface/40 hover:bg-surface border border-border/30 hover:border-accent/40 transition-all flex items-center justify-between gap-3 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
-                  aria-label={`${day.key}: ${fmtUSD(day.pnl)}, ${day.wins} Wins, ${day.losses} Losses (${winRate}% Win Rate). Tap for full trade details.`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={cn(
-                      "w-10 h-10 rounded-xl flex flex-col items-center justify-center font-mono shrink-0 border",
-                      isProfitable ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red"
-                    )}>
-                      <span className="text-[9px] uppercase font-bold text-dim">{monthLabel.substring(0, 3)}</span>
-                      <span className="text-sm font-black leading-none">{day.dayNum}</span>
-                    </div>
+                  return (
+                    <button
+                      key={day.key}
+                      type="button"
+                      onClick={() => setSelectedDayDetail(day)}
+                      className="w-full text-left p-3 rounded-xl bg-surface/40 hover:bg-surface border border-border/30 hover:border-accent/40 transition-all flex items-center justify-between gap-3 group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                      aria-label={`${day.key}: ${fmtUSD(day.pnl)}, ${day.wins} Wins, ${day.losses} Losses (${winRate}% Win Rate). Tap for full trade details.`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={cn(
+                          "w-10 h-10 rounded-xl flex flex-col items-center justify-center font-mono shrink-0 border",
+                          isProfitable ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red"
+                        )}>
+                          <span className="text-[9px] uppercase font-bold text-dim">{monthLabel.substring(0, 3)}</span>
+                          <span className="text-sm font-black leading-none">{day.dayNum}</span>
+                        </div>
 
-                    <div className="flex flex-col">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-black font-mono text-text uppercase">{day.key}</span>
-                        <span className="text-[8px] bg-background border border-border/30 font-black px-1.5 py-0.5 rounded text-dim font-mono">
-                          {day.wins}W / {day.losses}L ({winRate}% WR)
-                        </span>
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-black font-mono text-text uppercase">{day.key}</span>
+                            <span className="text-[8px] bg-background border border-border/30 font-black px-1.5 py-0.5 rounded text-dim font-mono">
+                              {day.wins}W / {day.losses}L ({winRate}% WR)
+                            </span>
+                          </div>
+                          <span className="text-[9px] text-dim/80 font-medium">
+                            {day.count} {day.count === 1 ? 'Trade' : 'Trades'} executed
+                          </span>
+                        </div>
                       </div>
-                      <span className="text-[9px] text-dim/80 font-medium">
-                        {day.count} {day.count === 1 ? 'Trade' : 'Trades'} executed
-                      </span>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="flex flex-col items-end">
-                      <span className={cn("text-xs sm:text-sm font-black font-mono tracking-tight", isProfitable ? "text-green" : "text-red")}>
-                        {fmtUSD(day.pnl)}
-                      </span>
-                      <span className="text-[8px] text-dim uppercase tracking-wider font-bold">Daily PnL</span>
-                    </div>
-                    <ChevronRight size={16} className="text-dim group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
-                  </div>
-                </button>
-              );
-            })
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-end">
+                          <span className={cn("text-xs sm:text-sm font-black font-mono tracking-tight", isProfitable ? "text-green" : "text-red")}>
+                            {fmtUSD(day.pnl)}
+                          </span>
+                          <span className="text-[8px] text-dim uppercase tracking-wider font-bold">Daily PnL</span>
+                        </div>
+                        <ChevronRight size={16} className="text-dim group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
           )}
-        </div>
-      )}
+        </motion.div>
+      </AnimatePresence>
 
       {/* Daily Detail Interactive Popover Modal / Drawer */}
       {selectedDayDetail && (
@@ -2016,8 +2034,11 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
 
       {/* Smart Hierarchical X-Axis Labels (Non-overlapping) */}
       {adaptiveTicks.length > 0 && (
-        <div className="relative w-full h-6 pt-1 font-mono text-[8.5px] text-dim/80 select-none overflow-hidden px-6">
+        <div className="relative w-full min-h-[28px] pt-1 font-mono text-[8.5px] text-dim/80 select-none overflow-visible">
           {adaptiveTicks.map((tick, idx) => {
+            const hasTime = !!tick.secondaryLabel;
+            const hasDate = !!tick.primaryLabel;
+
             return (
               <div
                 key={idx}
@@ -2027,14 +2048,23 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
                   transform: tick.align === 'start' ? 'translateX(0%)' : (tick.align === 'end' ? 'translateX(-100%)' : 'translateX(-50%)')
                 }}
               >
-                {tick.primaryLabel && (
-                  <span className="font-bold text-[8.5px] text-text/90 bg-surface/80 px-1 rounded border border-border/20 leading-none py-0.5">
-                    {tick.primaryLabel}
-                  </span>
-                )}
-                {tick.secondaryLabel && (
-                  <span className="font-semibold text-[8px] text-dim/70 leading-tight">
+                {/* Top line: Time (if present) or Date (if time absent) to guarantee uniform top baseline */}
+                {hasTime ? (
+                  <span className="font-semibold text-[8px] text-dim/90 leading-tight whitespace-nowrap">
                     {tick.secondaryLabel}
+                  </span>
+                ) : (
+                  hasDate && (
+                    <span className="font-bold text-[8.5px] text-text/90 bg-surface/80 px-1 rounded border border-border/20 leading-none py-0.5 whitespace-nowrap">
+                      {tick.primaryLabel}
+                    </span>
+                  )
+                )}
+
+                {/* Bottom line: Date badge when both time and date are present */}
+                {hasTime && hasDate && (
+                  <span className="font-bold text-[7.5px] text-accent bg-accent/10 px-1 rounded border border-accent/20 leading-none py-0.5 whitespace-nowrap mt-0.5">
+                    {tick.primaryLabel}
                   </span>
                 )}
               </div>

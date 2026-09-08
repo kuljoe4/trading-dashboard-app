@@ -562,21 +562,30 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
               </div>
             </div>
 
-            {/* Active Selected Period Detail Banner */}
-            <AnimatePresence>
+            {/* Reserved Period Detail Banner (Zero CLS on hover/click) */}
+            <div className="min-h-[38px] bg-accent/5 border border-accent/20 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap transition-all">
         {(() => {
           const activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex;
-          if (activeIdx === null || !buckets[activeIdx]) return null;
-          const activeBucket = buckets[activeIdx];
+          const activeBucket = activeIdx !== null ? buckets[activeIdx] : null;
+
+          if (!activeBucket) {
+            return (
+              <div className="flex items-center justify-between w-full text-dim/70 font-sans text-[10px] sm:text-xs font-bold uppercase tracking-wider">
+                <span className="flex items-center gap-1.5">
+                  <Info size={12} className="text-accent/60 shrink-0" />
+                  Hover or tap a bar to inspect period breakdown
+                </span>
+                <span className="font-mono text-[9.5px] text-dim/80 hidden sm:inline">
+                  {buckets.length} Periods ({timeframe})
+                </span>
+              </div>
+            );
+          }
+
           const activePct = balance > 0 ? (activeBucket.pnl / balance) * 100 : 0;
 
           return (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="bg-accent/10 border border-accent/25 px-3 py-2 rounded-xl flex items-center justify-between gap-3 text-xs font-mono flex-wrap"
-            >
+            <>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
                 <span className="font-black uppercase tracking-wider text-accent">
@@ -596,10 +605,10 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
                   Win Rate: <strong className="text-text">{activeBucket.tradesCount > 0 ? Math.round((activeBucket.winCount / activeBucket.tradesCount) * 100) : 0}%</strong>
                 </span>
               </div>
-            </motion.div>
+            </>
           );
         })()}
-            </AnimatePresence>
+            </div>
 
       {/* Bar Canvas Container with Responsive Scroll */}
       <div className="relative pt-4 pb-2 w-full overflow-x-auto no-scrollbar">

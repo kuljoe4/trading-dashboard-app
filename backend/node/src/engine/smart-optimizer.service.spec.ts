@@ -68,6 +68,7 @@ describe('SmartOptimizerService Unit Tests', () => {
         executionTimeMs: 15,
         config: dto.config || new SessionConfig(),
         equityCurve: [],
+        symbolPerformance: [],
         trades: [],
       };
     });
@@ -117,6 +118,7 @@ describe('SmartOptimizerService Unit Tests', () => {
       executionTimeMs: 10,
       config: dto.config || new SessionConfig(),
       equityCurve: [],
+      symbolPerformance: [],
       trades: [],
     }));
 

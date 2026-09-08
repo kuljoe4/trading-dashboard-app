@@ -257,6 +257,16 @@ export class TradingSessionService implements OnApplicationShutdown {
       msg: startMsg,
       level: "info",
     });
+
+    if (open && open.length > 0) {
+      const summaryList = open.map(t => `${t.symbol} (SL: ${t.current_sl || t.initial_sl}, Peak RR: ${t.max_rr_achieved || 0}R)`).join(', ');
+      this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+        level: "info",
+        title: "Active Trailing Stops Resumed",
+        message: `Restored trailing stop levels for ${open.length} position(s): ${summaryList}`,
+      });
+    }
+
     await this.sessionLifecycle.start(config, bc, sid, hist, curBal, open);
 
     // DATA-07: Recalculate total risk on start to ensure O(1) tracker is in sync with loaded state

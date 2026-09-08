@@ -143,7 +143,7 @@ const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 // --- Custom Reference Design KPI Card ---
 const ReferenceKPICard = React.memo(({ title, value, changePct, isPositive, icon: Icon, iconBg = "bg-accent/15 text-accent", subtext }) => {
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-5 shadow-sm hover:border-accent/30 transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+    <div className="bg-surface border border-border rounded-2xl p-5 shadow-md shadow-black/20 hover:border-accent/40 transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-black uppercase tracking-widest text-dim">{title}</span>
@@ -214,7 +214,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
   }, [tradeHistory, activeTrades]);
 
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+    <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
       <div
         role="button"
         tabIndex={0}
@@ -474,7 +474,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
   }, [tradeHistory]);
 
   return (
-    <div className="bg-surface border border-border/40 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+    <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
       <div
         role="button"
         tabIndex={0}

@@ -109,8 +109,8 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-4 lg:p-5 rounded-2xl shadow-sm transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-        isLocked ? "border-border/60" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
+        "bg-surface border p-3 md:p-4 lg:p-5 rounded-2xl shadow-md transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+        isLocked ? "border-border shadow-black/20" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
         disabled && "opacity-40 grayscale pointer-events-none",
         usagePct >= 90 && "border-red/40 bg-red/[0.02] shadow-[0_0_20px_rgba(255,68,102,0.1)] animate-pulse-slow",
         usagePct >= 70 && usagePct < 90 && "border-amber/40 bg-amber/[0.02] shadow-[0_0_20px_rgba(245,166,35,0.05)]",
@@ -217,7 +217,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
   const content = (
     <div
       className={cn(
-        "bg-surface border border-border/60 rounded-xl md:rounded-2xl shadow-sm hover:border-accent/30 hover:bg-white/[0.01] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:border-accent/30 focus-visible:bg-white/[0.01]",
+        "bg-surface border border-border rounded-xl md:rounded-2xl shadow-md shadow-black/20 hover:border-accent/40 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:border-accent/30 focus-visible:bg-white/[0.01]",
         compact
           ? "p-2 md:p-2.5 min-h-[48px] md:min-h-[56px] lg:min-h-[64px]"
           : "p-3 md:p-4 lg:p-5 min-h-[64px] md:min-h-[80px] lg:min-h-[100px]"

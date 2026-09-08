@@ -284,6 +284,16 @@ export class PositionTrackerService {
     this.sessionState.setActiveTrades(Array.from(this.trades.values()));
 
     this._activeListCache = null;
+
+    // DIAGNOSTIC LOGGING: Emit trailing stop persistence diagnostic log
+    const slAdjCount = trade.sl_adjustments ? trade.sl_adjustments.length : 0;
+    const diagMsg = `[Trailing Stop State] Active trade ${trade.symbol} initialized: Entry=${trade.entry_price}, Current SL=${trade.current_sl || trade.initial_sl}, Peak R:R=${trade.max_rr_achieved || 0}R, Milestone Index=${trade.rr_sequence_index ?? -1}, Adjustments=${slAdjCount}`;
+    this.logger.log(diagMsg);
+    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+      msg: diagMsg,
+      level: 'info',
+    });
+
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
   }
 

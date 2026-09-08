@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI, sessionAPI, smartOptimizerAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -1037,34 +1036,75 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
 SectionTab.displayName = 'SectionTab'
 
 const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
-  const tabs = useMemo(() => [
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  const primaryTabs = useMemo(() => [
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
-    { id: 'risk', label: 'Risk', icon: ShieldCheck },
+    { id: 'risk', label: 'Risk', icon: ShieldCheck }
+  ], []);
+
+  const secondaryTabs = useMemo(() => [
     { id: 'env', label: 'Env', icon: Briefcase },
     { id: 'smart', label: 'Smart Auto', icon: Sparkles },
     { id: 'backtest', label: 'Backtest', icon: TrendingUp },
     { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
+  const allTabs = useMemo(() => [...primaryTabs, ...secondaryTabs], [primaryTabs, secondaryTabs]);
+
   const tabHasError = React.useCallback((tabId) => {
     return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
   }, [errors]);
 
-  const handleKeyDown = (e) => {
+  const isSecondaryActive = useMemo(() => {
+    return secondaryTabs.some(t => t.id === section);
+  }, [secondaryTabs, section]);
+
+  const activeSecondaryTab = useMemo(() => {
+    return secondaryTabs.find(t => t.id === section);
+  }, [secondaryTabs, section]);
+
+  const secondaryHasError = useMemo(() => {
+    return secondaryTabs.some(t => tabHasError(t.id));
+  }, [secondaryTabs, tabHasError]);
+
+  // Close dropdown on outside click or escape
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsMoreOpen(false);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && isMoreOpen) {
+        setIsMoreOpen(false);
+      }
+    };
+    if (isMoreOpen) {
+      document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMoreOpen]);
+
+  const handleKeyDownNav = (e) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-      const currentIndex = tabs.findIndex(t => t.id === section);
+      const currentIndex = allTabs.findIndex(t => t.id === section);
       let nextIndex;
       if (e.key === 'ArrowRight') {
-        nextIndex = (currentIndex + 1) % tabs.length;
+        nextIndex = (currentIndex + 1) % allTabs.length;
       } else {
-        nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+        nextIndex = (currentIndex - 1 + allTabs.length) % allTabs.length;
       }
-      onSectionChange(tabs[nextIndex].id);
+      onSectionChange(allTabs[nextIndex].id);
 
-      // Focus the new tab
       setTimeout(() => {
-        const nextTab = document.getElementById(`config-tab-${tabs[nextIndex].id}`);
+        const nextTab = document.getElementById(`config-tab-${allTabs[nextIndex].id}`);
         nextTab?.focus();
       }, 0);
     }
@@ -1072,14 +1112,15 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 
   return (
     <div
-      className="flex gap-2 p-4 overflow-x-auto no-scrollbar touch-pan-x outline-none"
+      className="flex items-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:p-3 overflow-x-auto no-scrollbar touch-pan-x outline-none relative"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
-      onKeyDown={handleKeyDown}
+      onKeyDown={handleKeyDownNav}
       tabIndex={-1}
     >
-      {tabs.map((tab) => (
+      {/* Primary Navigation Tabs */}
+      {primaryTabs.map((tab) => (
         <SectionTab
           key={tab.id}
           {...tab}
@@ -1088,6 +1129,96 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
           hasError={tabHasError(tab.id)}
         />
       ))}
+
+      {/* Overflow "More" Icon Trigger Dropdown */}
+      <div className="relative shrink-0" ref={dropdownRef}>
+        <Tooltip content="More strategy sections (Env, Smart Auto, Backtest, Presets)">
+          <button
+            type="button"
+            id="config-tab-more"
+            onClick={() => setIsMoreOpen(!isMoreOpen)}
+            aria-expanded={isMoreOpen}
+            aria-haspopup="true"
+            aria-controls="more-tabs-dropdown"
+            aria-label="More configuration options menu"
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer",
+              isSecondaryActive
+                ? "border-accent text-accent bg-accent/10"
+                : "border-border text-dim hover:border-dim/50 hover:text-text"
+            )}
+          >
+            <MoreHorizontal size={14} className={cn(isSecondaryActive ? "text-accent" : "text-dim")} />
+            <span className="hidden xs:inline">
+              {activeSecondaryTab ? activeSecondaryTab.label : 'More'}
+            </span>
+            <ChevronDown size={11} className={cn("transition-transform duration-200", isMoreOpen && "rotate-180")} />
+
+            {/* Error dot on icon trigger if any secondary tab has an error */}
+            {secondaryHasError && !isSecondaryActive && (
+              <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-red"></span>
+              </span>
+            )}
+          </button>
+        </Tooltip>
+
+        <AnimatePresence>
+          {isMoreOpen && (
+            <motion.div
+              id="more-tabs-dropdown"
+              initial={{ opacity: 0, scale: 0.95, y: 5 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 5 }}
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+              className="absolute right-0 top-full mt-2 w-48 bg-surface border border-border/80 rounded-xl shadow-2xl z-50 p-1.5 space-y-1 backdrop-blur-xl"
+              role="menu"
+              aria-orientation="vertical"
+              aria-labelledby="config-tab-more"
+            >
+              <div className="px-2 py-1 text-[8px] font-black uppercase text-dim tracking-widest border-b border-border/30 mb-1">
+                More Sections
+              </div>
+              {secondaryTabs.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = section === tab.id;
+                const hasErr = tabHasError(tab.id);
+
+                return (
+                  <button
+                    key={tab.id}
+                    id={`config-tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-controls={`config-panel-${tab.id}`}
+                    onClick={() => {
+                      onSectionChange(tab.id);
+                      setIsMoreOpen(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold transition-all text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                      isActive
+                        ? "bg-accent/15 text-accent font-black"
+                        : "text-dim hover:text-text hover:bg-white/5"
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Icon size={13} className={isActive ? "text-accent" : "text-dim"} />
+                      <span>{tab.label}</span>
+                    </div>
+
+                    {hasErr && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" />
+                    )}
+                  </button>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 })
@@ -1419,13 +1550,39 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
   const [symbolText, setSymbolSearchText] = useState(() => (cfg.symbols && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
   const [useGlobalScanner, setUseGlobalScanner] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [progressPct, setProgressPct] = useState(0);
+  const [progressStatus, setProgressStatus] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const abortControllerRef = useRef(null);
   const addAlert = useTradingStore(state => state.addAlert);
+
+  const handleStopBacktest = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    setIsRunning(false);
+    setProgressStatus('Backtest simulation cancelled.');
+    if (addAlert) {
+      addAlert({ level: 'info', title: 'Backtest Cancelled', message: 'Historical simulation stopped by user.' });
+    }
+  };
 
   const handleRunBacktest = async () => {
     setIsRunning(true);
+    setProgressPct(5);
+    setProgressStatus('Fetching historical klines from Binance...');
     setError(null);
+
+    abortControllerRef.current = new AbortController();
+
+    const progressTimer = setInterval(() => {
+      setProgressPct((prev) => {
+        if (prev >= 90) return prev;
+        return prev + Math.floor(Math.random() * 15) + 5;
+      });
+    }, 250);
+
     try {
       const configToRun = buildConfigToSave();
       const parsedSymbols = symbolText.split(',').map(s => s.trim().toUpperCase()).filter(s => s.endsWith('USDT'));
@@ -1436,6 +1593,10 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
         startingBalance: Number(startingBalance),
         useGlobalScanner: Boolean(useGlobalScanner),
       });
+
+      clearInterval(progressTimer);
+      setProgressPct(100);
+      setProgressStatus('Simulation complete.');
 
       if (res && res.data) {
         setResult(res.data);
@@ -1448,14 +1609,53 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
         }
       }
     } catch (err) {
-      console.error('[Backtest] Run error:', err);
-      const msg = err.response?.data?.message || err.message || 'Backtest failed.';
-      setError(msg);
-      if (addAlert) {
-        addAlert({ level: 'error', title: 'Backtest Error', message: msg });
+      clearInterval(progressTimer);
+      if (err.name === 'CanceledError' || err.name === 'AbortError') {
+        setProgressStatus('Backtest cancelled.');
+      } else {
+        console.error('[Backtest] Run error:', err);
+        const msg = err.response?.data?.message || err.message || 'Backtest failed.';
+        setError(msg);
+        if (addAlert) {
+          addAlert({ level: 'error', title: 'Backtest Error', message: msg });
+        }
       }
     } finally {
+      clearInterval(progressTimer);
       setIsRunning(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleInjectSymbol = (sym) => {
+    const currentSymbols = cfg.symbols || [];
+    if (!currentSymbols.includes(sym)) {
+      const updated = [...currentSymbols, sym];
+      setField('symbols', updated);
+      if (addAlert) {
+        addAlert({ level: 'success', title: 'Symbol Injected', message: `Added ${sym} to Static Watchlist.` });
+      }
+    }
+  };
+
+  const handleAutoInjectRecommended = () => {
+    if (!result?.symbolPerformance) return;
+    const recommendedList = result.symbolPerformance.filter(sp => sp.isRecommended).map(sp => sp.symbol);
+    if (recommendedList.length === 0) {
+      if (addAlert) {
+        addAlert({ level: 'info', title: 'No Recommendations', message: 'No backtested symbols met top recommendation threshold.' });
+      }
+      return;
+    }
+    const currentSymbols = cfg.symbols || [];
+    const merged = Array.from(new Set([...currentSymbols, ...recommendedList]));
+    setField('symbols', merged);
+    if (addAlert) {
+      addAlert({
+        level: 'success',
+        title: 'Auto-Injected Recommended Symbols',
+        message: `Injected ${recommendedList.length} top performing symbol(s) [${recommendedList.join(', ')}] into Static Watchlist.`,
+      });
     }
   };
 
@@ -1477,15 +1677,44 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               <p className="text-[9px] text-dim font-medium uppercase">Simulate strategy on Binance historical klines</p>
             </div>
           </div>
-          <Btn
-            variant="primary"
-            onClick={handleRunBacktest}
-            loading={isRunning}
-            className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]"
-          >
-            {isRunning ? 'Running Simulation...' : 'Run Backtest'}
-          </Btn>
+
+          <div className="flex items-center gap-2">
+            {isRunning ? (
+              <Btn
+                variant="ghost"
+                onClick={handleStopBacktest}
+                className="px-4 py-2 text-xs font-bold bg-red/10 border border-red/30 text-red hover:bg-red/20 flex items-center gap-1.5"
+              >
+                <XCircle size={14} /> Stop Simulation
+              </Btn>
+            ) : (
+              <Btn
+                variant="primary"
+                onClick={handleRunBacktest}
+                className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+              >
+                Run Backtest
+              </Btn>
+            )}
+          </div>
         </div>
+
+        {isRunning && (
+          <div className="p-3 bg-accent/5 border border-accent/20 rounded-xl space-y-2 animate-in fade-in duration-200">
+            <div className="flex items-center justify-between text-xs font-mono font-bold">
+              <span className="text-accent flex items-center gap-1.5">
+                <RefreshCw size={12} className="animate-spin" /> {progressStatus || 'Processing historical klines...'}
+              </span>
+              <span className="text-text">{progressPct}%</span>
+            </div>
+            <div className="w-full bg-surface/80 rounded-full h-2 overflow-hidden border border-border/40">
+              <div
+                className="bg-accent h-full transition-all duration-300 rounded-full"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2 border-t border-border/40">
           <div>
@@ -1585,6 +1814,78 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
                         style={{ height: `${heightPct}%` }}
                       />
                     </Tooltip>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Symbol Performance Breakdown & Auto/Manual Injection Leaderboard */}
+          {result.symbolPerformance && result.symbolPerformance.length > 0 && (
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-dim block">Symbol Performance & Watchlist Recommendations</span>
+                  <span className="text-[9px] text-dim/70 font-medium">Inject top backtested symbols into your active strategy watchlist</span>
+                </div>
+
+                {result.symbolPerformance.some(sp => sp.isRecommended) && (
+                  <Btn
+                    variant="primary"
+                    onClick={handleAutoInjectRecommended}
+                    className="px-3 py-1.5 text-[10px] font-bold bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 flex items-center gap-1 shrink-0"
+                  >
+                    <Plus size={12} /> Auto-Inject Top Recommended
+                  </Btn>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 pt-1">
+                {result.symbolPerformance.map((sp) => {
+                  const inWatchlist = (cfg.symbols || []).includes(sp.symbol);
+                  return (
+                    <div
+                      key={sp.symbol}
+                      className={cn(
+                        "p-3 rounded-xl border flex flex-col justify-between gap-2 transition-all bg-surface/50",
+                        sp.isRecommended ? "border-accent/40 bg-accent/[0.02]" : "border-border/40"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-mono font-bold text-text">{sp.symbol}</span>
+                          {sp.isRecommended && (
+                            <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-green/10 text-green border border-green/20">
+                              ★ Recommended
+                            </span>
+                          )}
+                        </div>
+                        <span className={cn("text-xs font-mono font-bold", sp.totalPnl >= 0 ? "text-green" : "text-red")}>
+                          {sp.totalPnl >= 0 ? '+' : ''}${sp.totalPnl}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[9px] font-mono text-dim/80 pt-1 border-t border-border/20">
+                        <span>{sp.winRate}% WR ({sp.wins}W/{sp.losses}L)</span>
+                        <span>PF: {sp.profitFactor}</span>
+                      </div>
+
+                      <div className="pt-1">
+                        {inWatchlist ? (
+                          <span className="w-full block py-1 text-center text-[9px] font-bold uppercase text-dim/50 bg-surface rounded-lg border border-border/20 select-none">
+                            In Watchlist
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleInjectSymbol(sp.symbol)}
+                            className="w-full py-1 rounded-lg text-[9px] font-black uppercase tracking-wider bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none flex items-center justify-center gap-1"
+                          >
+                            <Plus size={10} /> Inject Symbol
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   );
                 })}
               </div>

@@ -336,7 +336,7 @@ const ExitSignalCard = React.memo(({
       )}
 
       {active && (
-        <div className="space-y-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="flex flex-col gap-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
           {key === 'engulfing' && (engulfingMode === 'soft_range' || engulfingMode === 'soft_body') && (
             <div className="text-[9.5px] font-semibold text-amber bg-amber/10 border border-amber/20 rounded-xl p-2.5 flex items-start gap-2 leading-snug text-left">
               <AlertTriangle className="shrink-0 text-amber mt-0.5 animate-pulse" size={13} />
@@ -354,7 +354,7 @@ const ExitSignalCard = React.memo(({
             const candleCountValue = isCandleType ? parseInt(delayValue.slice(0, -1), 10) : 1;
 
             return (
-              <div key={layerKey} className="p-3 bg-background/50 border border-border/30 rounded-xl space-y-2.5 relative group/layer">
+              <div key={layerKey} className="p-3 bg-background/50 border border-border/30 rounded-xl flex flex-col gap-2.5 relative group/layer">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-black uppercase tracking-wider text-red">
                     Layer {idx + 1} {isBase ? "(Base)" : `(Chain: _${layerKey.split('_').pop()})`}
@@ -569,13 +569,13 @@ const EntrySignalCard = React.memo(({
       )}
 
       {active && (
-        <div className="space-y-3 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="flex flex-col gap-3 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
           {layers.map((layerKey, idx) => {
             const isBase = layerKey === key;
             const tfValue = timeframes[layerKey] || 'default';
 
             return (
-              <div key={layerKey} className="p-2.5 bg-background/50 border border-border/30 rounded-xl space-y-2 relative group/layer flex items-center justify-between gap-3">
+              <div key={layerKey} className="p-2.5 bg-background/50 border border-border/30 rounded-xl flex items-center justify-between gap-3 relative group/layer">
                 <div className="flex flex-col text-left">
                   <span className="text-[9px] font-black uppercase tracking-wider text-accent">
                     Layer {idx + 1} {isBase ? "(Base)" : `(Chain: _${layerKey.split('_').pop()})`}
@@ -850,7 +850,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col md:flex-row gap-3">
         <div className="relative flex-1 group">
           <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
@@ -1172,7 +1172,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 5 }}
               transition={{ duration: 0.15, ease: "easeInOut" }}
-              className="absolute right-0 top-full mt-2 w-48 bg-surface/95 border border-border/80 rounded-xl shadow-2xl z-[100] p-1.5 space-y-1 backdrop-blur-xl"
+              className="absolute right-0 top-full mt-2 w-48 bg-surface border border-border/80 rounded-xl shadow-2xl z-50 p-1.5 flex flex-col gap-1 backdrop-blur-xl"
               role="menu"
               aria-orientation="vertical"
               aria-labelledby="config-tab-more"
@@ -1303,7 +1303,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
       aria-labelledby="config-tab-smart"
       className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
     >
-      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
+      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
@@ -1390,7 +1390,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
       </div>
 
       {/* Leaderboard of Top In-Memory Recommendations */}
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-2">
             <Award size={14} className="text-accent" />
@@ -1409,7 +1409,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
         </div>
 
         {recommendations.length === 0 ? (
-          <div className="p-10 border border-dashed border-border/60 rounded-2xl text-center space-y-2">
+          <div className="p-10 border border-dashed border-border/60 rounded-2xl text-center flex flex-col gap-2">
             <Sparkles size={28} className="mx-auto text-dim/30 animate-pulse" />
             <div className="text-xs font-bold text-dim uppercase">No strategy recommendations stored in memory yet</div>
             <p className="text-[10px] text-dim/70 max-w-sm mx-auto">
@@ -1417,14 +1417,14 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
             </p>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3">
             {recommendations.map((rec) => {
               const isTopRank = rec.rank === 1;
               return (
                 <div
                   key={rec.id}
                   className={cn(
-                    "p-4 rounded-2xl border transition-all space-y-3 bg-background/60",
+                    "p-4 rounded-2xl border transition-all flex flex-col gap-3 bg-background/60",
                     isTopRank
                       ? "border-accent/50 shadow-[0_0_20px_rgba(91,111,255,0.1)] bg-accent/[0.02]"
                       : "border-border/60 hover:border-border-hover"
@@ -1666,7 +1666,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
       aria-labelledby="config-tab-backtest"
       className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
     >
-      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
+      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
@@ -1700,7 +1700,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
         </div>
 
         {isRunning && (
-          <div className="p-3 bg-accent/5 border border-accent/20 rounded-xl space-y-2 animate-in fade-in duration-200">
+          <div className="p-3 bg-accent/5 border border-accent/20 rounded-xl flex flex-col gap-2 animate-in fade-in duration-200">
             <div className="flex items-center justify-between text-xs font-mono font-bold">
               <span className="text-accent flex items-center gap-1.5">
                 <RefreshCw size={12} className="animate-spin" /> {progressStatus || 'Processing historical klines...'}
@@ -1780,7 +1780,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
       </div>
 
       {result && (
-        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <StatCard label="Total PnL" value={`${fmtUSD(result.totalPnl)}`} subValue={`${result.pnlPct >= 0 ? '+' : ''}${result.pnlPct}%`} color={result.totalPnl >= 0 ? 'text-green' : 'text-red'} />
             <StatCard label="Win Rate" value={`${result.winRate}%`} subValue={`${result.wins}W / ${result.losses}L (${result.totalTrades} Total)`} color="text-accent" />
@@ -1791,7 +1791,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
           </div>
 
           {result.equityCurve && result.equityCurve.length > 0 && (
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-2">
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-2">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Equity Curve ($)</span>
                 <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
@@ -1822,7 +1822,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
 
           {/* Symbol Performance Breakdown & Auto/Manual Injection Leaderboard */}
           {result.symbolPerformance && result.symbolPerformance.length > 0 && (
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-widest text-dim block">Symbol Performance & Watchlist Recommendations</span>
@@ -1893,13 +1893,13 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
           )}
 
           {result.trades && result.trades.length > 0 && (
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Trade Log ({result.trades.length})</span>
                 <span className="text-[9px] text-dim font-bold">Taker Fee: 0.04% / side</span>
               </div>
 
-              <div className="max-h-64 overflow-y-auto no-scrollbar space-y-1.5 pr-1">
+              <div className="max-h-64 overflow-y-auto no-scrollbar flex flex-col gap-1.5 pr-1">
                 {result.trades.map((t) => {
                   const isWin = t.pnl >= 0;
                   return (
@@ -3351,7 +3351,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
                 </Tooltip>
 
-                <div className="md:col-span-2 mt-4 space-y-4">
+                <div className="md:col-span-2 mt-4 flex flex-col gap-4">
                   <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Zap size={20} /></div>
@@ -3369,7 +3369,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
 
                   {cfg.smart_watchlist_enabled && (
-                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-accent/5 rounded-2xl border border-accent/20 space-y-4 shadow-sm">
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-accent/5 rounded-2xl border border-accent/20 flex flex-col gap-4 shadow-sm">
                       <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent mb-2">
                         <TrendingUp size={12} /> Predictive Discovery
                       </div>
@@ -3446,7 +3446,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'scan_watchlist'}
               onToggle={() => setOpenSectionId(openSectionId === 'scan_watchlist' ? null : 'scan_watchlist')}
             >
-              <div className="space-y-4">
+              <div className="flex flex-col gap-4">
                 <WatchlistDropdownInput value={cfg.symbols || []} onChange={(val) => setField('symbols', val)} />
                 <div className="pt-4 border-t border-border/40">
                   <span className="text-[10px] font-black text-dim uppercase tracking-wider mb-2 block">Edit Comma-Separated List (Advanced)</span>
@@ -3544,7 +3544,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'strategy_params'}
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_params' ? null : 'strategy_params')}
             >
-              <div className="space-y-6">
+              <div className="flex flex-col gap-6">
                 {(() => {
                   const entrySignals = cfg.enabled_signals || [];
                   const exitSignals = cfg.exit_signals || [];
@@ -3580,7 +3580,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   });
 
                   return (
-                    <div className="space-y-6 text-left">
+                    <div className="flex flex-col gap-6 text-left">
                       {/* Global fallback parameters */}
                       <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                         <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Global Parameters</div>
@@ -3617,7 +3617,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         const isBooleanOnly = card.schema.every(s => s.type === 'boolean');
                         return (
                           <div key={card.key} className={cn(
-                            "p-4 rounded-2xl border transition-all space-y-4 animate-in fade-in slide-in-from-top-2 duration-300",
+                            "p-4 rounded-2xl border transition-all flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-300",
                             card.isLayered ? "border-purple/30 bg-purple/[0.01]" : "bg-background/20 border-border/50"
                           )}>
                             <div className="flex items-center justify-between">
@@ -3687,14 +3687,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               {(cfg.enabled_signals || []).includes('ema_dual_close') && (
-                <div className="mt-8 p-5 bg-accent/5 border border-accent/20 rounded-2xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-500 shadow-[0_4px_24px_rgba(var(--accent-rgb),0.04)]">
+                <div className="mt-8 p-5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-500 shadow-[0_4px_24px_rgba(var(--accent-rgb),0.04)]">
                    <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
                       <div className="p-1.5 bg-accent/10 rounded-lg">
                         <Zap size={14} className="fill-accent/20" />
                       </div>
                       EMA Dual Close Logic
                    </div>
-                   <div className="space-y-2.5">
+                   <div className="flex flex-col gap-2.5">
                       <p className="text-[11px] text-dim leading-relaxed font-medium">
                          An authoritative trend-following strategy that requires absolute alignment across two time horizons.
                       </p>
@@ -3716,7 +3716,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               )}
 
               {lifetimeAnalytics?.rrOptimization?.recommendedExitSignals && lifetimeAnalytics.rrOptimization.recommendedExitSignals.length > 0 && (
-                <div className="mt-8 p-5 bg-background/20 border border-border/50 rounded-2xl space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
+                <div className="mt-8 p-5 bg-background/20 border border-border/50 rounded-2xl flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-500">
                   <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
                     <Target size={14} className="text-accent" />
                     Optimal Exit Parameters (Statistical Recommendation)
@@ -3726,7 +3726,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </p>
 
                   {lifetimeAnalytics.rrOptimization.avgDurationToBreakevenMs !== undefined && (
-                    <div className="p-3 bg-surface/40 border border-border/40 rounded-xl space-y-2">
+                    <div className="p-3 bg-surface/40 border border-border/40 rounded-xl flex flex-col gap-2">
                       <div className="flex items-center justify-between text-[9.5px] font-black uppercase text-accent tracking-wider">
                         <span className="flex items-center gap-1.5"><Clock size={12} /> Time-to-Breakeven Dynamics</span>
                         <span className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[8.5px] font-mono font-bold">
@@ -3900,8 +3900,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'strategy_whipsaw'}
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_whipsaw' ? null : 'strategy_whipsaw')}
             >
-              <div className="space-y-4">
-                <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl space-y-3">
+              <div className="flex flex-col gap-4">
+                <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-3">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Tooltip content="Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay). Applies to all standard strategy signals.">
                       {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, { min: 0, max: 20 })}
@@ -3925,7 +3925,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'strategy_knife'}
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_knife' ? null : 'strategy_knife')}
             >
-              <div className="space-y-4">
+              <div className="flex flex-col gap-4">
                 <div className="p-4 bg-amber/5 border border-amber/20 rounded-2xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-amber/10 flex items-center justify-center text-amber">
@@ -3951,8 +3951,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </Tooltip>
                 </div>
 
-                <div className="pt-4 border-t border-border/40 space-y-3">
-                  <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl space-y-3">
+                <div className="pt-4 border-t border-border/40 flex flex-col gap-3">
+                  <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-3">
                     <div className="flex items-center justify-between">
                       <div className="flex flex-col text-left">
                         <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
@@ -4204,11 +4204,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               </div>
 
-              <div className="mt-4 p-4 bg-surface/50 border border-border/40 rounded-xl space-y-3">
+              <div className="mt-4 p-4 bg-surface/50 border border-border/40 rounded-xl flex flex-col gap-3">
                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent">
                     <Target size={12} /> Sizing Guide
                  </div>
-                 <div className="space-y-2">
+                 <div className="flex flex-col gap-2">
                     <p className="text-[10px] text-dim leading-relaxed font-medium">
                        Position size (Qty) is derived from <span className="text-text font-bold">Target Risk $ / SL Distance</span>.
                     </p>
@@ -4231,7 +4231,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               {cfg.tp_mode === 'exp_rr_seq' && (
-                <div className="space-y-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
+                <div className="flex flex-col gap-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
                   <div className="flex justify-between items-center text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
                     <div className="flex items-center gap-2">
                       <span>RR Milestone (Target)</span>
@@ -4388,14 +4388,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               </div>
 
-              <div className="mt-6 p-5 bg-accent/5 border border-accent/20 rounded-2xl space-y-3.5 shadow-sm">
+              <div className="mt-6 p-5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-3.5 shadow-sm">
                  <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
                     <div className="p-1.5 bg-accent/10 rounded-lg group">
                       <ShieldCheck size={14} className="fill-accent/20 group-hover:animate-pulse" />
                     </div>
                     Trailing Safety Guide
                  </div>
-                 <div className="space-y-3">
+                 <div className="flex flex-col gap-3">
                     <p className="text-[11px] text-dim leading-relaxed font-medium">
                        The <span className="text-text font-bold">Trailing Guard</span> prevents exchange rejections (Error -4120) by maintaining a mandatory gap between your Stop Loss and the active Market Price.
                     </p>
@@ -4406,11 +4406,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           <span className="text-[9px] text-accent font-black uppercase tracking-widest">Dynamic Hard-Cap Example</span>
                        </div>
                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
+                          <div className="flex flex-col gap-1">
                              <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Current Market</div>
                              <div className="text-xs font-mono font-bold text-text/90">0.14302</div>
                           </div>
-                          <div className="space-y-1 text-right">
+                          <div className="flex flex-col gap-1 text-right">
                              <div className="text-[8px] text-dim/40 font-bold uppercase tracking-tighter text-dim/60">Engine Response</div>
                              <div className="text-xs font-mono font-bold text-amber">0.14305</div>
                           </div>
@@ -4441,7 +4441,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="rr" />
 
-              <div className="mt-8 pt-6 border-t border-border/40 space-y-6">
+              <div className="mt-8 pt-6 border-t border-border/40 flex flex-col gap-6">
                  <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
@@ -4454,7 +4454,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  </div>
 
                  {cfg.trailing_stop_enabled && (
-                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {renderField('Trailing Method', 'trailing_stop_type', 'text', [
                             { value: 'pct', label: 'Percentage Distance (%)' },
@@ -4485,7 +4485,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'risk_temporal' ? null : 'risk_temporal')}
             >
 
-              <div className="space-y-4 mb-8">
+              <div className="flex flex-col gap-4 mb-8">
                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
@@ -4504,7 +4504,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
                     <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
                       {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
                       {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
@@ -4533,7 +4533,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 {cfg.risk_use_tod_stats && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-surface/30 rounded-2xl border border-border/40 space-y-4">
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-surface/30 rounded-2xl border border-border/40 flex flex-col gap-4">
                     {renderField('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
 
                     {cfg.frequency_shaping_enabled && (
@@ -4553,7 +4553,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="flex flex-col gap-3">
                  <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 px-1"><Clock size={12} /> Daily Execution Windows (UTC)</div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                    {(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).map((w, i) => (
@@ -4668,7 +4668,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
             {/* Top Toolbar: Save / Update Controls & Compact Actions */}
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">
+            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-3">
               <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
                 <div className="flex-1 min-w-0">
                   <SavePresetInput
@@ -4749,7 +4749,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             </div>
 
             {/* Presets List Section */}
-            <section className="space-y-4">
+            <section className="flex flex-col gap-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex justify-between items-center w-full sm:w-auto">
                   <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
@@ -5024,7 +5024,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               initial={{ scale: 0.95, y: 10 }}
               animate={{ scale: 1, y: 0 }}
               exit={{ scale: 0.95, y: 10 }}
-              className="w-full max-w-lg bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden p-5 space-y-4"
+              className="w-full max-w-lg bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden p-5 flex flex-col gap-4"
             >
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
@@ -5045,7 +5045,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </button>
               </div>
 
-              <div className="space-y-2 text-left">
+              <div className="flex flex-col gap-2 text-left">
                 <p className="text-xs text-dim leading-relaxed">
                   Paste your strategy configuration JSON below. The engine will instantly parse, validate, and hot-reload your active fields.
                 </p>
@@ -5127,7 +5127,7 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
 
   if (type === 'rr') {
     return (
-      <div className="mt-4 p-4 bg-accent/5 border border-accent/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+      <div className="mt-4 p-4 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent">
             <Target size={12} /> Statistical RR Model
@@ -5179,7 +5179,7 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
      if (dist === null) return null;
 
      return (
-       <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl space-y-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+       <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl flex flex-col gap-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-400">
               <Activity size={12} /> Volatility Recommendation

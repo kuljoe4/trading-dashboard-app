@@ -160,7 +160,7 @@ export function SettingsView() {
         <div className="flex flex-col gap-6 lg:gap-8">
           <section>
             <SectionLabel className="mb-4">Dashboard Visual Theme</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-4">
+            <div className="bg-surface border border-border/80 rounded-2xl p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-4">
               <div>
                 <p className="text-[11px] text-dim font-medium uppercase mb-4">Choose a modern look for your trading cockpit and analytics dashboard</p>
               </div>
@@ -495,7 +495,7 @@ export function SettingsView() {
                             <p className={cn("text-xs font-bold uppercase tracking-tight mb-2", validationResults.valid ? "text-green" : "text-red")}>
                               {validationResults.valid ? 'All Keys Valid ✓' : 'Validation Failed'}
                             </p>
-                            <div className="space-y-1">
+                            <div className="flex flex-col gap-1">
                               {validationResults.checks && validationResults.checks.map((check, i) => (
                                 <div key={i} className="text-[10px] text-dim font-medium">
                                   <span className={check.status === 'valid' ? 'text-green' : 'text-red'}>
@@ -551,7 +551,7 @@ export function SettingsView() {
 
           <section>
             <SectionLabel className="mb-4">Engine Performance & Resources</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-6">
+            <div className="bg-surface border border-border/80 rounded-2xl p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-6">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-1.5">
@@ -652,7 +652,7 @@ export function SettingsView() {
                 </div>
               </div>
 
-              <div className="pt-4 border-t border-border/50 space-y-4">
+              <div className="pt-4 border-t border-border/50 flex flex-col gap-4">
                 <div>
                   <h3 className="text-sm font-bold uppercase tracking-tight">Hibernation Management</h3>
                   <p className="text-[11px] text-dim font-medium uppercase mt-1">Gated idle resource strategy</p>
@@ -700,7 +700,7 @@ export function SettingsView() {
                   </div>
                 )}
 
-                <div className="p-4 bg-background/40 border border-border/40 rounded-xl space-y-2">
+                <div className="p-4 bg-background/40 border border-border/60 rounded-xl flex flex-col gap-2">
                    <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
                       <ShieldCheck size={12} /> Resource vs. Latency Trade-off
                    </div>
@@ -719,7 +719,7 @@ export function SettingsView() {
 
           <section>
             <SectionLabel className="mb-4">Dashboard & Streaming</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm space-y-6">
+            <div className="bg-surface border border-border/80 rounded-2xl p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-6">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4 flex-grow">
                   <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">

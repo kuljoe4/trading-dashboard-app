@@ -726,7 +726,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                       Clear All
                     </button>
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="flex flex-col gap-1.5">
                     {alerts.map(a => (
                       <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
                         <div className="min-w-0 flex-1 text-[9.5px]">
@@ -893,7 +893,7 @@ export const ModalAlertTicker = React.memo(() => {
                   Clear All
                 </button>
               </div>
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-1.5">
                 {alerts.map(a => (
                   <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
                     <div className="min-w-0 flex-1 text-[9.5px]">

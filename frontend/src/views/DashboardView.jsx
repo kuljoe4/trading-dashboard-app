@@ -482,38 +482,38 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsChartExpanded(!isChartExpanded))}
         aria-expanded={isChartExpanded}
         aria-controls="periodic-chart-content"
-        className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+        className="flex items-center justify-between gap-3 sm:gap-4 cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
       >
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
             <BarChart3 size={16} />
           </div>
-          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <h3 className="text-xs sm:text-sm md:text-base font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
-              Periodic Performance
-            </h3>
-            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          <div className="flex items-center justify-between flex-wrap gap-2 min-w-0 flex-1 pr-2">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="text-xs sm:text-sm font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+                Periodic Performance
+              </h3>
               <span className="text-[10px] text-dim font-bold uppercase tracking-widest shrink-0">
-                Net P&L: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
+                Net: <span className={pnlClass(totalRevenue)}>{fmtUSD(totalRevenue)}</span>
               </span>
+            </div>
 
-              {/* Quick Period Badges */}
-              <div className="flex items-center gap-1 sm:gap-1.5 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase flex-wrap">
-                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                  Today: {fmtUSD(periodBadges.today)}
-                </span>
-                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                  7D: {fmtUSD(periodBadges.d7)}
-                </span>
-                <span className={cn("px-1.5 sm:px-2 py-0.5 rounded border leading-none shrink-0", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
-                  30D: {fmtUSD(periodBadges.d30)}
-                </span>
-              </div>
+            {/* Ultra-Compact Period Badges */}
+            <div className="flex items-center gap-1 font-mono text-[8.5px] xs:text-[9px] font-bold uppercase shrink-0">
+              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0", periodBadges.today >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                24H: {fmtUSD(periodBadges.today)}
+              </span>
+              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0 hidden xs:inline-block", periodBadges.d7 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                7D: {fmtUSD(periodBadges.d7)}
+              </span>
+              <span className={cn("px-1.5 py-0.5 rounded border leading-none shrink-0 hidden sm:inline-block", periodBadges.d30 >= 0 ? "bg-green/10 border-green/30 text-green" : "bg-red/10 border-red/30 text-red")}>
+                30D: {fmtUSD(periodBadges.d30)}
+              </span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
           <div className={cn(
             "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
             isChartExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"

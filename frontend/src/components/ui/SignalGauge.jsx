@@ -129,7 +129,7 @@ export const SignalGauge = React.memo(({
         </div>
       )}
 
-      <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5">
         <div className="flex justify-between items-end px-1">
           <span className="text-[8px] font-black text-dim uppercase tracking-widest">Proximity</span>
           <span className={cn("text-[9px] font-mono font-black", isFired ? "text-red" : fired ? "text-amber" : "text-accent")}>

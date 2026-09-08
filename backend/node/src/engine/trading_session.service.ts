@@ -110,6 +110,10 @@ export class TradingSessionService implements OnApplicationShutdown {
           ({
             ...this.config,
             ...v,
+            signal_params: {
+              ...(this.config?.signal_params || {}),
+              ...(v?.signal_params || {}),
+            },
             strategy_label: this.getStrategyLabel(v, i + 1),
             base_strategy_label: baseLabel,
             strategy_variants: [],

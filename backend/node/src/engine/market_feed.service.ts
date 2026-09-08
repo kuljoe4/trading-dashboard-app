@@ -671,6 +671,10 @@ export class MarketFeedService {
               strategyConfigs.push({
                 ...config,
                 ...v,
+                signal_params: {
+                  ...(config?.signal_params || {}),
+                  ...(v?.signal_params || {}),
+                },
                 strategy_label: v.strategy_label,
                 strategy_variants: [], // prevent infinite recursion
               });
@@ -694,6 +698,10 @@ export class MarketFeedService {
             strategyConfigs.push({
               ...config,
               ...v,
+              signal_params: {
+                ...(config?.signal_params || {}),
+                ...(v?.signal_params || {}),
+              },
               strategy_label: v.strategy_label,
               strategy_variants: [],
             });
@@ -1227,7 +1235,14 @@ export class MarketFeedService {
     if (this.sessionState.config?.strategy_variants) {
       for (const variant of this.sessionState.config.strategy_variants) {
         if ((variant as any).enabled !== false) {
-          const variantWarmup = this.signalEngine.getRequiredWarmup({ ...this.sessionState.config, ...variant } as SessionConfig);
+          const variantWarmup = this.signalEngine.getRequiredWarmup({
+            ...this.sessionState.config,
+            ...variant,
+            signal_params: {
+              ...(this.sessionState.config?.signal_params || {}),
+              ...(variant?.signal_params || {}),
+            },
+          } as SessionConfig);
           if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
         }
       }

@@ -855,9 +855,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
     })();
 
     return (
-      <motion.div
-        layout
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+      <div
         onClick={handleCardClick}
         onKeyDown={handleKeyDown}
         onMouseEnter={onMouseEnter}
@@ -946,14 +944,12 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             </div>
           </Tooltip>
         </div>
-      </motion.div>
+      </div>
     );
   }
 
   return (
-    <motion.div
-      layout
-      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+    <div
       onClick={handleCardClick}
       onKeyDown={handleKeyDown}
       onMouseEnter={onMouseEnter}
@@ -1174,7 +1170,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </div>
         )}
       </div>
-    </motion.div>
+    </div>
   );
 })
 
@@ -2909,9 +2905,12 @@ export function DashboardView({ initialStrategy }) {
                 <SectionLabel className="mb-0 flex items-center gap-2">
                   <Zap size={14} className="text-accent" /> Active Strategy
                 </SectionLabel>
-                <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-xl">
+                <div className="flex items-center bg-background/60 border border-border/40 p-0.5 rounded-xl" role="tablist" aria-label="Strategy card view mode selection">
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={cardViewMode === 'detailed'}
+                    aria-controls="active-strategy-cards-container"
                     onClick={() => setCardViewMode('detailed')}
                     className={cn(
                       "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
@@ -2923,6 +2922,9 @@ export function DashboardView({ initialStrategy }) {
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={cardViewMode === 'compact'}
+                    aria-controls="active-strategy-cards-container"
                     onClick={() => setCardViewMode('compact')}
                     className={cn(
                       "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
@@ -2934,6 +2936,9 @@ export function DashboardView({ initialStrategy }) {
                   </button>
                   <button
                     type="button"
+                    role="tab"
+                    aria-selected={cardViewMode === 'list'}
+                    aria-controls="active-strategy-cards-container"
                     onClick={() => setCardViewMode('list')}
                     className={cn(
                       "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
@@ -2945,10 +2950,19 @@ export function DashboardView({ initialStrategy }) {
                   </button>
                 </div>
               </div>
-              <div className={cn(
-                "grid gap-3 sm:gap-4",
-                cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"
-              )}>
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={cardViewMode}
+                  id="active-strategy-cards-container"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.15, ease: "easeInOut" }}
+                  className={cn(
+                    "grid gap-3 sm:gap-4",
+                    cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"
+                  )}
+                >
                 {sessionActive ? (
                   <>
                     {(() => {
@@ -3067,7 +3081,8 @@ export function DashboardView({ initialStrategy }) {
                   </div>
                 )}
 
-              </div>
+                </motion.div>
+              </AnimatePresence>
             </motion.div>
           </div>
 

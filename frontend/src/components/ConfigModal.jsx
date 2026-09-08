@@ -4371,6 +4371,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
                 <div className="flex-1 min-w-0">
                   <SavePresetInput
+                    key={loadedPresetName || 'new'}
                     defaultName={loadedPresetName || generatedPresetName}
                     onSave={(name) => { savePreset(name); }}
                     isSaving={isSaving}

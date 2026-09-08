@@ -34,8 +34,8 @@ const SHORTCUT_GROUPS = [
           }, 50);
         }
       },
-      { keys: ['?'], label: 'Toggle Keyboard Cheatsheet', action: null },
-      { keys: ['Esc'], label: 'Close Active Dialog / Blur input', action: null },
+      { keys: ['?'], label: 'Toggle Keyboard Cheatsheet', action: () => {} },
+      { keys: ['Esc'], label: 'Close Active Dialog / Blur input', action: () => {} },
     ]
   }
 ]
@@ -94,18 +94,20 @@ export const ShortcutsModal = ({ isOpen, onClose }) => {
                         key={idx}
                         type="button"
                         onClick={() => {
-                          if (s.action) s.action();
+                          if (typeof s.action === 'function') {
+                            s.action();
+                          }
                           onClose();
                         }}
                         aria-label={`${s.label} (${keysText})`}
                         className="w-full flex items-center justify-between text-xs p-2 rounded-lg transition-colors hover:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none text-left group/item cursor-pointer"
                       >
-                        <span className="text-dim/80 group-hover/item:text-text font-medium transition-colors">{s.label}</span>
+                        <span className="text-dim/80 group-hover/item:text-text group-focus-visible/item:text-text font-medium transition-colors">{s.label}</span>
                         <div className="flex items-center gap-1 shrink-0">
                           {s.keys.map((key, kIdx) => (
                             <React.Fragment key={kIdx}>
                               {kIdx > 0 && <span className="text-[9px] text-dim/40 font-bold uppercase px-0.5">or</span>}
-                              <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-background border border-border/80 font-mono text-[10px] font-black text-accent shadow-sm uppercase tracking-tight group-hover/item:border-accent/40 transition-colors">
+                              <kbd className="inline-flex items-center justify-center min-w-[22px] h-[22px] px-1.5 rounded bg-background border border-border/80 font-mono text-[10px] font-black text-accent shadow-sm uppercase tracking-tight group-hover/item:border-accent/40 group-focus-visible/item:border-accent/40 transition-colors">
                                 {key}
                               </kbd>
                             </React.Fragment>

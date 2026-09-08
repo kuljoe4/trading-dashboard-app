@@ -12,7 +12,7 @@ const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFrac
 
 const CollapsibleSection = ({ id, icon, title, subtitle, children, isOpen, onToggle }) => {
   return (
-    <section className="bg-background/40 rounded-xl border border-border/40 overflow-hidden transition-all">
+    <section className="bg-background/60 rounded-xl border border-border/80 shadow-sm overflow-hidden transition-all">
       <button
         type="button"
         onClick={onToggle}

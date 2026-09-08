@@ -209,8 +209,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }
 
   return (
-    <motion.div
-      layout
+    <div
       className="max-w-[1200px] mx-auto p-3 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10"
     >
       <ViewHeader
@@ -660,7 +659,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         )}
       </Suspense>
 
-    </motion.div>
+    </div>
   )
 }
 export default StrategyDetailView

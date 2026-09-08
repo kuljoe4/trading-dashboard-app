@@ -337,7 +337,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       </div>
 
       {/* Performance Analytics & Chart Section (Lazy Loaded Overlaid Dual-Axis Plot) */}
-      <div className="mb-8 border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all space-y-4 p-4">
+      <div className="mb-8 border border-border/60 bg-surface/30 rounded-2xl overflow-hidden transition-all flex flex-col gap-4 p-4 shadow-md shadow-black/20">
         <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-border/30">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
@@ -558,7 +558,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </button>
 
             {isChecklistOpen && (
-              <div className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200 space-y-4">
+              <div className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200 flex flex-col gap-4">
                 {/* Checklist Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {/* Velocity (Scanner Threshold) */}

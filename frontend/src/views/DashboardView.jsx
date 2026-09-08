@@ -261,7 +261,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="overflow-hidden pt-2 border-t border-border/20 space-y-2.5"
+            className="overflow-hidden pt-2 border-t border-border/20 flex flex-col gap-2.5"
           >
         {allTransactions.length === 0 ? (
           <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
@@ -531,7 +531,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="overflow-hidden space-y-4 pt-2 border-t border-border/20"
+            className="overflow-hidden flex flex-col gap-4 pt-2 border-t border-border/20"
           >
             {/* Multi-Horizon Granularity Controls */}
             <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -2835,7 +2835,7 @@ export function DashboardView({ initialStrategy }) {
                                 </div>
 
                                 {/* Win Rate Progress Bar */}
-                                <div className="space-y-1 mt-1">
+                                <div className="flex flex-col gap-1 mt-1">
                                   <div className="flex justify-between text-[8px] text-dim/60 font-bold font-mono">
                                     <span>WIN RATE</span>
                                     <span>{winRatePct}%</span>

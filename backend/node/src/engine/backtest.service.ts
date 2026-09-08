@@ -33,6 +33,17 @@ export interface EquityCurvePoint {
   drawdownPct: number;
 }
 
+export interface BacktestSymbolPerformanceDto {
+  symbol: string;
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  totalPnl: number;
+  profitFactor: number;
+  isRecommended: boolean;
+}
+
 export interface BacktestResultDto {
   totalTrades: number;
   wins: number;
@@ -54,6 +65,7 @@ export interface BacktestResultDto {
   executionTimeMs: number;
   config: SessionConfig;
   equityCurve: EquityCurvePoint[];
+  symbolPerformance: BacktestSymbolPerformanceDto[];
   trades: BacktestTradeDto[];
 }
 
@@ -522,6 +534,64 @@ export class BacktestService {
 
     const executionTimeMs = Date.now() - startMs;
 
+    // 6. Compute Per-Symbol Performance Breakdowns and Recommendations
+    const symbolPerformanceMap = new Map<string, {
+      trades: number;
+      wins: number;
+      losses: number;
+      grossWins: number;
+      grossLosses: number;
+      totalPnl: number;
+    }>();
+
+    // Initialize all candidate symbols to handle 0-trade symbols
+    for (const sym of symbolCandlesMap.keys()) {
+      symbolPerformanceMap.set(sym, { trades: 0, wins: 0, losses: 0, grossWins: 0, grossLosses: 0, totalPnl: 0 });
+    }
+
+    for (let k = 0; k < closedTrades.length; k++) {
+      const t = closedTrades[k];
+      let sp = symbolPerformanceMap.get(t.symbol);
+      if (!sp) {
+        sp = { trades: 0, wins: 0, losses: 0, grossWins: 0, grossLosses: 0, totalPnl: 0 };
+        symbolPerformanceMap.set(t.symbol, sp);
+      }
+
+      sp.trades++;
+      sp.totalPnl += t.pnl;
+      if (t.pnl > 0) {
+        sp.wins++;
+        sp.grossWins += t.pnl;
+      } else {
+        sp.losses++;
+        sp.grossLosses += Math.abs(t.pnl);
+      }
+    }
+
+    const symbolPerformance: BacktestSymbolPerformanceDto[] = [];
+    for (const [sym, sp] of symbolPerformanceMap) {
+      const symWinRate = sp.trades > 0 ? roundTo((sp.wins / sp.trades) * 100, 2) : 0;
+      const symPF = sp.grossLosses > 0 ? roundTo(sp.grossWins / sp.grossLosses, 2) : sp.grossWins > 0 ? 99.99 : 0;
+      const symPnl = roundTo(sp.totalPnl, 2);
+
+      // Symbol recommendation heuristic: positive PnL, win rate >= 40%, and at least 1 winning trade
+      const isRecommended = symPnl > 0 && symWinRate >= 40 && sp.wins >= 1;
+
+      symbolPerformance.push({
+        symbol: sym,
+        totalTrades: sp.trades,
+        wins: sp.wins,
+        losses: sp.losses,
+        winRate: symWinRate,
+        totalPnl: symPnl,
+        profitFactor: symPF,
+        isRecommended,
+      });
+    }
+
+    // Sort symbol performance by total PnL descending
+    symbolPerformance.sort((a, b) => b.totalPnl - a.totalPnl);
+
     return {
       totalTrades,
       wins,
@@ -543,6 +613,7 @@ export class BacktestService {
       executionTimeMs,
       config,
       equityCurve,
+      symbolPerformance,
       trades: closedTrades,
     };
   }

@@ -788,15 +788,22 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType?: string,
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const fastPeriod = purpose === 'exit'
-        ? parseInt(params.exit_ema_fast || '9', 10)
-        : parseInt(params.entry_ema_fast || '9', 10);
-      const slowPeriod = purpose === 'exit'
-        ? parseInt(params.exit_ema_slow || '21', 10)
-        : parseInt(params.entry_ema_slow || '21', 10);
+      const signalTypeKey = signalType || arguments[7] || 'ema_dual_cross';
+      const baseType = 'ema_dual_cross';
+
+      const fastVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', '9'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', '9'));
+      const slowVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', '21'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', '21'));
+
+      const fastPeriod = parseInt(String(fastVal || '9'), 10) || 9;
+      const slowPeriod = parseInt(String(slowVal || '21'), 10) || 21;
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -825,7 +832,6 @@ export class SignalEngineService {
         else fired = false;
       }
 
-      const signalTypeKey = arguments[7] || 'ema_dual_cross';
       const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'ema_dual_macd_filter', false);
       let macdRejected = false;
       let macdHistValue = 0;
@@ -885,15 +891,22 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType?: string,
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const fastPeriod = purpose === 'exit'
-        ? parseInt(params.exit_ema_fast || '9', 10)
-        : parseInt(params.entry_ema_fast || '9', 10);
-      const slowPeriod = purpose === 'exit'
-        ? parseInt(params.exit_ema_slow || '21', 10)
-        : parseInt(params.entry_ema_slow || '21', 10);
+      const signalTypeKey = signalType || arguments[7] || 'ema_dual_close';
+      const baseType = 'ema_dual_close';
+
+      const fastVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', '9'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', '9'));
+      const slowVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', '21'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', '21'));
+
+      const fastPeriod = parseInt(String(fastVal || '9'), 10) || 9;
+      const slowPeriod = parseInt(String(slowVal || '21'), 10) || 21;
 
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -935,7 +948,6 @@ export class SignalEngineService {
         else fired = false;
       }
 
-      const signalTypeKey = arguments[7] || 'ema_dual_close';
       const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'ema_dual_macd_filter', false);
       let macdRejected = false;
       let macdHistValue = 0;

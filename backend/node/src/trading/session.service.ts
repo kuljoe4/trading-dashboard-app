@@ -483,7 +483,14 @@ export class SessionService implements OnModuleInit {
             }
             seenLabels.add(variant.strategy_label);
           }
-          this.validateConfig(variant);
+          const mergedVariant = {
+            ...variant,
+            signal_params: {
+              ...(config.signal_params || {}),
+              ...(variant.signal_params || {}),
+            },
+          };
+          this.validateConfig(mergedVariant);
         }
       }
     }
@@ -491,7 +498,14 @@ export class SessionService implements OnModuleInit {
     if (config.single_symbol_configs && Array.isArray(config.single_symbol_configs)) {
       for (const ssc of config.single_symbol_configs) {
         if (ssc && ssc.use_custom_config && ssc.custom_config) {
-          this.validateConfig(ssc.custom_config);
+          const mergedCustomConfig = {
+            ...ssc.custom_config,
+            signal_params: {
+              ...(config.signal_params || {}),
+              ...(ssc.custom_config.signal_params || {}),
+            },
+          };
+          this.validateConfig(mergedCustomConfig);
         }
       }
     }
@@ -542,35 +556,110 @@ export class SessionService implements OnModuleInit {
       ...(config.exit_signals || []),
     ];
 
-    if (allEnabled.includes("ema_dual_cross") || allEnabled.includes("ema_dual_close")) {
-      const fastStr = String(
-        signalParams.entry_ema_fast ??
-        signalParams.exit_ema_fast ??
-        signalParams.ema_fast ??
-        signalParams.ema_dual_cross_fast ??
-        signalParams.ema_dual_close_fast ??
-        signalParams.fast_ema ??
-        "0"
-      );
-      const slowStr = String(
-        signalParams.entry_ema_slow ??
-        signalParams.exit_ema_slow ??
-        signalParams.ema_slow ??
-        signalParams.ema_dual_cross_slow ??
-        signalParams.ema_dual_close_slow ??
-        signalParams.slow_ema ??
-        "0"
-      );
-      const fast = parseInt(fastStr, 10);
-      const slow = parseInt(slowStr, 10);
-      if (fast <= 0 || slow <= 0)
+    const getBaseSignalType = (sig: string): string => {
+      if (sig === "ema_dual_cross" || sig === "ema_dual_close") return sig;
+      const lastUnderscore = sig.lastIndexOf("_");
+      if (lastUnderscore > 0) {
+        const base = sig.substring(0, lastUnderscore);
+        if (base === "ema_dual_cross" || base === "ema_dual_close") return base;
+      }
+      return sig;
+    };
+
+    const resolveDualEmaPeriods = (sig: string, purpose: "entry" | "exit") => {
+      const baseType = getBaseSignalType(sig);
+      const suffix = sig === baseType ? "" : sig.substring(baseType.length);
+
+      const resolveKey = (key: string): string | undefined => {
+        if (!signalParams) return undefined;
+        if (suffix) {
+          const suffixedKey = `${key}${suffix}`;
+          if (
+            signalParams[suffixedKey] !== undefined &&
+            signalParams[suffixedKey] !== null &&
+            String(signalParams[suffixedKey]).trim() !== ""
+          ) {
+            return String(signalParams[suffixedKey]);
+          }
+          if (key.startsWith(baseType)) {
+            const replacedKey = sig + key.substring(baseType.length);
+            if (
+              signalParams[replacedKey] !== undefined &&
+              signalParams[replacedKey] !== null &&
+              String(signalParams[replacedKey]).trim() !== ""
+            ) {
+              return String(signalParams[replacedKey]);
+            }
+          }
+        }
+        if (
+          signalParams[key] !== undefined &&
+          signalParams[key] !== null &&
+          String(signalParams[key]).trim() !== ""
+        ) {
+          return String(signalParams[key]);
+        }
+        return undefined;
+      };
+
+      const isEntry = purpose === "entry";
+      const primaryFastKey = isEntry ? "entry_ema_fast" : "exit_ema_fast";
+      const fallbackFastKey = isEntry ? "exit_ema_fast" : "entry_ema_fast";
+
+      const primarySlowKey = isEntry ? "entry_ema_slow" : "exit_ema_slow";
+      const fallbackSlowKey = isEntry ? "exit_ema_slow" : "entry_ema_slow";
+
+      const fastStr =
+        resolveKey(primaryFastKey) ??
+        resolveKey(fallbackFastKey) ??
+        resolveKey("ema_fast") ??
+        resolveKey(`${baseType}_fast`) ??
+        resolveKey("fast_ema") ??
+        "9";
+
+      const slowStr =
+        resolveKey(primarySlowKey) ??
+        resolveKey(fallbackSlowKey) ??
+        resolveKey("ema_slow") ??
+        resolveKey(`${baseType}_slow`) ??
+        resolveKey("slow_ema") ??
+        "21";
+
+      return {
+        fast: parseInt(fastStr, 10),
+        slow: parseInt(slowStr, 10),
+      };
+    };
+
+    const enabledEntries = config.enabled_signals || [];
+    const enabledExits = config.exit_signals || [];
+
+    const validateDualEma = (sig: string, purpose: "entry" | "exit") => {
+      const { fast, slow } = resolveDualEmaPeriods(sig, purpose);
+      if (isNaN(fast) || fast <= 0 || isNaN(slow) || slow <= 0) {
         throw new BadRequestException(
           "EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)",
         );
-      if (fast >= slow)
+      }
+      if (fast >= slow) {
         throw new BadRequestException(
           "EMA Dual Cross: Fast period must be less than slow period",
         );
+      }
+    };
+
+    for (const sig of enabledEntries) {
+      const base = getBaseSignalType(sig);
+      if (base === "ema_dual_cross" || base === "ema_dual_close") {
+        validateDualEma(sig, "entry");
+      }
+    }
+
+    for (const sig of enabledExits) {
+      const base = getBaseSignalType(sig);
+      if (base === "ema_dual_cross" || base === "ema_dual_close") {
+        validateDualEma(sig, "exit");
+      }
     }
 
     if (allEnabled.includes("ma") && !signalParams.ma_period) {

@@ -252,7 +252,22 @@ export class SessionController {
   }
 
   @Get("history")
-  async getHistory(@Query("sessionId") sessionId?: string) {
+  async getHistory(
+    @Query("sessionId") sessionId?: string,
+    @Query("limit") limit?: string,
+  ) {
+    let parsedLimit: number | undefined = undefined;
+    if (limit !== undefined && limit !== "") {
+      // SENTINEL: Enforce explicit string type assertion, length bounds, and positive integer format
+      if (typeof limit !== "string" || limit.length > 10 || !/^\d+$/.test(limit)) {
+        throw new BadRequestException("Invalid limit format. Must be a positive integer.");
+      }
+      parsedLimit = parseInt(limit, 10);
+      if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 5000) {
+        throw new BadRequestException("Limit must be between 1 and 5000");
+      }
+    }
+
     if (sessionId && sessionId !== "all") {
       // SENTINEL: Enforce type safety and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and type confusion.
       if (typeof sessionId !== "string" || sessionId.length > 50) {
@@ -266,7 +281,7 @@ export class SessionController {
         throw new BadRequestException("Invalid sessionId format");
       }
     }
-    return this.sessionService.getHistory(sessionId as string);
+    return this.sessionService.getHistory(sessionId as string, parsedLimit);
   }
 
   @Post("trade/:symbol/close")

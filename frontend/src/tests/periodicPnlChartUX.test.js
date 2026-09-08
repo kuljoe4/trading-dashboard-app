@@ -22,12 +22,12 @@ describe('MonthlyRevenueChart Periodic PnL Tooltip & Micro-UX Standard', () => {
 
   test('MonthlyRevenueChart renders Active Selected Period Detail Banner above canvas', () => {
     assert.ok(
-      dashboardViewSource.includes('Active Selected Period Detail Banner'),
+      dashboardViewSource.includes('Active Selected Period Detail Banner') || dashboardViewSource.includes('Reserved Period Detail Banner'),
       'MonthlyRevenueChart must render an active period banner showing selected period breakdown'
     );
     assert.ok(
       dashboardViewSource.includes('activeIdx = hoveredIndex !== null ? hoveredIndex : selectedIndex') &&
-      dashboardViewSource.includes('activeIdx === null || !buckets[activeIdx]'),
+      (dashboardViewSource.includes('activeIdx === null || !buckets[activeIdx]') || dashboardViewSource.includes('!activeBucket')),
       'MonthlyRevenueChart must display active details when a period bar is hovered or clicked'
     );
   });

@@ -1301,7 +1301,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
       id="config-panel-smart"
       role="tabpanel"
       aria-labelledby="config-tab-smart"
-      className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+      className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
     >
       <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
         <div className="flex items-center justify-between">
@@ -1664,7 +1664,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
       id="config-panel-backtest"
       role="tabpanel"
       aria-labelledby="config-tab-backtest"
-      className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+      className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
     >
       <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-4">
         <div className="flex items-center justify-between">
@@ -3297,7 +3297,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-scan"
             role="tabpanel"
             aria-labelledby="config-tab-scan"
-            className="space-y-3 animate-in fade-in duration-300"
+            className="flex flex-col gap-3 animate-in fade-in duration-300"
           >
             <CollapsibleSection
               id="scan_general"
@@ -3490,7 +3490,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-strategy"
             role="tabpanel"
             aria-labelledby="config-tab-strategy"
-            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+            className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
             <CollapsibleSection
               id="strategy_entry"
@@ -4079,7 +4079,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-risk"
             role="tabpanel"
             aria-labelledby="config-tab-risk"
-            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+            className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
             <CollapsibleSection
               id="risk_guards"
@@ -4578,7 +4578,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-env"
             role="tabpanel"
             aria-labelledby="config-tab-env"
-            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+            className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
             <CollapsibleSection
               id="adv_env"
@@ -4665,7 +4665,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             id="config-panel-presets"
             role="tabpanel"
             aria-labelledby="config-tab-presets"
-            className="space-y-4 lg:space-y-6 animate-in fade-in duration-300"
+            className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
             {/* Top Toolbar: Save / Update Controls & Compact Actions */}
             <div className="p-4 bg-background/50 border border-border/60 rounded-2xl space-y-3">

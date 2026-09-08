@@ -2036,6 +2036,9 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       {adaptiveTicks.length > 0 && (
         <div className="relative w-full min-h-[28px] pt-1 font-mono text-[8.5px] text-dim/80 select-none overflow-visible">
           {adaptiveTicks.map((tick, idx) => {
+            const hasTime = !!tick.secondaryLabel;
+            const hasDate = !!tick.primaryLabel;
+
             return (
               <div
                 key={idx}
@@ -2045,14 +2048,23 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
                   transform: tick.align === 'start' ? 'translateX(0%)' : (tick.align === 'end' ? 'translateX(-100%)' : 'translateX(-50%)')
                 }}
               >
-                {tick.primaryLabel && (
-                  <span className="font-bold text-[8.5px] text-text/90 bg-surface/80 px-1 rounded border border-border/20 leading-none py-0.5 whitespace-nowrap">
-                    {tick.primaryLabel}
-                  </span>
-                )}
-                {tick.secondaryLabel && (
-                  <span className="font-semibold text-[8px] text-dim/70 leading-tight whitespace-nowrap">
+                {/* Top line: Time (if present) or Date (if time absent) to guarantee uniform top baseline */}
+                {hasTime ? (
+                  <span className="font-semibold text-[8px] text-dim/90 leading-tight whitespace-nowrap">
                     {tick.secondaryLabel}
+                  </span>
+                ) : (
+                  hasDate && (
+                    <span className="font-bold text-[8.5px] text-text/90 bg-surface/80 px-1 rounded border border-border/20 leading-none py-0.5 whitespace-nowrap">
+                      {tick.primaryLabel}
+                    </span>
+                  )
+                )}
+
+                {/* Bottom line: Date badge when both time and date are present */}
+                {hasTime && hasDate && (
+                  <span className="font-bold text-[7.5px] text-accent bg-accent/10 px-1 rounded border border-accent/20 leading-none py-0.5 whitespace-nowrap mt-0.5">
+                    {tick.primaryLabel}
                   </span>
                 )}
               </div>

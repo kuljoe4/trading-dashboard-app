@@ -145,19 +145,31 @@ describe('SessionService Validation', () => {
       expect(() => (service as any).validateConfig(invalidConfig)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
     });
 
-    it('validates strategy variants inheriting base signal_params for EMA Dual Cross', () => {
+    it('validates strategy variants inheriting base signal_params for EMA Dual Cross without throwing duplicate label errors', () => {
       const config = new SessionConfig();
       config.strategy_label = 'Base Dual Strategy';
       config.enabled_signals = ['momentum_pct'];
       config.signal_params = { entry_ema_fast: 9, entry_ema_slow: 21 };
       config.strategy_variants = [
         {
-          strategy_label: 'Variant 1',
+          strategy_label: 'PBC 0.4Tr LH',
           enabled_signals: ['ema_dual_cross'],
           signal_params: {},
         } as any,
       ];
       expect(() => (service as any).validateConfig(config)).not.toThrow();
+    });
+
+    it('throws error if duplicate strategy_label exists between base strategy and strategy_variants', () => {
+      const config = new SessionConfig();
+      config.strategy_label = 'PBC 0.4Tr LH';
+      config.strategy_variants = [
+        {
+          strategy_label: 'PBC 0.4Tr LH',
+          enabled_signals: ['momentum_pct'],
+        } as any,
+      ];
+      expect(() => (service as any).validateConfig(config)).toThrow('Duplicate strategy_label "PBC 0.4Tr LH" detected between base strategy and strategy_variants');
     });
 
     it('throws error when exit EMA Dual Cross has invalid fast/slow relationship', () => {

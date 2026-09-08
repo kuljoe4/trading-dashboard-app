@@ -1946,12 +1946,12 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer",
+        "flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer shadow-md shadow-black/20",
         isLoaded
-          ? "border-accent/40 shadow-[0_0_12px_rgba(var(--accent-rgb),0.06)] bg-accent/[0.01]"
+          ? "border-accent/60 shadow-[0_0_12px_rgba(var(--accent-rgb),0.12)] bg-accent/[0.02]"
           : isVariant
-          ? "border-purple/40 shadow-[0_0_12px_rgba(168,85,247,0.06)] bg-purple/[0.01]"
-          : "border-border hover:border-border-hover hover:bg-white/[0.01]"
+          ? "border-purple/60 shadow-[0_0_12px_rgba(168,85,247,0.12)] bg-purple/[0.02]"
+          : "border-border/80 hover:border-border-hover hover:bg-white/[0.01]"
       )}
     >
       <button
@@ -4809,7 +4809,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
                 </div>
               ) : partitionedPresets.active.length === 0 && partitionedPresets.recentlyUsed.length === 0 && partitionedPresets.available.length === 0 ? (
-                <div className="p-10 border border-dashed border-border rounded-2xl text-center space-y-3">
+                <div className="p-10 border border-dashed border-border rounded-2xl text-center flex flex-col gap-3">
                   <Search size={28} className="mx-auto text-dim/30" />
                   <div className="text-xs font-bold text-dim uppercase">No matching presets found</div>
                   <Btn variant="ghost" onClick={() => setPresetSearch('')} className="text-accent hover:bg-accent/5 py-1 px-3 text-[10px] uppercase font-black tracking-widest">
@@ -4817,15 +4817,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </Btn>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="flex flex-col gap-6">
                   {/* Active Orchestration Section */}
                   {partitionedPresets.active.length > 0 && (
-                    <div className="space-y-2.5 animate-in fade-in duration-300">
+                    <div className="flex flex-col gap-3 animate-in fade-in duration-300">
                       <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-accent">
                         <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                         Active Strategy & Enabled Variants ({partitionedPresets.active.length})
                       </div>
-                      <motion.div layout className="space-y-2.5">
+                      <motion.div layout className="flex flex-col gap-3">
                         <AnimatePresence mode="popLayout">
                           {partitionedPresets.active.map(p => (
                             <PresetItem
@@ -4849,7 +4849,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {partitionedPresets.recentlyUsed.length > 0 && (() => {
                     const isRecentOpen = recentExpanded || !!presetSearch;
                     return (
-                      <div className="space-y-2.5 animate-in fade-in duration-300">
+                      <div className="flex flex-col gap-3 animate-in fade-in duration-300">
                         <button
                           type="button"
                           onClick={() => setRecentExpanded(!recentExpanded)}
@@ -4879,7 +4879,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               transition={{ duration: 0.2, ease: "easeInOut" }}
                               className="overflow-hidden"
                             >
-                              <motion.div layout className="space-y-2.5 pt-1">
+                              <motion.div layout className="flex flex-col gap-3 pt-1">
                                 <AnimatePresence mode="popLayout">
                                   {partitionedPresets.recentlyUsed.map(p => (
                                     <PresetItem
@@ -4907,7 +4907,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {partitionedPresets.available.length > 0 && (() => {
                     const isLibraryOpen = libraryExpanded || !!presetSearch;
                     return (
-                      <div className="space-y-2.5">
+                      <div className="flex flex-col gap-3">
                         <button
                           type="button"
                           onClick={() => setLibraryExpanded(!libraryExpanded)}
@@ -4936,7 +4936,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               transition={{ duration: 0.2, ease: "easeInOut" }}
                               className="overflow-hidden"
                             >
-                              <motion.div layout className="space-y-2.5 pt-1">
+                              <motion.div layout className="flex flex-col gap-3 pt-1">
                                 <AnimatePresence mode="popLayout">
                                   {partitionedPresets.available.map(p => (
                                     <PresetItem

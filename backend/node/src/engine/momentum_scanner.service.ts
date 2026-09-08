@@ -233,6 +233,11 @@ export class MomentumScannerService {
     const lookback = Math.max(config.scan_lookback || 1, 1);
     const candles = this.klineStore.getRawCandles(symbol, interval);
     if (candles.length < lookback + 1) {
+      if (config.debug_mode) {
+        this.logger.debug(
+          `[Scanner Diagnostic] ${symbol} skipped: insufficient candles (${candles.length} < ${lookback + 1}) for interval ${interval}`,
+        );
+      }
       return null;
     }
 
@@ -258,6 +263,11 @@ export class MomentumScannerService {
     // BOLT OPTIMIZATION: Early return if momentum is below threshold to avoid expensive volatility/trend calculations
     const threshold = config.scan_pct_threshold ?? 0;
     if (Math.abs(momentumPct) < threshold) {
+      if (config.debug_mode) {
+        this.logger.debug(
+          `[Scanner Diagnostic] ${symbol} skipped: momentum ${momentumPct.toFixed(2)}% below threshold ${threshold}% (${interval} timeframe)`,
+        );
+      }
       return null;
     }
 

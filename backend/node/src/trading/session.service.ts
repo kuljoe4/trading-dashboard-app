@@ -485,6 +485,7 @@ export class SessionService implements OnModuleInit {
           }
           const mergedVariant = {
             ...variant,
+            strategy_variants: [],
             signal_params: {
               ...(config.signal_params || {}),
               ...(variant.signal_params || {}),
@@ -500,6 +501,7 @@ export class SessionService implements OnModuleInit {
         if (ssc && ssc.use_custom_config && ssc.custom_config) {
           const mergedCustomConfig = {
             ...ssc.custom_config,
+            strategy_variants: [],
             signal_params: {
               ...(config.signal_params || {}),
               ...(ssc.custom_config.signal_params || {}),

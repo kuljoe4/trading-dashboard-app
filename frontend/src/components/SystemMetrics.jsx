@@ -145,7 +145,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
               />
            </div>
 
-           <div className="space-y-2 mt-1">
+           <div className="flex flex-col gap-2 mt-1">
               <SystemMetric
                 icon={Activity}
                 label="Hot Loop"

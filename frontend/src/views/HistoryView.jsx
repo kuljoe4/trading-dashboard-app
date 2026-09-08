@@ -145,7 +145,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                 </div>
 
                 {/* Body Content - Scrollable */}
-                <div className="flex-1 overflow-y-auto space-y-4 pr-1.5 no-scrollbar">
+                <div className="flex-1 overflow-y-auto flex flex-col gap-4 pr-1.5 no-scrollbar">
                   {/* Performance Summary Card (Win Rate & Profit Factor) */}
                   <div className="bg-background/40 border border-border/40 rounded-xl p-4 grid grid-cols-2 gap-4">
                     <div className="flex flex-col gap-0.5">
@@ -163,7 +163,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                   </div>
 
                   {/* General Overview Card */}
-                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
+                  <div className="bg-background/40 border border-border/60 rounded-xl p-4 flex flex-col gap-3">
                     <div className="flex justify-between items-center flex-wrap gap-2">
                       <span className="text-[10px] text-dim font-black uppercase tracking-widest">Strategy Label</span>
                       <span className="text-xs font-black text-text uppercase">{label}</span>
@@ -241,7 +241,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                   )}
 
                   {/* Active Variants details */}
-                  <div className="bg-background/40 border border-border/40 rounded-xl p-4 space-y-3">
+                  <div className="bg-background/40 border border-border/60 rounded-xl p-4 flex flex-col gap-3">
                     <div className="text-[9px] text-dim font-black uppercase tracking-widest">Active Variations ({activeLabels.length})</div>
                     <div className="flex flex-col gap-2">
                       {activeLabels.map(l => {
@@ -276,7 +276,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 
                   {/* Raw Configuration block */}
                   {session.config && (
-                    <div className="space-y-1.5">
+                    <div className="flex flex-col gap-1.5">
                       <span className="text-[9px] text-dim font-black uppercase tracking-widest">Technical Parameters JSON</span>
                       <div className="bg-background/60 border border-border/40 rounded-xl p-3 max-h-[200px] overflow-y-auto scrollbar-thin scrollbar-thumb-border hover:scrollbar-thumb-accent/50">
                         <pre className="text-[9.5px] font-mono text-text/80 leading-relaxed whitespace-pre-wrap select-all">
@@ -1433,7 +1433,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             transition={{ duration: 0.15 }}
             className="border-t border-border/10"
           >
-            <div className="p-4 space-y-4 bg-background/20">
+            <div className="p-4 flex flex-col gap-4 bg-background/20">
               {/* Session Strategy Filter Toolbar */}
               {availableSessionStrategies.length > 1 && (
                 <div className="bg-surface/40 border border-border/20 rounded-xl p-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
@@ -1478,7 +1478,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
 
               {/* Session Extremes: Top 5 Wins & Top 5 Losses */}
               {(sessionTopWins.length > 0 || sessionTopLosses.length > 0) && (
-                <div className="bg-surface/40 border border-border/20 rounded-xl p-3.5 sm:p-4 space-y-3">
+                <div className="bg-surface/40 border border-border/60 rounded-xl p-3.5 sm:p-4 flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-2 border-b border-border/10 pb-2">
                     <span className="text-[10px] font-black uppercase tracking-wider text-text flex items-center gap-1.5">
                       <TrendingUp size={13} className="text-accent" /> Session Extremes (Top Wins & Losses)
@@ -1491,7 +1491,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                   </div>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {/* Session Top Wins */}
-                    <div className="space-y-2">
+                    <div className="flex flex-col gap-2">
                       <div className="text-[9px] font-black uppercase tracking-wider text-green flex items-center justify-between">
                         <span>Top Wins</span>
                         <span>PnL ($)</span>
@@ -1518,7 +1518,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                     </div>
 
                     {/* Session Top Losses */}
-                    <div className="space-y-2">
+                    <div className="flex flex-col gap-2">
                       <div className="text-[9px] font-black uppercase tracking-wider text-red flex items-center justify-between">
                         <span>Top Losses</span>
                         <span>PnL ($)</span>
@@ -2196,7 +2196,7 @@ export const HistoryView = () => {
                 initial={{ height: 0, opacity: 0 }}
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
-                className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 space-y-6 md:space-y-8"
+                className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 flex flex-col gap-6 md:gap-8"
               >
                 {/* 1. Stat Cards Grid (First 6) */}
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
@@ -2317,7 +2317,7 @@ export const HistoryView = () => {
                 </div>
 
                 {/* 3.6 Top 5 Biggest Wins & Top 5 Biggest Losses */}
-                <div className="bg-surface/30 border border-border/40 rounded-2xl p-4 md:p-5 shadow-sm space-y-4">
+                <div className="bg-surface/30 border border-border/60 rounded-2xl p-4 md:p-5 shadow-sm flex flex-col gap-4">
                   <div className="flex items-center justify-between gap-3 border-b border-border/10 pb-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
@@ -2337,7 +2337,7 @@ export const HistoryView = () => {
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Top 5 Wins */}
-                    <div className="space-y-2.5">
+                    <div className="flex flex-col gap-2.5">
                       <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-green">
                         <span className="flex items-center gap-1.5"><TrendingUp size={13} /> Top 5 Biggest Wins</span>
                         <span>PnL ($)</span>
@@ -2365,7 +2365,7 @@ export const HistoryView = () => {
                     </div>
 
                     {/* Top 5 Losses */}
-                    <div className="space-y-2.5">
+                    <div className="flex flex-col gap-2.5">
                       <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-wider text-red">
                         <span className="flex items-center gap-1.5"><TrendingDown size={13} /> Top 5 Biggest Losses</span>
                         <span>PnL ($)</span>
@@ -2511,7 +2511,7 @@ export const HistoryView = () => {
                           Calculated using MFE (Maximum Favorable Excursion) sweep to identify statistical edge.
                         </p>
                         {currentAnalytics.rrOptimization.avgDurationToBreakevenMs !== undefined && (
-                          <div className="mt-4 p-3 bg-background/50 rounded-xl border border-border/50 space-y-2">
+                          <div className="mt-4 p-3 bg-background/50 rounded-xl border border-border/50 flex flex-col gap-2">
                             <div className="flex items-center justify-between text-[9px] text-accent font-bold uppercase">
                               <span className="flex items-center gap-1.5"><Clock size={11} /> Time-to-Breakeven Dynamics</span>
                               <span>{currentAnalytics.rrOptimization.breakevenEfficiencyRatio || 0}% BE Rate</span>
@@ -2618,7 +2618,7 @@ export const HistoryView = () => {
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               <AnimatePresence mode="popLayout">
                 {search && sessionsToRender.length === 0 ? (
                   <motion.div
@@ -2729,7 +2729,7 @@ export const HistoryView = () => {
                           exit={{ height: 0, opacity: 0 }}
                           className="overflow-hidden border-t border-border/40"
                         >
-                          <div className="p-4 space-y-3 bg-background/30">
+                          <div className="p-4 flex flex-col gap-3 bg-background/30">
                             {orphans.map((trade) => (
                               <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />
                             ))}

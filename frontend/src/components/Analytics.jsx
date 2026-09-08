@@ -441,7 +441,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
   const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   return (
-    <div className="space-y-4 bg-surface/30 border border-border/50 rounded-2xl p-4 sm:p-6 relative" role="region" aria-label="Strategy calendar profit and loss breakdown">
+    <div className="flex flex-col gap-4 bg-surface/30 border border-border/60 rounded-2xl p-4 sm:p-6 relative shadow-md shadow-black/20" role="region" aria-label="Strategy calendar profit and loss breakdown">
       {/* Header controls & monthly totals */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border/20 pb-4">
         <div className="flex items-center gap-3">
@@ -598,7 +598,7 @@ export const StrategyCalendarPnL = ({ trades = [], strategyFilter = 'ALL', sessi
         </div>
       ) : (
         /* Agenda List View for Small Viewports & Accessibility */
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {monthActiveDaysList.length === 0 ? (
             <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
               No Trades Recorded in {monthLabel} {year}
@@ -821,7 +821,7 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
   const currentStats = hoverData || safeData.find(d => d.threshold === recommendedRr) || safeData[Math.floor(safeData.length / 2)];
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-dim font-bold uppercase tracking-widest text-left">Edge Optimization Curve</span>
@@ -2332,7 +2332,7 @@ export const TODPerformance = ({ data = [] }) => {
   const currentHourStats = hoverHour || validData.find(h => h.hour === new Date().getHours()) || validData[0] || { pnl: 0, hour: 0, winRate: 0, wins: 0, total: 0 };
 
   return (
-    <div className="space-y-6" role="region" aria-label="Time of day performance histogram">
+    <div className="flex flex-col gap-6" role="region" aria-label="Time of day performance histogram">
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 min-h-[80px] sm:min-h-[64px]">
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] text-dim font-bold uppercase tracking-widest">Time-of-Day Performance (Local)</span>

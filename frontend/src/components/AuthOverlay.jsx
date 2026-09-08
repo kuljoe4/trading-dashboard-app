@@ -69,7 +69,7 @@ export const AuthOverlay = () => {
               <h2 id="auth-title" className="text-2xl font-bold text-center mb-2">Authentication Required</h2>
               <p id="auth-description" className="text-sm text-dim text-center mb-8 uppercase tracking-widest font-bold">Enter Admin API Key to unlock</p>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <div className="relative">
                   <label htmlFor="admin-api-key" className="sr-only">Admin API Key</label>
                   <div className="absolute left-4 top-1/2 -translate-y-1/2 text-dim pointer-events-none">

@@ -80,13 +80,13 @@ export const ShortcutsModal = ({ isOpen, onClose }) => {
             </Tooltip>
           </div>
 
-          <div className="space-y-6">
+          <div className="flex flex-col gap-6">
             {SHORTCUT_GROUPS.map((group) => (
-              <div key={group.title} className="space-y-3">
+              <div key={group.title} className="flex flex-col gap-3">
                 <div className="text-[10px] text-dim font-black uppercase tracking-[0.15em] border-b border-border/30 pb-1.5">
                   {group.title}
                 </div>
-                <div className="space-y-1">
+                <div className="flex flex-col gap-1">
                   {group.shortcuts.map((s, idx) => {
                     const keysText = s.keys.join(' or ');
                     return (

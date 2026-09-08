@@ -106,24 +106,37 @@ describe("SessionController", () => {
   describe("getHistory", () => {
     it("should allow undefined/no sessionId", async () => {
       await controller.getHistory(undefined);
-      expect(sessionService.getHistory).toHaveBeenCalledWith(undefined);
+      expect(sessionService.getHistory).toHaveBeenCalledWith(undefined, undefined);
     });
 
     it('should allow "all"', async () => {
       await controller.getHistory("all");
-      expect(sessionService.getHistory).toHaveBeenCalledWith("all");
+      expect(sessionService.getHistory).toHaveBeenCalledWith("all", undefined);
     });
 
     it("should allow valid UUID", async () => {
       const uuid = "550e8400-e29b-41d4-a716-446655440000";
       await controller.getHistory(uuid);
-      expect(sessionService.getHistory).toHaveBeenCalledWith(uuid);
+      expect(sessionService.getHistory).toHaveBeenCalledWith(uuid, undefined);
     });
 
     it("should reject invalid sessionId format", async () => {
       await expect(controller.getHistory("invalid_session_id")).rejects.toThrow(
         BadRequestException,
       );
+    });
+
+    it("should parse and allow valid limit parameter", async () => {
+      await controller.getHistory("all", "250");
+      expect(sessionService.getHistory).toHaveBeenCalledWith("all", 250);
+    });
+
+    it("should reject invalid limit format (non-numeric, negative, or out-of-bounds)", async () => {
+      await expect(controller.getHistory("all", "abc")).rejects.toThrow(BadRequestException);
+      await expect(controller.getHistory("all", "-10")).rejects.toThrow(BadRequestException);
+      await expect(controller.getHistory("all", "0")).rejects.toThrow(BadRequestException);
+      await expect(controller.getHistory("all", "100000")).rejects.toThrow(BadRequestException);
+      await expect(controller.getHistory("all", "123456789012")).rejects.toThrow(BadRequestException);
     });
   });
 

@@ -2034,7 +2034,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
 
       {/* Smart Hierarchical X-Axis Labels (Non-overlapping) */}
       {adaptiveTicks.length > 0 && (
-        <div className="relative w-full h-6 pt-1 font-mono text-[8.5px] text-dim/80 select-none overflow-hidden px-6">
+        <div className="relative w-full min-h-[28px] pt-1 font-mono text-[8.5px] text-dim/80 select-none overflow-visible">
           {adaptiveTicks.map((tick, idx) => {
             return (
               <div
@@ -2046,12 +2046,12 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
                 }}
               >
                 {tick.primaryLabel && (
-                  <span className="font-bold text-[8.5px] text-text/90 bg-surface/80 px-1 rounded border border-border/20 leading-none py-0.5">
+                  <span className="font-bold text-[8.5px] text-text/90 bg-surface/80 px-1 rounded border border-border/20 leading-none py-0.5 whitespace-nowrap">
                     {tick.primaryLabel}
                   </span>
                 )}
                 {tick.secondaryLabel && (
-                  <span className="font-semibold text-[8px] text-dim/70 leading-tight">
+                  <span className="font-semibold text-[8px] text-dim/70 leading-tight whitespace-nowrap">
                     {tick.secondaryLabel}
                   </span>
                 )}

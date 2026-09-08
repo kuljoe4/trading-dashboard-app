@@ -3258,7 +3258,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   return (
     <div ref={modalRef} tabIndex={-1} className="flex flex-col h-full bg-surface text-text overflow-hidden relative outline-none">
-      <div className="sticky top-0 z-30 bg-surface/80 backdrop-blur-md border-b border-border">
+      <div className="sticky top-0 z-50 bg-surface/80 backdrop-blur-md border-b border-border">
         <div className="py-3 px-4 flex justify-between items-center">
           <div className="min-w-0 flex-1 mr-4">
              <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">

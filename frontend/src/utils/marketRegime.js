@@ -26,11 +26,18 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
   let btcOpp = null;
   let globalHigh24h = 0;
   let globalLow24h = Infinity;
+  let globalMinPct = Infinity;
+  let globalMaxPct = -Infinity;
 
-  // Single-pass O(N) iteration over scanner candidates
+  // Single-pass O(N) iteration over scanner candidates & global market tickers
   for (let i = 0; i < totalCount; i++) {
     const opp = resultsArr[i];
     if (!opp) continue;
+
+    // Use 24h percentage change from ticker if available (representing full global 24h change) or fallback to momentum %
+    const raw24hPct = Number(opp.price_change_percent_24h ?? opp.percent_change_24h ?? opp.momentum ?? opp.pct ?? 0);
+    if (raw24hPct > globalMaxPct) globalMaxPct = raw24hPct;
+    if (raw24hPct < globalMinPct) globalMinPct = raw24hPct;
 
     const mom = Number(opp.momentum ?? opp.pct ?? 0);
     if (mom > maxPct) maxPct = mom;
@@ -70,6 +77,10 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
 
   if (maxPct === -Infinity) maxPct = 0;
   if (minPct === Infinity) minPct = 0;
+
+  // Global market 24h min/max percentage extremes
+  const global24hMinPct = globalMinPct !== Infinity ? globalMinPct : minPct;
+  const global24hMaxPct = globalMaxPct !== -Infinity ? globalMaxPct : maxPct;
 
   const avgMomentum = totalCount > 0 ? sumAbsMomentum / totalCount : 0;
   const avgVolScore = totalCount > 0 ? sumVolScore / totalCount : 0;
@@ -124,8 +135,10 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
     btc24hLow,
     btcRangePct,
     valid24hRange,
-    maxPct,
-    minPct,
+    maxPct: global24hMaxPct,
+    minPct: global24hMinPct,
+    scanMaxPct: maxPct,
+    scanMinPct: minPct,
   };
 
   // Check state overrides

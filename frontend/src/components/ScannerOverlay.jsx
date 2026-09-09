@@ -903,7 +903,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       </div>
       <ModalAlertTicker />
 
-      {/* Market Regime & Activity Telemetry Bar */}
+      {/* Ultra-High-Density Consolidated Market Regime & Telemetry Header Bar */}
       {(() => {
         const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused, hibernating });
         return (
@@ -911,81 +911,48 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
           <div
             tabIndex={0}
             role="region"
-            aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold`}
-            className="bg-surface/50 border-b border-border px-3 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shrink-0"
+            aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold. 24h Universe Range Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(2)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(2)}%`}
+            className="bg-surface/50 border-b border-border px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 shrink-0 text-[9.5px] font-mono"
           >
-            <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <Tooltip content={overlayRegime.guidance}>
                 <div className={cn(
-                  "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border flex items-center gap-1.5 shadow-sm font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0",
+                  "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-sm font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0",
                   overlayRegime.badgeClass
                 )}>
-                  {overlayRegime.regime === 'slow' && <Turtle size={13} className="shrink-0 text-cyan-400" />}
-                  {overlayRegime.regime === 'active' && <Flame size={13} className="shrink-0 text-accent animate-pulse" />}
-                  {overlayRegime.regime === 'moderate' && <Zap size={13} className="shrink-0 text-amber" />}
-                  {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={13} className="shrink-0 opacity-70" />}
+                  {overlayRegime.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
+                  {overlayRegime.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
+                  {overlayRegime.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
+                  {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={11} className="shrink-0 opacity-70" />}
                   <span>{overlayRegime.label}</span>
                 </div>
               </Tooltip>
 
-              <div className="flex items-center gap-2 font-mono text-[10px] font-bold flex-wrap">
+              <div className="flex items-center gap-1.5 font-mono font-bold flex-wrap">
                 <span className="text-text/90">
-                  Avg Momentum: <strong className="text-accent">{overlayRegime.avgMomentum.toFixed(2)}%</strong>
+                  Avg Mom: <strong className="text-accent">{overlayRegime.avgMomentum.toFixed(2)}%</strong>
                 </span>
                 <span className="text-dim/40">•</span>
                 <span className="text-text/90">
-                  Passing: <strong className={overlayRegime.passingCount > 0 ? "text-green" : "text-cyan-400"}>{overlayRegime.passingCount}/{overlayRegime.totalCount}</strong> (&gt; {overlayRegime.threshold}%)
+                  Pass: <strong className={overlayRegime.passingCount > 0 ? "text-green" : "text-cyan-400"}>{overlayRegime.passingCount}/{overlayRegime.totalCount}</strong> (&gt;{overlayRegime.threshold}%)
                 </span>
                 <span className="text-dim/40">•</span>
-                <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded font-black text-[9px] uppercase">
-                  {overlayRegime.breadthLabel} ({overlayRegime.advanceRatioPct}% Adv)
-                </span>
+                <span className="text-red">Min <strong>{overlayRegime.minPct >= 0 ? '+' : ''}{overlayRegime.minPct.toFixed(1)}%</strong></span>
+                <span className="text-dim/40">•</span>
+                <span className="text-green">Max <strong>{overlayRegime.maxPct >= 0 ? '+' : ''}{overlayRegime.maxPct.toFixed(1)}%</strong></span>
               </div>
             </div>
 
             {/* Speed Meter Bar */}
-            <div className="flex items-center gap-2 w-full sm:w-48 shrink-0">
-              <span className="text-[9px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
-              <div className="flex-1 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+            <div className="flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
+              <span className="text-[8.5px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
+              <div className="w-20 sm:w-28 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
                 <div
                   className={cn("h-full transition-all duration-500 rounded-full", overlayRegime.meterClass || "bg-accent")}
                   style={{ width: `${overlayRegime.speedPct}%` }}
                 />
               </div>
-              <span className="text-[9px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
-            </div>
-          </div>
-
-          {/* Global Market Breadth & 24h Scan Universe Range Bar */}
-          <div
-            tabIndex={0}
-            role="region"
-            aria-label={`Scan Universe 24h Range Extremes: Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(2)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(2)}%, Breadth ${overlayRegime.advanceRatioPct}% Advancing (${overlayRegime.breadthLabel})`}
-            className="bg-background/40 border-b border-border/40 px-3 py-1.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[10px] font-mono shrink-0"
-          >
-            <div className="flex items-center gap-2 font-bold flex-wrap">
-              <span className="text-dim uppercase tracking-wider">24H UNIVERSE RANGE:</span>
-              <span className="text-red">Min <strong>{overlayRegime.minPct >= 0 ? '+' : ''}{overlayRegime.minPct.toFixed(2)}%</strong></span>
-              <span className="text-dim/40">•</span>
-              <span className="text-green">Max <strong>{overlayRegime.maxPct >= 0 ? '+' : ''}{overlayRegime.maxPct.toFixed(2)}%</strong></span>
-              {overlayRegime.valid24hRange && (
-                <>
-                  <span className="text-dim/40">•</span>
-                  <span className="text-text/80">{overlayRegime.benchmarkSymbol} ${overlayRegime.btc24hLow.toLocaleString()} - ${overlayRegime.btc24hHigh.toLocaleString()}</span>
-                </>
-              )}
-            </div>
-
-            {/* Global Universe Range Position Meter */}
-            <div className="flex items-center gap-2 w-full sm:w-56 shrink-0">
-              <span className="text-[8.5px] font-bold text-dim uppercase tracking-wider shrink-0">Universe Range</span>
-              <div className="flex-1 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
-                <div
-                  className="h-full bg-gradient-to-r from-red via-cyan-400 via-accent to-green rounded-full transition-all duration-500"
-                  style={{ width: `${Math.min(100, Math.max(0, overlayRegime.maxPct - overlayRegime.minPct > 0 ? ((overlayRegime.avgMomentum - overlayRegime.minPct) / (overlayRegime.maxPct - overlayRegime.minPct)) * 100 : 50))}%` }}
-                />
-              </div>
-              <span className="text-[8.5px] font-black text-accent shrink-0">{overlayRegime.maxPct >= 0 ? '+' : ''}{overlayRegime.maxPct.toFixed(1)}%</span>
+              <span className="text-[8.5px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
             </div>
           </div>
 

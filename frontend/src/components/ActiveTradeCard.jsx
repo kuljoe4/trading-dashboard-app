@@ -124,15 +124,18 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakPos = pos(peakPrice);
   const isPeakBeyondTarget = tp > 0 && peakR > tpR;
 
-  // Resolve Dual Indicator Markers on Runway Track for Proximity Visibility
-  const dualIndicatorMarkers = React.useMemo(() => {
-    if (!trade.exit_signals_status) return [];
+  // Resolve Dual Indicator Markers and Span Range between Fast/Slow Dual Indicators
+  const { dualIndicatorMarkers, dualSpan } = React.useMemo(() => {
+    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [], dualSpan: null };
     const list = [];
+    let fastMarker = null;
+    let slowMarker = null;
+
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
       if (!sig) continue;
 
       if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
-        list.push({
+        const item = {
           key,
           label: sig.label || key,
           price: sig.threshold,
@@ -140,32 +143,57 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           fired: sig.fired && sig.active,
           isFast: key.includes('fast'),
           isSlow: key.includes('slow')
-        });
+        };
+        list.push(item);
+        if (item.isFast) fastMarker = item;
+        if (item.isSlow) slowMarker = item;
       }
 
       if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
-        list.push({
+        const item = {
           key: `${key}-fast`,
           label: 'FAST EMA',
           price: sig.fast_value,
           pos: pos(sig.fast_value),
           fired: sig.fired,
           isFast: true
-        });
+        };
+        list.push(item);
+        fastMarker = item;
       }
 
       if (typeof sig.slow_value === 'number' && sig.slow_value > 0) {
-        list.push({
+        const item = {
           key: `${key}-slow`,
           label: 'SLOW EMA',
           price: sig.slow_value,
           pos: pos(sig.slow_value),
           fired: sig.fired,
           isSlow: true
-        });
+        };
+        list.push(item);
+        slowMarker = item;
       }
     }
-    return list;
+
+    let span = null;
+    if (fastMarker && slowMarker) {
+      const minPos = Math.min(fastMarker.pos, slowMarker.pos);
+      const maxPos = Math.max(fastMarker.pos, slowMarker.pos);
+      const width = Math.max(0.5, maxPos - minPos);
+      const gapPct = entry > 0 ? (Math.abs(fastMarker.price - slowMarker.price) / entry) * 100 : 0;
+      span = {
+        minPos,
+        maxPos,
+        width,
+        gapPct,
+        fastPrice: fastMarker.price,
+        slowPrice: slowMarker.price,
+        isFired: fastMarker.fired || slowMarker.fired
+      };
+    }
+
+    return { dualIndicatorMarkers: list, dualSpan: span };
   }, [trade.exit_signals_status, mark, entry, totalRangeR, leftEdgeR]);
 
   // Right slot label & pricing resolution
@@ -493,6 +521,24 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               className="absolute top-0 bottom-0 right-0 bg-[#00e5a0]/22 transition-all duration-300"
               style={{ left: `${entryMarkPos}%` }}
             />
+
+            {/* Highlight Line Between Dual Indicators (Fast vs Slow EMA Crossover Gap) */}
+            {dualSpan && (
+              <Tooltip content={`Dual EMA Cross Gap: Fast ${fmtUSD(dualSpan.fastPrice)} vs Slow ${fmtUSD(dualSpan.slowPrice)} (${dualSpan.gapPct.toFixed(2)}% gap)`}>
+                <div
+                  className={cn(
+                    "absolute top-0 bottom-0 z-15 transition-all duration-300 border-y shadow-md cursor-help",
+                    dualSpan.isFired
+                      ? "bg-red/40 border-red/80 shadow-[0_0_8px_rgba(255,68,102,0.8)] animate-pulse"
+                      : "bg-cyan-400/35 border-cyan-400/70 shadow-[0_0_8px_rgba(34,211,238,0.6)]"
+                  )}
+                  style={{
+                    left: `${dualSpan.minPos}%`,
+                    width: `${dualSpan.width}%`
+                  }}
+                />
+              </Tooltip>
+            )}
 
             {/* Progress Fill */}
             <div

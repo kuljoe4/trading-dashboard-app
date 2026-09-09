@@ -3,9 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-test('Active Trade Runway Card Dual Indicators & 24h Market Range Standard Verification', () => {
+test('Active Trade Runway Card Dual Indicators & Global 24h Market Range Verification', () => {
   const cardPath = path.resolve('frontend/src/components/ActiveTradeCard.jsx');
+  const overlayPath = path.resolve('frontend/src/components/ScannerOverlay.jsx');
+  const regimePath = path.resolve('frontend/src/utils/marketRegime.js');
+
   const cardCode = fs.readFileSync(cardPath, 'utf8');
+  const overlayCode = fs.readFileSync(overlayPath, 'utf8');
+  const regimeCode = fs.readFileSync(regimePath, 'utf8');
 
   // Verify dual indicator markers calculation and rendering on runway track
   assert.ok(
@@ -17,31 +22,27 @@ test('Active Trade Runway Card Dual Indicators & 24h Market Range Standard Verif
     'ActiveTradeCard must render dual indicator markers on the runway track'
   );
 
-  // Verify 24h market range high/low calculation and visual meter
+  // Verify global 24h market range is part of global regime in ScannerOverlay, not in active trade card
   assert.ok(
-    cardCode.includes('24H L:'),
-    'ActiveTradeCard must render 24h Low price'
+    regimeCode.includes('btc24hHigh'),
+    'marketRegime utility must compute global 24h market range bounds'
   );
   assert.ok(
-    cardCode.includes('24H H:'),
-    'ActiveTradeCard must render 24h High price'
-  );
-  assert.ok(
-    cardCode.includes('OF 24H RANGE'),
-    'ActiveTradeCard must render 24h Range percentage meter'
+    overlayCode.includes('24H RANGE:'),
+    'ScannerOverlay must render global 24h market range bar in global regime telemetry'
   );
 
-  // Verify WCAG accessibility standards
+  // Verify WCAG accessibility standards on global 24h range element
   assert.ok(
-    cardCode.includes('aria-label={`24h Market Range for'),
-    'ActiveTradeCard 24h range element must provide descriptive WCAG aria-label'
+    overlayCode.includes('aria-label={`Global 24h Market Range'),
+    'Global 24h range element must provide descriptive WCAG aria-label'
   );
   assert.ok(
-    cardCode.includes('role="region"'),
-    'ActiveTradeCard 24h range element must enforce role="region"'
+    overlayCode.includes('role="region"'),
+    'Global 24h range element must enforce role="region"'
   );
   assert.ok(
-    cardCode.includes('tabIndex={0}'),
-    'ActiveTradeCard 24h range element must enforce tabIndex={0}'
+    overlayCode.includes('tabIndex={0}'),
+    'Global 24h range element must enforce tabIndex={0}'
   );
 });

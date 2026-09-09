@@ -7,7 +7,7 @@ import { getMarketRegimeInfo } from '../utils/marketRegime.js';
 test('Market Regime Analytics Unit Tests - getMarketRegimeInfo', async (t) => {
   await t.test('evaluates quiet / slow market regime correctly when candidates are below scan threshold', () => {
     const mockScannerResults = [
-      { symbol: 'BTCUSDT', momentum: 0.35, pct: 0.35, score: 25, score_breakdown: { volatility: 10 } },
+      { symbol: 'BTCUSDT', momentum: 0.35, pct: 0.35, score: 25, price: 62000, high_24h: 63000, low_24h: 61000, score_breakdown: { volatility: 10 } },
       { symbol: 'ETHUSDT', momentum: -0.42, pct: -0.42, score: 30, score_breakdown: { volatility: 12 } },
       { symbol: 'SOLUSDT', momentum: 0.18, pct: 0.18, score: 15, score_breakdown: { volatility: 5 } }
     ];
@@ -22,6 +22,14 @@ test('Market Regime Analytics Unit Tests - getMarketRegimeInfo', async (t) => {
     assert.equal(regime.threshold, 2.0);
     assert.ok(regime.avgMomentum < 1.0);
     assert.ok(regime.guidance.includes('Low market velocity detected'));
+    assert.equal(regime.benchmarkSymbol, 'BTC');
+    assert.equal(regime.btc24hHigh, 63000);
+    assert.equal(regime.btc24hLow, 61000);
+    assert.equal(regime.btcRangePct, 50); // 62000 is mid-point of 61000-63000
+    assert.equal(regime.advancingCount, 2);
+    assert.equal(regime.decliningCount, 1);
+    assert.equal(regime.advanceRatioPct, 67);
+    assert.equal(regime.breadthLabel, 'Bullish Expansion');
   });
 
   await t.test('evaluates moderate market pace regime correctly', () => {

@@ -12,28 +12,6 @@ import { useNow } from '../hooks/useNow'
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter }) => {
   const now = useNow()
 
-  const { scannerResults, variantScannerResults } = useTradingStore(state => ({
-    scannerResults: state.scannerResults || [],
-    variantScannerResults: state.variantScannerResults || {}
-  }), shallow);
-
-  const matchedOpp = React.useMemo(() => {
-    if (!trade.symbol) return null;
-    const direct = (scannerResults || []).find(r => r.symbol === trade.symbol);
-    if (direct) return direct;
-    const variantKeys = Object.keys(variantScannerResults || {});
-    for (const k of variantKeys) {
-      const found = (variantScannerResults[k] || []).find(r => r.symbol === trade.symbol);
-      if (found) return found;
-    }
-    return null;
-  }, [scannerResults, variantScannerResults, trade.symbol]);
-
-  const high24h = Number(trade.high_24h ?? trade.price_high_24h ?? matchedOpp?.high_24h ?? matchedOpp?.price_high_24h ?? (matchedOpp?.ohlc_history?.length ? Math.max(...matchedOpp.ohlc_history.map(c => c.high || 0)) : 0));
-  const low24h = Number(trade.low_24h ?? trade.price_low_24h ?? matchedOpp?.low_24h ?? matchedOpp?.price_low_24h ?? (matchedOpp?.ohlc_history?.length ? Math.min(...matchedOpp.ohlc_history.map(c => c.low || Infinity)) : 0));
-
-  const valid24hRange = high24h > 0 && low24h > 0 && high24h > low24h;
-  const range24hPct = valid24hRange ? Math.min(100, Math.max(0, (((trade.current_price || trade.mark_price || 0) - low24h) / (high24h - low24h)) * 100)) : 50;
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -780,27 +758,6 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           </div>
         </div>
 
-        {/* 24h Market High & Low Range Indicator Bar */}
-        {valid24hRange && (
-          <div
-            tabIndex={0}
-            role="region"
-            aria-label={`24h Market Range for ${trade.symbol}: Low ${fmtUSD(low24h)}, High ${fmtUSD(high24h)}, current live price at ${Math.round(range24hPct)}% of 24h range`}
-            className="mt-1 pt-1 border-t border-border/20 flex flex-col gap-1 text-[7.5px] font-mono font-bold"
-          >
-            <div className="flex justify-between items-center text-dim/80 text-[7px] uppercase tracking-widest leading-none">
-              <span>24H L: <strong className="text-text">{fmtUSD(low24h)}</strong></span>
-              <span className="text-accent font-black">{Math.round(range24hPct)}% OF 24H RANGE</span>
-              <span>24H H: <strong className="text-text">{fmtUSD(high24h)}</strong></span>
-            </div>
-            <div className="h-1 w-full bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
-              <div
-                className="h-full bg-gradient-to-r from-cyan-400 via-accent to-purple rounded-full transition-all duration-500"
-                style={{ width: `${range24hPct}%` }}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Bottom Metadata Grid */}
         <div className="flex justify-between items-center text-[7.5px] sm:text-[8px] font-bold text-dim uppercase tracking-widest font-mono leading-none pt-0.5">

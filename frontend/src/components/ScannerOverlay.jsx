@@ -915,6 +915,10 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
                 <span className="text-text/90">
                   Passing: <strong className={overlayRegime.passingCount > 0 ? "text-green" : "text-cyan-400"}>{overlayRegime.passingCount}/{overlayRegime.totalCount}</strong> (&gt; {overlayRegime.threshold}%)
                 </span>
+                <span className="text-dim/40">•</span>
+                <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded font-black text-[9px] uppercase">
+                  {overlayRegime.breadthLabel} ({overlayRegime.advanceRatioPct}% Adv)
+                </span>
               </div>
             </div>
 
@@ -930,6 +934,35 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               <span className="text-[9px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
             </div>
           </div>
+
+          {/* Global Market Breadth & Benchmark 24h Range Bar */}
+          {overlayRegime.valid24hRange && (
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label={`Global 24h Market Range (${overlayRegime.benchmarkSymbol}): Low $${overlayRegime.btc24hLow}, High $${overlayRegime.btc24hHigh}, market position ${overlayRegime.btcRangePct}%, Breadth ${overlayRegime.advanceRatioPct}% Advancing (${overlayRegime.breadthLabel})`}
+              className="bg-background/40 border-b border-border/40 px-3 py-1.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[10px] font-mono shrink-0"
+            >
+              <div className="flex items-center gap-2 font-bold flex-wrap">
+                <span className="text-dim uppercase tracking-wider">{overlayRegime.benchmarkSymbol} 24H RANGE:</span>
+                <span className="text-text">Low <strong>${overlayRegime.btc24hLow.toLocaleString()}</strong></span>
+                <span className="text-dim/40">•</span>
+                <span className="text-text">High <strong>${overlayRegime.btc24hHigh.toLocaleString()}</strong></span>
+              </div>
+
+              {/* Global Benchmark 24h Range Meter */}
+              <div className="flex items-center gap-2 w-full sm:w-48 shrink-0">
+                <span className="text-[8.5px] font-bold text-dim uppercase tracking-wider shrink-0">24h Pos</span>
+                <div className="flex-1 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-400 via-accent to-purple rounded-full transition-all duration-500"
+                    style={{ width: `${overlayRegime.btcRangePct}%` }}
+                  />
+                </div>
+                <span className="text-[8.5px] font-black text-accent shrink-0">{overlayRegime.btcRangePct}%</span>
+              </div>
+            </div>
+          )}
 
           {/* Active Fast Market Speed Alert Bar */}
           {overlayRegime.regime === 'active' && (

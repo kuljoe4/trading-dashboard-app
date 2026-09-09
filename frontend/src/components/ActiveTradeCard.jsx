@@ -1,14 +1,39 @@
 import React from 'react'
+import { shallow } from 'zustand/shallow'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck, RefreshCw, Clock, Lock } from 'lucide-react'
+import { useTradingStore } from '../store/trading'
+import { ShieldCheck, RefreshCw, Clock, Lock, Activity } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter }) => {
   const now = useNow()
+
+  const { scannerResults, variantScannerResults } = useTradingStore(state => ({
+    scannerResults: state.scannerResults || [],
+    variantScannerResults: state.variantScannerResults || {}
+  }), shallow);
+
+  const matchedOpp = React.useMemo(() => {
+    if (!trade.symbol) return null;
+    const direct = (scannerResults || []).find(r => r.symbol === trade.symbol);
+    if (direct) return direct;
+    const variantKeys = Object.keys(variantScannerResults || {});
+    for (const k of variantKeys) {
+      const found = (variantScannerResults[k] || []).find(r => r.symbol === trade.symbol);
+      if (found) return found;
+    }
+    return null;
+  }, [scannerResults, variantScannerResults, trade.symbol]);
+
+  const high24h = Number(trade.high_24h ?? trade.price_high_24h ?? matchedOpp?.high_24h ?? matchedOpp?.price_high_24h ?? (matchedOpp?.ohlc_history?.length ? Math.max(...matchedOpp.ohlc_history.map(c => c.high || 0)) : 0));
+  const low24h = Number(trade.low_24h ?? trade.price_low_24h ?? matchedOpp?.low_24h ?? matchedOpp?.price_low_24h ?? (matchedOpp?.ohlc_history?.length ? Math.min(...matchedOpp.ohlc_history.map(c => c.low || Infinity)) : 0));
+
+  const valid24hRange = high24h > 0 && low24h > 0 && high24h > low24h;
+  const range24hPct = valid24hRange ? Math.min(100, Math.max(0, (((trade.current_price || trade.mark_price || 0) - low24h) / (high24h - low24h)) * 100)) : 50;
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -120,6 +145,50 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit);
   const peakPos = pos(peakPrice);
   const isPeakBeyondTarget = tp > 0 && peakR > tpR;
+
+  // Resolve Dual Indicator Markers on Runway Track for Proximity Visibility
+  const dualIndicatorMarkers = React.useMemo(() => {
+    if (!trade.exit_signals_status) return [];
+    const list = [];
+    for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
+      if (!sig) continue;
+
+      if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
+        list.push({
+          key,
+          label: sig.label || key,
+          price: sig.threshold,
+          pos: pos(sig.threshold),
+          fired: sig.fired && sig.active,
+          isFast: key.includes('fast'),
+          isSlow: key.includes('slow')
+        });
+      }
+
+      if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
+        list.push({
+          key: `${key}-fast`,
+          label: 'FAST EMA',
+          price: sig.fast_value,
+          pos: pos(sig.fast_value),
+          fired: sig.fired,
+          isFast: true
+        });
+      }
+
+      if (typeof sig.slow_value === 'number' && sig.slow_value > 0) {
+        list.push({
+          key: `${key}-slow`,
+          label: 'SLOW EMA',
+          price: sig.slow_value,
+          pos: pos(sig.slow_value),
+          fired: sig.fired,
+          isSlow: true
+        });
+      }
+    }
+    return list;
+  }, [trade.exit_signals_status, mark, entry, totalRangeR, leftEdgeR]);
 
   // Right slot label & pricing resolution
   const rightSlotLabel = tp > 0 ? 'TP' : (peakR > 0 ? 'Peak' : 'Target');
@@ -619,6 +688,24 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           )}
 
+          {/* Dual Indicator Markers on Runway Track */}
+          {dualIndicatorMarkers.map(m => (
+            <Tooltip key={m.key} content={`Dual Indicator (${m.label}): ${fmtUSD(m.price)} (${m.fired ? 'FIRED' : 'ACTIVE'})`}>
+              <div
+                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                style={{ left: `${m.pos}%` }}
+              >
+                <div className={cn(
+                  "px-0.5 py-0 text-[5.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                  m.fired ? "bg-red text-white shadow-[0_0_6px_rgba(255,68,102,0.8)] animate-pulse" : "bg-accent/20 border border-accent/40 text-accent"
+                )}>
+                  ⚡ {m.label}
+                </div>
+                <div className={cn("flex-1 w-px border-l border-dashed", m.fired ? "border-red" : "border-accent/40")} />
+              </div>
+            </Tooltip>
+          ))}
+
           {/* Est-Target Stem & Overhead Diamond */}
           {trade.est_pnl_to_realize !== undefined && (
             <Tooltip content={
@@ -692,6 +779,28 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </div>
         </div>
+
+        {/* 24h Market High & Low Range Indicator Bar */}
+        {valid24hRange && (
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label={`24h Market Range for ${trade.symbol}: Low ${fmtUSD(low24h)}, High ${fmtUSD(high24h)}, current live price at ${Math.round(range24hPct)}% of 24h range`}
+            className="mt-1 pt-1 border-t border-border/20 flex flex-col gap-1 text-[7.5px] font-mono font-bold"
+          >
+            <div className="flex justify-between items-center text-dim/80 text-[7px] uppercase tracking-widest leading-none">
+              <span>24H L: <strong className="text-text">{fmtUSD(low24h)}</strong></span>
+              <span className="text-accent font-black">{Math.round(range24hPct)}% OF 24H RANGE</span>
+              <span>24H H: <strong className="text-text">{fmtUSD(high24h)}</strong></span>
+            </div>
+            <div className="h-1 w-full bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+              <div
+                className="h-full bg-gradient-to-r from-cyan-400 via-accent to-purple rounded-full transition-all duration-500"
+                style={{ width: `${range24hPct}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Bottom Metadata Grid */}
         <div className="flex justify-between items-center text-[7.5px] sm:text-[8px] font-bold text-dim uppercase tracking-widest font-mono leading-none pt-0.5">

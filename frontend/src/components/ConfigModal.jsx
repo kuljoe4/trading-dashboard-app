@@ -2251,7 +2251,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
   const [libraryExpanded, setLibraryExpanded] = useState(false);
-  const [recentExpanded, setRecentExpanded] = useState(true);
+  const [recentExpanded, setRecentExpanded] = useState(false);
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
       const stored = localStorage.getItem('recently_used_presets');
@@ -2274,20 +2274,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [showPasteOverlay, setShowPasteOverlay] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState(null);
-  const [openSectionId, setOpenSectionId] = useState('scan_general');
-
-  // Accordion behavior: auto-expand the first section of the selected tab on tab change
-  useEffect(() => {
-    const defaults = {
-      scan: 'scan_general',
-      strategy: 'strategy_entry',
-      risk: 'risk_guards',
-      env: 'adv_env',
-    };
-    if (defaults[section]) {
-      setOpenSectionId(defaults[section]);
-    }
-  }, [section]);
+  const [openSectionId, setOpenSectionId] = useState(null);
 
   const modalRef = React.useRef(null);
 

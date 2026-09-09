@@ -1399,6 +1399,25 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
           </div>
         ) : (
           <>
+            {/* Active Fast Market Speed Banner */}
+            {regimeInfo.regime === 'active' && (
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label={`Fast Market Expansion. ${regimeInfo.passingCount} of ${regimeInfo.totalCount} candidates passing threshold ${threshold}%, average momentum ${regimeInfo.avgMomentum.toFixed(2)}%`}
+                className="bg-accent/10 border-b border-accent/30 px-4 py-2 flex items-center justify-between gap-3 text-xs font-mono shrink-0"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Flame size={14} className="text-accent animate-pulse shrink-0" />
+                  <span className="font-black text-accent uppercase tracking-wider text-[10px] truncate">
+                    🔥 Fast Market Expansion ({regimeInfo.passingCount}/{regimeInfo.totalCount} Candidates &gt; {threshold}%)
+                  </span>
+                </div>
+                <span className="text-[9px] font-bold text-accent/80 uppercase tracking-widest shrink-0 hidden sm:inline">
+                  Avg Momentum {regimeInfo.avgMomentum.toFixed(2)}%
+                </span>
+              </div>
+            )}
             <AnimatePresence mode="popLayout">
               {top.map((opp, i) => {
                 const passing = Math.abs(opp.pct) >= threshold

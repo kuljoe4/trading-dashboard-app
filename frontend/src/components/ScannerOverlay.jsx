@@ -886,6 +886,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       {(() => {
         const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused, hibernating });
         return (
+          <>
           <div
             tabIndex={0}
             role="region"
@@ -929,6 +930,37 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               <span className="text-[9px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
             </div>
           </div>
+
+          {/* Active Fast Market Speed Alert Bar */}
+          {overlayRegime.regime === 'active' && (
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label={`Fast Market Alert: ${overlayRegime.passingCount} candidates passing scan threshold ${overlayRegime.threshold}%, max momentum ${overlayRegime.maxAbsMomentum.toFixed(2)}%`}
+              className="bg-accent/10 border-b border-accent/30 px-3 py-1.5 flex items-center justify-between gap-3 text-xs font-mono shrink-0 shadow-sm"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Flame size={13} className="text-accent animate-pulse shrink-0" />
+                <span className="font-black text-accent uppercase tracking-wider text-[10px] truncate">
+                  🔥 Fast Market Expansion ({overlayRegime.passingCount}/{overlayRegime.totalCount} Candidates &gt; {overlayRegime.threshold}%)
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[9px] font-bold text-accent/80 uppercase tracking-widest hidden sm:inline">
+                  Max Velocity {overlayRegime.maxAbsMomentum.toFixed(2)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRangeFilter(rangeFilter === 'movers' ? 'all' : 'movers')}
+                  className="px-2 py-0.5 rounded bg-accent/20 border border-accent/40 text-[9px] font-black uppercase text-accent hover:bg-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
+                  aria-label={rangeFilter === 'movers' ? "Show all candidates" : "Filter movers"}
+                >
+                  {rangeFilter === 'movers' ? 'Show All' : 'Focus Movers'}
+                </button>
+              </div>
+            </div>
+          )}
+          </>
         );
       })()}
 

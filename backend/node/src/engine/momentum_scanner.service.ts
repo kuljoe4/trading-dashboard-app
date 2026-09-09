@@ -297,6 +297,14 @@ export class MomentumScannerService {
     // Determine direction based on momentum
     const direction = momentumPct > 0 ? 'LONG' : 'SHORT';
 
+    // Get current price and volume
+    // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search
+    const tickerData = this.tickerCache.getTicker(symbol);
+
+    const displayPrice = this.isValidPrice(tickerData?.price ?? 0)
+      ? tickerData!.price
+      : currentPrice;
+
     // 1. PRE-FILTER SL BOUNDS: Reject moves where calculated SL distance exceeds sl_max_pct
     const slCheck = this.checkSlBounds(symbol, displayPrice || currentPrice, direction, config, candles);
     if (slCheck.rejected) {
@@ -319,14 +327,6 @@ export class MomentumScannerService {
       config,
       htfPerfResult?.scoreBoost || 0
     );
-
-    // Get current price and volume
-    // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search
-    const tickerData = this.tickerCache.getTicker(symbol);
-
-    const displayPrice = this.isValidPrice(tickerData?.price ?? 0)
-      ? tickerData!.price
-      : currentPrice;
 
     const tpRatio = config.tp_ratio || 2.0;
     const prospectRr = slCheck.slDistPct > 0 ? Number((tpRatio / slCheck.slDistPct).toFixed(2)) : tpRatio;

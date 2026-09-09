@@ -131,12 +131,20 @@ export class SessionController {
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
 
-    // Body validation allows partial config for PATCH
-    const partialConfig = body.config;
+    const configInstance = plainToInstance(SessionConfig, body.config || {});
+    // SEC-SENTINEL: Defense-in-depth whitelist and type validation on partial session configuration instance
+    const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid configuration parameters in update session",
+        detail: detailedErrors,
+      });
+    }
 
     return this.sessionService.updateSession(
       id,
-      partialConfig,
+      configInstance,
       clientIp,
       userAgent,
     );

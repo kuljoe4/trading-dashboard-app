@@ -252,6 +252,38 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
     });
   });
 
+  describe('updateSession Strategy Config Whitelist Validation', () => {
+    it('should accept valid partial strategy configuration in updateSession', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+      mockSessionService.updateSession = jest.fn().mockResolvedValue({ status: 'updated' });
+      const validPayload = {
+        config: {
+          strategy_label: 'Updated Strategy Label',
+          scan_interval: '5m',
+        },
+      };
+      await expect(controller.updateSession(validUuid, validPayload as any, mockReq)).resolves.not.toThrow();
+      expect(mockSessionService.updateSession).toHaveBeenCalled();
+    });
+
+    it('should reject non-whitelisted properties in updateSession strategy configuration', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+      mockSessionService.updateSession = jest.fn().mockResolvedValue({ status: 'updated' });
+      const invalidPayload = {
+        config: {
+          strategy_label: 'Updated Strategy Label',
+          unauthorized_extra_param: '<script>alert("xss")</script>',
+        },
+      };
+      await expect(controller.updateSession(validUuid, invalidPayload as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockSessionService.updateSession).not.toHaveBeenCalled();
+    });
+  });
+
   describe('runSmartOptimization Base Strategy Config Whitelist Validation', () => {
     it('should accept valid base strategy configuration in runSmartOptimization', async () => {
       const validPayload = {

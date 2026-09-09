@@ -170,6 +170,11 @@
 **Learning:** In WebSocket message handlers, input framing data cannot bypass type checking and string length bounds simply because it is received over an authenticated socket connection.
 **Prevention:** Enforce explicit string type assertions, whitespace trimming, and strict character length caps (e.g. max 100 chars) on all incoming WebSocket message payload attributes.
 
+## 2026-09-09 - SessionConfig Whitelist Validation on Update Session Endpoint
+**Vulnerability:** In `SessionController.updateSession` (`PATCH /session/:id`), `body.config` was passed directly to `sessionService.updateSession` without class transformation or whitelist validation. This allowed non-whitelisted or unvalidated strategy configuration parameters in HTTP PATCH requests to bypass strict input validation prior to reaching session service merge and database persistence logic.
+**Learning:** For PATCH endpoints handling partial configuration updates, `body.config` must be transformed using `plainToInstance(SessionConfig, body.config || {})` and validated with `validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true })` at the controller entry barrier.
+**Prevention:** Always perform explicit `plainToInstance` transformation and `validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true })` on partial configuration payloads in NestJS controller endpoints before executing service logic.
+
 ## 2026-09-04 - SessionConfig Whitelist Validation on Backtest and Session Controller Endpoints
 **Vulnerability:** In `SessionController.runBacktest` and `SessionController.startSession`, `body.config` payloads were instantiated via `plainToInstance(SessionConfig, ...)` but did not perform explicit `validate(config, { whitelist: true, forbidNonWhitelisted: true })` checks. This allowed non-whitelisted, extra, or malformed strategy configuration parameters in HTTP requests to bypass strict whitelist gating before reaching backend execution engines.
 **Learning:** Instantiating DTO configuration models using `plainToInstance` does not automatically filter out or reject un-decorated/non-whitelisted properties unless `class-validator`'s `validate` function is explicitly invoked with `{ whitelist: true, forbidNonWhitelisted: true }`.

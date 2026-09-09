@@ -6,7 +6,8 @@ import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { useNow } from '../hooks/useNow'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
+import { getMarketRegimeInfo } from '../utils/marketRegime'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw, Turtle, Flame, Gauge, PauseCircle, Moon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
@@ -880,6 +881,121 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
         </div>
       </div>
       <ModalAlertTicker />
+
+      {/* Market Regime & Activity Telemetry Bar */}
+      {(() => {
+        const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused, hibernating });
+        return (
+          <>
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold`}
+            className="bg-surface/50 border-b border-border px-3 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shrink-0"
+          >
+            <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+              <Tooltip content={overlayRegime.guidance}>
+                <div className={cn(
+                  "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border flex items-center gap-1.5 shadow-sm font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0",
+                  overlayRegime.badgeClass
+                )}>
+                  {overlayRegime.regime === 'slow' && <Turtle size={13} className="shrink-0 text-cyan-400" />}
+                  {overlayRegime.regime === 'active' && <Flame size={13} className="shrink-0 text-accent animate-pulse" />}
+                  {overlayRegime.regime === 'moderate' && <Zap size={13} className="shrink-0 text-amber" />}
+                  {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={13} className="shrink-0 opacity-70" />}
+                  <span>{overlayRegime.label}</span>
+                </div>
+              </Tooltip>
+
+              <div className="flex items-center gap-2 font-mono text-[10px] font-bold flex-wrap">
+                <span className="text-text/90">
+                  Avg Momentum: <strong className="text-accent">{overlayRegime.avgMomentum.toFixed(2)}%</strong>
+                </span>
+                <span className="text-dim/40">•</span>
+                <span className="text-text/90">
+                  Passing: <strong className={overlayRegime.passingCount > 0 ? "text-green" : "text-cyan-400"}>{overlayRegime.passingCount}/{overlayRegime.totalCount}</strong> (&gt; {overlayRegime.threshold}%)
+                </span>
+                <span className="text-dim/40">•</span>
+                <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded font-black text-[9px] uppercase">
+                  {overlayRegime.breadthLabel} ({overlayRegime.advanceRatioPct}% Adv)
+                </span>
+              </div>
+            </div>
+
+            {/* Speed Meter Bar */}
+            <div className="flex items-center gap-2 w-full sm:w-48 shrink-0">
+              <span className="text-[9px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
+              <div className="flex-1 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+                <div
+                  className={cn("h-full transition-all duration-500 rounded-full", overlayRegime.meterClass || "bg-accent")}
+                  style={{ width: `${overlayRegime.speedPct}%` }}
+                />
+              </div>
+              <span className="text-[9px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
+            </div>
+          </div>
+
+          {/* Global Market Breadth & Benchmark 24h Range Bar */}
+          {overlayRegime.valid24hRange && (
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label={`Global 24h Market Range (${overlayRegime.benchmarkSymbol}): Low $${overlayRegime.btc24hLow}, High $${overlayRegime.btc24hHigh}, market position ${overlayRegime.btcRangePct}%, Breadth ${overlayRegime.advanceRatioPct}% Advancing (${overlayRegime.breadthLabel})`}
+              className="bg-background/40 border-b border-border/40 px-3 py-1.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[10px] font-mono shrink-0"
+            >
+              <div className="flex items-center gap-2 font-bold flex-wrap">
+                <span className="text-dim uppercase tracking-wider">{overlayRegime.benchmarkSymbol} 24H RANGE:</span>
+                <span className="text-text">Low <strong>${overlayRegime.btc24hLow.toLocaleString()}</strong></span>
+                <span className="text-dim/40">•</span>
+                <span className="text-text">High <strong>${overlayRegime.btc24hHigh.toLocaleString()}</strong></span>
+              </div>
+
+              {/* Global Benchmark 24h Range Meter */}
+              <div className="flex items-center gap-2 w-full sm:w-48 shrink-0">
+                <span className="text-[8.5px] font-bold text-dim uppercase tracking-wider shrink-0">24h Pos</span>
+                <div className="flex-1 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+                  <div
+                    className="h-full bg-gradient-to-r from-cyan-400 via-accent to-purple rounded-full transition-all duration-500"
+                    style={{ width: `${overlayRegime.btcRangePct}%` }}
+                  />
+                </div>
+                <span className="text-[8.5px] font-black text-accent shrink-0">{overlayRegime.btcRangePct}%</span>
+              </div>
+            </div>
+          )}
+
+          {/* Active Fast Market Speed Alert Bar */}
+          {overlayRegime.regime === 'active' && (
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label={`Fast Market Alert: ${overlayRegime.passingCount} candidates passing scan threshold ${overlayRegime.threshold}%, max momentum ${overlayRegime.maxAbsMomentum.toFixed(2)}%`}
+              className="bg-accent/10 border-b border-accent/30 px-3 py-1.5 flex items-center justify-between gap-3 text-xs font-mono shrink-0 shadow-sm"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Flame size={13} className="text-accent animate-pulse shrink-0" />
+                <span className="font-black text-accent uppercase tracking-wider text-[10px] truncate">
+                  🔥 Fast Market Expansion ({overlayRegime.passingCount}/{overlayRegime.totalCount} Candidates &gt; {overlayRegime.threshold}%)
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[9px] font-bold text-accent/80 uppercase tracking-widest hidden sm:inline">
+                  Max Velocity {overlayRegime.maxAbsMomentum.toFixed(2)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRangeFilter(rangeFilter === 'movers' ? 'all' : 'movers')}
+                  className="px-2 py-0.5 rounded bg-accent/20 border border-accent/40 text-[9px] font-black uppercase text-accent hover:bg-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
+                  aria-label={rangeFilter === 'movers' ? "Show all candidates" : "Filter movers"}
+                >
+                  {rangeFilter === 'movers' ? 'Show All' : 'Focus Movers'}
+                </button>
+              </div>
+            </div>
+          )}
+          </>
+        );
+      })()}
 
       <ActiveWindowsList search={search} />
 

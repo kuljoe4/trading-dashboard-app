@@ -2,6 +2,7 @@ import React, { useMemo, useState, Suspense } from 'react'
 import { pnlColor, pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
+import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { 
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
   ConditionWidget, PnLBars, CopyButton, cn, ViewHeader, Tooltip
@@ -12,7 +13,7 @@ import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown
+  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
@@ -464,7 +465,30 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       </div>
 
       <div className="mb-10">
-        <SectionLabel>Automation Gating</SectionLabel>
+        <div className="flex justify-between items-center mb-3">
+          <SectionLabel className="mb-0">Automation Gating</SectionLabel>
+          {(() => {
+            const detailRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
+            return (
+              <Tooltip content={detailRegime.guidance}>
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`Market Activity: ${detailRegime.label}`}
+                  className={cn(
+                    "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                    detailRegime.badgeClass
+                  )}
+                >
+                  {detailRegime.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
+                  {detailRegime.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
+                  {detailRegime.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
+                  <span>{detailRegime.label}</span>
+                </div>
+              </Tooltip>
+            );
+          })()}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-4">
           <ConditionWidget label={`Scanner: % Move (${strategyConfig.scan_interval})`} value={bestOpp.pct} threshold={strategyConfig.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
           <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={bestOpp.symbol !== '---' ? `[${bestOpp.symbol}] ${signalResult.reason || "Awaiting signals"}` : (signalResult.reason || "Waiting for structural signal")} />

@@ -1,14 +1,17 @@
 import React from 'react'
+import { shallow } from 'zustand/shallow'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { sessionAPI } from '../api/client'
-import { ShieldCheck, RefreshCw, Clock, Lock } from 'lucide-react'
+import { useTradingStore } from '../store/trading'
+import { ShieldCheck, RefreshCw, Clock, Lock, Activity } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter }) => {
   const now = useNow()
+
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -120,6 +123,50 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit);
   const peakPos = pos(peakPrice);
   const isPeakBeyondTarget = tp > 0 && peakR > tpR;
+
+  // Resolve Dual Indicator Markers on Runway Track for Proximity Visibility
+  const dualIndicatorMarkers = React.useMemo(() => {
+    if (!trade.exit_signals_status) return [];
+    const list = [];
+    for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
+      if (!sig) continue;
+
+      if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
+        list.push({
+          key,
+          label: sig.label || key,
+          price: sig.threshold,
+          pos: pos(sig.threshold),
+          fired: sig.fired && sig.active,
+          isFast: key.includes('fast'),
+          isSlow: key.includes('slow')
+        });
+      }
+
+      if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
+        list.push({
+          key: `${key}-fast`,
+          label: 'FAST EMA',
+          price: sig.fast_value,
+          pos: pos(sig.fast_value),
+          fired: sig.fired,
+          isFast: true
+        });
+      }
+
+      if (typeof sig.slow_value === 'number' && sig.slow_value > 0) {
+        list.push({
+          key: `${key}-slow`,
+          label: 'SLOW EMA',
+          price: sig.slow_value,
+          pos: pos(sig.slow_value),
+          fired: sig.fired,
+          isSlow: true
+        });
+      }
+    }
+    return list;
+  }, [trade.exit_signals_status, mark, entry, totalRangeR, leftEdgeR]);
 
   // Right slot label & pricing resolution
   const rightSlotLabel = tp > 0 ? 'TP' : (peakR > 0 ? 'Peak' : 'Target');
@@ -619,6 +666,24 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           )}
 
+          {/* Dual Indicator Markers on Runway Track */}
+          {dualIndicatorMarkers.map(m => (
+            <Tooltip key={m.key} content={`Dual Indicator (${m.label}): ${fmtUSD(m.price)} (${m.fired ? 'FIRED' : 'ACTIVE'})`}>
+              <div
+                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                style={{ left: `${m.pos}%` }}
+              >
+                <div className={cn(
+                  "px-0.5 py-0 text-[5.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                  m.fired ? "bg-red text-white shadow-[0_0_6px_rgba(255,68,102,0.8)] animate-pulse" : "bg-accent/20 border border-accent/40 text-accent"
+                )}>
+                  ⚡ {m.label}
+                </div>
+                <div className={cn("flex-1 w-px border-l border-dashed", m.fired ? "border-red" : "border-accent/40")} />
+              </div>
+            </Tooltip>
+          ))}
+
           {/* Est-Target Stem & Overhead Diamond */}
           {trade.est_pnl_to_realize !== undefined && (
             <Tooltip content={
@@ -692,6 +757,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </div>
         </div>
+
 
         {/* Bottom Metadata Grid */}
         <div className="flex justify-between items-center text-[7.5px] sm:text-[8px] font-bold text-dim uppercase tracking-widest font-mono leading-none pt-0.5">

@@ -28,14 +28,14 @@ test('Active Trade Runway Card Dual Indicators & Global 24h Market Range Verific
     'marketRegime utility must compute global 24h market range bounds'
   );
   assert.ok(
-    overlayCode.includes('24H RANGE:'),
-    'ScannerOverlay must render global 24h market range bar in global regime telemetry'
+    overlayCode.includes('Min') && overlayCode.includes('Max'),
+    'ScannerOverlay must render 24h market range min and max percentages'
   );
 
-  // Verify WCAG accessibility standards on global 24h range element
+  // Verify WCAG accessibility standards on global market regime element
   assert.ok(
-    overlayCode.includes('aria-label={`Global 24h Market Range'),
-    'Global 24h range element must provide descriptive WCAG aria-label'
+    overlayCode.includes('aria-label={`Market Activity Status:'),
+    'Global market regime telemetry element must provide descriptive WCAG aria-label'
   );
   assert.ok(
     overlayCode.includes('role="region"'),

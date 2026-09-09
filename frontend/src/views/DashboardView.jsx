@@ -1008,6 +1008,13 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono">
               {config.scan_interval} · {config.scan_pct_threshold}% Move
             </span>
+            {config.htf_ema_cross_boost_enabled !== false && (
+              <Tooltip content={`HTF EMA Cross Ranking Active: ${config.htf_ema_cross_interval || '4h'} timeframe (${config.htf_ema_fast_period || 9}/${config.htf_ema_slow_period || 21} EMAs, Boost Weight: ${config.htf_ema_cross_rr_weight || 1.5}x)`}>
+                <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help">
+                  ⚡ 4H HTF Cross (+{config.htf_ema_cross_max_boost || 25} Max)
+                </span>
+              </Tooltip>
+            )}
             {(() => {
               const rawHitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
               const hitRate = Math.min(100, Math.max(0, rawHitRate));
@@ -3205,16 +3212,16 @@ export function DashboardView({ initialStrategy }) {
       {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto h-auto">
-              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
-                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+            <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-3xl lg:max-w-4xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
+              <div className="p-2 bg-background rounded-t-[28px] sm:hidden flex flex-col items-center shrink-0 border-b border-border/20">
+                <div className="w-10 h-1 bg-border/60 rounded-full" />
                 <VisuallyHidden>
                   <Drawer.Title>Configuration</Drawer.Title>
                   <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
                 <Suspense fallback={<LoadingFallback />}>
                   {modalConfig && (
                     <ConfigModal
@@ -3234,16 +3241,16 @@ export function DashboardView({ initialStrategy }) {
 
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner} repositionInputs={false}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
-              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
-                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+            <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-4xl lg:max-w-5xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
+              <div className="p-2 bg-background rounded-t-[28px] sm:hidden flex flex-col items-center shrink-0 border-b border-border/20">
+                <div className="w-10 h-1 bg-border/60 rounded-full" />
                 <VisuallyHidden>
                   <Drawer.Title>Scanner</Drawer.Title>
                   <Drawer.Description>View live market scanner opportunities</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <Suspense fallback={<LoadingFallback />}>
                   {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} selectedStrategyLabel={scannerFocusLabel || selected} />}
                 </Suspense>

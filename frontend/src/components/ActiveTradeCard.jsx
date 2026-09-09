@@ -712,23 +712,26 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           )}
 
-          {/* Dual Indicator Markers on Runway Track */}
-          {dualIndicatorMarkers.map(m => (
-            <Tooltip key={m.key} content={`Dual Indicator (${m.label}): ${fmtUSD(m.price)} (${m.fired ? 'FIRED' : 'ACTIVE'})`}>
-              <div
-                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
-                style={{ left: `${m.pos}%` }}
-              >
-                <div className={cn(
-                  "px-0.5 py-0 text-[5.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
-                  m.fired ? "bg-red text-white shadow-[0_0_6px_rgba(255,68,102,0.8)] animate-pulse" : "bg-accent/20 border border-accent/40 text-accent"
-                )}>
-                  ⚡ {m.label}
+          {/* Dual Indicator Markers on Runway Track with Distance Callout */}
+          {dualIndicatorMarkers.map(m => {
+            const distFromMarkPct = mark > 0 ? (Math.abs(mark - m.price) / mark) * 100 : 0;
+            return (
+              <Tooltip key={m.key} content={`Dual Indicator (${m.label}): ${fmtUSD(m.price)} (${distFromMarkPct.toFixed(2)}% from mark price, ${m.fired ? 'FIRED' : 'ACTIVE'})`}>
+                <div
+                  className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  style={{ left: `${m.pos}%` }}
+                >
+                  <div className={cn(
+                    "px-1 py-0.2 text-[6px] font-black font-mono uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 whitespace-nowrap",
+                    m.fired ? "bg-red text-white shadow-[0_0_6px_rgba(255,68,102,0.8)] animate-pulse" : "bg-accent/20 border border-accent/40 text-accent"
+                  )}>
+                    ⚡ {m.label} ({distFromMarkPct.toFixed(1)}%)
+                  </div>
+                  <div className={cn("flex-1 w-px border-l border-dashed", m.fired ? "border-red" : "border-accent/40")} />
                 </div>
-                <div className={cn("flex-1 w-px border-l border-dashed", m.fired ? "border-red" : "border-accent/40")} />
-              </div>
-            </Tooltip>
-          ))}
+              </Tooltip>
+            );
+          })}
 
           {/* Est-Target Stem & Overhead Diamond */}
           {trade.est_pnl_to_realize !== undefined && (

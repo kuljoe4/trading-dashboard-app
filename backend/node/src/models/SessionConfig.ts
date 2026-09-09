@@ -266,6 +266,38 @@ export class SessionConfig {
   @IsOptional()
   sl_out_of_bounds_action?: 'clamp' | 'reject' = 'clamp';
 
+  @IsBoolean()
+  @IsOptional()
+  reject_entry_if_sl_exceeds_max?: boolean = true;
+
+  @IsBoolean()
+  @IsOptional()
+  htf_ema_cross_boost_enabled?: boolean = true;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(10)
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'htf_ema_cross_interval must be a valid Binance kline interval' })
+  htf_ema_cross_interval?: string = "4h";
+
+  @IsNumber()
+  @Min(1)
+  @Max(20)
+  @IsOptional()
+  htf_ema_cross_count?: number = 4;
+
+  @IsNumber()
+  @Min(2)
+  @Max(200)
+  @IsOptional()
+  htf_ema_fast_period?: number = 9;
+
+  @IsNumber()
+  @Min(2)
+  @Max(200)
+  @IsOptional()
+  htf_ema_slow_period?: number = 21;
+
   @IsEnum(['fixed', 'exp_rr_seq'])
   @IsOptional()
   tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';

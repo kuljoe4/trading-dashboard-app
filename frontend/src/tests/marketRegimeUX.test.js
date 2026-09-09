@@ -101,8 +101,8 @@ test('Market Regime Analytics Unit Tests - getMarketRegimeInfo', async (t) => {
 });
 
 test('Market Regime UI & Accessibility Standard Verification', () => {
-  const dashboardPath = path.resolve('frontend/src/views/DashboardView.jsx');
-  const scannerOverlayPath = path.resolve('frontend/src/components/ScannerOverlay.jsx');
+  const dashboardPath = path.resolve(process.cwd(), 'frontend/src/views/DashboardView.jsx');
+  const scannerOverlayPath = path.resolve(process.cwd(), 'frontend/src/components/ScannerOverlay.jsx');
 
   const dashboardCode = fs.readFileSync(dashboardPath, 'utf8');
   const overlayCode = fs.readFileSync(scannerOverlayPath, 'utf8');

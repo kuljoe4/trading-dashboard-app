@@ -522,6 +522,13 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                 V{opp.volume_rank}
               </span>
             )}
+            {opp.htf_ema_cross_perf && (
+              <Tooltip content={`4H HTF EMA Dual Cross (Last ${opp.htf_ema_cross_perf.cross_count} Crosses): Avg Profit +${opp.htf_ema_cross_perf.avg_profit_pct}%, Win Rate ${opp.htf_ema_cross_perf.win_rate}%`}>
+                <span className="text-[7.5px] bg-cyan-500/10 border border-cyan-500/20 px-1 py-0.2 rounded-[3px] text-cyan-400 font-black uppercase tracking-tighter leading-none flex items-center gap-0.5 cursor-help">
+                  ⚡ 4H Cross +{opp.htf_ema_cross_perf.avg_profit_pct}%
+                </span>
+              </Tooltip>
+            )}
            </div>
         </div>
         <div className="flex flex-col items-end w-14 shrink-0 md:w-auto md:shrink md:items-start md:pl-2">
@@ -552,6 +559,12 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                   <span className="text-dim uppercase font-bold">Trend</span>
                   <span className="font-mono text-purple-400">{Number(opp.score_breakdown?.trend || 0).toFixed(1)}</span>
                </div>
+               {opp.score_breakdown?.htf_ema_cross !== undefined && opp.score_breakdown.htf_ema_cross > 0 && (
+                 <div className="flex justify-between items-center text-[9px]">
+                    <span className="text-dim uppercase font-bold">4H Cross</span>
+                    <span className="font-mono text-cyan-400">+{Number(opp.score_breakdown.htf_ema_cross).toFixed(1)}</span>
+                 </div>
+               )}
                <div className="border-t border-white/10 pt-1 flex justify-between items-center font-black">
                   <span className="text-[8px] uppercase tracking-tighter">Total</span>
                   <span className={cn("text-[10px] font-mono", opp.score > 85 ? "text-accent" : "text-white")}>{Number(opp.score || 0).toFixed(1)}</span>
@@ -569,6 +582,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                 <div className="h-full bg-accent/80" style={{ width: `${opp.score_breakdown?.momentum || 0}%` }} />
                 <div className="h-full bg-amber/80" style={{ width: `${opp.score_breakdown?.volatility || 0}%` }} />
                 <div className="h-full bg-purple/80" style={{ width: `${opp.score_breakdown?.trend || 0}%` }} />
+                <div className="h-full bg-cyan-400/80" style={{ width: `${opp.score_breakdown?.htf_ema_cross || 0}%` }} />
               </div>
             </div>
           </Tooltip>

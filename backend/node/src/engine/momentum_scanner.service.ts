@@ -16,10 +16,18 @@ export interface Opportunity {
   is_smart_candidate?: boolean; // Discovered via event-driven Smart Watchlist
   history?: number[]; // Recent close prices for sparkline
   ohlc_history?: Candle[]; // Full OHLC for detailed visualization
+  sl_dist_pct?: number;
   score_breakdown?: {
     momentum: number;
     volatility: number;
     trend: number;
+    htf_ema_cross?: number;
+  };
+  htf_ema_cross_perf?: {
+    avg_profit_pct: number;
+    win_rate: number;
+    cross_count: number;
+    last_cross_direction?: 'LONG' | 'SHORT';
   };
 }
 
@@ -29,6 +37,18 @@ export class MomentumScannerService {
 
   // BOLT OPTIMIZATION: Static shared weights to avoid per-symbol object allocations in hot-path
   private static readonly DEFAULT_WEIGHTS = { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+
+  // BOLT OPTIMIZATION: O(1) Cache for HTF EMA Dual Cross historical performance calculations keyed by symbol & latest candle timestamp
+  private readonly htfCrossPerfCache = new Map<string, {
+    key: string;
+    perf: {
+      avg_profit_pct: number;
+      win_rate: number;
+      cross_count: number;
+      last_cross_direction?: 'LONG' | 'SHORT';
+    };
+    scoreBoost: number;
+  }>();
 
   constructor(
     private readonly klineStore: KlineStoreService,
@@ -274,12 +294,27 @@ export class MomentumScannerService {
     // Determine direction based on momentum
     const direction = momentumPct > 0 ? 'LONG' : 'SHORT';
 
+    // 1. PRE-FILTER SL BOUNDS: Reject moves where calculated SL distance exceeds sl_max_pct
+    const slCheck = this.checkSlBounds(symbol, displayPrice || currentPrice, direction, config, candles);
+    if (slCheck.rejected) {
+      if (config.debug_mode) {
+        this.logger.debug(
+          `[Scanner Diagnostic] ${symbol} pre-filtered: prospective SL distance ${slCheck.slDistPct.toFixed(2)}% exceeds sl_max_pct ${config.sl_max_pct || 3.0}% (Reason: ${slCheck.reason})`,
+        );
+      }
+      return null;
+    }
+
+    // 2. Calculate HTF (4H default) EMA Dual Cross historical performance ranking score
+    const htfPerfResult = this.calculateHtfEmaCrossPerf(symbol, config);
+
     // Calculate opportunity score (0-100)
-    // Based on: momentum magnitude, volume, volatility
+    // Based on: momentum magnitude, volume, volatility, plus HTF 4H EMA cross historical performance ranking
     const { score, breakdown } = this.calculateScore(
       candles,
       momentumPct,
       config,
+      htfPerfResult?.scoreBoost || 0
     );
 
     // Get current price and volume
@@ -298,10 +333,212 @@ export class MomentumScannerService {
         volume_24h: Number(tickerData?.volume_24h || 0),
         score,
         direction,
-        score_breakdown: breakdown,
+        sl_dist_pct: slCheck.slDistPct,
+        score_breakdown: {
+          ...breakdown,
+          htf_ema_cross: htfPerfResult?.scoreBoost || 0,
+        },
+        htf_ema_cross_perf: htfPerfResult?.perf,
       },
       candles,
     };
+  }
+
+  /**
+   * Pre-calculates prospective SL distance for a candidate move and checks if it exceeds sl_max_pct.
+   * Filters out high-risk wide moves before entry if rejection is active.
+   */
+  private checkSlBounds(
+    symbol: string,
+    entryPrice: number,
+    direction: 'LONG' | 'SHORT',
+    config: SessionConfig,
+    candles: Candle[],
+  ): { slDistPct: number; rejected: boolean; reason?: string } {
+    const slDistancePct = config.sl_distance_pct ?? 0.8;
+    const slType = config.sl_type ?? 'pct';
+    const maxPct = config.sl_max_pct ?? 3.0;
+    const shouldReject = (config.sl_out_of_bounds_action === 'reject') || (config.reject_entry_if_sl_exceeds_max !== false);
+
+    let calculatedDistPct = slDistancePct;
+
+    if (slType === 'lookback_low/high' && candles.length > 0) {
+      const lookbackPeriod = Math.min(candles.length, config.sl_lookback_period || 5);
+      let extreme = candles[candles.length - 1].close;
+
+      for (let i = candles.length - lookbackPeriod; i < candles.length; i++) {
+        if (direction === 'LONG') {
+          if (candles[i].low < extreme) extreme = candles[i].low;
+        } else {
+          if (candles[i].high > extreme) extreme = candles[i].high;
+        }
+      }
+
+      if (entryPrice > 0) {
+        calculatedDistPct = (Math.abs(entryPrice - extreme) / entryPrice) * 100;
+      }
+    } else if (slType === 'engulfing_boundary' || slType === 'streak_extreme') {
+      const lookback = Math.min(candles.length, config.engulfing_lookback || 1);
+      let extreme = candles[candles.length - 1].close;
+      for (let i = candles.length - lookback; i < candles.length; i++) {
+        if (direction === 'LONG') {
+          if (candles[i].low < extreme) extreme = candles[i].low;
+        } else {
+          if (candles[i].high > extreme) extreme = candles[i].high;
+        }
+      }
+      if (entryPrice > 0) {
+        calculatedDistPct = (Math.abs(entryPrice - extreme) / entryPrice) * 100;
+      }
+    }
+
+    if (shouldReject && calculatedDistPct > maxPct) {
+      return {
+        slDistPct: calculatedDistPct,
+        rejected: true,
+        reason: `Prospective SL ${calculatedDistPct.toFixed(2)}% > sl_max_pct ${maxPct}%`,
+      };
+    }
+
+    return { slDistPct: calculatedDistPct, rejected: false };
+  }
+
+  /**
+   * Calculates HTF (4H default) EMA Dual Cross historical performance metrics over the last N crosses.
+   * Evaluates fast vs slow EMA crossovers, measures average profit percentage and win rate per cross,
+   * and computes a score boost (0 to 15 points) for scanner ranking.
+   * Uses O(1) timestamp-keyed cache to avoid redundant technical analysis.
+   */
+  private calculateHtfEmaCrossPerf(
+    symbol: string,
+    config: SessionConfig,
+  ): { perf: Opportunity['htf_ema_cross_perf']; scoreBoost: number } | null {
+    if (config.htf_ema_cross_boost_enabled === false) {
+      return null;
+    }
+
+    const interval = config.htf_ema_cross_interval || '4h';
+    const targetCrossCount = Math.min(20, Math.max(1, config.htf_ema_cross_count ?? 4));
+    const fastPeriod = config.htf_ema_fast_period || 9;
+    const slowPeriod = config.htf_ema_slow_period || 21;
+
+    const candles = this.klineStore.getRawCandles(symbol, interval);
+    if (!candles || candles.length < slowPeriod + 10) {
+      return null;
+    }
+
+    const latestTs = candles[candles.length - 1].time;
+    const cacheKey = `${symbol}_${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${latestTs}`;
+
+    const cached = this.htfCrossPerfCache.get(symbol);
+    if (cached && cached.key === cacheKey) {
+      return { perf: cached.perf, scoreBoost: cached.scoreBoost };
+    }
+
+    // 1. Compute EMA series over 4H candles
+    const fastEma = this.computeEmaArray(candles, fastPeriod);
+    const slowEma = this.computeEmaArray(candles, slowPeriod);
+
+    if (fastEma.length !== candles.length || slowEma.length !== candles.length) {
+      return null;
+    }
+
+    // 2. Identify cross points and measure post-cross profit percentages
+    const crossProfits: number[] = [];
+    let wins = 0;
+    let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
+
+    // Scan backwards from second-to-last candle to find crossovers
+    for (let i = candles.length - 2; i >= slowPeriod; i--) {
+      const prevFast = fastEma[i - 1];
+      const prevSlow = slowEma[i - 1];
+      const currFast = fastEma[i];
+      const currSlow = slowEma[i];
+
+      const isBullCross = prevFast <= prevSlow && currFast > currSlow;
+      const isBearCross = prevFast >= prevSlow && currFast < currSlow;
+
+      if (isBullCross || isBearCross) {
+        const crossDir = isBullCross ? 'LONG' : 'SHORT';
+        if (!lastCrossDirection) {
+          lastCrossDirection = crossDir;
+        }
+
+        const entryPrice = candles[i].close;
+        let peakPrice = entryPrice;
+
+        // Peak price reached over the next 6 candles (~24 hours on 4H) or until next candle
+        const forwardWindow = Math.min(candles.length - 1, i + 6);
+        for (let j = i + 1; j <= forwardWindow; j++) {
+          if (crossDir === 'LONG') {
+            if (candles[j].high > peakPrice) peakPrice = candles[j].high;
+          } else {
+            if (candles[j].low < peakPrice) peakPrice = candles[j].low;
+          }
+        }
+
+        const profitPct = crossDir === 'LONG'
+          ? ((peakPrice - entryPrice) / entryPrice) * 100
+          : ((entryPrice - peakPrice) / entryPrice) * 100;
+
+        crossProfits.push(profitPct);
+        if (profitPct > 0) wins++;
+
+        if (crossProfits.length >= targetCrossCount) {
+          break;
+        }
+      }
+    }
+
+    if (crossProfits.length === 0) {
+      return null;
+    }
+
+    let profitSum = 0;
+    for (let i = 0; i < crossProfits.length; i++) {
+      profitSum += crossProfits[i];
+    }
+    const avgProfitPct = profitSum / crossProfits.length;
+    const winRate = (wins / crossProfits.length) * 100;
+
+    // Score boost up to 15 points based on average profit % and win rate
+    const profitScore = Math.max(0, Math.min(10, avgProfitPct * 2.5));
+    const winRateScore = Math.max(0, Math.min(5, (winRate / 100) * 5));
+    const scoreBoost = Math.min(15, profitScore + winRateScore);
+
+    const perf = {
+      avg_profit_pct: Number(avgProfitPct.toFixed(2)),
+      win_rate: Number(winRate.toFixed(1)),
+      cross_count: crossProfits.length,
+      last_cross_direction: lastCrossDirection,
+    };
+
+    this.htfCrossPerfCache.set(symbol, { key: cacheKey, perf, scoreBoost });
+
+    return { perf, scoreBoost };
+  }
+
+  /**
+   * Helper function to compute exponential moving average array over candle closes
+   */
+  private computeEmaArray(candles: Candle[], period: number): number[] {
+    const len = candles.length;
+    const ema = new Array<number>(len);
+    if (len < period) return ema;
+
+    let k = 2 / (period + 1);
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+      sum += candles[i].close;
+      ema[i] = candles[i].close;
+    }
+    ema[period - 1] = sum / period;
+
+    for (let i = period; i < len; i++) {
+      ema[i] = (candles[i].close - ema[i - 1]) * k + ema[i - 1];
+    }
+
+    return ema;
   }
 
   private passesConfig(opportunity: Opportunity, config: SessionConfig): boolean {
@@ -326,7 +563,8 @@ export class MomentumScannerService {
     candles: Candle[],
     momentumPct: number,
     config: SessionConfig,
-  ): { score: number, breakdown: { momentum: number, volatility: number, trend: number } } {
+    htfScoreBoost = 0,
+  ): { score: number, breakdown: { momentum: number, volatility: number, trend: number, htf_ema_cross?: number } } {
     const len = candles.length;
     if (len === 0) return { score: 0, breakdown: { momentum: 0, volatility: 0, trend: 0 } };
 
@@ -376,14 +614,15 @@ export class MomentumScannerService {
     const volScore = volRaw * weights.volatility;
     const trendScore = trendRaw * weights.trend;
 
-    const totalScore = Math.min(100, Math.max(0, momentumScore + volScore + trendScore));
+    const totalScore = Math.min(100, Math.max(0, momentumScore + volScore + trendScore + htfScoreBoost));
 
     return {
       score: totalScore,
       breakdown: {
         momentum: momentumScore,
         volatility: volScore,
-        trend: trendScore
+        trend: trendScore,
+        htf_ema_cross: htfScoreBoost,
       }
     };
   }

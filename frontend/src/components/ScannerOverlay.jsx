@@ -523,9 +523,16 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
               </span>
             )}
             {opp.htf_ema_cross_perf && (
-              <Tooltip content={`4H HTF EMA Dual Cross (Last ${opp.htf_ema_cross_perf.cross_count} Crosses): Avg Profit +${opp.htf_ema_cross_perf.avg_profit_pct}%, Win Rate ${opp.htf_ema_cross_perf.win_rate}%`}>
+              <Tooltip content={`4H HTF EMA Dual Cross (Last ${opp.htf_ema_cross_perf.cross_count} Crosses): Avg Profit +${opp.htf_ema_cross_perf.avg_profit_pct}%, Peak R:R ${opp.htf_ema_cross_perf.avg_peak_rr}R, Win Rate ${opp.htf_ema_cross_perf.win_rate}%`}>
                 <span className="text-[7.5px] bg-cyan-500/10 border border-cyan-500/20 px-1 py-0.2 rounded-[3px] text-cyan-400 font-black uppercase tracking-tighter leading-none flex items-center gap-0.5 cursor-help">
-                  ⚡ 4H Cross +{opp.htf_ema_cross_perf.avg_profit_pct}%
+                  ⚡ 4H Cross +{opp.htf_ema_cross_perf.avg_profit_pct}% ({opp.htf_ema_cross_perf.avg_peak_rr}R)
+                </span>
+              </Tooltip>
+            )}
+            {opp.prospect_rr !== undefined && (
+              <Tooltip content={`Prospective Risk:Reward ratio based on current SL distance (${opp.sl_dist_pct ? opp.sl_dist_pct.toFixed(2) : '--'}%) vs target TP ratio (${config?.tp_ratio || 2.0}:1)`}>
+                <span className="text-[7.5px] bg-accent/10 border border-accent/20 px-1 py-0.2 rounded-[3px] text-accent font-black uppercase tracking-tighter leading-none flex items-center gap-0.5 cursor-help">
+                  🎯 {opp.prospect_rr}R Target
                 </span>
               </Tooltip>
             )}

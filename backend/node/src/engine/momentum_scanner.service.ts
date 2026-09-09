@@ -17,6 +17,7 @@ export interface Opportunity {
   history?: number[]; // Recent close prices for sparkline
   ohlc_history?: Candle[]; // Full OHLC for detailed visualization
   sl_dist_pct?: number;
+  prospect_rr?: number;
   score_breakdown?: {
     momentum: number;
     volatility: number;
@@ -25,6 +26,7 @@ export interface Opportunity {
   };
   htf_ema_cross_perf?: {
     avg_profit_pct: number;
+    avg_peak_rr: number;
     win_rate: number;
     cross_count: number;
     last_cross_direction?: 'LONG' | 'SHORT';
@@ -43,6 +45,7 @@ export class MomentumScannerService {
     key: string;
     perf: {
       avg_profit_pct: number;
+      avg_peak_rr: number;
       win_rate: number;
       cross_count: number;
       last_cross_direction?: 'LONG' | 'SHORT';
@@ -325,6 +328,9 @@ export class MomentumScannerService {
       ? tickerData!.price
       : currentPrice;
 
+    const tpRatio = config.tp_ratio || 2.0;
+    const prospectRr = slCheck.slDistPct > 0 ? Number((tpRatio / slCheck.slDistPct).toFixed(2)) : tpRatio;
+
     return {
       opp: {
         symbol,
@@ -334,6 +340,7 @@ export class MomentumScannerService {
         score,
         direction,
         sl_dist_pct: slCheck.slDistPct,
+        prospect_rr: prospectRr,
         score_breakdown: {
           ...breakdown,
           htf_ema_cross: htfPerfResult?.scoreBoost || 0,
@@ -362,15 +369,22 @@ export class MomentumScannerService {
 
     let calculatedDistPct = slDistancePct;
 
-    if (slType === 'lookback_low/high' && candles.length > 0) {
-      const lookbackPeriod = Math.min(candles.length, config.sl_lookback_period || 5);
-      let extreme = candles[candles.length - 1].close;
+    const slTf = config.sl_lookback_timeframe || config.scan_interval || '5m';
+    const targetCandles = (slTf !== (config.scan_interval || '5m'))
+      ? this.klineStore.getRawCandles(symbol, slTf)
+      : candles;
 
-      for (let i = candles.length - lookbackPeriod; i < candles.length; i++) {
+    const evalCandles = targetCandles.length > 0 ? targetCandles : candles;
+
+    if (slType === 'lookback_low/high' && evalCandles.length > 0) {
+      const lookbackPeriod = Math.min(evalCandles.length, config.sl_lookback_period || 5);
+      let extreme = evalCandles[evalCandles.length - 1].close;
+
+      for (let i = evalCandles.length - lookbackPeriod; i < evalCandles.length; i++) {
         if (direction === 'LONG') {
-          if (candles[i].low < extreme) extreme = candles[i].low;
+          if (evalCandles[i].low < extreme) extreme = evalCandles[i].low;
         } else {
-          if (candles[i].high > extreme) extreme = candles[i].high;
+          if (evalCandles[i].high > extreme) extreme = evalCandles[i].high;
         }
       }
 
@@ -443,10 +457,13 @@ export class MomentumScannerService {
       return null;
     }
 
-    // 2. Identify cross points and measure post-cross profit percentages
+    // 2. Identify cross points and measure post-cross profit percentages & peak R:R
     const crossProfits: number[] = [];
+    const peakRrs: number[] = [];
     let wins = 0;
     let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
+
+    const slDistPct = config.sl_distance_pct ?? 0.8;
 
     // Scan backwards from second-to-last candle to find crossovers
     for (let i = candles.length - 2; i >= slowPeriod; i--) {
@@ -481,7 +498,10 @@ export class MomentumScannerService {
           ? ((peakPrice - entryPrice) / entryPrice) * 100
           : ((entryPrice - peakPrice) / entryPrice) * 100;
 
+        const peakRr = slDistPct > 0 ? profitPct / slDistPct : profitPct;
+
         crossProfits.push(profitPct);
+        peakRrs.push(peakRr);
         if (profitPct > 0) wins++;
 
         if (crossProfits.length >= targetCrossCount) {
@@ -495,19 +515,27 @@ export class MomentumScannerService {
     }
 
     let profitSum = 0;
+    let rrSum = 0;
     for (let i = 0; i < crossProfits.length; i++) {
       profitSum += crossProfits[i];
+      rrSum += peakRrs[i];
     }
     const avgProfitPct = profitSum / crossProfits.length;
+    const avgPeakRr = rrSum / crossProfits.length;
     const winRate = (wins / crossProfits.length) * 100;
 
-    // Score boost up to 15 points based on average profit % and win rate
-    const profitScore = Math.max(0, Math.min(10, avgProfitPct * 2.5));
-    const winRateScore = Math.max(0, Math.min(5, (winRate / 100) * 5));
-    const scoreBoost = Math.min(15, profitScore + winRateScore);
+    const maxBoost = config.htf_ema_cross_max_boost ?? 25.0;
+    const rrWeight = config.htf_ema_cross_rr_weight ?? 1.5;
+
+    // Score boost up to maxBoost points based on average profit %, avg peak RR, and win rate
+    const profitScore = Math.max(0, Math.min(maxBoost * 0.5, avgProfitPct * 2.0));
+    const rrScore = Math.max(0, Math.min(maxBoost * 0.3, avgPeakRr * rrWeight));
+    const winRateScore = Math.max(0, Math.min(maxBoost * 0.2, (winRate / 100) * (maxBoost * 0.2)));
+    const scoreBoost = Math.min(maxBoost, profitScore + rrScore + winRateScore);
 
     const perf = {
       avg_profit_pct: Number(avgProfitPct.toFixed(2)),
+      avg_peak_rr: Number(avgPeakRr.toFixed(2)),
       win_rate: Number(winRate.toFixed(1)),
       cross_count: crossProfits.length,
       last_cross_direction: lastCrossDirection,

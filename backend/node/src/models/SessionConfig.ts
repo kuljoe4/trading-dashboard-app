@@ -298,6 +298,18 @@ export class SessionConfig {
   @IsOptional()
   htf_ema_slow_period?: number = 21;
 
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  @IsOptional()
+  htf_ema_cross_max_boost?: number = 25.0;
+
+  @IsNumber()
+  @Min(0)
+  @Max(10)
+  @IsOptional()
+  htf_ema_cross_rr_weight?: number = 1.5;
+
   @IsEnum(['fixed', 'exp_rr_seq'])
   @IsOptional()
   tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';

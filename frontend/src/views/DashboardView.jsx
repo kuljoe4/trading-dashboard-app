@@ -19,6 +19,7 @@ const formatTimeAgo = (ts) => {
 };
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
+import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { 
   StatCard, InteractiveLimitCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
     ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader, MonitoredBadge, InPosBadge
@@ -27,7 +28,8 @@ import {
   ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck, Search, Filter,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf, DollarSign, Users, Clock, ArrowUpRight, ArrowDownRight,
-  Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
+  Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2,
+  Turtle, Flame, Gauge, Wind, PauseCircle, Moon
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -1288,7 +1290,12 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 GateBanner.displayName = 'GateBanner'
 
 export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
-  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades || [] }), shallow);
+  const { activeTrades, scannerPaused, hibernating } = useTradingStore(state => ({
+    activeTrades: state.activeTrades || [],
+    scannerPaused: state.scannerPaused,
+    hibernating: state.hibernating
+  }), shallow);
+
   const threshold = config.scan_pct_threshold || 2
   const top = (scannerResults || []).slice(0, 5)
   // Pre-allocate 5 slots to prevent layout shift
@@ -1299,6 +1306,8 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
   const volW = Math.round((weights.volatility ?? 0.3) * 100);
   const trendW = Math.round((weights.trend ?? 0.2) * 100);
   const enabledSigs = config?.enabled_signals || [];
+
+  const regimeInfo = getMarketRegimeInfo(scannerResults, config, { scannerPaused, hibernating });
 
   const getOppProximity = (opp) => {
     if (opp.signalResult?.allFired) return 100;
@@ -1324,20 +1333,45 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
 
   return (
     <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col text-left">
-      <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
-        <div className="flex flex-col">
-          <SectionLabel className="mb-0">
-            <Zap size={14} className="text-accent" /> Live Scanner
-          </SectionLabel>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Top 5 Opportunities</span>
-            <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded">
+      <div className="p-4 sm:p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0 gap-3">
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <SectionLabel className="mb-0">
+              <Zap size={14} className="text-accent" /> Live Scanner
+            </SectionLabel>
+            {/* Market Regime Badge Indicator */}
+            <Tooltip content={regimeInfo.guidance}>
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label={`Market Activity: ${regimeInfo.label}. Average Momentum ${regimeInfo.avgMomentum.toFixed(2)}%, Candidates passing threshold ${regimeInfo.passingCount} of ${regimeInfo.totalCount}`}
+                className={cn(
+                  "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  regimeInfo.badgeClass
+                )}
+              >
+                {regimeInfo.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
+                {regimeInfo.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
+                {regimeInfo.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
+                {(regimeInfo.regime === 'paused' || regimeInfo.regime === 'hibernating') && <PauseCircle size={11} className="shrink-0" />}
+                <span>{regimeInfo.label}</span>
+              </div>
+            </Tooltip>
+          </div>
+
+          <div className="flex items-center gap-2 mt-1 flex-wrap text-[9px] font-bold">
+            <span className="text-dim uppercase tracking-widest">
+              Passing {regimeInfo.passingCount}/{regimeInfo.totalCount} &gt; {threshold}%
+            </span>
+            <span className="text-dim/40">•</span>
+            <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded font-mono">
               Weights {momW}:{volW}:{trendW}
             </span>
           </div>
         </div>
+
         <button
-          className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+          className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded shrink-0"
           aria-label="View all scanner results"
           onClick={onOpen}
           onMouseEnter={preloadScannerOverlay}
@@ -1345,11 +1379,23 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
           Open Full
         </button>
       </div>
-      <div className="flex-1">
+
+      <div className="flex-1 flex flex-col min-h-0">
         {top.length === 0 && placeholders.length === 5 ? (
-          <div className="h-full flex flex-col items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse gap-2">
-            <RefreshCw size={16} className="animate-spin opacity-40" />
-            Waiting for market data...
+          <div className="h-full p-6 flex flex-col items-center justify-center text-center bg-surface/10 gap-3">
+            <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <Turtle size={24} className="animate-bounce" />
+            </div>
+            <div className="flex flex-col gap-1 max-w-sm">
+              <span className="text-xs font-black uppercase tracking-wider text-cyan-400">Slow / Quiet Market</span>
+              <p className="text-[11px] font-medium text-dim leading-relaxed">
+                {regimeInfo.guidance}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1 bg-background/50 border border-border/40 rounded-lg text-[9px] font-mono text-dim font-bold uppercase tracking-wider mt-1">
+              <RefreshCw size={11} className="animate-spin text-accent" />
+              Monitoring {config.scan_interval || '1m'} klines for momentum expansion
+            </div>
           </div>
         ) : (
           <>
@@ -1796,6 +1842,7 @@ export function DashboardView({ initialStrategy }) {
     hibernationMode: state.hibernationMode,
     agreementRequired: state.agreementRequired,
     scannerPaused: state.scannerPaused,
+    scannerResults: state.scannerResults,
     alerts: state.alerts,
     updateStats: state.updateStats,
     sessionList: state.sessionList,
@@ -2350,13 +2397,36 @@ export function DashboardView({ initialStrategy }) {
         />
 
         {/* Header Bar */}
-        <ViewHeader
-          title="Overview"
-          subTitle="Real-time strategy management & market oversight"
-          sticky={true}
-        >
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Search Input Bar matching design */}
+        {(() => {
+          const headerRegime = getMarketRegimeInfo(scannerResults, config, { scannerPaused, hibernating });
+          return (
+            <ViewHeader
+              title="Overview"
+              subTitle="Real-time strategy management & market oversight"
+              sticky={true}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Market Activity Badge Pill */}
+                <Tooltip content={`Market Pace: ${headerRegime.label}. ${headerRegime.guidance}`}>
+                  <div
+                    tabIndex={0}
+                    role="region"
+                    aria-label={`Market Activity: ${headerRegime.label}. Average Momentum ${headerRegime.avgMomentum.toFixed(2)}%, Candidates passing threshold ${headerRegime.passingCount} of ${headerRegime.totalCount}`}
+                    className={cn(
+                      "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border flex items-center gap-1.5 shadow-sm font-mono cursor-help transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      headerRegime.pillClass
+                    )}
+                  >
+                    {headerRegime.regime === 'slow' && <Turtle size={13} className="shrink-0 text-cyan-400" />}
+                    {headerRegime.regime === 'active' && <Flame size={13} className="shrink-0 text-accent animate-pulse" />}
+                    {headerRegime.regime === 'moderate' && <Zap size={13} className="shrink-0 text-amber" />}
+                    {(headerRegime.regime === 'paused' || headerRegime.regime === 'hibernating') && <PauseCircle size={13} className="shrink-0 opacity-70" />}
+                    <span>{headerRegime.regime === 'slow' ? 'Slow Market' : headerRegime.label}</span>
+                    <span className="opacity-75 font-normal">({headerRegime.avgMomentum.toFixed(2)}%)</span>
+                  </div>
+                </Tooltip>
+
+                {/* Search Input Bar matching design */}
             <div className="relative flex items-center">
               <Search size={14} className="absolute left-3 text-dim pointer-events-none" />
               <input
@@ -2429,6 +2499,8 @@ export function DashboardView({ initialStrategy }) {
             )}
           </div>
         </ViewHeader>
+          );
+        })()}
 
         <div aria-live="polite">
           <BanBanner apiStatus={apiStatus} />

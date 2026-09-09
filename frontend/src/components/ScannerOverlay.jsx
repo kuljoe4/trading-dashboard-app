@@ -6,7 +6,8 @@ import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { useNow } from '../hooks/useNow'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
+import { getMarketRegimeInfo } from '../utils/marketRegime'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw, Turtle, Flame, Gauge, PauseCircle, Moon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
@@ -880,6 +881,56 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
         </div>
       </div>
       <ModalAlertTicker />
+
+      {/* Market Regime & Activity Telemetry Bar */}
+      {(() => {
+        const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused, hibernating });
+        return (
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold`}
+            className="bg-surface/50 border-b border-border px-3 py-2 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shrink-0"
+          >
+            <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+              <Tooltip content={overlayRegime.guidance}>
+                <div className={cn(
+                  "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border flex items-center gap-1.5 shadow-sm font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0",
+                  overlayRegime.badgeClass
+                )}>
+                  {overlayRegime.regime === 'slow' && <Turtle size={13} className="shrink-0 text-cyan-400" />}
+                  {overlayRegime.regime === 'active' && <Flame size={13} className="shrink-0 text-accent animate-pulse" />}
+                  {overlayRegime.regime === 'moderate' && <Zap size={13} className="shrink-0 text-amber" />}
+                  {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={13} className="shrink-0 opacity-70" />}
+                  <span>{overlayRegime.label}</span>
+                </div>
+              </Tooltip>
+
+              <div className="flex items-center gap-2 font-mono text-[10px] font-bold flex-wrap">
+                <span className="text-text/90">
+                  Avg Momentum: <strong className="text-accent">{overlayRegime.avgMomentum.toFixed(2)}%</strong>
+                </span>
+                <span className="text-dim/40">•</span>
+                <span className="text-text/90">
+                  Passing: <strong className={overlayRegime.passingCount > 0 ? "text-green" : "text-cyan-400"}>{overlayRegime.passingCount}/{overlayRegime.totalCount}</strong> (&gt; {overlayRegime.threshold}%)
+                </span>
+              </div>
+            </div>
+
+            {/* Speed Meter Bar */}
+            <div className="flex items-center gap-2 w-full sm:w-48 shrink-0">
+              <span className="text-[9px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
+              <div className="flex-1 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+                <div
+                  className={cn("h-full transition-all duration-500 rounded-full", overlayRegime.meterClass || "bg-accent")}
+                  style={{ width: `${overlayRegime.speedPct}%` }}
+                />
+              </div>
+              <span className="text-[9px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
+            </div>
+          </div>
+        );
+      })()}
 
       <ActiveWindowsList search={search} />
 

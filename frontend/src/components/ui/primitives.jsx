@@ -529,9 +529,37 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = propsResuming ?? (sessionActive && isResuming)
 
+  const [isScrolled, setIsScrolled] = React.useState(false)
   const [alertIndex, setAlertIndex] = React.useState(0)
   const [showDropdown, setShowDropdown] = React.useState(false)
   const [hasActiveModal, setHasActiveModal] = React.useState(false)
+
+  const headerRef = React.useRef(null);
+
+  // SRE-PERF: Auto-collapse sticky header on scroll for ultra-high-density screen real estate.
+  // Supports both global window scroll and parent modal / drawer scroll containers.
+  React.useEffect(() => {
+    if (!sticky) return;
+
+    let targetElement = window;
+    let scrollParent = null;
+
+    if (headerRef.current) {
+      scrollParent = headerRef.current.closest('.overflow-y-auto, [data-vaul-drawer-content], [role="dialog"]');
+      if (scrollParent) {
+        targetElement = scrollParent;
+      }
+    }
+
+    const handleScroll = () => {
+      const scrollY = targetElement === window ? window.scrollY : (targetElement?.scrollTop || 0);
+      setIsScrolled(scrollY > 20);
+    };
+
+    targetElement.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => targetElement.removeEventListener('scroll', handleScroll);
+  }, [sticky]);
 
   const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
   const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null)
@@ -590,32 +618,48 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
   return (
-    <div className={cn(
-      "z-40 transition-all duration-300 mb-2 lg:mb-3",
-      sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-1.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
-    )}>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 relative w-full">
+    <div
+      ref={headerRef}
+      role="region"
+      aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
+      tabIndex={0}
+      className={cn(
+        "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
+        isScrolled ? "mb-1" : "mb-2 lg:mb-3",
+        sticky && "sticky top-0 bg-background/95 backdrop-blur-md -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm",
+        sticky && (isScrolled ? "py-1" : "py-1.5")
+      )}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 sm:gap-2.5 relative w-full">
         {/* Left Side: Title and Badges */}
-        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1 w-full">
+        <div className="flex items-start sm:items-center gap-2 min-w-0 flex-1 w-full">
           {backAction && (
             <button
               onClick={backAction}
               aria-label="Go back"
-              className="p-1 hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              className={cn(
+                "hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                isScrolled ? "p-0.5" : "p-1"
+              )}
             >
-              <ChevronLeft size={14} className="text-dim group-hover:text-text" />
+              <ChevronLeft size={12} className="text-dim group-hover:text-text" />
             </button>
           )}
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             {Icon && (
-              <div className="w-7 h-7 rounded-lg bg-accent/5 border border-accent/10 flex items-center justify-center shrink-0">
-                <Icon size={14} className="text-accent" />
+              <div className={cn(
+                "rounded-lg bg-accent/5 border border-accent/10 flex items-center justify-center shrink-0 transition-all",
+                isScrolled ? "w-5 h-5" : "w-7 h-7"
+              )}>
+                <Icon size={isScrolled ? 11 : 14} className="text-accent" />
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{showResumingFeedback ? 'Resuming...' : title}</h1>
-                <div className="flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
+                <h1 className={cn("font-black tracking-tight truncate uppercase transition-all", isScrolled ? "text-[11px] sm:text-xs" : "text-xs md:text-sm")}>
+                  {showResumingFeedback ? 'Resuming...' : title}
+                </h1>
+                <div className="flex items-center gap-1 shrink-0 scale-[0.75] sm:scale-[0.8] origin-left">
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
@@ -623,28 +667,38 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
                 </div>
               </div>
-              {subTitle && (
-                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                  <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
-                    {subTitle}
-                  </p>
-                  <div className="flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
-                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
-                      {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
-                    </span>
-                    {wsStatus !== 'live' && (
-                      <button
-                        onClick={() => window.location.reload()}
-                        className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
-                        aria-label="Retry connection"
-                      >
-                        Retry
-                      </button>
-                    )}
-                    <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
-                  </div>
-                </div>
-              )}
+              <AnimatePresence>
+                {!isScrolled && subTitle && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                      <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
+                        {subTitle}
+                      </p>
+                      <div className="flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
+                        <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
+                          {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
+                        </span>
+                        {wsStatus !== 'live' && (
+                          <button
+                            onClick={() => window.location.reload()}
+                            className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
+                            aria-label="Retry connection"
+                          >
+                            Retry
+                          </button>
+                        )}
+                        <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>

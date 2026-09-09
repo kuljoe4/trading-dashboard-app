@@ -17,6 +17,8 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
   let sumVolScore = 0;
   let sumScore = 0;
   let maxAbsMomentum = 0;
+  let maxPct = totalCount > 0 ? -Infinity : 0;
+  let minPct = totalCount > 0 ? Infinity : 0;
   let passingCount = 0;
   let advancingCount = 0;
   let decliningCount = 0;
@@ -31,6 +33,9 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
     if (!opp) continue;
 
     const mom = Number(opp.momentum ?? opp.pct ?? 0);
+    if (mom > maxPct) maxPct = mom;
+    if (mom < minPct) minPct = mom;
+
     const absMom = Math.abs(mom);
     sumAbsMomentum += absMom;
     if (absMom > maxAbsMomentum) maxAbsMomentum = absMom;
@@ -62,6 +67,9 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
     if (oppHigh > globalHigh24h) globalHigh24h = oppHigh;
     if (oppLow > 0 && oppLow < globalLow24h && oppLow !== Infinity) globalLow24h = oppLow;
   }
+
+  if (maxPct === -Infinity) maxPct = 0;
+  if (minPct === Infinity) minPct = 0;
 
   const avgMomentum = totalCount > 0 ? sumAbsMomentum / totalCount : 0;
   const avgVolScore = totalCount > 0 ? sumVolScore / totalCount : 0;
@@ -116,6 +124,8 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
     btc24hLow,
     btcRangePct,
     valid24hRange,
+    maxPct,
+    minPct,
   };
 
   // Check state overrides

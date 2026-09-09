@@ -30,6 +30,8 @@ test('Market Regime Analytics Unit Tests - getMarketRegimeInfo', async (t) => {
     assert.equal(regime.decliningCount, 1);
     assert.equal(regime.advanceRatioPct, 67);
     assert.equal(regime.breadthLabel, 'Bullish Expansion');
+    assert.equal(regime.maxPct, 0.35);
+    assert.equal(regime.minPct, -0.42);
   });
 
   await t.test('evaluates moderate market pace regime correctly', () => {

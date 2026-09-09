@@ -783,20 +783,27 @@ export function SettingsView() {
                 </div>
                 <div className="flex flex-wrap gap-3">
                   {['info', 'warn', 'error'].map((level) => {
-                    const enabled = logFilters[level]
+                    const safeLogFilters = logFilters && typeof logFilters === 'object' ? logFilters : { info: true, warn: true, error: true }
+                    const enabled = safeLogFilters[level] !== false
                     const label = level === 'info' ? 'Info' : level === 'warn' ? 'Warnings' : 'Errors'
                     return (
-                      <button
+                      <Tooltip
                         key={level}
-                        type="button"
-                        onClick={() => toggleLogFilter(level)}
-                        className={cn(
-                          "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                          enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
-                        )}
+                        content={`Click to ${enabled ? 'disable' : 'enable'} ${label.toLowerCase()} level logs in the live dashboard feed`}
                       >
-                        {label}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleLogFilter(level)}
+                          aria-pressed={enabled}
+                          aria-label={`Toggle ${label} logs (${enabled ? 'Enabled' : 'Disabled'})`}
+                          className={cn(
+                            "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                            enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
+                          )}
+                        >
+                          {label}
+                        </button>
+                      </Tooltip>
                     )
                   })}
                 </div>

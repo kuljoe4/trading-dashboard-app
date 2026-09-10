@@ -35,6 +35,9 @@ export class SignalEngineService {
   // BOLT OPTIMIZATION: Cache for EMA multipliers to avoid redundant divisions
   private readonly multiplierCache = new Map<number, number>();
 
+  // BOLT OPTIMIZATION: WeakMap cache for resolved signal parameter lookups per signal_params object
+  private readonly paramResolutionCache = new WeakMap<object, Map<string, any>>();
+
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) incremental updates
   private readonly emaStableCache = new Map<string, { time: number; value: number; count: number }>();
   private readonly smaStableCache = new Map<string, { time: number; value: number; count: number }>();
@@ -78,31 +81,42 @@ export class SignalEngineService {
     paramKey: string,
     defaultValue: any
   ): any {
-    if (!params) return defaultValue;
+    if (!params || typeof params !== 'object') return defaultValue;
 
-    // If there's no suffix, just return the direct value
+    let paramMap = this.paramResolutionCache.get(params);
+    if (!paramMap) {
+      paramMap = new Map<string, any>();
+      this.paramResolutionCache.set(params, paramMap);
+    }
+
+    const cacheKey = `${signalType}:${baseSignalType}:${paramKey}:${defaultValue}`;
+    if (paramMap.has(cacheKey)) {
+      return paramMap.get(cacheKey);
+    }
+
+    let result: any;
     if (signalType === baseSignalType) {
-      return params[paramKey] !== undefined ? params[paramKey] : defaultValue;
-    }
+      result = params[paramKey] !== undefined ? params[paramKey] : defaultValue;
+    } else {
+      const suffix = signalType.substring(baseSignalType.length);
 
-    const suffix = signalType.substring(baseSignalType.length); // e.g. "_2"
-
-    // 1. Try with suffix appended to paramKey: e.g. ema_period_2
-    const suffixedKey = `${paramKey}${suffix}`;
-    if (params[suffixedKey] !== undefined) {
-      return params[suffixedKey];
-    }
-
-    // 2. Try with baseSignalType prefix replaced by signalType prefix inside paramKey: e.g. supertrend_2_period
-    if (paramKey.startsWith(baseSignalType)) {
-      const replacedKey = signalType + paramKey.substring(baseSignalType.length);
-      if (params[replacedKey] !== undefined) {
-        return params[replacedKey];
+      const suffixedKey = `${paramKey}${suffix}`;
+      if (params[suffixedKey] !== undefined) {
+        result = params[suffixedKey];
+      } else if (paramKey.startsWith(baseSignalType)) {
+        const replacedKey = signalType + paramKey.substring(baseSignalType.length);
+        if (params[replacedKey] !== undefined) {
+          result = params[replacedKey];
+        } else {
+          result = params[paramKey] !== undefined ? params[paramKey] : defaultValue;
+        }
+      } else {
+        result = params[paramKey] !== undefined ? params[paramKey] : defaultValue;
       }
     }
 
-    // 3. Fallback to direct base paramKey
-    return params[paramKey] !== undefined ? params[paramKey] : defaultValue;
+    paramMap.set(cacheKey, result);
+    return result;
   }
 
   getRequiredWarmup(config: SessionConfig): number {

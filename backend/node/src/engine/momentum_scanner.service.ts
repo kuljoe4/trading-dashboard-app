@@ -365,7 +365,8 @@ export class MomentumScannerService {
     const slDistancePct = config.sl_distance_pct ?? 0.8;
     const slType = config.sl_type ?? 'pct';
     const maxPct = config.sl_max_pct ?? 3.0;
-    const shouldReject = (config.sl_out_of_bounds_action === 'reject') || (config.reject_entry_if_sl_exceeds_max !== false);
+    const action = config.sl_out_of_bounds_action || 'clamp';
+    const shouldReject = action === 'reject' || (config.reject_entry_if_sl_exceeds_max === true && action !== 'clamp');
 
     let calculatedDistPct = slDistancePct;
 
@@ -406,12 +407,16 @@ export class MomentumScannerService {
       }
     }
 
-    if (shouldReject && calculatedDistPct > maxPct) {
-      return {
-        slDistPct: calculatedDistPct,
-        rejected: true,
-        reason: `Prospective SL ${calculatedDistPct.toFixed(2)}% > sl_max_pct ${maxPct}%`,
-      };
+    if (calculatedDistPct > maxPct) {
+      if (shouldReject) {
+        return {
+          slDistPct: calculatedDistPct,
+          rejected: true,
+          reason: `Prospective SL ${calculatedDistPct.toFixed(2)}% > sl_max_pct ${maxPct}%`,
+        };
+      }
+      // Clamping: Cap calculatedDistPct at maxPct
+      calculatedDistPct = maxPct;
     }
 
     return { slDistPct: calculatedDistPct, rejected: false };

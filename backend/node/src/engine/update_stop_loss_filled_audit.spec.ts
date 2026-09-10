@@ -54,7 +54,12 @@ describe('updateStopLoss FILLED status audit check regression test', () => {
         },
         {
           provide: PositionTrackerService,
-          useValue: {},
+          useValue: {
+            onRatchetComplete: jest.fn().mockResolvedValue(undefined),
+            markDirty: jest.fn(),
+            recordRatchetDeferral: jest.fn(),
+            isRatcheting: jest.fn().mockReturnValue(false)
+          },
         },
         {
           provide: BroadcastService,

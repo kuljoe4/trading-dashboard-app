@@ -125,14 +125,26 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const isPeakBeyondTarget = tp > 0 && peakR > tpR;
 
   // Resolve Dual Indicator Markers and Span Range between Fast/Slow Dual Indicators
-  const { dualIndicatorMarkers, dualSpan } = React.useMemo(() => {
-    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [], dualSpan: null };
+  const { dualIndicatorMarkers, dualSpan, dualGroups } = React.useMemo(() => {
+    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [], dualSpan: null, dualGroups: [] };
     const list = [];
     let fastMarker = null;
     let slowMarker = null;
+    const groupsMap = new Map();
 
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
       if (!sig) continue;
+
+      let groupKey = 'default';
+      if (key.includes('_')) {
+        const parts = key.split('_');
+        if (parts.length >= 2) groupKey = `${parts[0]}_${parts[1]}`;
+      }
+
+      if (!groupsMap.has(groupKey)) {
+        groupsMap.set(groupKey, { key: groupKey, label: sig.label || groupKey.toUpperCase(), fast: null, slow: null });
+      }
+      const grp = groupsMap.get(groupKey);
 
       if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
         const item = {
@@ -145,8 +157,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           isSlow: key.includes('slow')
         };
         list.push(item);
-        if (item.isFast) fastMarker = item;
-        if (item.isSlow) slowMarker = item;
+        if (item.isFast) { fastMarker = item; grp.fast = item; }
+        if (item.isSlow) { slowMarker = item; grp.slow = item; }
       }
 
       if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
@@ -160,6 +172,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         };
         list.push(item);
         fastMarker = item;
+        grp.fast = item;
       }
 
       if (typeof sig.slow_value === 'number' && sig.slow_value > 0) {
@@ -173,6 +186,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         };
         list.push(item);
         slowMarker = item;
+        grp.slow = item;
       }
     }
 
@@ -193,7 +207,30 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       };
     }
 
-    return { dualIndicatorMarkers: list, dualSpan: span };
+    const groupSpans = [];
+    for (const grp of groupsMap.values()) {
+      if (grp.fast && grp.slow) {
+        const minPos = Math.min(grp.fast.pos, grp.slow.pos);
+        const maxPos = Math.max(grp.fast.pos, grp.slow.pos);
+        const width = Math.max(0.5, maxPos - minPos);
+        const gapPct = entry > 0 ? (Math.abs(grp.fast.price - grp.slow.price) / entry) * 100 : 0;
+        const proximity = Math.max(0, Math.min(1, 1 - gapPct / 4));
+        groupSpans.push({
+          key: grp.key,
+          label: grp.label,
+          minPos,
+          maxPos,
+          width,
+          gapPct,
+          proximity,
+          fastPrice: grp.fast.price,
+          slowPrice: grp.slow.price,
+          isFired: grp.fast.fired || grp.slow.fired
+        });
+      }
+    }
+
+    return { dualIndicatorMarkers: list, dualSpan: span, dualGroups: groupSpans };
   }, [trade.exit_signals_status, mark, entry, totalRangeR, leftEdgeR]);
 
   // Right slot label & pricing resolution
@@ -498,6 +535,36 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </span>
           </div>
         </div>
+
+        {/* Multi-lane Dual Indicator Convergence Lanes */}
+        {dualGroups && dualGroups.length > 0 && (
+          <div className="flex flex-col gap-0.5 mb-0.5 relative">
+            {dualGroups.map(grp => (
+              <div key={grp.key} className="relative h-2.5 w-full">
+                <Tooltip content={`Dual Indicator Group (${grp.label}): Fast ${fmtUSD(grp.fastPrice)} vs Slow ${fmtUSD(grp.slowPrice)} (${grp.gapPct.toFixed(2)}% gap)`}>
+                  <div
+                    className={cn(
+                      "absolute top-0 bottom-0 rounded-full border transition-all duration-300 cursor-help flex items-center justify-center overflow-hidden",
+                      grp.isFired
+                        ? "bg-red/40 border-red/80 shadow-[0_0_8px_rgba(255,68,102,0.8)] animate-pulse"
+                        : "bg-cyan-400/30 border-cyan-400/70 shadow-[0_0_6px_rgba(34,211,238,0.5)]"
+                    )}
+                    style={{
+                      left: `${grp.minPos}%`,
+                      width: `${grp.width}%`
+                    }}
+                  >
+                    {!grp.isFired && grp.width > 3 && (
+                      <div className="flex items-center justify-center opacity-75" style={{ opacity: 0.35 + grp.proximity * 0.65 }}>
+                        <span className="text-[6px] font-black text-cyan-300 tracking-tighter uppercase font-mono px-0.5">{grp.label}</span>
+                      </div>
+                    )}
+                  </div>
+                </Tooltip>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Tactical Map Track Area with Stem & Pennant Overhead Space - Ultra High Density */}
         <div className="relative pt-3.5 pb-0.5 min-h-[30px]">

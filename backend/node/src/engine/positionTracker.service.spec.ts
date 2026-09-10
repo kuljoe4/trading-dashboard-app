@@ -61,7 +61,7 @@ describe('PositionTrackerService', () => {
 
     await service.closeTrade('BTCUSDT', 100, 'EXCHANGE_SYNC', {} as SessionConfig, false, true);
 
-    const logCall = mockEventEmitter.emit.mock.calls.find((call: [string, unknown]) => call[0] === ENGINE_EVENTS.LOG_MESSAGE);
+    const logCall = mockEventEmitter.emit.mock.calls.find((call: [string, unknown]) => call[0] === ENGINE_EVENTS.LOG_MESSAGE && typeof (call[1] as any)?.msg === 'string' && (call[1] as any).msg.includes('Reason='));
     expect(logCall?.[1]?.msg).toContain('Reason=SL_HIT_INITIAL_SL');
     expect(logCall?.[1]?.msg).not.toContain('Reason=EXCHANGE_SYNC');
   });

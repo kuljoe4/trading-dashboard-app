@@ -45,7 +45,15 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
       mockMarketFeed,
       mockTickerCache,
       { incrementApiRequests: jest.fn() } as any,
-      { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn() } as any,
+      {
+        getInFlightEntry: jest.fn(),
+        setInFlight: jest.fn(),
+        clearInFlight: jest.fn(),
+        isRatcheting: jest.fn(),
+        onRatchetComplete: jest.fn().mockResolvedValue(undefined),
+        markDirty: jest.fn(),
+        recordRatchetDeferral: jest.fn()
+      } as any,
       mockSessionState,
       { broadcast: jest.fn() } as any, // broadcastService
       mockAuditLog,

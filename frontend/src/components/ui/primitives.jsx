@@ -553,7 +553,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
     const handleScroll = () => {
       const scrollY = targetElement === window ? window.scrollY : (targetElement?.scrollTop || 0);
-      setIsScrolled(scrollY > 20);
+      setIsScrolled(prev => {
+        if (!prev && scrollY > 40) return true;
+        if (prev && scrollY < 10) return false;
+        return prev;
+      });
     };
 
     targetElement.addEventListener('scroll', handleScroll, { passive: true });

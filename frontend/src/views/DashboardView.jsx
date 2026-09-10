@@ -2374,7 +2374,7 @@ export function DashboardView({ initialStrategy }) {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300 relative",
+      "min-h-screen transition-all duration-300 relative overflow-x-hidden",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]",
       tradingMode === 'paper' ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" :
       tradingMode === 'testnet' ? "shadow-[inset_0_0_100px_rgba(168,85,247,0.05)] border-purple/10" :

@@ -663,23 +663,28 @@ export function SettingsView() {
                     { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
                     { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
                     { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
-                  ].map(mode => (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => patchConfig({ hibernation_mode: mode.id })}
-                      className={cn(
-                        "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                        (cfg.hibernation_mode || 'adaptive') === mode.id ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
-                      )}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={cn("text-[10px] font-black uppercase tracking-tighter", (cfg.hibernation_mode || 'adaptive') === mode.id ? "text-accent" : "text-text")}>{mode.label}</span>
-                        {(cfg.hibernation_mode || 'adaptive') === mode.id && <CheckCircle2 size={14} className="text-accent" />}
-                      </div>
-                      <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
-                    </button>
-                  ))}
+                  ].map(mode => {
+                    const isActive = (cfg.hibernation_mode || 'adaptive') === mode.id;
+                    return (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => patchConfig({ hibernation_mode: mode.id })}
+                        aria-pressed={isActive}
+                        aria-label={`Select ${mode.label} hibernation mode`}
+                        className={cn(
+                          "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                          isActive ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
+                        )}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={cn("text-[10px] font-black uppercase tracking-tighter", isActive ? "text-accent" : "text-text")}>{mode.label}</span>
+                          {isActive && <CheckCircle2 size={14} className="text-accent" />}
+                        </div>
+                        <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {(cfg.hibernation_mode || 'adaptive') === 'adaptive' && (

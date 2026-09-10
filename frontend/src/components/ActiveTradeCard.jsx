@@ -125,11 +125,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const isPeakBeyondTarget = tp > 0 && peakR > tpR;
 
   // Resolve Dual Indicator Markers and Span Range between Fast/Slow Dual Indicators
-  const { dualIndicatorMarkers, dualSpan, dualGroups } = React.useMemo(() => {
-    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [], dualSpan: null, dualGroups: [] };
+  const { dualIndicatorMarkers, dualGroups } = React.useMemo(() => {
+    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [], dualGroups: [] };
     const list = [];
-    let fastMarker = null;
-    let slowMarker = null;
     const groupsMap = new Map();
 
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
@@ -157,8 +155,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           isSlow: key.includes('slow')
         };
         list.push(item);
-        if (item.isFast) { fastMarker = item; grp.fast = item; }
-        if (item.isSlow) { slowMarker = item; grp.slow = item; }
+        if (item.isFast) grp.fast = item;
+        if (item.isSlow) grp.slow = item;
       }
 
       if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
@@ -171,7 +169,6 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           isFast: true
         };
         list.push(item);
-        fastMarker = item;
         grp.fast = item;
       }
 
@@ -185,26 +182,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           isSlow: true
         };
         list.push(item);
-        slowMarker = item;
         grp.slow = item;
       }
-    }
-
-    let span = null;
-    if (fastMarker && slowMarker) {
-      const minPos = Math.min(fastMarker.pos, slowMarker.pos);
-      const maxPos = Math.max(fastMarker.pos, slowMarker.pos);
-      const width = Math.max(0.5, maxPos - minPos);
-      const gapPct = entry > 0 ? (Math.abs(fastMarker.price - slowMarker.price) / entry) * 100 : 0;
-      span = {
-        minPos,
-        maxPos,
-        width,
-        gapPct,
-        fastPrice: fastMarker.price,
-        slowPrice: slowMarker.price,
-        isFired: fastMarker.fired || slowMarker.fired
-      };
     }
 
     const groupSpans = [];
@@ -230,7 +209,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       }
     }
 
-    return { dualIndicatorMarkers: list, dualSpan: span, dualGroups: groupSpans };
+    return { dualIndicatorMarkers: list, dualGroups: groupSpans };
   }, [trade.exit_signals_status, mark, entry, totalRangeR, leftEdgeR]);
 
   // Right slot label & pricing resolution
@@ -589,23 +568,6 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               style={{ left: `${entryMarkPos}%` }}
             />
 
-            {/* Highlight Line Between Dual Indicators (Fast vs Slow EMA Crossover Gap) */}
-            {dualSpan && (
-              <Tooltip content={`Dual EMA Cross Gap: Fast ${fmtUSD(dualSpan.fastPrice)} vs Slow ${fmtUSD(dualSpan.slowPrice)} (${dualSpan.gapPct.toFixed(2)}% gap)`}>
-                <div
-                  className={cn(
-                    "absolute top-0 bottom-0 z-15 transition-all duration-300 border-y shadow-md cursor-help",
-                    dualSpan.isFired
-                      ? "bg-red/40 border-red/80 shadow-[0_0_8px_rgba(255,68,102,0.8)] animate-pulse"
-                      : "bg-cyan-400/35 border-cyan-400/70 shadow-[0_0_8px_rgba(34,211,238,0.6)]"
-                  )}
-                  style={{
-                    left: `${dualSpan.minPos}%`,
-                    width: `${dualSpan.width}%`
-                  }}
-                />
-              </Tooltip>
-            )}
 
             {/* Progress Fill */}
             <div

@@ -751,6 +751,10 @@ export class MarketFeedService {
       // MULTI-TIMEFRAME SIGNALS: Extract all unique timeframes from enabled entry & exit signals across all strategy configurations
       const mtfIntervals = new Set<string>();
       for (const sc of strategyConfigs) {
+        if (sc.htf_ema_cross_boost_enabled) {
+          const resolvedHtf = this.resolveInterval(sc.htf_ema_cross_interval || '4h', sc);
+          if (resolvedHtf) mtfIntervals.add(resolvedHtf);
+        }
         if (sc.signal_timeframes) {
           const activeSignals = [
             ...(sc.enabled_signals || []),

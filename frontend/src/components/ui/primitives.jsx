@@ -626,7 +626,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       className={cn(
         "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
         isScrolled ? "mb-0.5" : "mb-2 lg:mb-3",
-        sticky && "sticky top-0 bg-background/95 backdrop-blur-md -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm",
+        sticky && "sticky top-0 bg-background/95 backdrop-blur-md border-b border-border/10 shadow-sm",
         sticky && (isScrolled ? "py-0.5" : "py-1.5")
       )}
     >

@@ -3213,7 +3213,7 @@ export function DashboardView({ initialStrategy }) {
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-3xl lg:max-w-4xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
+            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-0 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-3xl lg:max-w-4xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
               <div className="p-2 bg-background rounded-t-[28px] sm:hidden flex flex-col items-center shrink-0 border-b border-border/20">
                 <div className="w-10 h-1 bg-border/60 rounded-full" />
                 <VisuallyHidden>
@@ -3242,7 +3242,7 @@ export function DashboardView({ initialStrategy }) {
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner} repositionInputs={false}>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-2 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-4xl lg:max-w-5xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
+            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-0 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-4xl lg:max-w-5xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
               <div className="p-2 bg-background rounded-t-[28px] sm:hidden flex flex-col items-center shrink-0 border-b border-border/20">
                 <div className="w-10 h-1 bg-border/60 rounded-full" />
                 <VisuallyHidden>

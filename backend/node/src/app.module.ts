@@ -19,10 +19,12 @@ import { AuthModule } from './auth/auth.module';
         autoLoadEntities: true,
         entities: [],
         synchronize: false, // Explicitly disable synchronize in all environments
+        logging: false,
         // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce connection pool memory overhead)
         extra: {
           max: 5,
-          idleTimeoutMillis: 30000,
+          idleTimeoutMillis: 10000,
+          maxUses: 1000,
           connectionTimeoutMillis: 2000,
           // SRE: Optimize checkpoint behavior to protect the Node.js event loop from I/O stalls.
           // Note: These usually require superuser or postgresql.conf, but passing via connection parameters

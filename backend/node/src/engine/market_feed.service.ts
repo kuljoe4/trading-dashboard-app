@@ -200,7 +200,10 @@ export class MarketFeedService {
     // RESEARCH-02: DB-First Metadata Loading
     if (MarketFeedService.cachedExchangeInfo.size === 0) {
       try {
-        const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+        const settings = await this.settingsRepository.createQueryBuilder('settings')
+          .where('settings.id = :id', { id: 'default' })
+          .addSelect('settings.exchange_info_cache')
+          .getOne();
         if (settings && settings.exchange_info_cache && settings.exchange_info_ts) {
           const age = now - Number(settings.exchange_info_ts);
           if (age < CACHE_TTL) {

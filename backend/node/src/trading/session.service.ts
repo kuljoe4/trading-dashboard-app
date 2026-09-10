@@ -2718,6 +2718,7 @@ export class SessionService implements OnModuleInit {
 
     const logs = includeLogs
       ? await this.logRepository.find({
+          select: ["id", "sessionId", "ts", "level", "msg"],
           where: { sessionId: session.id },
           order: { ts: "DESC" },
           take: 100,
@@ -2987,7 +2988,7 @@ export class SessionService implements OnModuleInit {
       });
       const logRetentionDays = (settings as any)?.log_retention_days || 7;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
-      const klineRetentionDays = 7;
+      const klineRetentionDays = 2; // Optimize kline DB footprint (48h retention)
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,
@@ -3007,6 +3008,12 @@ export class SessionService implements OnModuleInit {
         .delete()
         .where("exit_ts < :cutoff", { cutoff: tradeCutoff })
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
+        .execute();
+
+      const deletedBalanceHistory = await this.balanceHistoryRepository
+        .createQueryBuilder()
+        .delete()
+        .where("timestamp < :cutoff", { cutoff: tradeCutoff })
         .execute();
 
       // SEC-02: Cleanup old kline data to prevent unbounded storage growth
@@ -3048,7 +3055,7 @@ export class SessionService implements OnModuleInit {
       }
 
       this.logger.log(
-        `Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed. Tracker memory cleared for ${logRateLimitCleared + sessionLogCountCleared} stale sessions.`,
+        `Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedBalanceHistory.affected || 0} balance history, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed. Tracker memory cleared for ${logRateLimitCleared + sessionLogCountCleared} stale sessions.`,
       );
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
@@ -3109,6 +3116,7 @@ export class SessionService implements OnModuleInit {
       if (level !== "error") return;
       // For errors, we delete the oldest log before inserting a new one
       const oldest = await this.logRepository.findOne({
+        select: ["id"],
         where: { sessionId: sid },
         order: { ts: "ASC" },
       });

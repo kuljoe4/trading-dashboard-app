@@ -11,3 +11,10 @@ Removed `sessionAPI.analytics()` from the `Promise.all` inside `HistoryView.jsx`
 
 **Action:**
 Destructured and stripped `_sig_json` from both thin and non-thin trade objects in `getFidelityTick` when client is in low-fidelity mode. This saves ~300-1200+ bytes per trade per tick (~40-60% trade payload size reduction) on high-frequency overview ticks.
+
+## 2026-09-09 - [Trimmed bloated closed trade history in engine getStatus()]
+**Learning:**
+`TradingSessionService.getStatus()` serialized closed trades (`sessionState.closedTrades.slice(0, 50)`) using full-fidelity `serializeTrade` without passing `minimal = true`. This included heavy JSON/array fields (`strategy_config`, `exit_signals_status`, `live_rr_sequence`, `exit_rr_sequence`, `sl_adjustments`, `_sig_json`) in every status snapshot over WebSocket and REST endpoints, even though status subscribers on the UI do not render or consume trade configuration details for historical trades.
+
+**Action:**
+Updated `getStatus()` in `backend/node/src/engine/trading_session.service.ts` to call `this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price, true)` with `minimal = true`. This aligns `getStatus()` with `SessionService.getHistory()` sparse selection, eliminating ~200–250 KB (~80% reduction) of payload bloat per status snapshot.

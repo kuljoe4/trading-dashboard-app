@@ -23,8 +23,7 @@ import { AuthModule } from './auth/auth.module';
         // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce connection pool memory overhead)
         extra: {
           max: 5,
-          idleTimeoutMillis: 10000,
-          maxUses: 1000,
+          idleTimeoutMillis: 30000,
           connectionTimeoutMillis: 2000,
           // SRE: Optimize checkpoint behavior to protect the Node.js event loop from I/O stalls.
           // Note: These usually require superuser or postgresql.conf, but passing via connection parameters

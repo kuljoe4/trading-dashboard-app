@@ -1267,19 +1267,20 @@ export class MarketFeedService {
        }
     }
 
-    if (existingCandles.length >= requiredWarmup) {
-      // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order, not the oldest one at index 0.
-      // This prevents the system from misinterpreting valid, fresh local caches as stale, avoiding thousands of redundant REST backfills.
+    if (existingCandles.length > 0) {
+      // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order.
+      // If the most recent candle is fresh and we have sufficient candles, skip backfill to avoid endless REST/DB thrashing.
       const lastCandle = existingCandles[existingCandles.length - 1];
       const intervalMs = this.parseIntervalToMs(resolvedInterval);
-      // If the most recent candle is still fresh enough, skip backfill
-      if (lastCandle.time + intervalMs >= Date.now() - (intervalMs * 2)) {
-        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
+      const isFresh = (lastCandle.time + intervalMs) >= (Date.now() - (intervalMs * 2));
+
+      if (isFresh && (existingCandles.length >= requiredWarmup || existingCandles.length >= 10)) {
+        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length} candles and data is fresh.`);
         return;
       }
-    } else {
-      this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
     }
+
+    this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {

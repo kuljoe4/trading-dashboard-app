@@ -156,9 +156,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       }
 
       const avgProximity = count > 0 ? sigSum / count : 0;
+      // BOLT FIX: Prevent undefined/uninitialized target threshold signals from inflating proximity to 100%.
+      // 100% proximity is reserved strictly when all signals fired AND signal details are present.
+      const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
       return {
         ...opp,
-        proximity: opp.signalResult?.allFired ? 100 : Math.round(avgProximity)
+        proximity: isFired ? 100 : Math.min(99, Math.round(avgProximity))
       };
     }).sort((a, b) => b.proximity - a.proximity);
   }, [strategyScannerResults, strategyConfig.enabled_signals, strategyConfig.scan_pct_threshold]);

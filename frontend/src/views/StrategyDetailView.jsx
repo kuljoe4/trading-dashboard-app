@@ -523,7 +523,17 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   )}
                 >
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-black font-mono">{opp.symbol}</span>
+                    <div className="flex items-center gap-1.5 font-mono">
+                      <span className="text-xs font-black">{opp.symbol}</span>
+                      <span className={cn(
+                        "text-[8px] font-black uppercase px-1 py-0.2 rounded border",
+                        (opp.dir === 'long' || opp.pct >= 0)
+                          ? "text-green border-green/30 bg-green/10"
+                          : "text-red border-red/30 bg-red/10"
+                      )}>
+                        {(opp.dir || (opp.pct >= 0 ? 'long' : 'short')).toUpperCase()}
+                      </span>
+                    </div>
                     <span className={cn(
                       "text-[9px] font-mono font-bold px-1.5 py-0.5 rounded",
                       isFired ? "bg-green/20 text-green" : "bg-surface text-dim"

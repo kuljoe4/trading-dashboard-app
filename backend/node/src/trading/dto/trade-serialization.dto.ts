@@ -37,6 +37,8 @@ export interface TradeSerializationDto {
   risk_lock_reason?: string;
   close_attempts?: number;
   close_blocked?: boolean;
+  exit_price?: number;
+  exit_reason?: string;
   est_pnl_to_realize?: number;
   est_pnl_source?: string;
   exit_rr?: number;

@@ -21,3 +21,9 @@ Replaced all component-level independent timers with the centralized, high-perfo
 In `engine-broadcaster.service.ts`, real-time estimated P&L (`total_est_pnl_to_realize` and `variantStats` fields) was vulnerable to `NaN` and `isFinite` propagation if any raw trade parameter (such as `qty`, `entry_price`, `current_sl`, or exit threshold prices) from live WebSocket feeds was undefined, null, or corrupted. Since `NaN` propagates transitively across arithmetic operators, any single bad trade could corrupt session-level or variant-level metrics to `NaN`, breaking the UI.
 **Action:**
 Harnessed `Number` coercion, `isNaN`, and `isFinite` checks with defensive fallbacks and logger warnings to isolate and protect active and estimated P&L calculations from anomalies.
+
+## 2026-09-09 - Closed Trade History Serialization Minimal Mode Omission
+**Learning:**
+When serializing closed trade history in `getStatus()`, passing `minimal=false` (the default) caused full `strategy_config`, `live_rr_sequence`, `exit_rr_sequence`, `sl_adjustments`, and `_sig_json` objects to be duplicated into every closed trade item in the history array, bloating the status response payload by ~200-250 KB. Minimal mode was previously omitted because it lacked explicit `exit_price` and `exit_reason` fields required by the UI. Adding those fields to `TradeSerializationDto` and minimal mode allows safe use of `minimal=true` for closed trade history snapshots.
+**Action:**
+Added `exit_price` and `exit_reason` to `TradeSerializationDto` and the minimal `serializeTrade` return object in `EngineBroadcasterService`, and passed `minimal=true` in `TradingSessionService.getStatus()`.

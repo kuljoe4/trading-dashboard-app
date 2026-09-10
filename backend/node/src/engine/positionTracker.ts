@@ -1123,7 +1123,8 @@ export class PositionTrackerService {
       const isLong = trade.direction === 'LONG';
       const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
 
-      if (isBetterSl) {
+      const isPaper = activeConfig.paper_mode ?? true;
+      if (isBetterSl && isPaper) {
         trade.current_sl = newSl;
         trade.updated_at = new Date();
         this.logSlAdjustment(trade, prevSl, newSl, -4, false);
@@ -1281,7 +1282,8 @@ export class PositionTrackerService {
       const isLong = trade.direction === 'LONG';
       const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
 
-      if (isBetterSl) {
+      const isPaper = activeConfig.paper_mode ?? true;
+      if (isBetterSl && isPaper) {
         trade.current_sl = newSl;
         trade.updated_at = new Date();
         this.logSlAdjustment(trade, prevSl, newSl, -2, false);

@@ -49,6 +49,8 @@ describe('MomentumScannerService - Configurable Boost Points & R:R Performance S
     config.sl_distance_pct = 1.0;
 
     const candles1m: Candle[] = [
+      { time: 500, open: 99, high: 100, low: 98, close: 99, volume: 1000 },
+      { time: 800, open: 99, high: 100, low: 98, close: 99.5, volume: 1000 },
       { time: 1000, open: 100, high: 101, low: 99, close: 100, volume: 1000 },
       { time: 2000, open: 100, high: 105, low: 100, close: 104, volume: 1000 },
     ];

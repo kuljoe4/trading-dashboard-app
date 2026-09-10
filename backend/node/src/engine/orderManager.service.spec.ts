@@ -20,7 +20,10 @@ describe('OrderManagerService', () => {
       {
         getInFlightEntry: jest.fn(),
         setInFlight: jest.fn(),
-        clearInFlight: jest.fn()
+        clearInFlight: jest.fn(),
+        onRatchetComplete: jest.fn().mockResolvedValue(undefined),
+        markDirty: jest.fn(),
+        recordRatchetDeferral: jest.fn()
       } as any, // positionTracker
       {
         isRateLimited: () => false,

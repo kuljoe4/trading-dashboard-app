@@ -2988,7 +2988,7 @@ export class SessionService implements OnModuleInit {
       });
       const logRetentionDays = (settings as any)?.log_retention_days || 7;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
-      const klineRetentionDays = 2; // Optimize kline DB footprint (48h retention)
+      const klineRetentionDays = 7;
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,

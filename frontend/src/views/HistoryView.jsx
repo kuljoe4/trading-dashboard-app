@@ -8,7 +8,7 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X, Loader2 } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X, Loader2, SlidersHorizontal } from 'lucide-react'
 
 // Shimmer Skeleton Loader for individual charts to prevent layout shift and blank-out bubbling
 export const ChartSkeleton = ({ height = 180 }) => (
@@ -1601,7 +1601,6 @@ export const HistoryView = () => {
   const isFirstRender = React.useRef(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [search, setSearch] = useState('')
-  const [selectedStrategy, setSelectedStrategy] = useState('ALL')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Controlled expansion state for sessions
@@ -1613,10 +1612,24 @@ export const HistoryView = () => {
     return saved ? saved === 'true' : false; // Default collapsed
   });
 
+  // Filter toolbar collapse/expand state
+  const [filtersExpanded, setFiltersExpanded] = useState(() => {
+    const saved = localStorage.getItem('history_filters_expanded');
+    return saved ? saved === 'true' : false; // Default collapsed for ultra-dense flow
+  });
+
   const handleToggleAnalytics = () => {
     setAnalyticsExpanded(prev => {
       const next = !prev;
       localStorage.setItem('history_analytics_expanded', String(next));
+      return next;
+    });
+  };
+
+  const handleToggleFilters = () => {
+    setFiltersExpanded(prev => {
+      const next = !prev;
+      localStorage.setItem('history_filters_expanded', String(next));
       return next;
     });
   };
@@ -1672,35 +1685,13 @@ export const HistoryView = () => {
     return filtered;
   }, [tradeHistory, lifetimeMode, timeRange, tradeLimit]);
 
-  // Extract unique available strategy labels across current mode trades along with counts & total PnL
-  const availableStrategies = useMemo(() => {
-    const map = new Map();
-    for (let i = 0; i < modeTrades.length; i++) {
-      const t = modeTrades[i];
-      const label = strategyLabel(t);
-      const pnl = safeNum(t.pnl);
-      if (!map.has(label)) {
-        map.set(label, { label, count: 0, pnl: 0 });
-      }
-      const item = map.get(label);
-      item.count += 1;
-      item.pnl += pnl;
-    }
-    return Array.from(map.values()).sort((a, b) => b.count - a.count);
-  }, [modeTrades]);
-
-  // Loop-fused single pass calculation for Top 5 Biggest Wins & Top 5 Biggest Losses
+  // Loop-fused single pass calculation for Top 5 Biggest Wins & Top 5 Biggest Losses across modeTrades
   const { topWins, topLosses } = useMemo(() => {
     const wins = [];
     const losses = [];
 
-    // Filter trades by strategy if selected
-    const tradesToProcess = selectedStrategy === 'ALL'
-      ? modeTrades
-      : modeTrades.filter(t => strategyLabel(t) === selectedStrategy);
-
-    for (let i = 0; i < tradesToProcess.length; i++) {
-      const t = tradesToProcess[i];
+    for (let i = 0; i < modeTrades.length; i++) {
+      const t = modeTrades[i];
       const pnl = safeNum(t.pnl);
       if (pnl > 0) wins.push(t);
       else if (pnl < 0) losses.push(t);
@@ -1713,51 +1704,12 @@ export const HistoryView = () => {
       topWins: wins.slice(0, 5),
       topLosses: losses.slice(0, 5)
     };
-  }, [modeTrades, selectedStrategy]);
-
-  // Recalculate lifetime analytics dynamically when a strategy filter is active
-  const filteredLifetimeAnalytics = useMemo(() => {
-    if (selectedStrategy === 'ALL') return lifetimeAnalytics;
-
-    const filteredTrades = modeTrades.filter(t => strategyLabel(t) === selectedStrategy);
-    const m = calculatePerformanceMetrics(filteredTrades);
-    const curve = buildCurve(filteredTrades);
-
-    // Compute max drawdown for filtered trades
-    let peak = 0;
-    let maxDd = 0;
-    let runningPnl = 0;
-    for (let i = 0; i < curve.length; i++) {
-      runningPnl = curve[i].pnl;
-      if (runningPnl > peak) peak = runningPnl;
-      const dd = peak - runningPnl;
-      if (dd > maxDd) maxDd = dd;
-    }
-
-    return {
-      totalTrades: filteredTrades.length,
-      overallWinRate: m.winRate,
-      cumulativePnL: curve,
-      maxDrawdown: maxDd,
-      maxDrawdownPct: 0,
-      avgWin: m.wins > 0 ? m.grossProfit / m.wins : 0,
-      avgLoss: (filteredTrades.length - m.wins) > 0 ? m.grossLoss / (filteredTrades.length - m.wins) : 0,
-      avgWinLossRatio: m.grossLoss > 0 ? (m.grossProfit / m.wins) / (m.grossLoss / (filteredTrades.length - m.wins)) : 0,
-      sharpeRatio: m.sharpe,
-      sortinoRatio: m.sortino,
-      profitFactor: m.profitFactor,
-      maxWinStreak: m.maxWinStreak,
-      maxLossStreak: m.maxLossStreak,
-      avgDuration: m.avgDuration,
-      timeOfDay: []
-    };
-  }, [selectedStrategy, modeTrades, lifetimeAnalytics]);
+  }, [modeTrades]);
 
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
     const tradesBySession = (tradeHistory || []).filter(Boolean).reduce((acc, t) => {
       if (!t.sessionId) return acc;
-      if (selectedStrategy !== 'ALL' && strategyLabel(t) !== selectedStrategy) return acc;
       if (!acc[t.sessionId]) acc[t.sessionId] = [];
       acc[t.sessionId].push(t);
       return acc;
@@ -1773,12 +1725,11 @@ export const HistoryView = () => {
           startTimeMs,
           trades: tradesBySession[session.id] || []
         };
-      })
-      .filter(session => selectedStrategy === 'ALL' || session.trades.length > 0);
+      });
 
     mapped.sort((a, b) => b.startTimeMs - a.startTimeMs);
     return mapped;
-  }, [sessionList, tradeHistory, selectedStrategy])
+  }, [sessionList, tradeHistory]);
 
   const [sortBy, setSortBy] = useState('time'); // 'time', 'pnl', 'winrate'
 
@@ -1878,7 +1829,7 @@ export const HistoryView = () => {
     }
   }
 
-  const currentAnalytics = filteredLifetimeAnalytics
+  const currentAnalytics = lifetimeAnalytics
 
   const totalPnl = currentAnalytics?.cumulativePnL?.length ? safeNum(currentAnalytics.cumulativePnL[currentAnalytics.cumulativePnL.length - 1].pnl) : 0
   const totalTrades = currentAnalytics?.totalTrades || 0
@@ -1959,169 +1910,169 @@ export const HistoryView = () => {
           </div>
         </ViewHeader>
 
-        {/* Strategy Filter Badges Row */}
-        {availableStrategies.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1.5 pt-0.5 mb-3">
-            <span className="text-[8.5px] text-dim font-black uppercase tracking-widest shrink-0 mr-1 flex items-center gap-1">
-              <Layers size={11} className="text-accent" /> Strategy Filter:
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedStrategy('ALL')}
-              className={cn(
-                "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                selectedStrategy === 'ALL'
-                  ? "bg-accent/15 border-accent text-accent shadow-sm"
-                  : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-accent/30"
-              )}
-            >
-              All Strategies ({modeTrades.length})
-            </button>
-            {availableStrategies.map(strat => (
-              <button
-                key={strat.label}
-                type="button"
-                onClick={() => setSelectedStrategy(strat.label)}
-                className={cn(
-                  "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                  selectedStrategy === strat.label
-                    ? "bg-accent/15 border-accent text-accent shadow-sm"
-                    : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-accent/30"
-                )}
-              >
-                <span>{strat.label}</span>
-                <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
-                  {strat.count}
-                </span>
-                <span className={cn("text-[7.5px] font-mono font-black", pnlClass(strat.pnl))}>
-                  {fmtUSD(strat.pnl)}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
 
-        {/* Unified Sticky Filter Toolbar */}
-        <div className="sticky top-[64px] z-40 bg-background/95 backdrop-blur-md border border-border/30 rounded-2xl p-2.5 mb-6 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 w-full">
-          {/* Left: Environment Switcher */}
-          <div className="flex items-center gap-1 bg-surface border border-border/30 p-1 rounded-xl w-full sm:w-auto">
-            {['paper', 'testnet', 'live'].map(m => (
-              <button
-                key={m}
-                onClick={() => {
-                  setLifetimeMode(m);
-                  localStorage.setItem('history_trade_mode', m);
-                }}
-                aria-pressed={lifetimeMode === m}
-                aria-label={`Switch history to ${m} mode`}
-                className={cn(
-                  "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                  lifetimeMode === m ? "bg-accent text-white shadow-md shadow-accent/20" : "text-dim hover:text-text"
-                )}
-              >
-                {m}
-              </button>
-            ))}
-          </div>
-
-          {/* Center: Search input */}
-          <div className="relative group w-full sm:max-w-[280px]">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search history..."
-              aria-label="Search trade history"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-10 py-2 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-            />
-            {search ? (
-              <Tooltip content="Clear Search">
+        {/* Unified Non-Sticky Filter Toolbar */}
+        <div id="history-filter-toolbar" className="bg-background/95 border border-border/30 rounded-2xl p-2.5 mb-6 shadow-sm flex flex-col gap-2.5 w-full">
+          {/* Primary Row: Env Switcher, Search Input, Active Badges Summary & Toggle */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
+            {/* Left: Environment Switcher */}
+            <div className="flex items-center gap-1 bg-surface border border-border/30 p-1 rounded-xl w-full sm:w-auto">
+              {['paper', 'testnet', 'live'].map(m => (
                 <button
-                  type="button"
+                  key={m}
                   onClick={() => {
-                    setSearch('');
-                    searchInputRef.current?.focus();
+                    setLifetimeMode(m);
+                    localStorage.setItem('history_trade_mode', m);
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
-                  aria-label="Clear Search"
+                  aria-pressed={lifetimeMode === m}
+                  aria-label={`Switch history to ${m} mode`}
+                  className={cn(
+                    "flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[9.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                    lifetimeMode === m ? "bg-accent text-white shadow-md shadow-accent/20" : "text-dim hover:text-text"
+                  )}
                 >
-                  <XCircle size={13} />
+                  {m}
                 </button>
-              </Tooltip>
-            ) : (
-              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
-                /
-              </kbd>
-            )}
+              ))}
+            </div>
+
+            {/* Center: Search input */}
+            <div className="relative group w-full sm:max-w-[280px]">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                placeholder="Search history..."
+                aria-label="Search trade history"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
+                className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-10 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+              />
+              {search ? (
+                <Tooltip content="Clear Search">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearch('');
+                      searchInputRef.current?.focus();
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
+                    aria-label="Clear Search"
+                  >
+                    <XCircle size={13} />
+                  </button>
+                </Tooltip>
+              ) : (
+                <kbd className="absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+                  /
+                </kbd>
+              )}
+            </div>
+
+            {/* Right: Active Filters Summary Pill & Collapse/Expand Toggle Button */}
+            <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
+              {/* Ultra-Dense Summary Badges when Collapsed */}
+              {!filtersExpanded && (
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                  <span className="text-[8px] font-mono font-black uppercase text-accent bg-accent/10 border border-accent/20 px-2 py-1 rounded-lg shrink-0">
+                    Range: {timeRange}
+                  </span>
+                  <span className="text-[8px] font-mono font-black uppercase text-accent bg-accent/10 border border-accent/20 px-2 py-1 rounded-lg shrink-0">
+                    Limit: {tradeLimit}
+                  </span>
+                  <span className="text-[8px] font-mono font-black uppercase text-accent bg-accent/10 border border-accent/20 px-2 py-1 rounded-lg shrink-0">
+                    Sort: {sortBy}
+                  </span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleToggleFilters}
+                aria-expanded={filtersExpanded}
+                aria-label={filtersExpanded ? "Collapse advanced history filters" : "Expand advanced history filters"}
+                className={cn(
+                  "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
+                  filtersExpanded
+                    ? "bg-accent/15 border-accent/40 text-accent"
+                    : "bg-surface border-border/40 text-dim hover:text-text hover:border-accent/30"
+                )}
+              >
+                <SlidersHorizontal size={12} className={cn(filtersExpanded ? "text-accent" : "text-dim")} />
+                <span>Filters</span>
+                <ChevronDown size={12} className={cn("transition-transform duration-200", filtersExpanded && "rotate-180")} />
+              </button>
+            </div>
           </div>
 
-          {/* Right: Range Filter & Limit Selectors */}
-          <div className="flex items-center gap-3 justify-between sm:justify-end w-full sm:w-auto shrink-0 flex-wrap">
-             {/* Time Range Filter */}
-             <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
-                <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Range:</span>
-                {['24H', '7D', '30D', 'ALL'].map(r => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setTimeRange(r)}
-                    aria-pressed={timeRange === r}
-                    aria-label={`Filter history to ${r} time range`}
-                    className={cn(
-                      "px-2 py-1 rounded-lg text-[8.5px] font-black font-mono tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                      timeRange === r ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
-                    )}
-                  >
-                    {r}
-                  </button>
-                ))}
-             </div>
+          {/* Collapsible Controls Panel (Range, Limit, Sort) */}
+          {filtersExpanded && (
+            <div className="pt-2 border-t border-border/20 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+               {/* Time Range Filter */}
+               <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+                  <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Range:</span>
+                  {['24H', '7D', '30D', 'ALL'].map(r => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setTimeRange(r)}
+                      aria-pressed={timeRange === r}
+                      aria-label={`Filter history to ${r} time range`}
+                      className={cn(
+                        "px-2 py-1 rounded-lg text-[8.5px] font-black font-mono tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                        timeRange === r ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                      )}
+                    >
+                      {r}
+                    </button>
+                  ))}
+               </div>
 
-             {/* Limit Selector */}
-             <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
-                <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Limit:</span>
-                {[50, 100, 250, 500, 1000, 'ALL'].map(l => (
-                  <button
-                    key={String(l)}
-                    type="button"
-                    onClick={() => setTradeLimit(l)}
-                    aria-pressed={tradeLimit === l}
-                    aria-label={`Set trade history limit to ${l}`}
-                    className={cn(
-                      "px-2 py-1 rounded-lg text-[8.5px] font-black font-mono tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                      tradeLimit === l ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
-                    )}
-                  >
-                    {l}
-                  </button>
-                ))}
-             </div>
+               {/* Limit Selector */}
+               <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+                  <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Limit:</span>
+                  {[50, 100, 250, 500, 1000, 'ALL'].map(l => (
+                    <button
+                      key={String(l)}
+                      type="button"
+                      onClick={() => setTradeLimit(l)}
+                      aria-pressed={tradeLimit === l}
+                      aria-label={`Set trade history limit to ${l}`}
+                      className={cn(
+                        "px-2 py-1 rounded-lg text-[8.5px] font-black font-mono tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                        tradeLimit === l ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                      )}
+                    >
+                      {l}
+                    </button>
+                  ))}
+               </div>
 
-             {/* Sort controls */}
-             <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
-                {[
-                  { id: 'time', label: 'Recent' },
-                  { id: 'pnl', label: 'Best PnL' },
-                  { id: 'winrate', label: 'Win Rate' }
-                ].map(opt => (
-                  <button
-                    key={opt.id}
-                    onClick={() => setSortBy(opt.id)}
-                    aria-pressed={sortBy === opt.id}
-                    aria-label={`Sort sessions by ${opt.label}`}
-                    className={cn(
-                      "px-2.5 py-1.5 rounded-lg text-[8.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                      sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-             </div>
-          </div>
+               {/* Sort controls */}
+               <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+                  <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Sort:</span>
+                  {[
+                    { id: 'time', label: 'Recent' },
+                    { id: 'pnl', label: 'Best PnL' },
+                    { id: 'winrate', label: 'Win Rate' }
+                  ].map(opt => (
+                    <button
+                      key={opt.id}
+                      onClick={() => setSortBy(opt.id)}
+                      aria-pressed={sortBy === opt.id}
+                      aria-label={`Sort sessions by ${opt.label}`}
+                      className={cn(
+                        "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-widest transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                        sortBy === opt.id ? "bg-accent/10 text-accent" : "text-dim hover:text-text"
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+               </div>
+            </div>
+          )}
         </div>
 
         {/* Modern Collapsible Analytics & Optimization Section */}
@@ -2328,11 +2279,6 @@ export const HistoryView = () => {
                         <p className="text-[9px] text-dim font-bold uppercase tracking-widest mt-0.5">Top 5 Biggest Wins & Top 5 Biggest Losses</p>
                       </div>
                     </div>
-                    {selectedStrategy !== 'ALL' && (
-                      <span className="text-[8.5px] font-black px-2 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase">
-                        {selectedStrategy}
-                      </span>
-                    )}
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

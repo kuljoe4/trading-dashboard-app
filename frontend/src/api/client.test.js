@@ -287,6 +287,30 @@ describe('sanitizeSessionConfig', () => {
       macd_signal: 9
     })
   })
+
+  it('preserves HTF EMA Cross ranking fields and SL exceeds max rejection flag for persistence', () => {
+    const config = {
+      reject_entry_if_sl_exceeds_max: true,
+      htf_ema_cross_boost_enabled: true,
+      htf_ema_cross_interval: '4h',
+      htf_ema_cross_count: 5,
+      htf_ema_fast_period: 12,
+      htf_ema_slow_period: 26,
+      htf_ema_cross_max_boost: 30.0,
+      htf_ema_cross_rr_weight: 2.0,
+      force_risk_release: false
+    }
+    const sanitized = sanitizeSessionConfig(config)
+    assert.strictEqual(sanitized.reject_entry_if_sl_exceeds_max, true)
+    assert.strictEqual(sanitized.htf_ema_cross_boost_enabled, true)
+    assert.strictEqual(sanitized.htf_ema_cross_interval, '4h')
+    assert.strictEqual(sanitized.htf_ema_cross_count, 5)
+    assert.strictEqual(sanitized.htf_ema_fast_period, 12)
+    assert.strictEqual(sanitized.htf_ema_slow_period, 26)
+    assert.strictEqual(sanitized.htf_ema_cross_max_boost, 30.0)
+    assert.strictEqual(sanitized.htf_ema_cross_rr_weight, 2.0)
+    assert.strictEqual(sanitized.force_risk_release, false)
+  })
 })
 
 describe('presetsAPI', () => {

@@ -2776,7 +2776,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
-      'slippage_abort_threshold'
+      'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
     ];
 
     numericFields.forEach(f => {
@@ -2784,6 +2785,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         c[f] = Number(c[f]);
       }
     });
+
+    c.htf_ema_cross_boost_enabled = c.htf_ema_cross_boost_enabled !== false;
+    c.htf_ema_cross_interval = c.htf_ema_cross_interval || '4h';
 
     c.scanner_weights = {
       momentum: Number(cfg.scanner_weights_momentum || 0) / 100,

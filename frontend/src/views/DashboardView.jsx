@@ -922,13 +922,22 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         {/* Right: Color-Coded Active PnL & Session Return Badges + Position Allocation Pill */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0 font-mono text-xs">
           {/* Active PnL Color-Coded Badge */}
-          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)}`}>
+          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)} (${(() => {
+            const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+            return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+          })()})`}>
             <div className={cn(
               "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0",
               isPosActive ? "bg-green/10 border-green/25 text-green" : "bg-red/10 border-red/25 text-red"
             )}>
               {isPosActive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
               <span>{fmtUSD(s.activePnl)}</span>
+              <span className="text-[9px] opacity-80">
+                ({(() => {
+                  const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+                  return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(1)}%`;
+                })()})
+              </span>
             </div>
           </Tooltip>
 
@@ -1116,6 +1125,12 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start">Active P&L</span>
             <span className={cn("font-black font-mono tracking-tighter leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")} style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
+            </span>
+            <span className="text-[8px] font-bold font-mono uppercase tracking-wider mt-0.5 truncate" style={{ color: pnlColor(s.activePnl) }}>
+              {(() => {
+                const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+                return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+              })()}
             </span>
           </div>
           {!isCompact && (
@@ -2008,7 +2023,7 @@ export function DashboardView({ initialStrategy }) {
     return map;
   }, [tradeHistory, config]);
 
-  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, maxRR } = useMemo(() => {
+  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, peakActivePnl, minActivePnl, oldestActiveEntryTs, latestActiveUpdateTs, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;
     const pnlMap = { [strategyLabel]: 0 };
     const estPnlMap = { [strategyLabel]: 0 };
@@ -2023,6 +2038,11 @@ export function DashboardView({ initialStrategy }) {
     }
 
     let maxRrAchieved = 0;
+    let peakActivePnlSum = 0;
+    let minActivePnlSum = 0;
+    let oldestEntryTs = Infinity;
+    let latestUpdateTs = 0;
+
     const trades = activeTrades || [];
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
@@ -2033,9 +2053,31 @@ export function DashboardView({ initialStrategy }) {
         estPnlMap[label] += safeNum(t.est_pnl_to_realize);
         countMap[label]++;
 
-        const rrVal = Number(t.max_rr ?? t.max_rr_achieved ?? 0);
-        if (rrVal > maxRrAchieved) {
-          maxRrAchieved = rrVal;
+        // Calculate risk in USDT to convert R multiples to dollar amounts if max_pnl is not directly present
+        const riskUsdt = safeNum(t.risk_usdt || t.initial_risk_usdt) ||
+          (t.entry_price && t.qty && t.initial_sl ? Math.abs(t.entry_price - t.initial_sl) * t.qty : 0);
+
+        const peakRr = Number(t.max_rr ?? t.max_rr_achieved ?? t.rr ?? 0);
+        const minRr = Number(t.min_rr_achieved ?? t.min_rr ?? t.rr ?? 0);
+
+        const tradePeakPnl = riskUsdt > 0 && peakRr > 0 ? Math.max(pnlVal, peakRr * riskUsdt) : Math.max(pnlVal, 0);
+        const tradeMinPnl = riskUsdt > 0 && minRr < 0 ? Math.min(pnlVal, minRr * riskUsdt) : Math.min(pnlVal, 0);
+
+        peakActivePnlSum += tradePeakPnl;
+        minActivePnlSum += tradeMinPnl;
+
+        if (peakRr > maxRrAchieved) {
+          maxRrAchieved = peakRr;
+        }
+
+        const entryTs = t.entry_ts_ms || (t.entry_ts ? new Date(t.entry_ts).getTime() : 0) || (t.createdAt ? new Date(t.createdAt).getTime() : 0);
+        if (entryTs > 0 && entryTs < oldestEntryTs) {
+          oldestEntryTs = entryTs;
+        }
+
+        const updateTs = t.exit_ts_ms || (t.updated_at ? new Date(t.updated_at).getTime() : 0) || entryTs;
+        if (updateTs > latestUpdateTs) {
+          latestUpdateTs = updateTs;
         }
       }
     }
@@ -2052,6 +2094,10 @@ export function DashboardView({ initialStrategy }) {
       activeEstPnlToRealizeMap: estPnlMap,
       activeTradeCountsMap: countMap,
       totalActivePnl: totPnl,
+      peakActivePnl: peakActivePnlSum,
+      minActivePnl: minActivePnlSum,
+      oldestActiveEntryTs: oldestEntryTs !== Infinity ? oldestEntryTs : null,
+      latestActiveUpdateTs: latestUpdateTs > 0 ? latestUpdateTs : null,
       maxRR: maxRrAchieved
     };
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
@@ -2679,11 +2725,48 @@ export function DashboardView({ initialStrategy }) {
               />
               <StatCard
                 label="Active P&L"
-                value={fmtUSD(totalActivePnl)}
+                value={`${fmtUSD(totalActivePnl)} (${(() => {
+                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl))) || 10000;
+                  const activePct = startBal > 0 ? (totalActivePnl / startBal) * 100 : 0;
+                  return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+                })()})`}
                 color={pnlClass(totalActivePnl)}
-                subValue={`Total (${config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live')}): ${fmtUSD(totalPnl)}`}
+                subValue={(() => {
+                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl))) || 10000;
+                  const modeLabel = config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live');
+
+                  if (!activeTrades || activeTrades.length === 0) {
+                    return `Total (${modeLabel}): ${fmtUSD(totalPnl)}`;
+                  }
+
+                  const peakPct = startBal > 0 ? (peakActivePnl / startBal) * 100 : 0;
+                  const minPct = startBal > 0 ? (minActivePnl / startBal) * 100 : 0;
+                  const openDurationStr = oldestActiveEntryTs ? formatTimeAgo(oldestActiveEntryTs) : null;
+                  const updateAgoStr = latestActiveUpdateTs ? formatTimeAgo(latestActiveUpdateTs) : null;
+
+                  return (
+                    <div className="flex flex-col gap-0.5 text-[8px] md:text-[8.5px] leading-tight font-mono">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span title={`Peak Active P&L reached during open trades: ${fmtUSD(peakActivePnl)}`}>
+                          Peak: <span className="text-green font-bold">{fmtUSD(peakActivePnl)} <span className="opacity-80">({peakPct >= 0 ? '+' : ''}{peakPct.toFixed(2)}%)</span></span>
+                        </span>
+                        <span>•</span>
+                        <span title={`Min Active P&L (Max Drawdown/MAE) during open trades: ${fmtUSD(minActivePnl)}`}>
+                          Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} <span className="opacity-80">({minPct >= 0 ? '+' : ''}{minPct.toFixed(2)}%)</span></span>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-dim/70 font-sans font-medium text-[8px]">
+                        {openDurationStr && <span>Open {openDurationStr}</span>}
+                        {openDurationStr && updateAgoStr && <span>•</span>}
+                        {updateAgoStr && <span>Tick {updateAgoStr} ago</span>}
+                        <span>•</span>
+                        <span>Total ({modeLabel}): {fmtUSD(totalPnl)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 syncing={isResuming}
-                tooltipText="Current P&L from open trades vs. total session performance."
+                tooltipText="Current unrealized P&L, Peak P&L, Min P&L (MAE), and open trade durations across all active trades."
               />
               <StatCard
                 label="Live Risk"

@@ -523,9 +523,9 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
               </span>
             )}
             {opp.htf_ema_cross_perf && (
-              <Tooltip content={`4H HTF EMA Dual Cross (Last ${opp.htf_ema_cross_perf.cross_count} Crosses): Avg Profit ${opp.htf_ema_cross_perf.avg_profit_pct >= 0 ? '+' : ''}${opp.htf_ema_cross_perf.avg_profit_pct}%, Peak R:R ${opp.htf_ema_cross_perf.avg_peak_rr}R, Win Rate ${opp.htf_ema_cross_perf.win_rate}%`}>
+              <Tooltip content={`${(config?.htf_ema_cross_interval || '4h').toUpperCase()} HTF EMA Dual Cross (Last ${opp.htf_ema_cross_perf.cross_count} Crosses): Avg Profit ${opp.htf_ema_cross_perf.avg_profit_pct >= 0 ? '+' : ''}${opp.htf_ema_cross_perf.avg_profit_pct}%, Peak R:R ${opp.htf_ema_cross_perf.avg_peak_rr}R, Win Rate ${opp.htf_ema_cross_perf.win_rate}%`}>
                 <span className="text-[7.5px] bg-cyan-500/10 border border-cyan-500/20 px-1 py-0.2 rounded-[3px] text-cyan-400 font-black uppercase tracking-tighter leading-none flex items-center gap-0.5 cursor-help">
-                  ⚡ 4H Cross {opp.htf_ema_cross_perf.avg_profit_pct >= 0 ? '+' : ''}{opp.htf_ema_cross_perf.avg_profit_pct}% ({opp.htf_ema_cross_perf.avg_peak_rr}R)
+                  ⚡ {(config?.htf_ema_cross_interval || '4h').toUpperCase()} Cross {opp.htf_ema_cross_perf.avg_profit_pct >= 0 ? '+' : ''}{opp.htf_ema_cross_perf.avg_profit_pct}% ({opp.htf_ema_cross_perf.avg_peak_rr}R)
                 </span>
               </Tooltip>
             )}
@@ -568,7 +568,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                </div>
                {opp.score_breakdown?.htf_ema_cross !== undefined && opp.score_breakdown.htf_ema_cross > 0 && (
                  <div className="flex justify-between items-center text-[9px]">
-                    <span className="text-dim uppercase font-bold">4H Cross</span>
+                    <span className="text-dim uppercase font-bold">{(config?.htf_ema_cross_interval || '4h').toUpperCase()} Cross</span>
                     <span className="font-mono text-cyan-400">+{Number(opp.score_breakdown.htf_ema_cross).toFixed(1)}</span>
                  </div>
                )}

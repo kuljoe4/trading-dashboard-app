@@ -80,25 +80,63 @@ test('Market Regime Analytics Unit Tests - getMarketRegimeInfo', async (t) => {
     assert.equal(hibernatingRegime.label, 'Engine Hibernating');
   });
 
-  await t.test('benchmark: verifies zero-allocation O(N) execution speed', () => {
+  await t.test('calculates 24h market range extremes correctly using ohlc_history fallback without explicit 24h ticker properties', () => {
+    const mockScannerResults = [
+      {
+        symbol: 'BTCUSDT',
+        momentum: 0.5,
+        price: 60000,
+        ohlc_history: [
+          { high: 61000, low: 59000 },
+          { high: 62000, low: 58500 },
+          { high: 60500, low: 59500 }
+        ]
+      },
+      {
+        symbol: 'ETHUSDT',
+        momentum: 0.3,
+        price: 3000,
+        ohlc_history: [
+          { high: 3100, low: 2900 },
+          { high: 3250, low: 2850 }
+        ]
+      }
+    ];
+    const mockConfig = { scan_pct_threshold: 2.0 };
+
+    const regime = getMarketRegimeInfo(mockScannerResults, mockConfig);
+
+    assert.equal(regime.benchmarkSymbol, 'BTC');
+    assert.equal(regime.btc24hHigh, 62000);
+    assert.equal(regime.btc24hLow, 58500);
+    assert.equal(regime.valid24hRange, true);
+  });
+
+  await t.test('benchmark: verifies zero-allocation O(N) execution speed with ohlc_history candles', () => {
     const mockScannerResults = Array.from({ length: 50 }, (_, i) => ({
-      symbol: `SYM${i}USDT`,
+      symbol: i === 0 ? 'BTCUSDT' : `SYM${i}USDT`,
       momentum: (i % 5) * 0.8,
       pct: (i % 5) * 0.8,
       score: 30 + (i % 50),
-      score_breakdown: { volatility: 20 + i }
+      score_breakdown: { volatility: 20 + i },
+      ohlc_history: Array.from({ length: 20 }, (_, j) => ({
+        high: 100 + i + j,
+        low: 50 + i - j,
+        open: 80 + i,
+        close: 90 + i
+      }))
     }));
     const mockConfig = { scan_pct_threshold: 2.0 };
 
-    const iterations = 500000;
+    const iterations = 100000;
     const start = performance.now();
     for (let i = 0; i < iterations; i++) {
       getMarketRegimeInfo(mockScannerResults, mockConfig);
     }
     const duration = performance.now() - start;
 
-    console.log(`⚡ Bolt Performance Benchmark (getMarketRegimeInfo, ${iterations} iterations across 50 opps): ${duration.toFixed(2)}ms (${((duration / iterations) * 1000).toFixed(4)}us / op)`);
-    assert.ok(duration < 2000, 'getMarketRegimeInfo execution time must be under 2000ms for 500k ops');
+    console.log(`⚡ Bolt Performance Benchmark (getMarketRegimeInfo with ohlc_history, ${iterations} iterations across 50 opps x 20 candles): ${duration.toFixed(2)}ms (${((duration / iterations) * 1000).toFixed(4)}us / op)`);
+    assert.ok(duration < 2000, 'getMarketRegimeInfo execution time must be under 2000ms for 100k ops with ohlc_history');
   });
 });
 

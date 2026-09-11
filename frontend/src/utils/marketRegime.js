@@ -29,6 +29,9 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
   let globalMinPct = Infinity;
   let globalMaxPct = -Infinity;
 
+  let btc24hHigh = 0;
+  let btc24hLow = 0;
+
   // Single-pass O(N) iteration over scanner candidates & global market tickers
   for (let i = 0; i < totalCount; i++) {
     const opp = resultsArr[i];
@@ -62,17 +65,48 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
       passingCount++;
     }
 
-    // Benchmark BTC lookup
-    if (opp.symbol === 'BTCUSDT' || opp.symbol === 'BTC') {
-      btcOpp = opp;
+    // BOLT OPTIMIZATION: Zero-allocation single-pass calculation of candidate high and low bounds.
+    // Avoids transient .map() array allocations and Math.max(...)/Math.min(...) array spreads on every tick frame.
+    let oppHigh = 0;
+    let oppLow = Infinity;
+
+    if (opp.high_24h != null) {
+      oppHigh = Number(opp.high_24h);
+    } else if (opp.price_high_24h != null) {
+      oppHigh = Number(opp.price_high_24h);
     }
 
-    // Accumulate market-wide high/low bounds
-    const oppHigh = Number(opp.high_24h ?? opp.price_high_24h ?? (opp.ohlc_history?.length ? Math.max(...opp.ohlc_history.map(c => c.high || 0)) : 0));
-    const oppLow = Number(opp.low_24h ?? opp.price_low_24h ?? (opp.ohlc_history?.length ? Math.min(...opp.ohlc_history.map(c => c.low || Infinity)) : Infinity));
+    if (opp.low_24h != null) {
+      oppLow = Number(opp.low_24h);
+    } else if (opp.price_low_24h != null) {
+      oppLow = Number(opp.price_low_24h);
+    }
+
+    if ((oppHigh === 0 || oppLow === Infinity) && opp.ohlc_history && opp.ohlc_history.length > 0) {
+      let maxH = 0;
+      let minL = Infinity;
+      for (let j = 0; j < opp.ohlc_history.length; j++) {
+        const candle = opp.ohlc_history[j];
+        if (candle) {
+          const h = candle.high || 0;
+          const l = candle.low || Infinity;
+          if (h > maxH) maxH = h;
+          if (l < minL) minL = l;
+        }
+      }
+      if (oppHigh === 0) oppHigh = maxH;
+      if (oppLow === Infinity) oppLow = minL;
+    }
 
     if (oppHigh > globalHigh24h) globalHigh24h = oppHigh;
     if (oppLow > 0 && oppLow < globalLow24h && oppLow !== Infinity) globalLow24h = oppLow;
+
+    // Benchmark BTC lookup
+    if (opp.symbol === 'BTCUSDT' || opp.symbol === 'BTC') {
+      btcOpp = opp;
+      btc24hHigh = oppHigh;
+      btc24hLow = oppLow;
+    }
   }
 
   if (maxPct === -Infinity) maxPct = 0;
@@ -101,8 +135,6 @@ export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState
   // BTC / Global Benchmark 24h Range Calculations
   let benchmarkSymbol = 'BTC';
   let btcPrice = Number(btcOpp?.price ?? btcOpp?.close ?? 0);
-  let btc24hHigh = Number(btcOpp?.high_24h ?? btcOpp?.price_high_24h ?? (btcOpp?.ohlc_history?.length ? Math.max(...btcOpp.ohlc_history.map(c => c.high || 0)) : 0));
-  let btc24hLow = Number(btcOpp?.low_24h ?? btcOpp?.price_low_24h ?? (btcOpp?.ohlc_history?.length ? Math.min(...btcOpp.ohlc_history.map(c => c.low || Infinity)) : 0));
 
   if (!btc24hHigh || !btc24hLow || btc24hHigh <= btc24hLow) {
     benchmarkSymbol = 'Scanned Universe';

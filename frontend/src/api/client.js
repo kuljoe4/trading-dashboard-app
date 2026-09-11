@@ -174,6 +174,15 @@ const sessionConfigAllowedKeys = [
   'signal_timeframes',
   'paused',
   'paused_strategies',
+  'reject_entry_if_sl_exceeds_max',
+  'htf_ema_cross_boost_enabled',
+  'htf_ema_cross_interval',
+  'htf_ema_cross_count',
+  'htf_ema_fast_period',
+  'htf_ema_slow_period',
+  'htf_ema_cross_max_boost',
+  'htf_ema_cross_rr_weight',
+  'force_risk_release',
 ]
 
 const sanitizeSessionConfig = (config) => {

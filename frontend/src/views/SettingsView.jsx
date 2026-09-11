@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { settingsAPI, setAdminApiKey } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck, ChevronDown, SlidersHorizontal, Database } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -12,6 +12,18 @@ import { THEMES } from '../lib/theme.js'
 export function SettingsView() {
   const { theme: currentTheme, setTheme, healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS, config, patchConfig, configSyncing } = useTradingStore()
   const cfg = config || {}
+
+  // Collapsible section state - defaults to all sections collapsed for clean, ultra-dense UI flow
+  const [openSections, setOpenSections] = useState(new Set())
+
+  const toggleSection = (id) => {
+    setOpenSections(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
   const [adminApiKey, setAdminApiKeyValue] = useState(localStorage.getItem('MOMENTUM_ADMIN_API_KEY') || '')
   const [showAdminKey, setShowAdminKey] = useState(false)
   const [apiKey, setApiKey] = useState('')
@@ -157,55 +169,85 @@ export function SettingsView() {
           backAction={() => window.location.hash = '#/'}
         />
 
-        <div className="flex flex-col gap-6 lg:gap-8">
-          <section>
-            <SectionLabel className="mb-4">Dashboard Visual Theme</SectionLabel>
-            <div className="bg-surface border border-border/80 rounded-2xl p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-4">
-              <div>
-                <p className="text-[11px] text-dim font-medium uppercase mb-4">Choose a modern look for your trading cockpit and analytics dashboard</p>
+        <div className="flex flex-col gap-4">
+          {/* Section 1: Dashboard Visual Theme */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-md shadow-black/20">
+            <button
+              type="button"
+              onClick={() => toggleSection('theme')}
+              aria-expanded={openSections.has('theme')}
+              aria-label={openSections.has('theme') ? "Collapse Dashboard Visual Theme section" : "Expand Dashboard Visual Theme section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Dashboard Visual Theme</SectionLabel>
+                <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent uppercase">
+                  {THEMES[currentTheme]?.name || currentTheme}
+                </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {Object.entries(THEMES).map(([id, t]) => {
-                  const isActive = currentTheme === id;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setTheme(id)}
-                      aria-label={`Select ${t.name} theme`}
-                      aria-pressed={isActive}
-                      className={cn(
-                        "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex flex-col justify-between h-32 cursor-pointer",
-                        isActive ? "border-accent bg-accent/5 ring-2 ring-accent/15" : "border-border bg-background hover:border-border-hover hover:bg-surface"
-                      )}
-                    >
-                      <div className="w-full">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={cn("text-[11px] font-black uppercase tracking-tighter", isActive ? "text-accent" : "text-text")}>{t.name}</span>
-                          {isActive && <CheckCircle2 size={14} className="text-accent" />}
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('theme') && "rotate-180")} />
+            </button>
+            {openSections.has('theme') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+                <p className="text-[11px] text-dim font-medium uppercase mb-2">Choose a modern look for your trading cockpit and analytics dashboard</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {Object.entries(THEMES).map(([id, t]) => {
+                    const isActive = currentTheme === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setTheme(id)}
+                        aria-label={`Select ${t.name} theme`}
+                        aria-pressed={isActive}
+                        className={cn(
+                          "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex flex-col justify-between h-32 cursor-pointer",
+                          isActive ? "border-accent bg-accent/5 ring-2 ring-accent/15" : "border-border bg-background hover:border-border-hover hover:bg-surface"
+                        )}
+                      >
+                        <div className="w-full">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={cn("text-[11px] font-black uppercase tracking-tighter", isActive ? "text-accent" : "text-text")}>{t.name}</span>
+                            {isActive && <CheckCircle2 size={14} className="text-accent" />}
+                          </div>
+                          <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight mb-3">{t.desc}</p>
                         </div>
-                        <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight mb-3">{t.desc}</p>
-                      </div>
 
-                      {/* Visual Color Preview Capsule */}
-                      <div className="flex items-center gap-1 bg-surface/50 p-1.5 rounded-lg border border-border/40 w-fit">
-                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Background" style={{ backgroundColor: t.colors['--color-background-theme'] }} />
-                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Surface" style={{ backgroundColor: t.colors['--color-surface-theme'] }} />
-                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Accent" style={{ backgroundColor: t.colors['--color-accent-theme'] }} />
-                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Green" style={{ backgroundColor: t.colors['--color-green-theme'] }} />
-                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Red" style={{ backgroundColor: t.colors['--color-red-theme'] }} />
-                      </div>
-                    </button>
-                  );
-                })}
+                        {/* Visual Color Preview Capsule */}
+                        <div className="flex items-center gap-1 bg-surface/50 p-1.5 rounded-lg border border-border/40 w-fit">
+                          <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Background" style={{ backgroundColor: t.colors['--color-background-theme'] }} />
+                          <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Surface" style={{ backgroundColor: t.colors['--color-surface-theme'] }} />
+                          <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Accent" style={{ backgroundColor: t.colors['--color-accent-theme'] }} />
+                          <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Green" style={{ backgroundColor: t.colors['--color-green-theme'] }} />
+                          <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" title="Red" style={{ backgroundColor: t.colors['--color-red-theme'] }} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
           </section>
 
-          <section>
-            <SectionLabel className="mb-4">Dashboard Security</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
-              <div className="flex flex-col gap-4">
+          {/* Section 2: Dashboard Security */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => toggleSection('security')}
+              aria-expanded={openSections.has('security')}
+              aria-label={openSections.has('security') ? "Collapse Dashboard Security section" : "Expand Dashboard Security section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Dashboard Security</SectionLabel>
+                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", adminApiKey ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber")}>
+                  {adminApiKey ? "Key Configured" : "Unprotected Local"}
+                </span>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('security') && "rotate-180")} />
+            </button>
+            {openSections.has('security') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
                 <div className="flex flex-col gap-2">
                   <label htmlFor="adminApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Admin API Key</label>
                   <p className="text-[11px] text-dim font-medium uppercase mb-2">Required for dashboard authentication in production</p>
@@ -246,7 +288,7 @@ export function SettingsView() {
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </section>
 
           {window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && (
@@ -268,10 +310,25 @@ export function SettingsView() {
             </motion.div>
           )}
 
-          <section>
-            <SectionLabel className="mb-4">Exchange Integration (Live)</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
-              <div className="grid grid-cols-1 gap-8">
+          {/* Section 3: Live Exchange Integration */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => toggleSection('exchange_live')}
+              aria-expanded={openSections.has('exchange_live')}
+              aria-label={openSections.has('exchange_live') ? "Collapse Exchange Integration (Live) section" : "Expand Exchange Integration (Live) section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Exchange Integration (Live)</SectionLabel>
+                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", maskedKey ? "bg-green/10 border-green/20 text-green" : "bg-border/40 text-dim")}>
+                  {maskedKey ? "Live Key Set" : "Unconfigured"}
+                </span>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('exchange_live') && "rotate-180")} />
+            </button>
+            {openSections.has('exchange_live') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
                 <div className="flex flex-col gap-2">
                   <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Live Credentials</div>
                   <div className="flex items-center gap-3 p-4 bg-background/50 border border-border rounded-xl">
@@ -353,13 +410,28 @@ export function SettingsView() {
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </section>
 
-          <section>
-            <SectionLabel className="mb-4 text-purple">Binance Demo (Testnet)</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
-              <div className="grid grid-cols-1 gap-8">
+          {/* Section 4: Binance Demo (Testnet) */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => toggleSection('exchange_testnet')}
+              aria-expanded={openSections.has('exchange_testnet')}
+              aria-label={openSections.has('exchange_testnet') ? "Collapse Binance Demo (Testnet) section" : "Expand Binance Demo (Testnet) section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0 text-purple">Binance Demo (Testnet)</SectionLabel>
+                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", maskedTestnetKey ? "bg-purple/10 border-purple/20 text-purple" : "bg-border/40 text-dim")}>
+                  {maskedTestnetKey ? "Demo Key Set" : "Unconfigured"}
+                </span>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('exchange_testnet') && "rotate-180")} />
+            </button>
+            {openSections.has('exchange_testnet') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
                 <div className="flex flex-col gap-2">
                   <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Demo Credentials</div>
                   <div className="flex items-center gap-3 p-4 bg-background/50 border border-border rounded-xl">
@@ -441,13 +513,25 @@ export function SettingsView() {
                   </div>
                 </div>
               </div>
-            </div>
+            )}
           </section>
 
-          <section>
-            <SectionLabel className="mb-4">Validate & Apply Credentials</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
-              <div className="grid grid-cols-1 gap-8">
+          {/* Section 5: Validate & Apply Credentials */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => toggleSection('credentials')}
+              aria-expanded={openSections.has('credentials')}
+              aria-label={openSections.has('credentials') ? "Collapse Validate & Apply Credentials section" : "Expand Validate & Apply Credentials section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Validate & Apply Credentials</SectionLabel>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('credentials') && "rotate-180")} />
+            </button>
+            {openSections.has('credentials') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
                 {(apiKey || testnetApiKey) && (
                   <div className="flex flex-col gap-4">
                     <div className="flex items-center gap-2">
@@ -546,299 +630,387 @@ export function SettingsView() {
                   </Tooltip>
                 </div>
               </div>
-            </div>
+            )}
           </section>
 
-          <section>
-            <SectionLabel className="mb-4">Engine Performance & Resources</SectionLabel>
-            <div className="bg-surface border border-border/80 rounded-2xl p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-6">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <label htmlFor="hot_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Hot Loop (ms)</label>
-                    <Tooltip content="Frequency of the pricing loop execution for real-time tracking (minimum 500ms)">
-                      <AlertCircle size={12} className="text-dim cursor-help" />
-                    </Tooltip>
-                  </div>
-                  <input
-                    id="hot_loop_interval_ms"
-                    type="number"
-                    min={CONFIG_LIMITS.HOT_LOOP_MIN}
-                    value={cfg.hot_loop_interval_ms || 5000}
-                    onChange={(e) => patchConfig({ hot_loop_interval_ms: Number(e.target.value) })}
-                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <label htmlFor="main_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Main Loop (ms)</label>
-                    <Tooltip content="Frequency of the main technical analysis loop execution (minimum 1000ms)">
-                      <AlertCircle size={12} className="text-dim cursor-help" />
-                    </Tooltip>
-                  </div>
-                  <input
-                    id="main_loop_interval_ms"
-                    type="number"
-                    min={CONFIG_LIMITS.MAIN_LOOP_MIN}
-                    value={cfg.main_loop_interval_ms || 15000}
-                    onChange={(e) => patchConfig({ main_loop_interval_ms: Number(e.target.value) })}
-                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                  />
-                </div>
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <label htmlFor="slippage_warning_threshold" className="text-[10px] text-dim font-bold tracking-widest uppercase">Slippage Limit (%)</label>
-                    <Tooltip content="Maximum acceptable execution slippage before emitting system warnings">
-                      <AlertCircle size={12} className="text-dim cursor-help" />
-                    </Tooltip>
-                  </div>
-                  <input
-                    id="slippage_warning_threshold"
-                    type="number"
-                    min="0"
-                    step="0.1"
-                    value={cfg.slippage_warning_threshold !== undefined ? (cfg.slippage_warning_threshold * 100).toFixed(1) : '0.1'}
-                    onChange={(e) => patchConfig({ slippage_warning_threshold: Number(e.target.value) / 100 })}
-                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                  />
-                </div>
+          {/* Section 6: Engine Performance & Resources */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-md shadow-black/20">
+            <button
+              type="button"
+              onClick={() => toggleSection('performance')}
+              aria-expanded={openSections.has('performance')}
+              aria-label={openSections.has('performance') ? "Collapse Engine Performance & Resources section" : "Expand Engine Performance & Resources section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Engine Performance & Resources</SectionLabel>
+                <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent uppercase">
+                  Hibernation: {cfg.hibernation_mode || 'adaptive'}
+                </span>
               </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border/50">
-                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
-                  <label htmlFor="track_binance_rate_limits" className="cursor-pointer select-none flex-grow mr-4">
-                    <div className="text-sm font-bold">Track Rate Limits</div>
-                    <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Monitor Binance API weights</div>
-                  </label>
-                  <button
-                    id="track_binance_rate_limits"
-                    onClick={() => patchConfig({ track_binance_rate_limits: cfg.track_binance_rate_limits === false ? true : false })}
-                    role="switch"
-                    aria-checked={cfg.track_binance_rate_limits !== false}
-                    aria-label="Toggle Track Rate Limits"
-                    className={cn(
-                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                      (cfg.track_binance_rate_limits !== false) ? "bg-green" : "bg-border"
-                    )}
-                  >
-                    <div className={cn(
-                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                      (cfg.track_binance_rate_limits !== false) ? "translate-x-7" : "translate-x-1"
-                    )} />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-amber/30 transition-colors">
-                  <label htmlFor="debug_mode" className="cursor-pointer select-none flex-grow mr-4">
-                    <div className="text-sm font-bold">Debug Mode</div>
-                    <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose server-side logs</div>
-                  </label>
-                  <button
-                    id="debug_mode"
-                    onClick={() => patchConfig({ debug_mode: !cfg.debug_mode })}
-                    role="switch"
-                    aria-checked={cfg.debug_mode === true}
-                    aria-label="Toggle Debug Mode"
-                    className={cn(
-                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                      (cfg.debug_mode === true) ? "bg-amber" : "bg-border"
-                    )}
-                  >
-                    <div className={cn(
-                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                      (cfg.debug_mode === true) ? "translate-x-7" : "translate-x-1"
-                    )} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-border/50 flex flex-col gap-4">
-                <div>
-                  <h3 className="text-sm font-bold uppercase tracking-tight">Hibernation Management</h3>
-                  <p className="text-[11px] text-dim font-medium uppercase mt-1">Gated idle resource strategy</p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {[
-                    { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
-                    { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
-                    { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
-                  ].map(mode => {
-                    const isActive = (cfg.hibernation_mode || 'adaptive') === mode.id;
-                    return (
-                      <button
-                        key={mode.id}
-                        type="button"
-                        onClick={() => patchConfig({ hibernation_mode: mode.id })}
-                        aria-pressed={isActive}
-                        aria-label={`Select ${mode.label} hibernation mode`}
-                        className={cn(
-                          "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                          isActive ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
-                        )}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={cn("text-[10px] font-black uppercase tracking-tighter", isActive ? "text-accent" : "text-text")}>{mode.label}</span>
-                          {isActive && <CheckCircle2 size={14} className="text-accent" />}
-                        </div>
-                        <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {(cfg.hibernation_mode || 'adaptive') === 'adaptive' && (
-                  <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="flex flex-col gap-2">
-                      <label htmlFor="hibernation_grace_period_sec" className="text-[10px] text-dim font-bold tracking-widest uppercase">Adaptive Grace Period (s)</label>
-                      <input
-                        id="hibernation_grace_period_sec"
-                        type="number"
-                        min="5"
-                        max="3600"
-                        value={cfg.hibernation_grace_period_sec || 30}
-                        onChange={(e) => patchConfig({ hibernation_grace_period_sec: Number(e.target.value) })}
-                        className="w-full max-w-[200px] bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                      />
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('performance') && "rotate-180")} />
+            </button>
+            {openSections.has('performance') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <label htmlFor="hot_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Hot Loop (ms)</label>
+                      <Tooltip content="Frequency of the pricing loop execution for real-time tracking (minimum 500ms)">
+                        <AlertCircle size={12} className="text-dim cursor-help" />
+                      </Tooltip>
                     </div>
-                    <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
+                    <input
+                      id="hot_loop_interval_ms"
+                      type="number"
+                      min={CONFIG_LIMITS.HOT_LOOP_MIN}
+                      value={cfg.hot_loop_interval_ms || 5000}
+                      onChange={(e) => patchConfig({ hot_loop_interval_ms: Number(e.target.value) })}
+                      className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                    />
                   </div>
-                )}
-
-                <div className="p-4 bg-background/40 border border-border/60 rounded-xl flex flex-col gap-2">
-                   <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
-                      <ShieldCheck size={12} /> Resource vs. Latency Trade-off
-                   </div>
-                   <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
-                      {(cfg.hibernation_mode || 'adaptive') === 'light' ?
-                        "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
-                        (cfg.hibernation_mode || 'adaptive') === 'deep' ?
-                        "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
-                        "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
-                      }
-                   </p>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section>
-            <SectionLabel className="mb-4">Dashboard & Streaming</SectionLabel>
-            <div className="bg-surface border border-border/80 rounded-2xl p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-6">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4 flex-grow">
-                  <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
-                    <Activity size={20} className="text-accent" />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <label htmlFor="main_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Main Loop (ms)</label>
+                      <Tooltip content="Frequency of the main technical analysis loop execution (minimum 1000ms)">
+                        <AlertCircle size={12} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
+                    <input
+                      id="main_loop_interval_ms"
+                      type="number"
+                      min={CONFIG_LIMITS.MAIN_LOOP_MIN}
+                      value={cfg.main_loop_interval_ms || 15000}
+                      onChange={(e) => patchConfig({ main_loop_interval_ms: Number(e.target.value) })}
+                      className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                    />
                   </div>
-                  <label htmlFor="system_health_bar" className="cursor-pointer select-none flex-grow">
-                    <h3 className="text-sm font-bold uppercase tracking-tight">System Health Bar</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Show CPU, Memory and event loop lag</p>
-                  </label>
-                </div>
-                <button
-                  id="system_health_bar"
-                  onClick={() => setHealthEnabled(!healthEnabled)}
-                  role="switch"
-                  aria-checked={healthEnabled}
-                  aria-label="Toggle System Health Bar"
-                  className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                    healthEnabled ? "bg-green" : "bg-border"
-                  )}
-                >
-                  <div className={cn(
-                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                    healthEnabled ? "translate-x-7" : "translate-x-1"
-                  )} />
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
-                <div className="flex items-center gap-4 flex-grow">
-                  <div className="w-10 h-10 rounded-xl bg-green/10 flex items-center justify-center shrink-0">
-                    <Zap size={20} className="text-green" />
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <label htmlFor="slippage_warning_threshold" className="text-[10px] text-dim font-bold tracking-widest uppercase">Slippage Limit (%)</label>
+                      <Tooltip content="Maximum acceptable execution slippage before emitting system warnings">
+                        <AlertCircle size={12} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
+                    <input
+                      id="slippage_warning_threshold"
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={cfg.slippage_warning_threshold !== undefined ? (cfg.slippage_warning_threshold * 100).toFixed(1) : '0.1'}
+                      onChange={(e) => patchConfig({ slippage_warning_threshold: Number(e.target.value) / 100 })}
+                      className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                    />
                   </div>
-                  <label htmlFor="real_time_streaming" className="cursor-pointer select-none flex-grow">
-                    <h3 className="text-sm font-bold uppercase tracking-tight">Real-time Streaming</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Enable/Disable all incoming WebSocket updates</p>
-                  </label>
                 </div>
-                <button
-                  id="real_time_streaming"
-                  onClick={() => setStreamingEnabled(!streamingEnabled)}
-                  role="switch"
-                  aria-checked={streamingEnabled}
-                  aria-label="Toggle Real-time Streaming"
-                  className={cn(
-                    "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                    streamingEnabled ? "bg-green" : "bg-border"
-                  )}
-                >
-                  <div className={cn(
-                    "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                    streamingEnabled ? "translate-x-7" : "translate-x-1"
-                  )} />
-                </button>
-              </div>
 
-              <div className="pt-8 border-t border-border/50">
-                <div className="mb-4">
-                  <h3 className="text-sm font-bold uppercase tracking-tight">Backend Log Feed</h3>
-                  <p className="text-[11px] text-dim font-medium uppercase mt-1">Select which backend log levels are sent to this dashboard.</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border/50">
+                  <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
+                    <label htmlFor="track_binance_rate_limits" className="cursor-pointer select-none flex-grow mr-4">
+                      <div className="text-sm font-bold">Track Rate Limits</div>
+                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Monitor Binance API weights</div>
+                    </label>
+                    <button
+                      id="track_binance_rate_limits"
+                      onClick={() => patchConfig({ track_binance_rate_limits: cfg.track_binance_rate_limits === false ? true : false })}
+                      role="switch"
+                      aria-checked={cfg.track_binance_rate_limits !== false}
+                      aria-label="Toggle Track Rate Limits"
+                      className={cn(
+                        "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                        (cfg.track_binance_rate_limits !== false) ? "bg-green" : "bg-border"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                        (cfg.track_binance_rate_limits !== false) ? "translate-x-7" : "translate-x-1"
+                      )} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-amber/30 transition-colors">
+                    <label htmlFor="debug_mode" className="cursor-pointer select-none flex-grow mr-4">
+                      <div className="text-sm font-bold">Debug Mode</div>
+                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Verbose server-side logs</div>
+                    </label>
+                    <button
+                      id="debug_mode"
+                      onClick={() => patchConfig({ debug_mode: !cfg.debug_mode })}
+                      role="switch"
+                      aria-checked={cfg.debug_mode === true}
+                      aria-label="Toggle Debug Mode"
+                      className={cn(
+                        "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                        (cfg.debug_mode === true) ? "bg-amber" : "bg-border"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                        (cfg.debug_mode === true) ? "translate-x-7" : "translate-x-1"
+                      )} />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  {['info', 'warn', 'error'].map((level) => {
-                    const safeLogFilters = logFilters && typeof logFilters === 'object' ? logFilters : { info: true, warn: true, error: true }
-                    const enabled = safeLogFilters[level] !== false
-                    const label = level === 'info' ? 'Info' : level === 'warn' ? 'Warnings' : 'Errors'
-                    return (
-                      <Tooltip
-                        key={level}
-                        content={`Click to ${enabled ? 'disable' : 'enable'} ${label.toLowerCase()} level logs in the live dashboard feed`}
-                      >
+
+                <div className="pt-4 border-t border-border/50 flex flex-col gap-4">
+                  <div>
+                    <h3 className="text-sm font-bold uppercase tracking-tight">Hibernation Management</h3>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Gated idle resource strategy</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {[
+                      { id: 'light', label: 'Light Sleep', desc: 'Fastest resumption. Keeps market streams active. Best for low latency.' },
+                      { id: 'adaptive', label: 'Adaptive', desc: 'SRE Recommended. 30s light grace period before deep sleep. Balanced.' },
+                      { id: 'deep', label: 'Deep Sleep', desc: 'Maximum resource savings. Immediate stream teardown and cache purge.' }
+                    ].map(mode => {
+                      const isActive = (cfg.hibernation_mode || 'adaptive') === mode.id;
+                      return (
                         <button
+                          key={mode.id}
                           type="button"
-                          onClick={() => toggleLogFilter(level)}
-                          aria-pressed={enabled}
-                          aria-label={`Toggle ${label} logs (${enabled ? 'Enabled' : 'Disabled'})`}
+                          onClick={() => patchConfig({ hibernation_mode: mode.id })}
+                          aria-pressed={isActive}
+                          aria-label={`Select ${mode.label} hibernation mode`}
                           className={cn(
-                            "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                            enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
+                            "p-4 rounded-xl border-2 text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                            isActive ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover"
                           )}
                         >
-                          {label}
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={cn("text-[10px] font-black uppercase tracking-tighter", isActive ? "text-accent" : "text-text")}>{mode.label}</span>
+                            {isActive && <CheckCircle2 size={14} className="text-accent" />}
+                          </div>
+                          <p className="text-[9px] text-dim font-bold uppercase tracking-tight leading-tight">{mode.desc}</p>
                         </button>
-                      </Tooltip>
-                    )
-                  })}
+                      );
+                    })}
+                  </div>
+
+                  {(cfg.hibernation_mode || 'adaptive') === 'adaptive' && (
+                    <div className="animate-in fade-in slide-in-from-top-2 duration-300">
+                      <div className="flex flex-col gap-2">
+                        <label htmlFor="hibernation_grace_period_sec" className="text-[10px] text-dim font-bold tracking-widest uppercase">Adaptive Grace Period (s)</label>
+                        <input
+                          id="hibernation_grace_period_sec"
+                          type="number"
+                          min="5"
+                          max="3600"
+                          value={cfg.hibernation_grace_period_sec || 30}
+                          onChange={(e) => patchConfig({ hibernation_grace_period_sec: Number(e.target.value) })}
+                          className="w-full max-w-[200px] bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[9px] text-dim font-medium uppercase tracking-tight">Time to maintain Light Sleep before full cache purge.</p>
+                    </div>
+                  )}
+
+                  {/* Database Auto-Pruning Retention Management */}
+                  <div className="pt-4 border-t border-border/50 flex flex-col gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold uppercase tracking-tight flex items-center gap-2">
+                        <Database size={14} className="text-accent" /> Database Auto-Pruning & Egress Limits
+                      </h3>
+                      <p className="text-[11px] text-dim font-medium uppercase mt-1">Configure automated data retention to minimize PostgreSQL RAM & disk footprint</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-2">
+                        <label htmlFor="log_retention_days" className="text-[10px] text-dim font-bold tracking-widest uppercase">Log Retention (Days)</label>
+                        <input
+                          id="log_retention_days"
+                          type="number"
+                          min="1"
+                          max="365"
+                          value={cfg.log_retention_days || 7}
+                          onChange={(e) => patchConfig({ log_retention_days: Number(e.target.value) })}
+                          className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                        />
+                        <p className="text-[9px] text-dim font-medium uppercase">Prune debug and system logs older than threshold.</p>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        <label htmlFor="trade_retention_days" className="text-[10px] text-dim font-bold tracking-widest uppercase">Trade Retention (Days)</label>
+                        <input
+                          id="trade_retention_days"
+                          type="number"
+                          min="1"
+                          max="365"
+                          value={cfg.trade_retention_days || 30}
+                          onChange={(e) => patchConfig({ trade_retention_days: Number(e.target.value) })}
+                          className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                        />
+                        <p className="text-[9px] text-dim font-medium uppercase">Prune closed trade history and balance snapshots.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-background/40 border border-border/60 rounded-xl flex flex-col gap-2">
+                     <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-widest text-accent">
+                        <ShieldCheck size={12} /> Resource vs. Latency Trade-off
+                     </div>
+                     <p className="text-[10px] text-dim leading-relaxed font-medium italic border-l border-accent/20 pl-3">
+                        {(cfg.hibernation_mode || 'adaptive') === 'light' ?
+                          "Maintaining MarketFeed during hibernation avoids the 250+ weight REST backfill burst, ensuring the engine is ready to trade the millisecond gating clears." :
+                          (cfg.hibernation_mode || 'adaptive') === 'deep' ?
+                          "Deep sleep minimizes CPU, network, and memory by purging all non-essential data. Resumption requires a heavy API burst and short warmup period." :
+                          "Adaptive mode provides 30 seconds of high-readiness light sleep before transitioning to deep sleep for prolonged gating periods."
+                        }
+                     </p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </section>
 
-          <section>
-            <SectionLabel className="mb-4">Account Maintenance</SectionLabel>
-            <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-sm">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center">
-                    <RotateCcw size={20} className="text-red" />
+          {/* Section 7: Dashboard & Streaming */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-md shadow-black/20">
+            <button
+              type="button"
+              onClick={() => toggleSection('streaming')}
+              aria-expanded={openSections.has('streaming')}
+              aria-label={openSections.has('streaming') ? "Collapse Dashboard & Streaming section" : "Expand Dashboard & Streaming section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Dashboard & Streaming</SectionLabel>
+                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", streamingEnabled ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber")}>
+                  {streamingEnabled ? "WS Live" : "WS Paused"}
+                </span>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('streaming') && "rotate-180")} />
+            </button>
+            {openSections.has('streaming') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-4 flex-grow">
+                    <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
+                      <Activity size={20} className="text-accent" />
+                    </div>
+                    <label htmlFor="system_health_bar" className="cursor-pointer select-none flex-grow">
+                      <h3 className="text-sm font-bold uppercase tracking-tight">System Health Bar</h3>
+                      <p className="text-[11px] text-dim font-medium uppercase mt-1">Show CPU, Memory and event loop lag</p>
+                    </label>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold uppercase tracking-tight text-red">Reset Paper Balance</h3>
-                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Reset your global paper trading balance to $10,000.00</p>
+                  <button
+                    id="system_health_bar"
+                    onClick={() => setHealthEnabled(!healthEnabled)}
+                    role="switch"
+                    aria-checked={healthEnabled}
+                    aria-label="Toggle System Health Bar"
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      healthEnabled ? "bg-green" : "bg-border"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                      healthEnabled ? "translate-x-7" : "translate-x-1"
+                    )} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
+                  <div className="flex items-center gap-4 flex-grow">
+                    <div className="w-10 h-10 rounded-xl bg-green/10 flex items-center justify-center shrink-0">
+                      <Zap size={20} className="text-green" />
+                    </div>
+                    <label htmlFor="real_time_streaming" className="cursor-pointer select-none flex-grow">
+                      <h3 className="text-sm font-bold uppercase tracking-tight">Real-time Streaming</h3>
+                      <p className="text-[11px] text-dim font-medium uppercase mt-1">Enable/Disable all incoming WebSocket updates</p>
+                    </label>
+                  </div>
+                  <button
+                    id="real_time_streaming"
+                    onClick={() => setStreamingEnabled(!streamingEnabled)}
+                    role="switch"
+                    aria-checked={streamingEnabled}
+                    aria-label="Toggle Real-time Streaming"
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      streamingEnabled ? "bg-green" : "bg-border"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                      streamingEnabled ? "translate-x-7" : "translate-x-1"
+                    )} />
+                  </button>
+                </div>
+
+                <div className="pt-8 border-t border-border/50">
+                  <div className="mb-4">
+                    <h3 className="text-sm font-bold uppercase tracking-tight">Backend Log Feed</h3>
+                    <p className="text-[11px] text-dim font-medium uppercase mt-1">Select which backend log levels are sent to this dashboard.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    {['info', 'warn', 'error'].map((level) => {
+                      const safeLogFilters = logFilters && typeof logFilters === 'object' ? logFilters : { info: true, warn: true, error: true }
+                      const enabled = safeLogFilters[level] !== false
+                      const label = level === 'info' ? 'Info' : level === 'warn' ? 'Warnings' : 'Errors'
+                      return (
+                        <Tooltip
+                          key={level}
+                          content={`Click to ${enabled ? 'disable' : 'enable'} ${label.toLowerCase()} level logs in the live dashboard feed`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => toggleLogFilter(level)}
+                            aria-pressed={enabled}
+                            aria-label={`Toggle ${label} logs (${enabled ? 'Enabled' : 'Disabled'})`}
+                            className={cn(
+                              "rounded-full border px-4 py-2 text-xs font-bold uppercase tracking-tight transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                              enabled ? 'border-accent bg-accent/10 text-text' : 'border-border text-dim bg-transparent'
+                            )}
+                          >
+                            {label}
+                          </button>
+                        </Tooltip>
+                      )
+                    })}
                   </div>
                 </div>
-                <Btn
-                  variant="ghost"
-                  onClick={() => setResetConfirm(true)}
-                  disabled={resetting}
-                  className="px-6 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest text-red hover:bg-red/5 hover:border-red"
-                >
-                  Reset Balance
-                </Btn>
               </div>
-            </div>
+            )}
+          </section>
+
+          {/* Section 8: Account Maintenance */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => toggleSection('maintenance')}
+              aria-expanded={openSections.has('maintenance')}
+              aria-label={openSections.has('maintenance') ? "Collapse Account Maintenance section" : "Expand Account Maintenance section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0 text-red">Account Maintenance</SectionLabel>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('maintenance') && "rotate-180")} />
+            </button>
+            {openSections.has('maintenance') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center">
+                      <RotateCcw size={20} className="text-red" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold uppercase tracking-tight text-red">Reset Paper Balance</h3>
+                      <p className="text-[11px] text-dim font-medium uppercase mt-1">Reset your global paper trading balance to $10,000.00</p>
+                    </div>
+                  </div>
+                  <Btn
+                    variant="ghost"
+                    onClick={() => setResetConfirm(true)}
+                    disabled={resetting}
+                    className="px-6 py-3 rounded-xl text-[11px] font-bold uppercase tracking-widest text-red hover:bg-red/5 hover:border-red"
+                  >
+                    Reset Balance
+                  </Btn>
+                </div>
+              </div>
+            )}
 
             <ConfirmationModal
               isOpen={resetConfirm}

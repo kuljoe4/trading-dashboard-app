@@ -1011,7 +1011,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             {config.htf_ema_cross_boost_enabled !== false && (
               <Tooltip content={`HTF EMA Cross Ranking Active: ${config.htf_ema_cross_interval || '4h'} timeframe (${config.htf_ema_fast_period || 9}/${config.htf_ema_slow_period || 21} EMAs, Boost Weight: ${config.htf_ema_cross_rr_weight || 1.5}x)`}>
                 <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help">
-                  ⚡ 4H HTF Cross (+{config.htf_ema_cross_max_boost || 25} Max)
+                  ⚡ {(config.htf_ema_cross_interval || '4h').toUpperCase()} HTF Cross (+{config.htf_ema_cross_max_boost || 25} Max)
                 </span>
               </Tooltip>
             )}

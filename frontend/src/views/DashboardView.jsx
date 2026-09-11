@@ -922,13 +922,22 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         {/* Right: Color-Coded Active PnL & Session Return Badges + Position Allocation Pill */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0 font-mono text-xs">
           {/* Active PnL Color-Coded Badge */}
-          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)}`}>
+          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)} (${(() => {
+            const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+            return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+          })()})`}>
             <div className={cn(
               "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0",
               isPosActive ? "bg-green/10 border-green/25 text-green" : "bg-red/10 border-red/25 text-red"
             )}>
               {isPosActive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
               <span>{fmtUSD(s.activePnl)}</span>
+              <span className="text-[9px] opacity-80">
+                ({(() => {
+                  const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+                  return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(1)}%`;
+                })()})
+              </span>
             </div>
           </Tooltip>
 
@@ -1116,6 +1125,12 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start">Active P&L</span>
             <span className={cn("font-black font-mono tracking-tighter leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")} style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
+            </span>
+            <span className="text-[8px] font-bold font-mono uppercase tracking-wider mt-0.5 truncate" style={{ color: pnlColor(s.activePnl) }}>
+              {(() => {
+                const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+                return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+              })()}
             </span>
           </div>
           {!isCompact && (
@@ -2679,11 +2694,15 @@ export function DashboardView({ initialStrategy }) {
               />
               <StatCard
                 label="Active P&L"
-                value={fmtUSD(totalActivePnl)}
+                value={`${fmtUSD(totalActivePnl)} (${(() => {
+                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl))) || 10000;
+                  const activePct = startBal > 0 ? (totalActivePnl / startBal) * 100 : 0;
+                  return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+                })()})`}
                 color={pnlClass(totalActivePnl)}
                 subValue={`Total (${config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live')}): ${fmtUSD(totalPnl)}`}
                 syncing={isResuming}
-                tooltipText="Current P&L from open trades vs. total session performance."
+                tooltipText="Current unrealized P&L (% of initial balance) from open trades vs. total session performance."
               />
               <StatCard
                 label="Live Risk"

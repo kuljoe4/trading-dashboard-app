@@ -85,14 +85,21 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
+  const storeBalance = useTradingStore(state => state.balance);
+  const totalSessionPnl = useTradingStore(state => state.totalPnl || 0);
+
   const startingBal = useMemo(() => {
     const mode = strategyConfig?.trading_mode || (strategyConfig?.paper_mode ? 'paper' : 'live');
     return mode === 'paper'
       ? (strategyConfig?.paper_starting_balance || 10000)
       : (mode === 'testnet'
-          ? (strategyConfig?.testnet_starting_balance || 10000)
-          : (strategyConfig?.live_starting_balance || 10000));
-  }, [strategyConfig]);
+          ? (strategyConfig?.testnet_starting_balance && strategyConfig.testnet_starting_balance !== 10000
+              ? strategyConfig.testnet_starting_balance
+              : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000))
+          : (strategyConfig?.live_starting_balance && strategyConfig.live_starting_balance !== 10000
+              ? strategyConfig.live_starting_balance
+              : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000)));
+  }, [strategyConfig, storeBalance, totalSessionPnl]);
 
   // Per-strategy performance metrics calculation
   const stratPerformance = useMemo(() => {

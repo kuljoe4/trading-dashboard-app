@@ -1551,11 +1551,16 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 const sessionReturnBlock = (() => {
                   if (trade.exit_ts || !sessionActive) return null;
                   const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
+                  const storeBal = activeSessionBalance || 0;
                   const startingBalance = tradingMode === 'paper'
                     ? (activeSessionConfig.paper_starting_balance || 10000)
                     : (tradingMode === 'testnet'
-                        ? (activeSessionConfig.testnet_starting_balance || 10000)
-                        : (activeSessionConfig.live_starting_balance || activeSessionBalance || 10000));
+                        ? (activeSessionConfig.testnet_starting_balance && activeSessionConfig.testnet_starting_balance !== 10000
+                            ? activeSessionConfig.testnet_starting_balance
+                            : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000))
+                        : (activeSessionConfig.live_starting_balance && activeSessionConfig.live_starting_balance !== 10000
+                            ? activeSessionConfig.live_starting_balance
+                            : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000)));
                   const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
                   const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
                   return {

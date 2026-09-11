@@ -797,11 +797,18 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const storeBalance = useTradingStore(state => state.balance);
+  const totalSessionPnl = useTradingStore(state => state.totalPnl || 0);
+
   const startingBalance = tradingMode === 'paper'
     ? (config.paper_starting_balance || 10000)
     : (tradingMode === 'testnet'
-        ? (config.testnet_starting_balance || 10000)
-        : (config.live_starting_balance || 10000));
+        ? (config.testnet_starting_balance && config.testnet_starting_balance !== 10000
+            ? config.testnet_starting_balance
+            : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000))
+        : (config.live_starting_balance && config.live_starting_balance !== 10000
+            ? config.live_starting_balance
+            : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000)));
 
   const sessionReturnPct = startingBalance > 0 ? (s.totalPnl / startingBalance) * 100 : 0;
 
@@ -1981,11 +1988,17 @@ export function DashboardView({ initialStrategy }) {
     }
 
     const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+    const storeBal = useTradingStore.getState().balance;
+    const storeTotalPnl = useTradingStore.getState().totalPnl || 0;
     const startingBal = tradingMode === 'paper'
       ? (config?.paper_starting_balance || 10000)
       : (tradingMode === 'testnet'
-          ? (config?.testnet_starting_balance || 10000)
-          : (config?.live_starting_balance || 10000));
+          ? (config?.testnet_starting_balance && config?.testnet_starting_balance !== 10000
+              ? config.testnet_starting_balance
+              : (storeBal ? Math.max(1, storeBal - storeTotalPnl) : 10000))
+          : (config?.live_starting_balance && config?.live_starting_balance !== 10000
+              ? config.live_starting_balance
+              : (storeBal ? Math.max(1, storeBal - storeTotalPnl) : 10000)));
 
     const map = new Map();
     for (const [label, trades] of grouped.entries()) {
@@ -2582,7 +2595,12 @@ export function DashboardView({ initialStrategy }) {
                 label="Account Balance"
                 value={`$${balance.toLocaleString()}`}
                 tooltipText={(() => {
-                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : config?.live_starting_balance) || 10000;
+                  const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+                  const startBal = tradingMode === 'paper'
+                    ? (config?.paper_starting_balance || 10000)
+                    : (tradingMode === 'testnet'
+                        ? (config?.testnet_starting_balance && config.testnet_starting_balance !== 10000 ? config.testnet_starting_balance : Math.max(1, balance - totalPnl))
+                        : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl)));
                   const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
                   const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
                   const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);

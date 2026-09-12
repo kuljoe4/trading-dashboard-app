@@ -2456,26 +2456,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return name.length > 10 ? name.slice(0, 10).trim() : name;
   }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade, loadedPresetName]);
 
-  useEffect(() => {
-    const loadPresets = async () => {
-      try {
-        console.log('[ConfigModal] Loading presets...');
-        const res = await presetsAPI.list();
-        if (res && res.data) {
-          setPresets(res.data);
-          console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
-        } else {
-          console.warn('[ConfigModal] No presets data returned from API.');
-        }
-      } catch (e) {
-        console.error('[ConfigModal] Error loading presets:', e);
-        if (addAlert) {
-          addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
-        }
+  const fetchPresets = React.useCallback(async () => {
+    try {
+      console.log('[ConfigModal] Loading presets...');
+      const res = await presetsAPI.list();
+      if (res && res.data) {
+        setPresets(res.data);
+        console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
+      } else {
+        console.warn('[ConfigModal] No presets data returned from API.');
       }
-    };
-    loadPresets();
-  }, [addAlert])
+    } catch (e) {
+      console.error('[ConfigModal] Error loading presets:', e);
+      if (addAlert) {
+        addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
+      }
+    }
+  }, [addAlert]);
+
+  useEffect(() => {
+    fetchPresets();
+  }, [fetchPresets]);
 
   // Check API key configuration for testnet and live modes
   useEffect(() => {

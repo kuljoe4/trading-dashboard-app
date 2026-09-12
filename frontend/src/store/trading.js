@@ -370,11 +370,20 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sidebarCollapsed: localStorage.getItem('sidebar_collapsed') === 'true', 
   healthEnabled: localStorage.getItem('health_enabled') !== 'false',
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
+  uiEcoMode: localStorage.getItem('ui_eco_mode') === 'true',
   isThrottled: false, entryCount: 0, hitCount: 0,
   theme: 'default',
   setTheme: (theme) => {
     set({ theme });
     applyTheme(theme);
+  },
+  setUiEcoMode: (eco) => {
+    localStorage.setItem('ui_eco_mode', String(!!eco));
+    if (typeof document !== 'undefined' && document.body) {
+      if (eco) document.body.classList.add('ui-eco-mode');
+      else document.body.classList.remove('ui-eco-mode');
+    }
+    set({ uiEcoMode: !!eco });
   },
 
   addAlert: (alert) => {

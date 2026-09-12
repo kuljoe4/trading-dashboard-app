@@ -184,6 +184,7 @@ const sessionConfigAllowedKeys = [
   'htf_ema_cross_max_boost',
   'htf_ema_cross_rr_weight',
   'force_risk_release',
+  'ui_eco_mode',
 ]
 
 const sanitizeSessionConfig = (config) => {

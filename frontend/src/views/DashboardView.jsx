@@ -2042,6 +2042,8 @@ export function DashboardView({ initialStrategy }) {
     let minActivePnlSum = 0;
     let oldestEntryTs = Infinity;
     let latestUpdateTs = 0;
+    // BOLT OPTIMIZATION: Accumulate totalActivePnl in-loop to eliminate Object.values(pnlMap) array allocation and second pass
+    let totPnl = 0;
 
     const trades = activeTrades || [];
     for (let i = 0; i < trades.length; i++) {
@@ -2052,6 +2054,7 @@ export function DashboardView({ initialStrategy }) {
         pnlMap[label] += pnlVal;
         estPnlMap[label] += safeNum(t.est_pnl_to_realize);
         countMap[label]++;
+        totPnl += pnlVal;
 
         // Calculate risk in USDT to convert R multiples to dollar amounts if max_pnl is not directly present
         const riskUsdt = safeNum(t.risk_usdt || t.initial_risk_usdt) ||
@@ -2080,13 +2083,6 @@ export function DashboardView({ initialStrategy }) {
           latestUpdateTs = updateTs;
         }
       }
-    }
-
-    // Sum the group totals to match original addition sequence and avoid float precision drift
-    const pnlValues = Object.values(pnlMap);
-    let totPnl = 0;
-    for (let i = 0; i < pnlValues.length; i++) {
-      totPnl += pnlValues[i];
     }
 
     return {

@@ -949,6 +949,21 @@ export class SessionService implements OnModuleInit {
       openTrades = await this.tradeRepository.find({
         where: { status: "OPEN" as any },
       });
+      // Coerce all TypeORM decimal strings to primitive numbers for rehydrated trades
+      for (const t of openTrades) {
+        if (t.entry_price != null) t.entry_price = Number(t.entry_price);
+        if (t.current_sl != null) t.current_sl = Number(t.current_sl);
+        if (t.initial_sl != null) t.initial_sl = Number(t.initial_sl);
+        if (t.qty != null) t.qty = Number(t.qty);
+        if (t.tp != null) t.tp = Number(t.tp);
+        if (t.max_rr_achieved != null) t.max_rr_achieved = Number(t.max_rr_achieved);
+        if (t.min_rr_achieved != null) t.min_rr_achieved = Number(t.min_rr_achieved);
+        if (t.pnl != null) t.pnl = Number(t.pnl);
+        if (t.risk_usdt != null) t.risk_usdt = Number(t.risk_usdt);
+        if (t.initial_risk_usdt != null) t.initial_risk_usdt = Number(t.initial_risk_usdt);
+        if (t.realized_fee != null) t.realized_fee = Number(t.realized_fee);
+        if (t.funding_fee != null) t.funding_fee = Number(t.funding_fee);
+      }
     } catch (e: any) {
       this.logger.error(
         `Failed to fetch open trades for reconciliation: ${e.message}`,

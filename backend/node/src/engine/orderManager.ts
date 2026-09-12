@@ -2056,6 +2056,9 @@ export class OrderManagerService {
         if (isFired && isActive) {
           firedCount++;
           satisfiedActiveKeys.push(exitSignal);
+          const sigLogMsg = `[Exit Signal Fired] Active trade ${symbol} (${trade.direction}): Exit signal "${exitSignal}" target/proximity reached! Value=${detail?.value ?? 1}, Threshold=${detail?.threshold ?? 1}. (${detail?.description || 'Signal active'})`;
+          this.logger.log(sigLogMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: sigLogMsg, level: 'info' });
         }
         if (isActive) {
           activeCount++;

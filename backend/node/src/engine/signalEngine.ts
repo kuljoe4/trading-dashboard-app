@@ -747,12 +747,18 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType?: string,
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const period = purpose === 'exit'
-        ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
-        : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
+      const signalTypeKey = signalType || (arguments[7] as string) || 'ema';
+      const baseType = 'ema';
+
+      const periodVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_period', this.resolveSignalParam(params, signalTypeKey, baseType, 'ema_period', '12'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_period', this.resolveSignalParam(params, signalTypeKey, baseType, 'ema_period', '12'));
+
+      const period = parseInt(String(periodVal || '12'), 10) || 12;
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
@@ -1028,12 +1034,18 @@ export class SignalEngineService {
     purpose: 'entry' | 'exit' = 'entry',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType?: string,
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const period = purpose === 'exit'
-        ? parseInt(params.exit_ema_period || params.ema_period || '12', 10)
-        : parseInt(params.entry_ema_period || params.ema_period || '12', 10);
+      const signalTypeKey = signalType || (arguments[7] as string) || 'ema_close';
+      const baseType = 'ema_close';
+
+      const periodVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_period', this.resolveSignalParam(params, signalTypeKey, baseType, 'ema_period', '12'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_period', this.resolveSignalParam(params, signalTypeKey, baseType, 'ema_period', '12'));
+
+      const period = parseInt(String(periodVal || '12'), 10) || 12;
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 2) {

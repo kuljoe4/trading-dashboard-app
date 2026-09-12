@@ -205,6 +205,12 @@ export class PositionTrackerService {
    * SRE/DATA: Hydrate and sanitize max_rr_achieved from DB state, milestone index, SL lock, or live price.
    */
   public hydrateMaxRr(trade: Trade, config?: SessionConfig): void {
+    if (trade.entry_price != null) trade.entry_price = Number(trade.entry_price);
+    if (trade.current_sl != null) trade.current_sl = Number(trade.current_sl);
+    if (trade.initial_sl != null) trade.initial_sl = Number(trade.initial_sl);
+    if (trade.qty != null) trade.qty = Number(trade.qty);
+    if (trade.tp != null) trade.tp = Number(trade.tp);
+
     const rawVal = Number(trade.max_rr_achieved);
     let maxRr = !isNaN(rawVal) && isFinite(rawVal) ? rawVal : 0;
 
@@ -254,6 +260,20 @@ export class PositionTrackerService {
       this.setEntering(trade.symbol, false);
       return;
     }
+
+    // Coerce all TypeORM decimal strings or nulls to primitive numbers for active trade rehydration
+    if (trade.entry_price != null) trade.entry_price = Number(trade.entry_price);
+    if (trade.current_sl != null) trade.current_sl = Number(trade.current_sl);
+    if (trade.initial_sl != null) trade.initial_sl = Number(trade.initial_sl);
+    if (trade.qty != null) trade.qty = Number(trade.qty);
+    if (trade.tp != null) trade.tp = Number(trade.tp);
+    if (trade.max_rr_achieved != null) trade.max_rr_achieved = Number(trade.max_rr_achieved);
+    if (trade.min_rr_achieved != null) trade.min_rr_achieved = Number(trade.min_rr_achieved);
+    if (trade.pnl != null) trade.pnl = Number(trade.pnl);
+    if (trade.risk_usdt != null) trade.risk_usdt = Number(trade.risk_usdt);
+    if (trade.initial_risk_usdt != null) trade.initial_risk_usdt = Number(trade.initial_risk_usdt);
+    if (trade.realized_fee != null) trade.realized_fee = Number(trade.realized_fee);
+    if (trade.funding_fee != null) trade.funding_fee = Number(trade.funding_fee);
 
     // Correctly handle symbol overwrites to prevent double-counting risk
     const existing = this.trades.get(trade.symbol);
@@ -601,6 +621,13 @@ export class PositionTrackerService {
     const trade = this.trades.get(symbol);
     if (!trade || trade.status !== 'OPEN') return null;
 
+    // Diagnostic Warning: Detect open trades with unconfigured/zero stop loss
+    if ((!trade.current_sl || trade.current_sl <= 0) && (!trade.initial_sl || trade.initial_sl <= 0)) {
+      const warnMsg = `[SL Warning] Active trade ${symbol} (${trade.direction}) has zero or unconfigured Stop Loss (current_sl=${trade.current_sl}). Check Risk Settings!`;
+      this.logger.warn(warnMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
+    }
+
     // Check SL hit
     if (trade.current_sl && trade.current_sl > 0) {
       if ((trade.direction === 'LONG' && currentPrice <= trade.current_sl) ||
@@ -683,6 +710,10 @@ export class PositionTrackerService {
           const status = trade.exit_signals_status?.[exitSignalType || ''];
           trade.exit_signal_reason = status?.description || `Signal ${exitSignalType} fired`;
         }
+
+        const exitLogMsg = `[Exit Monitoring Trigger] Trade ${symbol} (${trade.direction}) triggered close via exit signal ${exitSignalType || 'SIGNAL'} @ ${currentPrice}. Reason: ${trade.exit_signal_reason}`;
+        this.logger.log(exitLogMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: exitLogMsg, level: 'info' });
 
         return {
           exitOccurred: true,

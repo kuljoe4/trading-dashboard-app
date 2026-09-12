@@ -8,6 +8,45 @@
  */
 
 export const getMarketRegimeInfo = (scannerResults = [], config = {}, extraState = {}) => {
+  // FAST-FAIL: If UI Eco-Mode is active or explicit uiEcoMode flag passed, immediately return lightweight static regime
+  if (extraState?.uiEcoMode || (typeof localStorage !== 'undefined' && localStorage.getItem('ui_eco_mode') === 'true')) {
+    const threshold = Math.max(0.01, Number(config?.scan_pct_threshold ?? 2.0));
+    return {
+      avgMomentum: 0,
+      avgVolScore: 0,
+      avgScore: 0,
+      maxAbsMomentum: 0,
+      passingCount: 0,
+      totalCount: Array.isArray(scannerResults) ? scannerResults.length : 0,
+      threshold,
+      scanInterval: String(config?.scan_interval || '1m'),
+      advancingCount: 0,
+      decliningCount: 0,
+      advanceRatioPct: 50,
+      breadthLabel: 'Eco Mode',
+      breadthIcon: 'Zap',
+      benchmarkSymbol: 'BTC',
+      btcPrice: 0,
+      btc24hHigh: 0,
+      btc24hLow: 0,
+      btcRangePct: 50,
+      valid24hRange: false,
+      maxPct: 0,
+      minPct: 0,
+      scanMaxPct: 0,
+      scanMinPct: 0,
+      regime: 'eco',
+      label: 'Eco Mode Active',
+      subLabel: 'CPU/RAM Optimization Mode',
+      badgeClass: 'bg-amber/10 text-amber border-amber/20',
+      pillClass: 'bg-amber/20 text-amber border-amber/30',
+      meterClass: 'bg-amber',
+      iconName: 'Zap',
+      speedPct: 50,
+      guidance: 'UI Eco-Graphics Mode is active. Heavy market calculations are bypassed to save browser CPU and laptop battery.',
+    };
+  }
+
   const threshold = Math.max(0.01, Number(config?.scan_pct_threshold ?? 2.0));
   const scanInterval = String(config?.scan_interval || '1m');
   const resultsArr = Array.isArray(scannerResults) ? scannerResults : [];

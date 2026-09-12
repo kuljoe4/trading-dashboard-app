@@ -8,6 +8,9 @@ export class MonitoringService {
   private hotLoopExecutionTime = 0;
   private mainLoopExecutionTime = 0;
   private apiRequestCount = 0;
+  private apiRequestBreakdown: Record<string, number> = {};
+  private restTelemetryLogs: { ts: number; label: string; duration: number; weight: number; status: 'ok' | 'error' | 'shed'; errorMsg?: string }[] = [];
+  private readonly MAX_LOGS = 50;
   private lastUdsPing = 0;
   private udsStatus: 'CONNECTED' | 'DISCONNECTED' | 'LAGGING' = 'DISCONNECTED';
 
@@ -30,6 +33,9 @@ export class MonitoringService {
   clearAppMetrics() {
     this.hotLoopExecutionTime = 0;
     this.mainLoopExecutionTime = 0;
+    this.apiRequestCount = 0;
+    this.apiRequestBreakdown = {};
+    this.restTelemetryLogs = [];
     this.loopPipeline = { stage: 'IDLE', ts: Date.now() };
     this.logger.verbose('MonitoringService: Application loop metrics cleared');
   }
@@ -51,6 +57,8 @@ export class MonitoringService {
         hot_loop_ms: this.hotLoopExecutionTime,
         main_loop_ms: this.mainLoopExecutionTime,
         api_requests_total: this.apiRequestCount,
+        api_requests_breakdown: { ...this.apiRequestBreakdown },
+        rest_telemetry_logs: this.restTelemetryLogs.slice(-20),
         exchange_uds_status: currentUdsStatus,
         last_uds_ping_sec: this.lastUdsPing > 0 ? Math.floor((now - this.lastUdsPing) / 1000) : null,
         loop_pipeline: {
@@ -85,7 +93,32 @@ export class MonitoringService {
     this.mainLoopExecutionTime = Math.round(ms);
   }
 
-  incrementApiRequests() {
+  incrementApiRequests(label?: string) {
     this.apiRequestCount++;
+    if (label) {
+      this.apiRequestBreakdown[label] = (this.apiRequestBreakdown[label] || 0) + 1;
+    }
+  }
+
+  recordRestCall(label: string, duration: number, weight: number, status: 'ok' | 'error' | 'shed' = 'ok', errorMsg?: string) {
+    if (status === 'ok') {
+      this.incrementApiRequests(label);
+    } else if (label && !this.apiRequestBreakdown[label]) {
+      this.apiRequestBreakdown[label] = this.apiRequestBreakdown[label] || 0;
+    }
+
+    const logEntry = {
+      ts: Date.now(),
+      label,
+      duration,
+      weight,
+      status,
+      ...(errorMsg ? { errorMsg } : {})
+    };
+
+    this.restTelemetryLogs.push(logEntry);
+    if (this.restTelemetryLogs.length > this.MAX_LOGS) {
+      this.restTelemetryLogs.shift();
+    }
   }
 }

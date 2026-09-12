@@ -5,13 +5,14 @@ import {
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL,
   DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL
 } from '@binance/derivatives-trading-usds-futures';
-import { Injectable, Logger, Inject, forwardRef, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, OnModuleInit, Optional } from '@nestjs/common';
 import WebSocket from 'ws';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionStateService } from '../engine/session_state.service';
+import { MonitoringService } from '../engine/monitoring.service';
 import { ENGINE_CONSTANTS } from '../models/constants';
 
 @Injectable()
@@ -25,6 +26,7 @@ export class BinanceClientFactory implements OnModuleInit {
     private readonly sessionState: SessionStateService,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
 
   async onModuleInit() {
@@ -86,7 +88,7 @@ export class BinanceClientFactory implements OnModuleInit {
    */
   async genericRequest<T>(fn: () => Promise<T>, label: string, isEmergency = false): Promise<T> {
     if (!this.queue) {
-      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState);
+      this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState, this.monitoringService);
     }
 
     return this.queue.add(async () => {
@@ -261,7 +263,7 @@ export class BinanceClientFactory implements OnModuleInit {
 
     // SRE: Ensure a single queue instance per factory to maintain consistent weight tracking
     if (!this.queue) {
-       this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState);
+       this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState, this.monitoringService);
     }
     const queue = this.queue;
 
@@ -318,7 +320,8 @@ export class BinanceRequestQueue {
     private readonly logger: Logger,
     private readonly eventEmitter: EventEmitter2,
     private readonly settingsRepository: Repository<SettingsEntity>,
-    private readonly sessionState: SessionStateService
+    private readonly sessionState: SessionStateService,
+    private readonly monitoringService?: MonitoringService
   ) {
     this.setupRolloverCheck();
   }
@@ -539,6 +542,9 @@ export class BinanceRequestQueue {
 
         if (shed) {
            this.logger.warn(`[BinanceQueue] SHEDDING: [${item.label}] rejected. Reason: ${shedReason} | Usage: ${(usageRatio * 100).toFixed(1)}%`);
+           if (this.sessionState?.config?.track_binance_rate_limits !== false) {
+             this.monitoringService?.recordRestCall(item.label, 0, BinanceRequestQueue.currentWeight1m, 'shed', shedReason);
+           }
            item.reject(new Error(`Load shedding active: ${item.label} rejected to preserve IP reputation. (${shedReason})`));
            continue;
         }
@@ -555,6 +561,10 @@ export class BinanceRequestQueue {
           const currentWeight = (BinanceRequestQueue.currentWeight1m === undefined || isNaN(BinanceRequestQueue.currentWeight1m)) ? 0 : BinanceRequestQueue.currentWeight1m;
           const telemetryLog = `[Telemetry] ${item.label} executed | Weight: ${currentWeight}/${BinanceRequestQueue.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`;
 
+          if (this.sessionState?.config?.track_binance_rate_limits !== false) {
+            this.monitoringService?.recordRestCall(item.label, duration, currentWeight, 'ok');
+          }
+
           // BOLT: Optimized logging. Only log critical telemetry at LOG level to reduce noise.
           // Background tasks (klines, ticker, weight resets) stay at DEBUG level.
           const isBackground = ['klineCandlestickData', 'ticker24hrPriceChangeStatistics', 'exchangeInformation'].includes(item.label);
@@ -566,10 +576,15 @@ export class BinanceRequestQueue {
 
           item.resolve(result);
         } catch (error: any) {
+          const duration = Date.now() - startTs;
           const msg = error.message || '';
           const code = error.code || (error.data ? error.data.code : null);
           const isBan = msg.includes('418') || code === -1003 || msg.includes('banned');
           const isRateLimit = msg.includes('429') || code === -1015;
+
+          if (this.sessionState?.config?.track_binance_rate_limits !== false) {
+            this.monitoringService?.recordRestCall(item.label, duration, BinanceRequestQueue.currentWeight1m, 'error', msg);
+          }
 
           // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418, -1003)
           if (isBan || isRateLimit) {

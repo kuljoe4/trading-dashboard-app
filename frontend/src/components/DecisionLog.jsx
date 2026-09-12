@@ -393,11 +393,13 @@ export const DecisionLog = React.memo(() => {
         {!isAtTop && (
           <div className="absolute top-3 inset-x-0 z-20 flex justify-center pointer-events-none">
             <button
+              type="button"
               onClick={() => {
                 if (listRef.current) listRef.current.scrollTo({ top: 0 })
                 setIsAtTop(true)
               }}
-              className="pointer-events-auto bg-accent/95 backdrop-blur-sm text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-wider shadow-2xl shadow-black/80 border border-white/15 animate-in fade-in zoom-in slide-in-from-top-2 duration-300 whitespace-nowrap hover:scale-105 active:scale-95 transition-all cursor-pointer"
+              aria-label={newLogsCount > 0 ? `Scroll to top (${newLogsCount} new log${newLogsCount === 1 ? '' : 's'} above)` : 'Scroll to top'}
+              className="pointer-events-auto bg-accent/95 backdrop-blur-sm text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-wider shadow-2xl shadow-black/80 border border-white/15 animate-in fade-in zoom-in slide-in-from-top-2 duration-300 whitespace-nowrap hover:scale-105 active:scale-95 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
             >
               {newLogsCount > 0 ? `${newLogsCount} new logs above ↑` : 'New logs above ↑'}
             </button>

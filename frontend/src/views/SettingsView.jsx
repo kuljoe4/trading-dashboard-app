@@ -652,7 +652,7 @@ export function SettingsView() {
             </button>
             {openSections.has('performance') && (
               <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-1.5">
                       <label htmlFor="hot_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Hot Loop (ms)</label>
@@ -701,6 +701,27 @@ export function SettingsView() {
                       onChange={(e) => patchConfig({ slippage_warning_threshold: Number(e.target.value) / 100 })}
                       className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
                     />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <label htmlFor="rate_limit_warning_interval_min" className="text-[10px] text-dim font-bold tracking-widest uppercase">Rate Warning Cooldown</label>
+                      <Tooltip content="Minimum interval between rate limit surge & prerequisite warning alerts (default: 5 minutes, in 5-min multiples)">
+                        <AlertCircle size={12} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
+                    <select
+                      id="rate_limit_warning_interval_min"
+                      value={cfg.rate_limit_warning_interval_min || 5}
+                      onChange={(e) => patchConfig({ rate_limit_warning_interval_min: Number(e.target.value) })}
+                      className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all cursor-pointer"
+                    >
+                      <option value={5}>5 Minutes (Default)</option>
+                      <option value={10}>10 Minutes</option>
+                      <option value={15}>15 Minutes</option>
+                      <option value={20}>20 Minutes</option>
+                      <option value={30}>30 Minutes</option>
+                      <option value={60}>60 Minutes (1 Hour)</option>
+                    </select>
                   </div>
                 </div>
 

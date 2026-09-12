@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -1935,7 +1935,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
 });
 BacktestWorkbenchPanel.displayName = 'BacktestWorkbenchPanel';
 
-const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant, sessionActive }, ref) => {
+const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant, sessionActive, isSelected, onToggleSelect }, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
   return (
     <motion.div
@@ -1947,13 +1947,30 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
         "flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer shadow-md shadow-black/20",
-        isLoaded
+        isSelected
+          ? "border-accent shadow-[0_0_12px_rgba(var(--accent-rgb),0.2)] bg-accent/[0.04]"
+          : isLoaded
           ? "border-accent/60 shadow-[0_0_12px_rgba(var(--accent-rgb),0.12)] bg-accent/[0.02]"
           : isVariant
           ? "border-purple/60 shadow-[0_0_12px_rgba(168,85,247,0.12)] bg-purple/[0.02]"
           : "border-border/80 hover:border-border-hover hover:bg-white/[0.01]"
       )}
     >
+      {onToggleSelect && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
+          className="shrink-0 p-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
+          aria-label={`Select preset ${preset.name}`}
+        >
+          <div className={cn(
+            "w-4 h-4 rounded border flex items-center justify-center transition-all",
+            isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60 hover:border-accent"
+          )}>
+            {isSelected && <Check size={11} className="stroke-[3]" />}
+          </div>
+        </button>
+      )}
       <button
         type="button"
         onClick={() => onLoad(preset)}
@@ -2261,6 +2278,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [presetSearch, setPresetSearch] = useState('');
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
+  const [selectedPresetNames, setSelectedPresetNames] = useState(new Set());
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
       const stored = localStorage.getItem('recently_used_presets');
@@ -2438,26 +2456,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return name.length > 10 ? name.slice(0, 10).trim() : name;
   }, [cfg.enabled_signals, cfg.sl_distance_pct, cfg.trailing_stop_enabled, cfg.tp_ratio, cfg.risk_pct_per_trade, loadedPresetName]);
 
-  useEffect(() => {
-    const loadPresets = async () => {
-      try {
-        console.log('[ConfigModal] Loading presets...');
-        const res = await presetsAPI.list();
-        if (res && res.data) {
-          setPresets(res.data);
-          console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
-        } else {
-          console.warn('[ConfigModal] No presets data returned from API.');
-        }
-      } catch (e) {
-        console.error('[ConfigModal] Error loading presets:', e);
-        if (addAlert) {
-          addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
-        }
+  const fetchPresets = React.useCallback(async () => {
+    try {
+      console.log('[ConfigModal] Loading presets...');
+      const res = await presetsAPI.list();
+      if (res && res.data) {
+        setPresets(res.data);
+        console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
+      } else {
+        console.warn('[ConfigModal] No presets data returned from API.');
       }
-    };
-    loadPresets();
-  }, [addAlert])
+    } catch (e) {
+      console.error('[ConfigModal] Error loading presets:', e);
+      if (addAlert) {
+        addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
+      }
+    }
+  }, [addAlert]);
+
+  useEffect(() => {
+    fetchPresets();
+  }, [fetchPresets]);
 
   // Check API key configuration for testnet and live modes
   useEffect(() => {
@@ -3081,6 +3100,35 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
   }, [buildConfigToSave, addAlert]);
 
+  const handleCopyActiveToClipboard = React.useCallback(async () => {
+    try {
+      const configToSave = buildConfigToSave();
+      await navigator.clipboard.writeText(JSON.stringify(configToSave, null, 2));
+      addAlert({ level: 'success', title: 'Copied to Clipboard', message: 'Active strategy configuration JSON copied to clipboard.' });
+    } catch (e) {
+      addAlert({ level: 'error', title: 'Copy Failed', message: 'Unable to write configuration to clipboard.' });
+    }
+  }, [buildConfigToSave, addAlert]);
+
+  const handlePasteActiveFromClipboard = React.useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        addAlert({ level: 'warning', title: 'Clipboard Empty', message: 'No clipboard content found to paste.' });
+        return;
+      }
+      const parsed = JSON.parse(text);
+      const flattened = flattenConfig(parsed);
+      setCfg(flattened);
+      setIsDirty(true);
+      validate(flattened);
+      addAlert({ level: 'success', title: 'Pasted Configuration', message: 'Strategy configuration loaded successfully from clipboard.' });
+    } catch (err) {
+      console.error('[ConfigModal] Paste failed:', err);
+      addAlert({ level: 'error', title: 'Paste Failed', message: 'Invalid JSON strategy configuration in clipboard.' });
+    }
+  }, [addAlert, validate]);
+
   const handleFileImport = React.useCallback((e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -3089,11 +3137,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target.result);
-        const flattened = flattenConfig(parsed);
-        setCfg(flattened);
-        setIsDirty(true);
-        validate(flattened);
-        addAlert({ level: 'success', title: 'Import Successful', message: 'Configuration imported from file.' });
+        if (Array.isArray(parsed)) {
+          let importedCount = 0;
+          parsed.forEach(item => {
+            if (item && item.name && item.config) {
+              presetsAPI.save(item.name, item.config).catch(() => {});
+              importedCount++;
+            }
+          });
+          fetchPresets();
+          addAlert({ level: 'success', title: 'Presets Imported', message: `Successfully imported ${importedCount} presets into preset library.` });
+        } else {
+          const flattened = flattenConfig(parsed);
+          setCfg(flattened);
+          setIsDirty(true);
+          validate(flattened);
+          addAlert({ level: 'success', title: 'Import Successful', message: 'Configuration imported from file.' });
+        }
       } catch (err) {
         console.error('[ConfigModal] File import failed:', err);
         addAlert({ level: 'error', title: 'Import Failed', message: 'Invalid JSON configuration file.' });
@@ -3101,7 +3161,66 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     };
     reader.readAsText(file);
     e.target.value = '';
-  }, [validate, addAlert]);
+  }, [addAlert, validate, fetchPresets]);
+
+  const toggleSelectPreset = React.useCallback((name) => {
+    setSelectedPresetNames(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }, []);
+
+  const handleSelectAllPresets = React.useCallback(() => {
+    if (selectedPresetNames.size === presets.length) {
+      setSelectedPresetNames(new Set());
+    } else {
+      setSelectedPresetNames(new Set(presets.map(p => p.name)));
+    }
+  }, [presets, selectedPresetNames]);
+
+  const handleCopySelectedPresets = React.useCallback(async () => {
+    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    if (selected.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
+      addAlert({ level: 'success', title: 'Copied Selected Presets', message: `Copied ${selected.length} preset(s) to clipboard.` });
+    } catch (e) {
+      addAlert({ level: 'error', title: 'Copy Failed', message: 'Failed to write selected presets to clipboard.' });
+    }
+  }, [presets, selectedPresetNames, addAlert]);
+
+  const handleExportSelectedPresets = React.useCallback(() => {
+    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    if (selected.length === 0) return;
+    try {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      const filename = `selected_presets_export_${selected.length}.json`;
+      downloadAnchor.setAttribute("download", filename);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      addAlert({ level: 'success', title: 'Export Successful', message: `Exported ${selected.length} preset(s) to ${filename}.` });
+    } catch (e) {
+      addAlert({ level: 'error', title: 'Export Failed', message: 'Failed to export selected presets.' });
+    }
+  }, [presets, selectedPresetNames, addAlert]);
+
+  const handleDeleteSelectedPresets = React.useCallback(async () => {
+    const names = Array.from(selectedPresetNames);
+    if (names.length === 0 || sessionActive) return;
+    try {
+      await Promise.all(names.map(name => presetsAPI.delete(name)));
+      setSelectedPresetNames(new Set());
+      await fetchPresets();
+      addAlert({ level: 'success', title: 'Presets Deleted', message: `Successfully deleted ${names.length} selected preset(s).` });
+    } catch (e) {
+      addAlert({ level: 'error', title: 'Delete Failed', message: 'Failed to delete selected presets.' });
+    }
+  }, [selectedPresetNames, sessionActive, fetchPresets, addAlert]);
 
   const handlePasteConfig = React.useCallback(async () => {
     let text = '';
@@ -4750,28 +4869,40 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 )}
               </div>
 
-              {/* Collapsible Utility & Transfer Tools (JSON Export/Import & Reset Slate) */}
+              {/* Collapsible Utility & Transfer Tools (JSON Export/Import, Clipboard Copy/Paste & Reset Slate) */}
               <div className="pt-2 border-t border-border/30">
                 <CollapsibleSection
                   id="presets_tools"
                   icon={Settings2}
-                  title="Export, Import & Reset Tools"
-                  subtitle="Backup JSON strategy definitions or clear active draft"
+                  title="Export, Import & Clipboard Tools"
+                  subtitle="Backup, copy, paste or reset strategy definitions"
                   isOpen={openSectionId === 'presets_tools'}
                   onToggle={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3">
-                    <Tooltip content="Export complete strategy definition as a downloadable JSON file">
-                      <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-2 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-xs font-bold">
-                        <Download size={14} /> Export JSON
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 pt-3">
+                    <Tooltip content="Copy active strategy configuration JSON to clipboard">
+                      <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
+                        <Copy size={13} /> Copy active
                       </Btn>
                     </Tooltip>
 
-                    <Tooltip content="Import a strategy definition file from your disk">
+                    <Tooltip content="Paste strategy configuration JSON from clipboard">
+                      <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
+                        <ClipboardPaste size={13} /> Paste active
+                      </Btn>
+                    </Tooltip>
+
+                    <Tooltip content="Export active strategy definition as a downloadable JSON file">
+                      <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
+                        <Download size={13} /> Export JSON
+                      </Btn>
+                    </Tooltip>
+
+                    <Tooltip content="Import strategy JSON or preset array file from your disk">
                       <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
-                        <input type="file" accept=".json" aria-label="Import JSON config file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
-                        <div className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-border bg-transparent text-xs font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer text-text">
-                          <Upload size={14} /> Import JSON
+                        <input type="file" accept=".json" aria-label="Import JSON config or presets file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
+                        <div className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border border-border bg-transparent text-[11px] font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer text-text">
+                          <Upload size={13} /> Import File
                         </div>
                       </label>
                     </Tooltip>
@@ -4780,10 +4911,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       <Btn
                         variant="ghost"
                         onClick={handleClearActiveConfig}
-                        className="flex items-center justify-center gap-2 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-2 text-xs font-bold"
+                        className="flex items-center justify-center gap-1.5 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-2 text-[11px] font-bold col-span-2 md:col-span-1"
                         aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
                       >
-                        <RefreshCw size={13} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset to Saved State" : "Clear Active Config"}
+                        <RefreshCw size={12} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset" : "Clear Active"}
                       </Btn>
                     </Tooltip>
                   </div>
@@ -4795,9 +4926,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <section className="flex flex-col gap-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex justify-between items-center w-full sm:w-auto">
-                  <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load or combine strategies" />
+                  <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load, combine or batch export/delete strategies" />
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                   <div className="relative flex-1 sm:w-64 group">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent transition-colors" />
                     <input
@@ -4843,8 +4974,53 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       </button>
                     )}
                   </div>
+
+                  <Tooltip content="Select or Deselect all presets">
+                    <Btn
+                      variant="ghost"
+                      onClick={handleSelectAllPresets}
+                      className="px-2.5 py-2 text-[11px] font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
+                    >
+                      <Check size={12} /> {selectedPresetNames.size === presets.length && presets.length > 0 ? "Deselect All" : "Select All"}
+                    </Btn>
+                  </Tooltip>
                 </div>
               </div>
+
+              {/* Multi-Select Batch Actions Toolbar */}
+              {selectedPresetNames.size > 0 && (
+                <div className="flex items-center justify-between gap-3 p-3 bg-accent/10 border border-accent/30 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="flex items-center gap-2 text-xs font-bold text-accent">
+                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                    {selectedPresetNames.size} preset(s) selected
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Tooltip content="Copy selected presets as JSON array to clipboard">
+                      <Btn variant="ghost" onClick={handleCopySelectedPresets} className="px-2.5 py-1.5 text-[11px] font-bold border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 flex items-center gap-1">
+                        <Copy size={12} /> Copy
+                      </Btn>
+                    </Tooltip>
+                    <Tooltip content="Export selected presets to downloadable JSON file">
+                      <Btn variant="ghost" onClick={handleExportSelectedPresets} className="px-2.5 py-1.5 text-[11px] font-bold border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 flex items-center gap-1">
+                        <Download size={12} /> Export
+                      </Btn>
+                    </Tooltip>
+                    <Tooltip content={sessionActive ? "Preset deletion locked while session is running" : "Delete selected presets"}>
+                      <Btn
+                        variant="ghost"
+                        onClick={handleDeleteSelectedPresets}
+                        disabled={sessionActive}
+                        className={cn(
+                          "px-2.5 py-1.5 text-[11px] font-bold border flex items-center gap-1",
+                          sessionActive ? "border-border/30 text-dim/30 cursor-not-allowed" : "border-red/30 text-red hover:bg-red/10"
+                        )}
+                      >
+                        <Trash2 size={12} /> Delete
+                      </Btn>
+                    </Tooltip>
+                  </div>
+                </div>
+              )}
 
               {presets.length === 0 ? (
                 <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
@@ -4881,6 +5057,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                               isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                               sessionActive={sessionActive}
+                              isSelected={selectedPresetNames.has(p.name)}
+                              onToggleSelect={toggleSelectPreset}
                             />
                           ))}
                         </AnimatePresence>
@@ -4935,6 +5113,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                       onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                                       isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                                       sessionActive={sessionActive}
+                                      isSelected={selectedPresetNames.has(p.name)}
+                                      onToggleSelect={toggleSelectPreset}
                                     />
                                   ))}
                                 </AnimatePresence>
@@ -4992,6 +5172,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                       onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
                                       isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
                                       sessionActive={sessionActive}
+                                      isSelected={selectedPresetNames.has(p.name)}
+                                      onToggleSelect={toggleSelectPreset}
                                     />
                                   ))}
                                 </AnimatePresence>

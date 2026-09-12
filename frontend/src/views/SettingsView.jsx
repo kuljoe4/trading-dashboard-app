@@ -10,7 +10,7 @@ import { CONFIG_LIMITS } from '../constants/configLimits'
 import { THEMES } from '../lib/theme.js'
 
 export function SettingsView() {
-  const { theme: currentTheme, setTheme, healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS, config, patchConfig, configSyncing } = useTradingStore()
+  const { theme: currentTheme, setTheme, healthEnabled, setHealthEnabled, streamingEnabled, setStreamingEnabled, uiEcoMode, setUiEcoMode, sidebarCollapsed, logFilters, toggleLogFilter, resetPaperBalance, connectWS, disconnectWS, config, patchConfig, configSyncing } = useTradingStore()
   const cfg = config || {}
 
   // Collapsible section state - defaults to all sections collapsed for clean, ultra-dense UI flow
@@ -884,26 +884,138 @@ export function SettingsView() {
             )}
           </section>
 
-          {/* Section 7: Dashboard & Streaming */}
+          {/* Section 7: Scanner & Market Feed Bandwidth */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-md shadow-black/20">
+            <button
+              type="button"
+              onClick={() => toggleSection('scanner_bandwidth')}
+              aria-expanded={openSections.has('scanner_bandwidth')}
+              aria-label={openSections.has('scanner_bandwidth') ? "Collapse Scanner & Market Feed Bandwidth section" : "Expand Scanner & Market Feed Bandwidth section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Scanner & Market Feed Bandwidth</SectionLabel>
+                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", cfg.global_scanner_enabled !== false ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber")}>
+                  {cfg.global_scanner_enabled !== false ? "Scanner Active" : "Scanner Off"}
+                </span>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('scanner_bandwidth') && "rotate-180")} />
+            </button>
+            {openSections.has('scanner_bandwidth') && (
+              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
+                    <label htmlFor="global_scanner_enabled" className="cursor-pointer select-none flex-grow mr-4">
+                      <div className="text-sm font-bold">Global Market Scanner</div>
+                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Saves ~45-60% backend CPU & bandwidth</div>
+                    </label>
+                    <button
+                      id="global_scanner_enabled"
+                      onClick={() => patchConfig({ global_scanner_enabled: cfg.global_scanner_enabled === false ? true : false })}
+                      role="switch"
+                      aria-checked={cfg.global_scanner_enabled !== false}
+                      aria-label="Toggle Global Market Scanner"
+                      className={cn(
+                        "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                        (cfg.global_scanner_enabled !== false) ? "bg-green" : "bg-border"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                        (cfg.global_scanner_enabled !== false) ? "translate-x-7" : "translate-x-1"
+                      )} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
+                    <label htmlFor="htf_ema_cross_boost_enabled" className="cursor-pointer select-none flex-grow mr-4">
+                      <div className="text-sm font-bold">4H HTF EMA Cross Ranking</div>
+                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Disables 4H kline subscriptions & HTF cross math</div>
+                    </label>
+                    <button
+                      id="htf_ema_cross_boost_enabled"
+                      onClick={() => patchConfig({ htf_ema_cross_boost_enabled: cfg.htf_ema_cross_boost_enabled === false ? true : false })}
+                      role="switch"
+                      aria-checked={cfg.htf_ema_cross_boost_enabled !== false}
+                      aria-label="Toggle 4H HTF EMA Cross Ranking"
+                      className={cn(
+                        "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                        (cfg.htf_ema_cross_boost_enabled !== false) ? "bg-green" : "bg-border"
+                      )}
+                    >
+                      <div className={cn(
+                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                        (cfg.htf_ema_cross_boost_enabled !== false) ? "translate-x-7" : "translate-x-1"
+                      )} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                  <label htmlFor="watchlist_size" className="text-[10px] text-dim font-bold tracking-widest uppercase">Scanner Watchlist Stream Limit</label>
+                  <input
+                    id="watchlist_size"
+                    type="number"
+                    min={CONFIG_LIMITS.WATCHLIST_MIN}
+                    max={CONFIG_LIMITS.WATCHLIST_MAX}
+                    value={cfg.watchlist_size || CONFIG_LIMITS.WATCHLIST_DEFAULT}
+                    onChange={(e) => patchConfig({ watchlist_size: Number(e.target.value) })}
+                    className="w-full max-w-[200px] bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
+                  />
+                  <p className="text-[9px] text-dim font-medium uppercase">Limit active Binance WebSocket symbol subscriptions (default: 50). Reducing to 10-15 lowers memory and network egress.</p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Section 8: Dashboard, Streaming & Eco-Graphics */}
           <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-md shadow-black/20">
             <button
               type="button"
               onClick={() => toggleSection('streaming')}
               aria-expanded={openSections.has('streaming')}
-              aria-label={openSections.has('streaming') ? "Collapse Dashboard & Streaming section" : "Expand Dashboard & Streaming section"}
+              aria-label={openSections.has('streaming') ? "Collapse Dashboard, Streaming & Eco-Graphics section" : "Expand Dashboard, Streaming & Eco-Graphics section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
               <div className="flex items-center gap-3">
-                <SectionLabel className="mb-0">Dashboard & Streaming</SectionLabel>
-                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", streamingEnabled ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber")}>
-                  {streamingEnabled ? "WS Live" : "WS Paused"}
+                <SectionLabel className="mb-0">Dashboard, Streaming & Eco-Graphics</SectionLabel>
+                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", uiEcoMode ? "bg-amber/10 border-amber/20 text-amber" : "bg-green/10 border-green/20 text-green")}>
+                  {uiEcoMode ? "Eco Graphics Active" : "Full Graphics"}
                 </span>
               </div>
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('streaming') && "rotate-180")} />
             </button>
             {openSections.has('streaming') && (
               <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-accent/30 group transition-colors">
+                  <div className="flex items-center gap-4 flex-grow">
+                    <div className="w-10 h-10 rounded-xl bg-amber/10 flex items-center justify-center shrink-0">
+                      <Zap size={20} className="text-amber" />
+                    </div>
+                    <label htmlFor="ui_eco_mode" className="cursor-pointer select-none flex-grow">
+                      <h3 className="text-sm font-bold uppercase tracking-tight">Master UI Eco-Graphics & Battery Saver</h3>
+                      <p className="text-[11px] text-dim font-medium uppercase mt-1">Disables heavy CSS blurs, glow pulses, canvas animations, and off-screen calculations</p>
+                    </label>
+                  </div>
+                  <button
+                    id="ui_eco_mode"
+                    onClick={() => setUiEcoMode(!uiEcoMode)}
+                    role="switch"
+                    aria-checked={uiEcoMode}
+                    aria-label="Toggle Master UI Eco-Graphics & Battery Saver"
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      uiEcoMode ? "bg-amber" : "bg-border"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                      uiEcoMode ? "translate-x-7" : "translate-x-1"
+                    )} />
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
                   <div className="flex items-center gap-4 flex-grow">
                     <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
                       <Activity size={20} className="text-accent" />
@@ -931,7 +1043,7 @@ export function SettingsView() {
                   </button>
                 </div>
 
-                <div className="flex items-center justify-between gap-4 pt-8 border-t border-border/50">
+                <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
                   <div className="flex items-center gap-4 flex-grow">
                     <div className="w-10 h-10 rounded-xl bg-green/10 flex items-center justify-center shrink-0">
                       <Zap size={20} className="text-green" />
@@ -959,7 +1071,7 @@ export function SettingsView() {
                   </button>
                 </div>
 
-                <div className="pt-8 border-t border-border/50">
+                <div className="pt-4 border-t border-border/50">
                   <div className="mb-4">
                     <h3 className="text-sm font-bold uppercase tracking-tight">Backend Log Feed</h3>
                     <p className="text-[11px] text-dim font-medium uppercase mt-1">Select which backend log levels are sent to this dashboard.</p>

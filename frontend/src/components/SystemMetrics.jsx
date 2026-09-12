@@ -1,6 +1,7 @@
 import React from 'react';
-import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2 } from 'lucide-react';
-import { cn, PulseDot, Tooltip } from './ui/primitives';
+import { Drawer } from 'vaul';
+import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2, Copy, Check, Info, X } from 'lucide-react';
+import { cn, PulseDot, Tooltip, Btn, VisuallyHidden } from './ui/primitives';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
@@ -60,7 +61,42 @@ const LoopVisualizer = ({ pipeline }) => {
   );
 };
 
-export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStatus, gateState, isEcoMode, compact = false }) => (
+export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStatus, gateState, isEcoMode, activeTrades = [], config = {}, compact = false }) => {
+  const [copiedDiag, setCopiedDiag] = React.useState(false);
+  const [isMobileDiagOpen, setIsMobileDiagOpen] = React.useState(false);
+
+  const handleCopyDiagnostics = React.useCallback(async () => {
+    try {
+      const breakdown = monitoring?.application?.api_requests_breakdown || {};
+      const logs = monitoring?.application?.rest_telemetry_logs || [];
+      const app = monitoring?.application || {};
+
+      const diagSnippet = [
+        `### REST API Telemetry & Diagnostic Snippet`,
+        `**Timestamp:** ${new Date().toISOString()}`,
+        `**Trading Mode:** ${config?.trading_mode || (config?.paper_mode ? 'paper' : 'live')}`,
+        `**WS Status:** ${wsStatus}`,
+        `**API Weight:** ${rateLimit?.used_weight_1m ?? 0} / ${rateLimit?.limit ?? 2400}`,
+        `**Total REST Calls:** ${app.api_requests_total ?? 0}`,
+        `**Active Positions:** ${activeTrades.length}`,
+        `**Watchlist Size:** ${config?.symbols?.length || 0}`,
+        ``,
+        `#### Endpoint Request Breakdown:`,
+        Object.entries(breakdown).map(([label, cnt]) => `- \`${label}\`: ${cnt}`).join('\n') || '- None recorded',
+        ``,
+        `#### Recent REST Call Telemetry Logs:`,
+        logs.map(l => `- [${new Date(l.ts).toISOString().substring(11, 19)}] \`${l.label}\` | ${l.duration}ms | W:${l.weight} | Status: ${l.status.toUpperCase()}${l.errorMsg ? ` (${l.errorMsg})` : ''}`).join('\n') || '- No recent logs'
+      ].join('\n');
+
+      await navigator.clipboard.writeText(diagSnippet);
+      setCopiedDiag(true);
+      setTimeout(() => setCopiedDiag(false), 2000);
+    } catch (e) {
+      console.error('Failed to copy diagnostics snippet', e);
+    }
+  }, [monitoring, rateLimit, wsStatus, config, activeTrades]);
+
+  return (
   <div className={cn("flex items-center gap-4 overflow-hidden", compact ? "justify-center" : "flex-col w-full")}>
     <div className="flex items-center gap-2">
       <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
@@ -128,6 +164,33 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
            <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] mb-1">Pipeline Health</div>
            <LoopVisualizer pipeline={monitoring?.application?.loop_pipeline} />
 
+           {/* Ultra-Dense Endpoint Breakdown Badges */}
+           {monitoring?.application?.api_requests_breakdown && Object.keys(monitoring.application.api_requests_breakdown).length > 0 && (
+             <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
+               <div className="flex items-center justify-between">
+                 <span className="text-[8px] font-black text-dim uppercase tracking-widest">REST Call Distribution</span>
+                 <Tooltip content="Copy detailed diagnostic telemetry snippet to clipboard">
+                   <Btn
+                     variant="ghost"
+                     onClick={handleCopyDiagnostics}
+                     className="px-1.5 py-0.5 text-[8px] font-bold border border-border/50 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1 shrink-0"
+                   >
+                     {copiedDiag ? <Check size={9} className="text-green" /> : <Copy size={9} />}
+                     {copiedDiag ? "Copied" : "Copy Diag"}
+                   </Btn>
+                 </Tooltip>
+               </div>
+               <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-1 text-[9px] font-mono">
+                 {Object.entries(monitoring.application.api_requests_breakdown).map(([label, count]) => (
+                   <span key={label} className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-text/80 flex items-center gap-1">
+                     <span className="text-accent font-bold">{count}</span>
+                     <span className="truncate max-w-[90px]" title={label}>{label}</span>
+                   </span>
+                 ))}
+               </div>
+             </div>
+           )}
+
            <div className="grid grid-cols-2 gap-4 mt-2">
               <SystemMetric
                 icon={Zap}
@@ -174,12 +237,92 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
             compact={compact}
           />
           <div className="w-px h-3 bg-border/50" />
-          <div className="flex items-center">
+          <div className="flex items-center gap-2">
              <PulseDot color={monitoring?.application?.exchange_uds_status === 'CONNECTED' ? "bg-green" : "bg-red"} />
+             <button
+               type="button"
+               onClick={() => setIsMobileDiagOpen(true)}
+               aria-label="Open mobile telemetry & diagnostic breakdown"
+               className="p-1 rounded-md bg-surface border border-border/60 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer"
+             >
+               <Info size={12} />
+             </button>
           </div>
         </div>
       )}
     </>
 
+    {/* Mobile Diagnostic & Telemetry Drawer */}
+    {compact && (
+      <Drawer.Root open={isMobileDiagOpen} onOpenChange={setIsMobileDiagOpen} repositionInputs={false}>
+        <Drawer.Portal>
+          <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
+          <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[28px] fixed inset-x-0 bottom-0 max-h-[85vh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] overflow-hidden">
+            <div className="p-2 bg-background rounded-t-[28px] flex flex-col items-center shrink-0 border-b border-border/40">
+              <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+              <div className="w-full flex items-center justify-between px-3">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-text">
+                  <Activity size={14} className="text-accent" /> System Telemetry & Diagnostics
+                </div>
+                <Drawer.Close asChild>
+                  <button type="button" aria-label="Close telemetry drawer" className="p-1 rounded-lg hover:bg-surface text-dim hover:text-text transition-colors">
+                    <X size={16} />
+                  </button>
+                </Drawer.Close>
+              </div>
+              <VisuallyHidden>
+                <Drawer.Title>System Telemetry & Diagnostics</Drawer.Title>
+                <Drawer.Description>Real-time REST call distribution, pipeline health, and diagnostic snippet exporter.</Drawer.Description>
+              </VisuallyHidden>
+            </div>
+
+            <div className="p-4 overflow-y-auto flex flex-col gap-4 text-xs">
+              <div className="flex items-center justify-between p-3 bg-surface/50 border border-border/60 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+                  <span className="font-bold uppercase tracking-wider text-[11px]">{wsStatus === 'live' ? 'WebSocket Live' : 'WebSocket Offline'}</span>
+                </div>
+                <Btn variant="ghost" onClick={handleCopyDiagnostics} className="px-2 py-1 text-[10px] font-bold border border-accent/30 bg-accent/10 text-accent flex items-center gap-1.5">
+                  {copiedDiag ? <Check size={11} className="text-green" /> : <Copy size={11} />}
+                  {copiedDiag ? "Copied Snippet" : "Copy Diag Snippet"}
+                </Btn>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="p-3 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
+                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider">API Weight 1M</span>
+                  <span className="text-sm font-black text-text">{rateLimit?.used_weight_1m ?? 0} / {rateLimit?.limit ?? 2400}</span>
+                </div>
+                <div className="p-3 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
+                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider">Total REST Calls</span>
+                  <span className="text-sm font-black text-accent">{monitoring?.application?.api_requests_total ?? '---'}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
+                <span className="text-[10px] font-black text-dim uppercase tracking-widest">Pipeline Health</span>
+                <LoopVisualizer pipeline={monitoring?.application?.loop_pipeline} />
+              </div>
+
+              {monitoring?.application?.api_requests_breakdown && Object.keys(monitoring.application.api_requests_breakdown).length > 0 && (
+                <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
+                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">REST Endpoint Call Distribution</span>
+                  <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+                    {Object.entries(monitoring.application.api_requests_breakdown).map(([label, count]) => (
+                      <span key={label} className="px-2 py-1 rounded-lg bg-surface border border-border/60 text-text flex items-center gap-1.5">
+                        <span className="text-accent font-bold">{count}</span>
+                        <span className="truncate max-w-[120px]" title={label}>{label}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Drawer.Content>
+        </Drawer.Portal>
+      </Drawer.Root>
+    )}
+
   </div>
-);
+  );
+};

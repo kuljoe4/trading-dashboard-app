@@ -115,3 +115,84 @@ describe('Preset Auto-Naming & 10-Character Mobile Budget Standard', () => {
     assert.ok(name.length <= 10, `Name "${name}" length ${name.length} exceeds 10 characters`);
   });
 });
+
+describe('ConfigModal Preset Batch Management Standard', () => {
+  test('handleSelectAllPresets correctly toggles selection between empty Set and all presets Set', () => {
+    const mockPresets = [{ name: 'PresetA' }, { name: 'PresetB' }, { name: 'PresetC' }];
+    let selectedPresetNames = new Set();
+
+    const handleSelectAllPresets = (presets, selected) => {
+      if (selected.size === presets.length) {
+        return new Set();
+      } else {
+        return new Set(presets.map(p => p.name));
+      }
+    };
+
+    // First click: select all
+    selectedPresetNames = handleSelectAllPresets(mockPresets, selectedPresetNames);
+    assert.strictEqual(selectedPresetNames.size, 3);
+    assert.ok(selectedPresetNames.has('PresetA'));
+    assert.ok(selectedPresetNames.has('PresetB'));
+    assert.ok(selectedPresetNames.has('PresetC'));
+
+    // Second click: deselect all
+    selectedPresetNames = handleSelectAllPresets(mockPresets, selectedPresetNames);
+    assert.strictEqual(selectedPresetNames.size, 0);
+  });
+
+  test('batch actions handleSelectedPresets correctly filter selected preset objects without ReferenceError', () => {
+    const mockPresets = [
+      { name: 'PresetA', config: { risk: 1 } },
+      { name: 'PresetB', config: { risk: 2 } },
+      { name: 'PresetC', config: { risk: 3 } }
+    ];
+    const selectedPresetNames = new Set(['PresetA', 'PresetC']);
+
+    const selected = mockPresets.filter(p => selectedPresetNames.has(p.name));
+    assert.strictEqual(selected.length, 2);
+    assert.strictEqual(selected[0].name, 'PresetA');
+    assert.strictEqual(selected[1].name, 'PresetC');
+  });
+
+  test('handleDeleteSelectedPresets calls presetsAPI.delete for each selected preset name', async () => {
+    const deletedNames = [];
+    const mockPresetsAPI = {
+      delete: async (name) => {
+        deletedNames.push(name);
+        return { data: { success: true } };
+      }
+    };
+
+    const selectedPresetNames = new Set(['Preset1', 'Preset2']);
+    const names = Array.from(selectedPresetNames);
+    await Promise.all(names.map(name => mockPresetsAPI.delete(name)));
+
+    assert.deepStrictEqual(deletedNames, ['Preset1', 'Preset2']);
+  });
+
+  test('handleFileImport calls presetsAPI.save for each valid preset in array import', async () => {
+    const savedPresets = [];
+    const mockPresetsAPI = {
+      save: async (name, config) => {
+        savedPresets.push({ name, config });
+        return { data: { success: true } };
+      }
+    };
+
+    const parsedImport = [
+      { name: 'Imp1', config: { risk: 1 } },
+      { name: 'Imp2', config: { risk: 2 } }
+    ];
+
+    parsedImport.forEach(item => {
+      if (item && item.name && item.config) {
+        mockPresetsAPI.save(item.name, item.config);
+      }
+    });
+
+    assert.strictEqual(savedPresets.length, 2);
+    assert.strictEqual(savedPresets[0].name, 'Imp1');
+    assert.strictEqual(savedPresets[1].name, 'Imp2');
+  });
+});

@@ -424,14 +424,19 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         {/* Top Tick Landmark Labels (R-First Language) */}
         <div className="flex justify-between items-end text-[7.5px] font-black font-mono uppercase tracking-tight text-dim mb-1 leading-none">
           {/* SL Landmark */}
-          <Tooltip content={`Stop Loss: ${fmtUSD(sl)} (${slR >= 0 ? '+' : ''}${slR.toFixed(2)}R)`}>
-            <div className="flex flex-col items-start cursor-help">
-              <span className={cn("text-red font-black", slHighlight && "text-[#00f0ff]")}>
-                SL {slR.toFixed(1)}R
-              </span>
-              <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(sl)}</span>
-            </div>
-          </Tooltip>
+          {(() => {
+            const slDistPct = entry > 0 ? (Math.abs(sl - entry) / entry) * 100 : 0;
+            return (
+              <Tooltip content={`Stop Loss: ${fmtUSD(sl)} (${slR >= 0 ? '+' : ''}${slR.toFixed(2)}R) • Distance: ${slDistPct.toFixed(2)}%`}>
+                <div className="flex flex-col items-start cursor-help">
+                  <span className={cn("text-red font-black", slHighlight && "text-[#00f0ff]")}>
+                    SL {slR.toFixed(1)}R
+                  </span>
+                  <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(sl)} ({slDistPct.toFixed(1)}%)</span>
+                </div>
+              </Tooltip>
+            );
+          })()}
 
           {/* ENTRY Landmark */}
           <Tooltip content={`Entry Price: ${fmtUSD(entry)} (0.00R)`}>
@@ -644,12 +649,15 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <Tooltip content={
               <div className="flex flex-col gap-1 text-[10px] p-1">
                 <div className="font-bold border-b border-white/10 pb-0.5">Dual Indicator Convergence</div>
-                {dualIndicatorMarkers.map(m => (
-                  <div key={m.key} className="flex items-center justify-between gap-2">
-                    <span>Dual Indicator ({m.label}):</span>
-                    <span className="font-mono font-bold text-accent">{fmtUSD(m.price)}</span>
-                  </div>
-                ))}
+                {dualIndicatorMarkers.map(m => {
+                  const proxPct = mark > 0 ? (Math.abs(m.price - mark) / mark) * 100 : 0;
+                  return (
+                    <div key={m.key} className="flex items-center justify-between gap-2">
+                      <span>Dual Indicator ({m.label}):</span>
+                      <span className="font-mono font-bold text-accent">{fmtUSD(m.price)} ({proxPct.toFixed(2)}% prox)</span>
+                    </div>
+                  );
+                })}
               </div>
             }>
               <span className="bg-accent/10 border border-accent/20 text-accent px-1 py-0.2 rounded font-black cursor-help">

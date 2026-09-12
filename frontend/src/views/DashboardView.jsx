@@ -19,6 +19,7 @@ const formatTimeAgo = (ts) => {
 };
 import { useTradingStore } from '../store/trading'
 import { sessionAPI } from '../api/client'
+import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { 
   StatCard, InteractiveLimitCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
     ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader, MonitoredBadge, InPosBadge
@@ -27,7 +28,8 @@ import {
   ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck, Search, Filter,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf, DollarSign, Users, Clock, ArrowUpRight, ArrowDownRight,
-  Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2
+  Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2,
+  Turtle, Flame, Gauge, Wind, PauseCircle, Moon
 } from 'lucide-react'
 import { Drawer } from 'vaul'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -795,11 +797,18 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
+  const storeBalance = useTradingStore(state => state.balance);
+  const totalSessionPnl = useTradingStore(state => state.totalPnl || 0);
+
   const startingBalance = tradingMode === 'paper'
     ? (config.paper_starting_balance || 10000)
     : (tradingMode === 'testnet'
-        ? (config.testnet_starting_balance || 10000)
-        : (config.live_starting_balance || 10000));
+        ? (config.testnet_starting_balance && config.testnet_starting_balance !== 10000
+            ? config.testnet_starting_balance
+            : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000))
+        : (config.live_starting_balance && config.live_starting_balance !== 10000
+            ? config.live_starting_balance
+            : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000)));
 
   const sessionReturnPct = startingBalance > 0 ? (s.totalPnl / startingBalance) * 100 : 0;
 
@@ -913,13 +922,22 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         {/* Right: Color-Coded Active PnL & Session Return Badges + Position Allocation Pill */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0 font-mono text-xs">
           {/* Active PnL Color-Coded Badge */}
-          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)}`}>
+          <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)} (${(() => {
+            const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+            return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+          })()})`}>
             <div className={cn(
               "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0",
               isPosActive ? "bg-green/10 border-green/25 text-green" : "bg-red/10 border-red/25 text-red"
             )}>
               {isPosActive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
               <span>{fmtUSD(s.activePnl)}</span>
+              <span className="text-[9px] opacity-80">
+                ({(() => {
+                  const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+                  return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(1)}%`;
+                })()})
+              </span>
             </div>
           </Tooltip>
 
@@ -1006,6 +1024,13 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono">
               {config.scan_interval} · {config.scan_pct_threshold}% Move
             </span>
+            {config.htf_ema_cross_boost_enabled !== false && (
+              <Tooltip content={`HTF EMA Cross Ranking Active: ${config.htf_ema_cross_interval || '4h'} timeframe (${config.htf_ema_fast_period || 9}/${config.htf_ema_slow_period || 21} EMAs, Boost Weight: ${config.htf_ema_cross_rr_weight || 1.5}x)`}>
+                <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help">
+                  ⚡ {(config.htf_ema_cross_interval || '4h').toUpperCase()} HTF Cross (+{config.htf_ema_cross_max_boost || 25} Max)
+                </span>
+              </Tooltip>
+            )}
             {(() => {
               const rawHitRate = s.entryCount > 0 ? ((s.hitCount || 0) / s.entryCount) * 100 : 0;
               const hitRate = Math.min(100, Math.max(0, rawHitRate));
@@ -1100,6 +1125,12 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-[1.2] flex items-start">Active P&L</span>
             <span className={cn("font-black font-mono tracking-tighter leading-none mt-1", isCompact ? "text-xs sm:text-sm" : "text-xs sm:text-sm md:text-base")} style={{ color: pnlColor(s.activePnl) }}>
               {fmtUSD(s.activePnl)}
+            </span>
+            <span className="text-[8px] font-bold font-mono uppercase tracking-wider mt-0.5 truncate" style={{ color: pnlColor(s.activePnl) }}>
+              {(() => {
+                const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+                return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+              })()}
             </span>
           </div>
           {!isCompact && (
@@ -1288,7 +1319,12 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 GateBanner.displayName = 'GateBanner'
 
 export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
-  const { activeTrades } = useTradingStore(state => ({ activeTrades: state.activeTrades || [] }), shallow);
+  const { activeTrades, scannerPaused, hibernating } = useTradingStore(state => ({
+    activeTrades: state.activeTrades || [],
+    scannerPaused: state.scannerPaused,
+    hibernating: state.hibernating
+  }), shallow);
+
   const threshold = config.scan_pct_threshold || 2
   const top = (scannerResults || []).slice(0, 5)
   // Pre-allocate 5 slots to prevent layout shift
@@ -1299,6 +1335,8 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
   const volW = Math.round((weights.volatility ?? 0.3) * 100);
   const trendW = Math.round((weights.trend ?? 0.2) * 100);
   const enabledSigs = config?.enabled_signals || [];
+
+  const regimeInfo = getMarketRegimeInfo(scannerResults, config, { scannerPaused, hibernating });
 
   const getOppProximity = (opp) => {
     if (opp.signalResult?.allFired) return 100;
@@ -1324,20 +1362,45 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
 
   return (
     <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col text-left">
-      <div className="p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0">
-        <div className="flex flex-col">
-          <SectionLabel className="mb-0">
-            <Zap size={14} className="text-accent" /> Live Scanner
-          </SectionLabel>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="text-[9px] text-dim font-bold uppercase tracking-widest">Top 5 Opportunities</span>
-            <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded">
+      <div className="p-4 sm:p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0 gap-3">
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <SectionLabel className="mb-0">
+              <Zap size={14} className="text-accent" /> Live Scanner
+            </SectionLabel>
+            {/* Market Regime Badge Indicator */}
+            <Tooltip content={regimeInfo.guidance}>
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label={`Market Activity: ${regimeInfo.label}. Average Momentum ${regimeInfo.avgMomentum.toFixed(2)}%, Candidates passing threshold ${regimeInfo.passingCount} of ${regimeInfo.totalCount}`}
+                className={cn(
+                  "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                  regimeInfo.badgeClass
+                )}
+              >
+                {regimeInfo.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
+                {regimeInfo.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
+                {regimeInfo.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
+                {(regimeInfo.regime === 'paused' || regimeInfo.regime === 'hibernating') && <PauseCircle size={11} className="shrink-0" />}
+                <span>{regimeInfo.label}</span>
+              </div>
+            </Tooltip>
+          </div>
+
+          <div className="flex items-center gap-2 mt-1 flex-wrap text-[9px] font-bold">
+            <span className="text-dim uppercase tracking-widest">
+              Passing {regimeInfo.passingCount}/{regimeInfo.totalCount} &gt; {threshold}%
+            </span>
+            <span className="text-dim/40">•</span>
+            <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded font-mono">
               Weights {momW}:{volW}:{trendW}
             </span>
           </div>
         </div>
+
         <button
-          className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+          className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded shrink-0"
           aria-label="View all scanner results"
           onClick={onOpen}
           onMouseEnter={preloadScannerOverlay}
@@ -1345,14 +1408,45 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
           Open Full
         </button>
       </div>
-      <div className="flex-1">
+
+      <div className="flex-1 flex flex-col min-h-0">
         {top.length === 0 && placeholders.length === 5 ? (
-          <div className="h-full flex flex-col items-center justify-center text-dim text-[11px] font-bold uppercase tracking-widest bg-surface/10 animate-pulse gap-2">
-            <RefreshCw size={16} className="animate-spin opacity-40" />
-            Waiting for market data...
+          <div className="h-full p-6 flex flex-col items-center justify-center text-center bg-surface/10 gap-3">
+            <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+              <Turtle size={24} className="animate-bounce" />
+            </div>
+            <div className="flex flex-col gap-1 max-w-sm">
+              <span className="text-xs font-black uppercase tracking-wider text-cyan-400">Slow / Quiet Market</span>
+              <p className="text-[11px] font-medium text-dim leading-relaxed">
+                {regimeInfo.guidance}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 px-3 py-1 bg-background/50 border border-border/40 rounded-lg text-[9px] font-mono text-dim font-bold uppercase tracking-wider mt-1">
+              <RefreshCw size={11} className="animate-spin text-accent" />
+              Monitoring {config.scan_interval || '1m'} klines for momentum expansion
+            </div>
           </div>
         ) : (
           <>
+            {/* Active Fast Market Speed Banner */}
+            {regimeInfo.regime === 'active' && (
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label={`Fast Market Expansion. ${regimeInfo.passingCount} of ${regimeInfo.totalCount} candidates passing threshold ${threshold}%, average momentum ${regimeInfo.avgMomentum.toFixed(2)}%`}
+                className="bg-accent/10 border-b border-accent/30 px-4 py-2 flex items-center justify-between gap-3 text-xs font-mono shrink-0"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Flame size={14} className="text-accent animate-pulse shrink-0" />
+                  <span className="font-black text-accent uppercase tracking-wider text-[10px] truncate">
+                    🔥 Fast Market Expansion ({regimeInfo.passingCount}/{regimeInfo.totalCount} Candidates &gt; {threshold}%)
+                  </span>
+                </div>
+                <span className="text-[9px] font-bold text-accent/80 uppercase tracking-widest shrink-0 hidden sm:inline">
+                  Avg Momentum {regimeInfo.avgMomentum.toFixed(2)}%
+                </span>
+              </div>
+            )}
             <AnimatePresence mode="popLayout">
               {top.map((opp, i) => {
                 const passing = Math.abs(opp.pct) >= threshold
@@ -1769,7 +1863,7 @@ export function DashboardView({ initialStrategy }) {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
     totalSlUsed, totalEstPnlToRealize, activeTrades, alerts, config, setSessionActive,
     updateConfig, patchConfig, gateState, gateReason, hibernating, hibernationMode, agreementRequired,
-    scannerPaused, sessionList, fetchSessions, wsStatus,
+    scannerPaused, scannerResults, sessionList, fetchSessions, wsStatus,
     updateStats, analytics, stats, lastUdsBalanceReason, lastUdsBalanceTs,
     sidebarCollapsed, variantScannerResults, variantStats, isThrottled, setThrottled, isEcoMode, entryCount, hitCount,
     healthEnabled, isSyncing, setSyncing, configSyncing, isAdaptiveTightened, apiStatus, effectivePeriodMs, isSyncingOnResume,
@@ -1796,6 +1890,7 @@ export function DashboardView({ initialStrategy }) {
     hibernationMode: state.hibernationMode,
     agreementRequired: state.agreementRequired,
     scannerPaused: state.scannerPaused,
+    scannerResults: state.scannerResults || [],
     alerts: state.alerts,
     updateStats: state.updateStats,
     sessionList: state.sessionList,
@@ -1908,11 +2003,17 @@ export function DashboardView({ initialStrategy }) {
     }
 
     const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+    const storeBal = useTradingStore.getState().balance;
+    const storeTotalPnl = useTradingStore.getState().totalPnl || 0;
     const startingBal = tradingMode === 'paper'
       ? (config?.paper_starting_balance || 10000)
       : (tradingMode === 'testnet'
-          ? (config?.testnet_starting_balance || 10000)
-          : (config?.live_starting_balance || 10000));
+          ? (config?.testnet_starting_balance && config?.testnet_starting_balance !== 10000
+              ? config.testnet_starting_balance
+              : (storeBal ? Math.max(1, storeBal - storeTotalPnl) : 10000))
+          : (config?.live_starting_balance && config?.live_starting_balance !== 10000
+              ? config.live_starting_balance
+              : (storeBal ? Math.max(1, storeBal - storeTotalPnl) : 10000)));
 
     const map = new Map();
     for (const [label, trades] of grouped.entries()) {
@@ -1922,7 +2023,7 @@ export function DashboardView({ initialStrategy }) {
     return map;
   }, [tradeHistory, config]);
 
-  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, maxRR } = useMemo(() => {
+  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, peakActivePnl, minActivePnl, oldestActiveEntryTs, latestActiveUpdateTs, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;
     const pnlMap = { [strategyLabel]: 0 };
     const estPnlMap = { [strategyLabel]: 0 };
@@ -1937,6 +2038,11 @@ export function DashboardView({ initialStrategy }) {
     }
 
     let maxRrAchieved = 0;
+    let peakActivePnlSum = 0;
+    let minActivePnlSum = 0;
+    let oldestEntryTs = Infinity;
+    let latestUpdateTs = 0;
+
     const trades = activeTrades || [];
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
@@ -1947,9 +2053,31 @@ export function DashboardView({ initialStrategy }) {
         estPnlMap[label] += safeNum(t.est_pnl_to_realize);
         countMap[label]++;
 
-        const rrVal = Number(t.max_rr ?? t.max_rr_achieved ?? 0);
-        if (rrVal > maxRrAchieved) {
-          maxRrAchieved = rrVal;
+        // Calculate risk in USDT to convert R multiples to dollar amounts if max_pnl is not directly present
+        const riskUsdt = safeNum(t.risk_usdt || t.initial_risk_usdt) ||
+          (t.entry_price && t.qty && t.initial_sl ? Math.abs(t.entry_price - t.initial_sl) * t.qty : 0);
+
+        const peakRr = Number(t.max_rr ?? t.max_rr_achieved ?? t.rr ?? 0);
+        const minRr = Number(t.min_rr_achieved ?? t.min_rr ?? t.rr ?? 0);
+
+        const tradePeakPnl = riskUsdt > 0 && peakRr > 0 ? Math.max(pnlVal, peakRr * riskUsdt) : Math.max(pnlVal, 0);
+        const tradeMinPnl = riskUsdt > 0 && minRr < 0 ? Math.min(pnlVal, minRr * riskUsdt) : Math.min(pnlVal, 0);
+
+        peakActivePnlSum += tradePeakPnl;
+        minActivePnlSum += tradeMinPnl;
+
+        if (peakRr > maxRrAchieved) {
+          maxRrAchieved = peakRr;
+        }
+
+        const entryTs = t.entry_ts_ms || (t.entry_ts ? new Date(t.entry_ts).getTime() : 0) || (t.createdAt ? new Date(t.createdAt).getTime() : 0);
+        if (entryTs > 0 && entryTs < oldestEntryTs) {
+          oldestEntryTs = entryTs;
+        }
+
+        const updateTs = t.exit_ts_ms || (t.updated_at ? new Date(t.updated_at).getTime() : 0) || entryTs;
+        if (updateTs > latestUpdateTs) {
+          latestUpdateTs = updateTs;
         }
       }
     }
@@ -1966,6 +2094,10 @@ export function DashboardView({ initialStrategy }) {
       activeEstPnlToRealizeMap: estPnlMap,
       activeTradeCountsMap: countMap,
       totalActivePnl: totPnl,
+      peakActivePnl: peakActivePnlSum,
+      minActivePnl: minActivePnlSum,
+      oldestActiveEntryTs: oldestEntryTs !== Infinity ? oldestEntryTs : null,
+      latestActiveUpdateTs: latestUpdateTs > 0 ? latestUpdateTs : null,
       maxRR: maxRrAchieved
     };
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
@@ -2301,7 +2433,7 @@ export function DashboardView({ initialStrategy }) {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300 relative",
+      "min-h-screen transition-all duration-300 relative overflow-x-hidden",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]",
       tradingMode === 'paper' ? "shadow-[inset_0_0_100px_rgba(245,166,35,0.05)] border-amber/10" :
       tradingMode === 'testnet' ? "shadow-[inset_0_0_100px_rgba(168,85,247,0.05)] border-purple/10" :
@@ -2350,13 +2482,36 @@ export function DashboardView({ initialStrategy }) {
         />
 
         {/* Header Bar */}
-        <ViewHeader
-          title="Overview"
-          subTitle="Real-time strategy management & market oversight"
-          sticky={true}
-        >
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Search Input Bar matching design */}
+        {(() => {
+          const headerRegime = getMarketRegimeInfo(scannerResults, config, { scannerPaused, hibernating });
+          return (
+            <ViewHeader
+              title="Overview"
+              subTitle="Real-time strategy management & market oversight"
+              sticky={true}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Market Activity Badge Pill */}
+                <Tooltip content={`Market Pace: ${headerRegime.label}. ${headerRegime.guidance}`}>
+                  <div
+                    tabIndex={0}
+                    role="region"
+                    aria-label={`Market Activity: ${headerRegime.label}. Average Momentum ${headerRegime.avgMomentum.toFixed(2)}%, Candidates passing threshold ${headerRegime.passingCount} of ${headerRegime.totalCount}`}
+                    className={cn(
+                      "px-2.5 py-1 rounded-xl text-[10px] font-black uppercase tracking-wider border flex items-center gap-1.5 shadow-sm font-mono cursor-help transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                      headerRegime.pillClass
+                    )}
+                  >
+                    {headerRegime.regime === 'slow' && <Turtle size={13} className="shrink-0 text-cyan-400" />}
+                    {headerRegime.regime === 'active' && <Flame size={13} className="shrink-0 text-accent animate-pulse" />}
+                    {headerRegime.regime === 'moderate' && <Zap size={13} className="shrink-0 text-amber" />}
+                    {(headerRegime.regime === 'paused' || headerRegime.regime === 'hibernating') && <PauseCircle size={13} className="shrink-0 opacity-70" />}
+                    <span>{headerRegime.regime === 'slow' ? 'Slow Market' : headerRegime.label}</span>
+                    <span className="opacity-75 font-normal">({headerRegime.avgMomentum.toFixed(2)}%)</span>
+                  </div>
+                </Tooltip>
+
+                {/* Search Input Bar matching design */}
             <div className="relative flex items-center">
               <Search size={14} className="absolute left-3 text-dim pointer-events-none" />
               <input
@@ -2429,6 +2584,8 @@ export function DashboardView({ initialStrategy }) {
             )}
           </div>
         </ViewHeader>
+          );
+        })()}
 
         <div aria-live="polite">
           <BanBanner apiStatus={apiStatus} />
@@ -2484,7 +2641,12 @@ export function DashboardView({ initialStrategy }) {
                 label="Account Balance"
                 value={`$${balance.toLocaleString()}`}
                 tooltipText={(() => {
-                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : config?.live_starting_balance) || 10000;
+                  const tradingMode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+                  const startBal = tradingMode === 'paper'
+                    ? (config?.paper_starting_balance || 10000)
+                    : (tradingMode === 'testnet'
+                        ? (config?.testnet_starting_balance && config.testnet_starting_balance !== 10000 ? config.testnet_starting_balance : Math.max(1, balance - totalPnl))
+                        : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl)));
                   const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
                   const commPct = balance > 0 ? (Math.abs(netComm) / balance) * 100 : 0;
                   const tradeTs = lastTrade?.exit_ts_ms || (lastTrade?.exit_ts ? new Date(lastTrade.exit_ts).getTime() : 0);
@@ -2563,11 +2725,48 @@ export function DashboardView({ initialStrategy }) {
               />
               <StatCard
                 label="Active P&L"
-                value={fmtUSD(totalActivePnl)}
+                value={`${fmtUSD(totalActivePnl)} (${(() => {
+                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl))) || 10000;
+                  const activePct = startBal > 0 ? (totalActivePnl / startBal) * 100 : 0;
+                  return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
+                })()})`}
                 color={pnlClass(totalActivePnl)}
-                subValue={`Total (${config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live')}): ${fmtUSD(totalPnl)}`}
+                subValue={(() => {
+                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl))) || 10000;
+                  const modeLabel = config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live');
+
+                  if (!activeTrades || activeTrades.length === 0) {
+                    return `Total (${modeLabel}): ${fmtUSD(totalPnl)}`;
+                  }
+
+                  const peakPct = startBal > 0 ? (peakActivePnl / startBal) * 100 : 0;
+                  const minPct = startBal > 0 ? (minActivePnl / startBal) * 100 : 0;
+                  const openDurationStr = oldestActiveEntryTs ? formatTimeAgo(oldestActiveEntryTs) : null;
+                  const updateAgoStr = latestActiveUpdateTs ? formatTimeAgo(latestActiveUpdateTs) : null;
+
+                  return (
+                    <div className="flex flex-col gap-0.5 text-[8px] md:text-[8.5px] leading-tight font-mono">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span title={`Peak Active P&L reached during open trades: ${fmtUSD(peakActivePnl)}`}>
+                          Peak: <span className="text-green font-bold">{fmtUSD(peakActivePnl)} <span className="opacity-80">({peakPct >= 0 ? '+' : ''}{peakPct.toFixed(2)}%)</span></span>
+                        </span>
+                        <span>•</span>
+                        <span title={`Min Active P&L (Max Drawdown/MAE) during open trades: ${fmtUSD(minActivePnl)}`}>
+                          Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} <span className="opacity-80">({minPct >= 0 ? '+' : ''}{minPct.toFixed(2)}%)</span></span>
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-dim/70 font-sans font-medium text-[8px]">
+                        {openDurationStr && <span>Open {openDurationStr}</span>}
+                        {openDurationStr && updateAgoStr && <span>•</span>}
+                        {updateAgoStr && <span>Tick {updateAgoStr} ago</span>}
+                        <span>•</span>
+                        <span>Total ({modeLabel}): {fmtUSD(totalPnl)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 syncing={isResuming}
-                tooltipText="Current P&L from open trades vs. total session performance."
+                tooltipText="Current unrealized P&L, Peak P&L, Min P&L (MAE), and open trade durations across all active trades."
               />
               <StatCard
                 label="Live Risk"
@@ -3114,16 +3313,16 @@ export function DashboardView({ initialStrategy }) {
       {/* Modals & Drawers */}
         <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto h-auto">
-              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
-                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+            <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-0 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-3xl lg:max-w-4xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
+              <div className="p-2 bg-background rounded-t-[28px] sm:hidden flex flex-col items-center shrink-0 border-b border-border/20">
+                <div className="w-10 h-1 bg-border/60 rounded-full" />
                 <VisuallyHidden>
                   <Drawer.Title>Configuration</Drawer.Title>
                   <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
                 <Suspense fallback={<LoadingFallback />}>
                   {modalConfig && (
                     <ConfigModal
@@ -3143,16 +3342,16 @@ export function DashboardView({ initialStrategy }) {
 
         <Drawer.Root open={showScanner} onOpenChange={setShowScanner} repositionInputs={false}>
           <Drawer.Portal>
-            <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[1000px] lg:mx-auto h-auto">
-              <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
-                <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
+            <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
+            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-0 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-4xl lg:max-w-5xl max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
+              <div className="p-2 bg-background rounded-t-[28px] sm:hidden flex flex-col items-center shrink-0 border-b border-border/20">
+                <div className="w-10 h-1 bg-border/60 rounded-full" />
                 <VisuallyHidden>
                   <Drawer.Title>Scanner</Drawer.Title>
                   <Drawer.Description>View live market scanner opportunities</Drawer.Description>
                 </VisuallyHidden>
               </div>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
                 <Suspense fallback={<LoadingFallback />}>
                   {showScanner && <ScannerOverlay onClose={() => setShowScanner(false)} selectedStrategyLabel={scannerFocusLabel || selected} />}
                 </Suspense>

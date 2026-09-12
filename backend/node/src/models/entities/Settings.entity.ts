@@ -26,7 +26,7 @@ export class Settings {
   @Column('decimal', { precision: 20, scale: 8, default: 0 })
   live_balance: number;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: 'jsonb', nullable: true, select: false })
   exchange_info_cache: any;
 
   @Column({ type: 'bigint', nullable: true })

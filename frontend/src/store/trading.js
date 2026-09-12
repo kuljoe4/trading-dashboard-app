@@ -53,7 +53,15 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
     score_breakdown: source.score_breakdown && typeof source.score_breakdown === 'object' ? {
       momentum: toNumber(source.score_breakdown.momentum),
       volatility: toNumber(source.score_breakdown.volatility),
-      trend: toNumber(source.score_breakdown.trend)
+      trend: toNumber(source.score_breakdown.trend),
+      htf_ema_cross: toNumber(source.score_breakdown.htf_ema_cross)
+    } : undefined,
+    htf_ema_cross_perf: source.htf_ema_cross_perf && typeof source.htf_ema_cross_perf === 'object' ? {
+      avg_profit_pct: toNumber(source.htf_ema_cross_perf.avg_profit_pct),
+      avg_peak_rr: toNumber(source.htf_ema_cross_perf.avg_peak_rr),
+      win_rate: toNumber(source.htf_ema_cross_perf.win_rate),
+      cross_count: toNumber(source.htf_ema_cross_perf.cross_count),
+      last_cross_direction: source.htf_ema_cross_perf.last_cross_direction
     } : undefined,
     lastUpdate: source.last_update ?? source.ts ?? Date.now(),
     signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
@@ -112,7 +120,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const sig = res.signalResult;
   const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}` : '';
   const sb = res.score_breakdown;
-  const sbDigest = sb ? `${sb.momentum}:${sb.volatility}:${sb.trend}` : '';
+  const sbDigest = sb ? `${sb.momentum}:${sb.volatility}:${sb.trend}:${sb.htf_ema_cross || 0}` : '';
   const f = `${res.symbol}:${res.pct}:${res.momentum}:${res.dir}:${res.vol}:${res.score}:${res.price}:${res.volume_rank}:${sbDigest}:${sigDigest}`;
   if (prev && prev._fingerprint === f && !o._delta && !o._thin) {
     return prev;
@@ -443,14 +451,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       if (running) {
         st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
       } else if (st.sessionActive) {
-        // BOLT: Defensive Termination Guard.
-        // If we think we're running but the backend says no, we only stop locally
-        // if we are NOT currently in a 'Resuming' window.
-        // This prevents the UI from wiping during the backend's boot reconciliation.
-        const isResuming = st.isThrottled || st.wsStatus !== 'live' || st.isSyncingOnResume;
-        if (!isResuming) {
-           st.setSessionActive(false, null);
-        }
+        // When backend REST status confirms session is no longer running, exit resuming state
+        st.setSessionActive(false, null);
       }
 
       // BOLT: Centralize merge logic via updateStats
@@ -859,6 +861,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             isSyncingOnResume: false
           };
         });
+      } else if (d.type === 'balance_update') {
+        set(st => ({
+          lastAuthoritativeUpdateTs: nowTs,
+          balance: resolveNonZeroMetric(d.balance, st.balance, st.isSyncingOnResume)
+        }));
       } else if (d.type === 'log') set(st => {
         const n = normalizeLog(d);
         if (!n) return st;

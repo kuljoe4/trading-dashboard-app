@@ -28,12 +28,12 @@ describe("SessionController Query Parameter Validation", () => {
     it("should accept valid UUID sessionId", async () => {
       const validUuid = "123e4567-e89b-12d3-a456-426614174000";
       await expect(controller.getHistory(validUuid)).resolves.not.toThrow();
-      expect(mockSessionService.getHistory).toHaveBeenCalledWith(validUuid);
+      expect(mockSessionService.getHistory).toHaveBeenCalledWith(validUuid, undefined);
     });
 
     it("should accept 'all' as sessionId", async () => {
       await expect(controller.getHistory("all")).resolves.not.toThrow();
-      expect(mockSessionService.getHistory).toHaveBeenCalledWith("all");
+      expect(mockSessionService.getHistory).toHaveBeenCalledWith("all", undefined);
     });
 
     it("should reject non-string array sessionId query parameter", async () => {

@@ -6,7 +6,8 @@ import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { useNow } from '../hooks/useNow'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw } from 'lucide-react'
+import { getMarketRegimeInfo } from '../utils/marketRegime'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw, Turtle, Flame, Gauge, PauseCircle, Moon } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 
@@ -521,6 +522,20 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                 V{opp.volume_rank}
               </span>
             )}
+            {opp.htf_ema_cross_perf && (
+              <Tooltip content={`${(config?.htf_ema_cross_interval || '4h').toUpperCase()} HTF EMA Dual Cross (Last ${opp.htf_ema_cross_perf.cross_count} Crosses): Avg Profit ${opp.htf_ema_cross_perf.avg_profit_pct >= 0 ? '+' : ''}${opp.htf_ema_cross_perf.avg_profit_pct}%, Peak R:R ${opp.htf_ema_cross_perf.avg_peak_rr}R, Win Rate ${opp.htf_ema_cross_perf.win_rate}%`}>
+                <span className="text-[7.5px] bg-cyan-500/10 border border-cyan-500/20 px-1 py-0.2 rounded-[3px] text-cyan-400 font-black uppercase tracking-tighter leading-none flex items-center gap-0.5 cursor-help">
+                  ⚡ {(config?.htf_ema_cross_interval || '4h').toUpperCase()} Cross {opp.htf_ema_cross_perf.avg_profit_pct >= 0 ? '+' : ''}{opp.htf_ema_cross_perf.avg_profit_pct}% ({opp.htf_ema_cross_perf.avg_peak_rr}R)
+                </span>
+              </Tooltip>
+            )}
+            {opp.prospect_rr !== undefined && (
+              <Tooltip content={`Prospective Risk:Reward ratio based on current SL distance (${opp.sl_dist_pct ? opp.sl_dist_pct.toFixed(2) : '--'}%) vs target TP ratio (${config?.tp_ratio || 2.0}:1)`}>
+                <span className="text-[7.5px] bg-accent/10 border border-accent/20 px-1 py-0.2 rounded-[3px] text-accent font-black uppercase tracking-tighter leading-none flex items-center gap-0.5 cursor-help">
+                  🎯 {opp.prospect_rr}R Target
+                </span>
+              </Tooltip>
+            )}
            </div>
         </div>
         <div className="flex flex-col items-end w-14 shrink-0 md:w-auto md:shrink md:items-start md:pl-2">
@@ -551,6 +566,12 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                   <span className="text-dim uppercase font-bold">Trend</span>
                   <span className="font-mono text-purple-400">{Number(opp.score_breakdown?.trend || 0).toFixed(1)}</span>
                </div>
+               {opp.score_breakdown?.htf_ema_cross !== undefined && opp.score_breakdown.htf_ema_cross > 0 && (
+                 <div className="flex justify-between items-center text-[9px]">
+                    <span className="text-dim uppercase font-bold">{(config?.htf_ema_cross_interval || '4h').toUpperCase()} Cross</span>
+                    <span className="font-mono text-cyan-400">+{Number(opp.score_breakdown.htf_ema_cross).toFixed(1)}</span>
+                 </div>
+               )}
                <div className="border-t border-white/10 pt-1 flex justify-between items-center font-black">
                   <span className="text-[8px] uppercase tracking-tighter">Total</span>
                   <span className={cn("text-[10px] font-mono", opp.score > 85 ? "text-accent" : "text-white")}>{Number(opp.score || 0).toFixed(1)}</span>
@@ -568,6 +589,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                 <div className="h-full bg-accent/80" style={{ width: `${opp.score_breakdown?.momentum || 0}%` }} />
                 <div className="h-full bg-amber/80" style={{ width: `${opp.score_breakdown?.volatility || 0}%` }} />
                 <div className="h-full bg-purple/80" style={{ width: `${opp.score_breakdown?.trend || 0}%` }} />
+                <div className="h-full bg-cyan-400/80" style={{ width: `${opp.score_breakdown?.htf_ema_cross || 0}%` }} />
               </div>
             </div>
           </Tooltip>
@@ -880,6 +902,92 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
         </div>
       </div>
       <ModalAlertTicker />
+
+      {/* Ultra-High-Density Consolidated Market Regime & Telemetry Header Bar */}
+      {(() => {
+        const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused, hibernating });
+        return (
+          <>
+          <div
+            tabIndex={0}
+            role="region"
+            aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold. 24h Universe Range Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(2)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(2)}%`}
+            className="bg-surface/50 border-b border-border px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 shrink-0 text-[9.5px] font-mono"
+          >
+            <div className="flex items-center gap-2 flex-wrap min-w-0">
+              <Tooltip content={overlayRegime.guidance}>
+                <div className={cn(
+                  "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-sm font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0",
+                  overlayRegime.badgeClass
+                )}>
+                  {overlayRegime.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
+                  {overlayRegime.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
+                  {overlayRegime.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
+                  {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={11} className="shrink-0 opacity-70" />}
+                  <span>{overlayRegime.label}</span>
+                </div>
+              </Tooltip>
+
+              <div className="flex items-center gap-1.5 font-mono font-bold flex-wrap">
+                <span className="text-text/90">
+                  Avg Mom: <strong className="text-accent">{overlayRegime.avgMomentum.toFixed(2)}%</strong>
+                </span>
+                <span className="text-dim/40">•</span>
+                <span className="text-text/90">
+                  Pass: <strong className={overlayRegime.passingCount > 0 ? "text-green" : "text-cyan-400"}>{overlayRegime.passingCount}/{overlayRegime.totalCount}</strong> (&gt;{overlayRegime.threshold}%)
+                </span>
+                <span className="text-dim/40">•</span>
+                <span className="text-red">Min <strong>{overlayRegime.minPct >= 0 ? '+' : ''}{overlayRegime.minPct.toFixed(1)}%</strong></span>
+                <span className="text-dim/40">•</span>
+                <span className="text-green">Max <strong>{overlayRegime.maxPct >= 0 ? '+' : ''}{overlayRegime.maxPct.toFixed(1)}%</strong></span>
+              </div>
+            </div>
+
+            {/* Speed Meter Bar */}
+            <div className="flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
+              <span className="text-[8.5px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
+              <div className="w-20 sm:w-28 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+                <div
+                  className={cn("h-full transition-all duration-500 rounded-full", overlayRegime.meterClass || "bg-accent")}
+                  style={{ width: `${overlayRegime.speedPct}%` }}
+                />
+              </div>
+              <span className="text-[8.5px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
+            </div>
+          </div>
+
+          {/* Active Fast Market Speed Alert Bar */}
+          {overlayRegime.regime === 'active' && (
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label={`Fast Market Alert: ${overlayRegime.passingCount} candidates passing scan threshold ${overlayRegime.threshold}%, max momentum ${overlayRegime.maxAbsMomentum.toFixed(2)}%`}
+              className="bg-accent/10 border-b border-accent/30 px-3 py-1.5 flex items-center justify-between gap-3 text-xs font-mono shrink-0 shadow-sm"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Flame size={13} className="text-accent animate-pulse shrink-0" />
+                <span className="font-black text-accent uppercase tracking-wider text-[10px] truncate">
+                  🔥 Fast Market Expansion ({overlayRegime.passingCount}/{overlayRegime.totalCount} Candidates &gt; {overlayRegime.threshold}%)
+                </span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[9px] font-bold text-accent/80 uppercase tracking-widest hidden sm:inline">
+                  Max Velocity {overlayRegime.maxAbsMomentum.toFixed(2)}%
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRangeFilter(rangeFilter === 'movers' ? 'all' : 'movers')}
+                  className="px-2 py-0.5 rounded bg-accent/20 border border-accent/40 text-[9px] font-black uppercase text-accent hover:bg-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
+                  aria-label={rangeFilter === 'movers' ? "Show all candidates" : "Filter movers"}
+                >
+                  {rangeFilter === 'movers' ? 'Show All' : 'Focus Movers'}
+                </button>
+              </div>
+            </div>
+          )}
+          </>
+        );
+      })()}
 
       <ActiveWindowsList search={search} />
 

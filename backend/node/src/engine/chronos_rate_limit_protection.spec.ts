@@ -54,7 +54,7 @@ describe('Chronos: Rate Limit Protection Gap Regression', () => {
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: getRepositoryToken(SettingsEntity), useValue: { findOne: jest.fn().mockResolvedValue({}), update: jest.fn() } },
-        { provide: PositionTrackerService, useValue: { isRatcheting: jest.fn() } },
+        { provide: PositionTrackerService, useValue: { isRatcheting: jest.fn(), markDirty: jest.fn(), recordRatchetDeferral: jest.fn(), onRatchetComplete: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

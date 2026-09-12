@@ -2718,6 +2718,7 @@ export class SessionService implements OnModuleInit {
 
     const logs = includeLogs
       ? await this.logRepository.find({
+          select: ["id", "sessionId", "ts", "level", "msg"],
           where: { sessionId: session.id },
           order: { ts: "DESC" },
           take: 100,
@@ -3009,6 +3010,12 @@ export class SessionService implements OnModuleInit {
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
         .execute();
 
+      const deletedBalanceHistory = await this.balanceHistoryRepository
+        .createQueryBuilder()
+        .delete()
+        .where("timestamp < :cutoff", { cutoff: tradeCutoff })
+        .execute();
+
       // SEC-02: Cleanup old kline data to prevent unbounded storage growth
       const klineCutoff = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
       const deletedKlines = await this.sessionRepository.manager
@@ -3048,7 +3055,7 @@ export class SessionService implements OnModuleInit {
       }
 
       this.logger.log(
-        `Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed. Tracker memory cleared for ${logRateLimitCleared + sessionLogCountCleared} stale sessions.`,
+        `Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedBalanceHistory.affected || 0} balance history, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed. Tracker memory cleared for ${logRateLimitCleared + sessionLogCountCleared} stale sessions.`,
       );
     } catch (e: any) {
       this.logger.error(`Data cleanup failed: ${e.message}`);
@@ -3109,6 +3116,7 @@ export class SessionService implements OnModuleInit {
       if (level !== "error") return;
       // For errors, we delete the oldest log before inserting a new one
       const oldest = await this.logRepository.findOne({
+        select: ["id"],
         where: { sessionId: sid },
         order: { ts: "ASC" },
       });

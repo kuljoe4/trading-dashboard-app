@@ -180,6 +180,8 @@ export class EngineBroadcasterService {
         symbol: trade.symbol,
         strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
         current_price: roundTo(current ?? entry, 8),
+        exit_price: trade.exit_price !== undefined ? roundTo(trade.exit_price, 8) : undefined,
+        exit_reason: trade.exit_reason,
         sl_price: roundTo(trade.current_sl, 8),
         tp_price: roundTo(trade.tp, 8),
         pnl: roundTo(pnl, 2),

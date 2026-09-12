@@ -19,6 +19,7 @@ import { AuthModule } from './auth/auth.module';
         autoLoadEntities: true,
         entities: [],
         synchronize: false, // Explicitly disable synchronize in all environments
+        logging: false,
         // PERFORMANCE: Optimize PostgreSQL for trading workloads (Reduce connection pool memory overhead)
         extra: {
           max: 5,

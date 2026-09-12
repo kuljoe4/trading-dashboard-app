@@ -60,14 +60,94 @@ export class ExecutionService {
     return 60 * 1000;
   }
 
+  private lastChecklistLogTs = 0;
+
+  public runPrerequisiteChecklist(config: SessionConfig) {
+    const activeTrades = this.positionTracker.activeList();
+    if (activeTrades.length === 0) return;
+
+    const now = Date.now();
+    const intervalMin = config?.rate_limit_warning_interval_min || 5;
+    const intervalMs = Math.max(5, intervalMin) * 60 * 1000;
+
+    // Throttle prerequisite checklist warnings using configured rate_limit_warning_interval_min (default: 5m)
+    if (now - this.lastChecklistLogTs < intervalMs) return;
+    this.lastChecklistLogTs = now;
+
+    const isLive = !config.paper_mode;
+    const isBanned = isLive && this.sessionState.isBanned();
+
+    // 1. Active Ban Checklist Warning
+    if (isBanned) {
+      const banUntilStr = this.sessionState.apiStatus.banUntil
+        ? new Date(this.sessionState.apiStatus.banUntil).toLocaleTimeString()
+        : 'unknown';
+      const banMsg = `⚠️ [Prerequisite Warning] Active Binance IP Ban detected until ${banUntilStr}! Exit monitoring and SL ratcheting are PAUSED in Live/Testnet mode. Active positions: ${activeTrades.map(t => t.symbol).join(', ')}`;
+      this.logger.warn(banMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: banMsg, level: 'warn' });
+      this.broadcastService.broadcast('alert', {
+        level: 'warning',
+        title: 'Exit Monitoring Paused (IP Ban)',
+        message: banMsg,
+      });
+    }
+
+    // 2. Per-trade Prerequisite Checks
+    for (const trade of activeTrades) {
+      const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+
+      // a) Missing / Zero Stop Loss Warning
+      const currentSl = Number(trade.current_sl || trade.sl_price || 0);
+      const initialSl = Number(trade.initial_sl || 0);
+      if (currentSl <= 0 && initialSl <= 0) {
+        const slMsg = `⚠️ [Prerequisite Warning] Active trade ${trade.symbol} (${trade.direction}) has NO valid Stop Loss configured! Position is unprotected against adverse market swings.`;
+        this.logger.warn(slMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: slMsg, level: 'warn' });
+        this.broadcastService.broadcast('alert', {
+          level: 'warning',
+          title: 'Unprotected Position',
+          message: slMsg,
+          symbol: trade.symbol,
+        });
+      }
+
+      // b) Indicator Warmup / Data Starvation Check for Exit Signals
+      const exitSignals = activeConfig.exit_signals || [];
+      if (exitSignals.length > 0) {
+        const requiredWarmup = this.signalEngine.getRequiredWarmup(activeConfig);
+        const exitInterval = activeConfig.scan_interval || '1m';
+        const candles = this.klineStore.getRawCandles(trade.symbol, exitInterval);
+
+        if (candles.length < requiredWarmup) {
+          const warmupMsg = `⚠️ [Prerequisite Notice] Trade ${trade.symbol}: Exit indicator warmup in progress (${candles.length}/${requiredWarmup} candles for ${exitInterval}). Exit signals (${exitSignals.join(', ')}) will NOT fire until candle buffer converges.`;
+          this.logger.log(warmupMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warmupMsg, level: 'info' });
+        }
+      }
+
+      // c) Disconnected Price Stream Warning
+      const currentPrice = this.tickerCache.getPrice(trade.symbol);
+      if (!currentPrice || currentPrice <= 0) {
+        const streamMsg = `⚠️ [Prerequisite Warning] Trade ${trade.symbol}: Price ticker feed is unavailable/stalled. Real-time exit monitoring for ${trade.symbol} is degraded.`;
+        this.logger.warn(streamMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: streamMsg, level: 'warn' });
+      }
+
+      // d) Strategy Paused Notice
+      const stratLabel = trade.strategy_label || 'Momentum Strategy';
+      if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(stratLabel) : false) {
+        const pauseMsg = `ℹ️ [Prerequisite Notice] Strategy "${stratLabel}" for active trade ${trade.symbol} is PAUSED. New entries are disabled, but exit monitoring & stop loss protection remain active.`;
+        this.logger.log(pauseMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: pauseMsg, level: 'info' });
+      }
+    }
+  }
+
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
 
-    // BOLT: Global Ban Guard. If the system is banned, skip processing exits
-    // to avoid potential API ban exacerbation.
-    if (!config.paper_mode && this.sessionState.isBanned()) {
-      return;
-    }
+    // Run Pre-Flight Prerequisite Checklist BEFORE checking exits
+    this.runPrerequisiteChecklist(config);
 
     const activeTrades = this.positionTracker.activeList();
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
@@ -210,6 +290,13 @@ export class ExecutionService {
 
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
+
+        // Fast-fail resource optimization: Skip entries if this strategy is paused
+        const currentStrategyLabel = symbolConfig.strategy_label || strategyLabel || 'Momentum Strategy';
+        if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(currentStrategyLabel) : (this.sessionState.paused || (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.has(currentStrategyLabel)))) {
+          this.logger.debug(`Strategy "${currentStrategyLabel}" is paused. Skipping entries for ${opp.symbol}.`);
+          continue;
+        }
 
         // Anti-whipsaw / same-candle re-entry protection
         const uniqueTimeframes = new Set<string>();

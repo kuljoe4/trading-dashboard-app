@@ -1,8 +1,7 @@
 import React from 'react'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
-import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
-import { sessionAPI } from '../api/client'
-import { ShieldCheck, RefreshCw, Clock, Lock } from 'lucide-react'
+import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
+import { ShieldCheck, RefreshCw, Clock, Lock, Activity, ChevronRight, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
@@ -30,623 +29,510 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const isLong = trade.direction === 'LONG'
 
   // Resolve Est. Target and Winning Source
-  let estPrice = sl; // Default to current SL
-  let estLabel = 'Stop Loss';
+  let estPrice = sl
+  let estLabel = 'Stop Loss'
   if (trade.est_pnl_source && trade.est_pnl_source.startsWith('signal:')) {
-    const key = trade.est_pnl_source.substring(7);
-    const sig = trade.exit_signals_status?.[key];
+    const key = trade.est_pnl_source.substring(7)
+    const sig = trade.exit_signals_status?.[key]
     if (sig && typeof sig.threshold === 'number' && sig.threshold > 0) {
-      estPrice = sig.threshold;
-      estLabel = sig.label || key;
+      estPrice = sig.threshold
+      estLabel = sig.label || key
     }
   }
 
-  const isSignalWinning = trade.est_pnl_source && trade.est_pnl_source.startsWith('signal:');
+  const isSignalWinning = trade.est_pnl_source && trade.est_pnl_source.startsWith('signal:')
 
-  // Check if any signal threshold has been crossed by the mark price or is actively fired
-  let hasCrossedSignal = false;
-  let hasDelayedSignal = false;
+  // Check exit signal triggers & delays
+  let hasCrossedSignal = false
+  let hasDelayedSignal = false
+  let activeSignalCount = 0
   if (trade.exit_signals_status) {
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
-      if (sig && sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
-        let signalPnl = 0;
-        if (isLong) {
-          signalPnl = (sig.threshold - entry) * (trade.qty || 0);
-        } else {
-          signalPnl = (entry - sig.threshold) * (trade.qty || 0);
-        }
-        const isDelayActive = typeof sig.remaining_delay === 'number' && sig.remaining_delay > 0;
-        const currentPnlVal = Number(trade.pnl || 0);
+      if (!sig) continue
+      activeSignalCount++
+      if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
+        let signalPnl = isLong ? (sig.threshold - entry) * (trade.qty || 0) : (entry - sig.threshold) * (trade.qty || 0)
+        const isDelayActive = typeof sig.remaining_delay === 'number' && sig.remaining_delay > 0
+        const currentPnlVal = Number(trade.pnl || 0)
         if (sig.fired && sig.active) {
-          hasCrossedSignal = true;
+          hasCrossedSignal = true
         }
         if (isDelayActive && signalPnl <= currentPnlVal) {
-          hasDelayedSignal = true;
+          hasDelayedSignal = true
         }
-      } else if (sig && sig.fired && sig.active) {
-        hasCrossedSignal = true;
+      } else if (sig.fired && sig.active) {
+        hasCrossedSignal = true
       }
     }
   }
 
-  // Dynamic R-Multiple Price Runway Model (Zero Synthetic Targets)
-  const initialSl = Number(trade.initial_sl || sl || 0);
-  const rawRiskUnit = Math.abs(entry - initialSl);
-  const riskUnit = rawRiskUnit > 0 ? rawRiskUnit : (entry > 0 ? entry * 0.01 : 1);
+  // Dynamic R-Multiple Price Runway Calculations
+  const initialSl = Number(trade.initial_sl || sl || 0)
+  const rawRiskUnit = Math.abs(entry - initialSl)
+  const riskUnit = rawRiskUnit > 0 ? rawRiskUnit : (entry > 0 ? entry * 0.01 : 1)
 
   const getR = (price) => {
-    if (!price || !isFinite(price) || !entry) return 0;
-    return isLong ? (price - entry) / riskUnit : (entry - price) / riskUnit;
-  };
+    if (!price || !isFinite(price) || !entry) return 0
+    return isLong ? (price - entry) / riskUnit : (entry - price) / riskUnit
+  }
 
-  const maxRr = Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0);
-  const peakR = Math.max(0, maxRr);
-  const slR = getR(sl);
-  const markR = getR(mark);
-  const tpR = tp > 0 ? getR(tp) : 0;
+  const maxRr = Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0)
+  const peakR = Math.max(0, maxRr)
+  const slR = getR(sl)
+  const markR = getR(mark)
+  const tpR = tp > 0 ? getR(tp) : 0
+  const initialSlR = getR(initialSl)
 
-  // Signed percentage calculations
-  const initialSlPercent = (entry > 0 && initialSl > 0)
-    ? (isLong ? ((initialSl - entry) / entry) * 100 : ((entry - initialSl) / entry) * 100)
-    : 0;
+  // Percentages relative to entry
+  const markPercent = (entry > 0 && mark > 0)
+    ? (isLong ? ((mark - entry) / entry) * 100 : ((entry - mark) / entry) * 100)
+    : 0
 
   const slPercent = (entry > 0 && sl > 0)
     ? (isLong ? ((sl - entry) / entry) * 100 : ((entry - sl) / entry) * 100)
-    : 0;
+    : 0
 
-  const markPercent = (entry > 0 && mark > 0)
-    ? (isLong ? ((mark - entry) / entry) * 100 : ((entry - mark) / entry) * 100)
-    : 0;
+  // Peak Giveback Metrics
+  const givebackR = Math.max(0, peakR - markR)
+  const givebackPctOfPeak = peakR > 0.05 ? Math.min(100, Math.max(0, (givebackR / peakR) * 100)) : 0
+  const isRetracing = peakR >= 0.25 && givebackR >= 0.15
 
-  // Scale target dynamically: derived from structural targets (tpR / peakR) without markR jitter.
-  const targetR = tp > 0 ? Math.max(0.5, tpR, peakR) : Math.max(1.5, peakR);
-  const bufferR = Math.max(0.2, targetR * 0.1);
-  const rightEdgeR = targetR + bufferR;
-  const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1);
-  const totalRangeR = rightEdgeR - leftEdgeR;
+  // Distance to Danger / Room Metrics
+  const roomToSlR = Math.max(0, isLong ? (mark - sl) / riskUnit : (sl - mark) / riskUnit)
+  const roomToSlUsdt = Math.max(0, Math.abs(mark - sl) * Number(trade.qty || 0))
+  const roomToTpR = tp > 0 ? Math.max(0, isLong ? (tp - mark) / riskUnit : (mark - tp) / riskUnit) : null
+  const roomToTpUsdt = tp > 0 ? Math.max(0, Math.abs(tp - mark) * Number(trade.qty || 0)) : null
+
+  // Trade Phase Resolution
+  const isRiskReleased = trade.risk_usdt === 0 || (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6)
+  let tradePhase = 'INITIAL RISK'
+  if (isRetracing) {
+    tradePhase = 'RETRACING'
+  } else if (isRiskReleased) {
+    tradePhase = 'RISK LOCKED'
+  } else if (markR > 0) {
+    tradePhase = 'IN PROFIT'
+  }
+
+  // Runway Scale Constraints
+  const targetR = tp > 0 ? Math.max(0.5, tpR, peakR, markR) : Math.max(1.5, peakR, markR)
+  const bufferR = Math.max(0.2, targetR * 0.1)
+  const rightEdgeR = targetR + bufferR
+  const leftEdgeR = Math.min(-1, slR, markR < -1 ? markR : -1)
+  const totalRangeR = rightEdgeR - leftEdgeR
 
   const pos = (price) => {
-    if (!totalRangeR || totalRangeR <= 0) return 50;
-    const r = getR(price);
-    const frac = (r - leftEdgeR) / totalRangeR;
-    return Math.max(0, Math.min(100, frac * 100));
-  };
+    if (!totalRangeR || totalRangeR <= 0) return 50
+    const r = getR(price)
+    const frac = (r - leftEdgeR) / totalRangeR
+    return Math.max(0, Math.min(100, frac * 100))
+  }
 
-  const progress = pos(mark);
-  const entryMarkPos = pos(entry);
-  const slPos = pos(sl);
-  const tpPos = tp > 0 ? pos(tp) : null;
-  const estPos = pos(estPrice);
-  const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit);
-  const peakPos = pos(peakPrice);
-  const isPeakBeyondTarget = tp > 0 && peakR > tpR;
+  const progress = pos(mark)
+  const entryMarkPos = pos(entry)
+  const slPos = pos(sl)
+  const tpPos = tp > 0 ? pos(tp) : null
+  const estPos = pos(estPrice)
+  const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit)
+  const peakPos = pos(peakPrice)
 
-  // Right slot label & pricing resolution
-  const rightSlotLabel = tp > 0 ? 'TP' : (peakR > 0 ? 'Peak' : 'Target');
-  const rightSlotPrice = tp > 0 ? tp : (peakR > 0 ? peakPrice : (isLong ? entry + 1.5 * riskUnit : entry - 1.5 * riskUnit));
-  const rightSlotR = tp > 0 ? tpR : (peakR > 0 ? peakR : 1.5);
+  // Dual Indicator Markers calculation (retained for telemetry & compatibility)
+  const { dualIndicatorMarkers, dualGroups } = React.useMemo(() => {
+    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [], dualGroups: [] }
+    const list = []
+    const groupsMap = new Map()
 
-  const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss';
-  const rrValue = Number(trade.rr || 0).toFixed(2);
-  const isRiskReleased = trade.risk_usdt === 0;
-  const riskLockText = isRiskReleased ? 'Risk Free (Released)' : `Locked (${fmtUSD(trade.risk_usdt)})`;
-  const ariaText = `${trade.symbol} ${trade.direction}: ${rrValue}R ${pnlLabel}. Risk status: ${riskLockText}. Live mark is at ${Math.round(progress)}% of runway scale.`;
+    for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
+      if (!sig) continue
 
-  const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee);
+      let groupKey = 'default'
+      if (key.includes('_')) {
+        const parts = key.split('_')
+        if (parts.length >= 2) groupKey = `${parts[0]}_${parts[1]}`
+      }
 
-  const exitSignalProximity = React.useMemo(() => {
-    if (!trade.exit_signals_status) return 0;
-    const statuses = Object.values(trade.exit_signals_status);
-    if (statuses.length === 0) return 0;
+      if (!groupsMap.has(groupKey)) {
+        groupsMap.set(groupKey, { key: groupKey, label: sig.label || groupKey.toUpperCase(), fast: null, slow: null })
+      }
+      const grp = groupsMap.get(groupKey)
 
-    let maxProx = 0;
-    for (const sig of statuses) {
-      if (sig) {
-        const prox = calculateProximity(sig, mark, entry, isLong, true);
-        if (prox > maxProx) maxProx = prox;
+      if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
+        const item = {
+          key,
+          label: sig.label || key,
+          price: sig.threshold,
+          pos: pos(sig.threshold),
+          fired: sig.fired && sig.active,
+          isFast: key.includes('fast'),
+          isSlow: key.includes('slow')
+        }
+        list.push(item)
+        if (item.isFast) grp.fast = item
+        if (item.isSlow) grp.slow = item
+      }
+
+      if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
+        const item = {
+          key: `${key}-fast`,
+          label: 'FAST EMA',
+          price: sig.fast_value,
+          pos: pos(sig.fast_value),
+          fired: sig.fired,
+          isFast: true
+        }
+        list.push(item)
+        grp.fast = item
+      }
+
+      if (typeof sig.slow_value === 'number' && sig.slow_value > 0) {
+        const item = {
+          key: `${key}-slow`,
+          label: 'SLOW EMA',
+          price: sig.slow_value,
+          pos: pos(sig.slow_value),
+          fired: sig.fired,
+          isSlow: true
+        }
+        list.push(item)
+        grp.slow = item
       }
     }
-    return Math.round(maxProx);
-  }, [trade.exit_signals_status, mark, entry, isLong]);
 
-  // Track recent mark price movement for trailing waterfall animation
-  const prevMarkRef = React.useRef(mark);
-  const [trail, setTrail] = React.useState(null);
+    const groupSpans = []
+    for (const grp of groupsMap.values()) {
+      if (grp.fast && grp.slow) {
+        const minPos = Math.min(grp.fast.pos, grp.slow.pos)
+        const maxPos = Math.max(grp.fast.pos, grp.slow.pos)
+        const width = Math.max(0.5, maxPos - minPos)
+        const gapPct = entry > 0 ? (Math.abs(grp.fast.price - grp.slow.price) / entry) * 100 : 0
+        const proximity = Math.max(0, Math.min(1, 1 - gapPct / 4))
+        groupSpans.push({
+          key: grp.key,
+          label: grp.label,
+          minPos,
+          maxPos,
+          width,
+          gapPct,
+          proximity,
+          fastPrice: grp.fast.price,
+          slowPrice: grp.slow.price,
+          isFired: grp.fast.fired || grp.slow.fired
+        })
+      }
+    }
 
-  // Value change tracking for dynamic marker highlights
-  const prevSlRef = React.useRef(sl);
-  const prevMaxRrRef = React.useRef(maxRr);
-  const prevEstRef = React.useRef(estPrice);
-  const prevTpRef = React.useRef(tp);
+    return { dualIndicatorMarkers: list, dualGroups: groupSpans }
+  }, [trade.exit_signals_status, mark, entry, totalRangeR, leftEdgeR])
 
-  const [slHighlight, setSlHighlight] = React.useState(false);
-  const [peakHighlight, setPeakHighlight] = React.useState(false);
-  const [estHighlight, setEstHighlight] = React.useState(false);
-  const [tpHighlight, setTpHighlight] = React.useState(false);
+  const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss'
+  const rrValue = markR.toFixed(2)
+  const riskLockText = isRiskReleased ? 'RISK LOCKED (0.00R Protected)' : `Locked (${fmtUSD(trade.risk_usdt)})`
+  const ariaText = `${trade.symbol} ${trade.direction}: ${fmtUSD(trade.pnl)} (${rrValue}R ${pnlLabel}). Phase: ${tradePhase}. Risk status: ${riskLockText}. Live mark at ${rrValue}R.`
+
+  const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee)
+
+  const exitSignalProximity = React.useMemo(() => {
+    if (!trade.exit_signals_status) return 0
+    const statuses = Object.values(trade.exit_signals_status)
+    if (statuses.length === 0) return 0
+
+    let maxProx = 0
+    for (const sig of statuses) {
+      if (sig) {
+        const prox = calculateProximity(sig, mark, entry, isLong, true)
+        if (prox > maxProx) maxProx = prox
+      }
+    }
+    return Math.round(maxProx)
+  }, [trade.exit_signals_status, mark, entry, isLong])
+
+  // Track mark price movement for restrained motion trail
+  const prevMarkRef = React.useRef(mark)
+  const [trail, setTrail] = React.useState(null)
+
+  // Event highlights
+  const prevSlRef = React.useRef(sl)
+  const prevMaxRrRef = React.useRef(maxRr)
+  const [slHighlight, setSlHighlight] = React.useState(false)
+  const [peakHighlight, setPeakHighlight] = React.useState(false)
 
   React.useEffect(() => {
     if (prevMarkRef.current !== mark && mark > 0 && prevMarkRef.current > 0) {
-      const oldPos = pos(prevMarkRef.current);
-      const newPos = pos(mark);
+      const oldPos = pos(prevMarkRef.current)
+      const newPos = pos(mark)
       if (Math.abs(oldPos - newPos) > 0.05) {
         setTrail({
           start: Math.min(oldPos, newPos),
           width: Math.abs(oldPos - newPos),
           isUp: mark >= prevMarkRef.current,
           key: Date.now()
-        });
+        })
       }
     }
-    prevMarkRef.current = mark;
-  }, [mark]);
+    prevMarkRef.current = mark
+  }, [mark])
 
   React.useEffect(() => {
     if (prevSlRef.current !== sl && sl > 0 && prevSlRef.current > 0) {
-      setSlHighlight(true);
-      const timer = setTimeout(() => setSlHighlight(false), 600);
-      prevSlRef.current = sl;
-      return () => clearTimeout(timer);
+      setSlHighlight(true)
+      const timer = setTimeout(() => setSlHighlight(false), 600)
+      prevSlRef.current = sl
+      return () => clearTimeout(timer)
     }
-    prevSlRef.current = sl;
-  }, [sl]);
+    prevSlRef.current = sl
+  }, [sl])
 
   React.useEffect(() => {
     if (prevMaxRrRef.current !== maxRr && maxRr > 0) {
-      setPeakHighlight(true);
-      const timer = setTimeout(() => setPeakHighlight(false), 600);
-      prevMaxRrRef.current = maxRr;
-      return () => clearTimeout(timer);
+      setPeakHighlight(true)
+      const timer = setTimeout(() => setPeakHighlight(false), 600)
+      prevMaxRrRef.current = maxRr
+      return () => clearTimeout(timer)
     }
-    prevMaxRrRef.current = maxRr;
-  }, [maxRr]);
-
-  React.useEffect(() => {
-    if (prevEstRef.current !== estPrice && estPrice > 0) {
-      setEstHighlight(true);
-      const timer = setTimeout(() => setEstHighlight(false), 600);
-      prevEstRef.current = estPrice;
-      return () => clearTimeout(timer);
-    }
-    prevEstRef.current = estPrice;
-  }, [estPrice]);
-
-  React.useEffect(() => {
-    if (prevTpRef.current !== tp && tp > 0) {
-      setTpHighlight(true);
-      const timer = setTimeout(() => setTpHighlight(false), 600);
-      prevTpRef.current = tp;
-      return () => clearTimeout(timer);
-    }
-    prevTpRef.current = tp;
-  }, [tp]);
+    prevMaxRrRef.current = maxRr
+  }, [maxRr])
 
   return (
     <motion.div
       whileHover={{
-        borderColor: "rgba(91, 111, 255, 0.3)",
-        boxShadow: "0 0 16px rgba(91, 111, 255, 0.1)"
+        borderColor: "rgba(91, 111, 255, 0.35)",
+        boxShadow: "0 0 12px rgba(91, 111, 255, 0.1)"
       }}
-      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      transition={{ type: "spring", stiffness: 500, damping: 35 }}
       onClick={onClick}
       onKeyDown={handleKeyDown}
       onMouseEnter={onMouseEnter}
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/80 rounded-xl p-2 sm:p-2.5 md:p-3 flex flex-col gap-1.5 sm:gap-2 w-full shadow-md shadow-black/20 cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        "bg-surface border border-border/80 rounded-xl p-2.5 sm:p-3 flex flex-col justify-between w-full h-[152px] shadow-md shadow-black/20 cursor-pointer hover:border-accent/40 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden select-none shrink-0",
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
       )}
-      aria-label={`View details for ${trade.symbol} ${trade.direction} trade, P&L is ${fmtUSD(trade.pnl)}, live risk-to-reward is ${Number(trade.rr || 0).toFixed(2)}R, peak risk-to-reward is ${Number(trade.max_rr ?? trade.max_rr_achieved ?? trade.rr ?? 0).toFixed(2)}R`}
+      aria-label={ariaText}
     >
       {showResumingFeedback && (
-        <div className="absolute inset-0 bg-accent/5 backdrop-blur-[1px] z-10 flex items-center justify-center pointer-events-none">
-           <div className="bg-background/80 border border-accent/20 px-2.5 py-0.5 rounded-full text-[8px] font-black text-accent uppercase tracking-widest flex items-center gap-1.5 shadow-xl animate-in fade-in zoom-in duration-300">
-              <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
-           </div>
+        <div className="absolute inset-0 bg-background/80 backdrop-blur-[1px] z-20 flex items-center justify-center pointer-events-none">
+          <div className="bg-surface border border-accent/30 px-2.5 py-0.5 rounded-full text-[8px] font-black text-accent uppercase tracking-widest flex items-center gap-1.5 shadow-xl">
+            <RefreshCw size={10} className="animate-spin" /> Resuming Feed...
+          </div>
         </div>
       )}
-      <div className="flex items-center justify-between gap-1.5 min-w-0">
-        <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1 flex-wrap leading-none">
-          <span className="text-xs sm:text-sm font-black font-mono tracking-tight shrink-0 text-text leading-none">{trade.symbol || '---'}</span>
-          <CopyButton value={trade.symbol} className="hidden sm:inline-flex opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 focus-visible:opacity-100 transition-opacity scale-75 -ml-1.5" />
-          <span className={cn("text-[7.5px] sm:text-[8px] md:text-[9px] font-black px-1 py-0.5 rounded border uppercase shrink-0 leading-none", isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5')}>
-            {isLong ? '▲' : '▼'} {trade.direction || '---'}
-          </span>
-          <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono leading-none">
-            {trade.strategy_config?.scan_interval || trade.strategy_config?.interval || config?.scan_interval || '5m'}
-          </span>
-          {trade.strategy_label && config && (
-            trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
-              <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                <motion.span
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help leading-none flex items-center gap-0.5"
-                >
-                  <span className="sm:hidden font-mono text-[7px] font-extrabold">B</span>
-                  <span className="hidden sm:inline">Base</span>
-                </motion.span>
+
+      {/* TIER 1: Dominant Header (Symbol, Position, Badges + Dominant P&L Block) */}
+      <div className="flex items-start justify-between gap-2 h-[34px] min-w-0 shrink-0">
+        <div className="flex flex-col justify-center gap-0.5 min-w-0 flex-1">
+          <div className="flex items-center gap-1 min-w-0 flex-wrap leading-none">
+            <span className="text-xs sm:text-sm font-black font-mono tracking-tight text-text leading-none shrink-0">
+              {trade.symbol || '---'}
+            </span>
+            <CopyButton value={trade.symbol} className="hidden sm:inline-flex opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
+
+            <span className={cn(
+              "text-[7.5px] font-black px-1 py-0.5 rounded border uppercase shrink-0 leading-none font-mono",
+              isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5'
+            )}>
+              {isLong ? '▲ LONG' : '▼ SHORT'}
+            </span>
+
+            <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono leading-none">
+              {trade.strategy_config?.scan_interval || trade.strategy_config?.interval || config?.scan_interval || '5m'}
+            </span>
+
+            {/* Risk Phase & Protection Badges */}
+            {isRiskReleased ? (
+              <Tooltip content={`INITIAL RISK PROTECTED: Stop Loss moved to entry or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Initial risk is 0.00R.`}>
+                <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm">
+                  <Lock size={7} className="text-green shrink-0" />
+                  <span>RISK LOCKED</span>
+                </span>
               </Tooltip>
             ) : (
-              <Tooltip content={`Strategy: ${trade.strategy_label}`}>
-                <motion.span
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  className="bg-purple/10 text-purple border border-purple/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 cursor-help animate-pulse leading-none flex items-center gap-0.5"
-                >
-                  <span className="sm:hidden font-mono text-[7px] font-extrabold">V</span>
-                  <span className="hidden sm:inline">Variant</span>
-                </motion.span>
-              </Tooltip>
-            )
-          )}
-          {exitSignalProximity > 0 && (
-            <Tooltip content={`Exit Signal Trigger Proximity: ${exitSignalProximity}%`}>
-              <span className="bg-surface text-accent border border-accent/30 text-[7px] font-mono font-bold px-1 py-0.5 rounded uppercase flex items-center gap-1 shrink-0">
-                <span className="hidden sm:inline">Exit</span>
-                <div className="w-5 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5">
-                  <div
-                    className={cn("h-full rounded-full transition-all duration-500", exitSignalProximity > 80 ? "bg-red" : "bg-accent")}
-                    style={{ width: `${exitSignalProximity}%` }}
-                  />
-                </div>
-                <span>{exitSignalProximity}%</span>
-              </span>
-            </Tooltip>
-          )}
-          {trade.is_reconciliation && (
-            <span className="bg-amber text-black border border-amber text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none">
-              Recon
-            </span>
-          )}
-          {trade.is_knife && (
-            <motion.span
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className="text-[7.5px] sm:text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 leading-none shrink-0"
-            >
-              🔪 KNIFE
-            </motion.span>
-          )}
-          {trade.strategy_config?.is_nominal_overshoot && (
-            <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. Exercise caution.">
-              <span className="bg-amber/15 text-amber border border-amber/35 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter leading-none cursor-help shadow-sm shrink-0 flex items-center gap-0.5">
-                ⚡ <span className="sm:hidden">SCALED</span><span className="hidden sm:inline">SCALED RISK</span>
-              </span>
-            </Tooltip>
-          )}
-          {isRiskReleased && (
-            <Tooltip content={`RISK LOCK RELEASED: Stop loss has ratcheted to breakeven or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Position risk is $0.00.`}>
-              <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm animate-in fade-in duration-300">
-                <Lock size={7} className="text-green shrink-0" />
-                <span>Risk Free</span>
-              </span>
-            </Tooltip>
-          )}
-          {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-            <MonitoredBadge className="opacity-80 scale-90 -ml-0.5" />
-          )}
-          {trade.strategy_config?.trailing_stop_enabled && (
-            <Tooltip content={
-              (trade.strategy_config?.trailing_activation_rr || 0) > 0
-                ? `Dynamic trailing stop active for this position (Activates at ${trade.strategy_config.trailing_activation_rr}R)`
-                : "Dynamic trailing stop active for this position"
-            }>
-              <span className="bg-purple-400/10 border border-purple-400/25 text-purple-400 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 animate-pulse leading-none shrink-0 cursor-help">
-                <RefreshCw size={7} className="animate-spin text-purple-400" />
-                <span className="hidden sm:inline">Trailing</span>
-                {(trade.strategy_config?.trailing_activation_rr || 0) > 0 && (
-                  <span className="bg-purple-400/20 text-purple-300 font-mono text-[6.5px] font-black px-1 py-0.2 rounded-sm ml-0.5">
-                    🎯 {trade.strategy_config.trailing_activation_rr}R
+              trade.initial_sl > 0 && Math.abs(trade.sl_price - trade.initial_sl) > 0.0000001 && (
+                <Tooltip content={`Stop Loss ratcheted from ${fmtUSD(trade.initial_sl)} to ${fmtUSD(trade.sl_price)}`}>
+                  <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0">
+                    <ShieldCheck size={7} className="text-amber" />
+                    <span>SL MOVED</span>
                   </span>
-                )}
+                </Tooltip>
+              )
+            )}
+
+            {trade.strategy_config?.trailing_stop_enabled && (
+              <Tooltip content="Dynamic Trailing Stop Loss engaged">
+                <span className="bg-purple/10 border border-purple/25 text-purple text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0 cursor-help">
+                  <RefreshCw size={7} className="animate-spin text-purple shrink-0" />
+                  <span>TRAIL</span>
+                </span>
+              </Tooltip>
+            )}
+
+            {trade.is_knife && (
+              <span className="text-[7.5px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase leading-none shrink-0">
+                🔪 KNIFE
               </span>
-            </Tooltip>
-          )}
-          {trade.initial_sl > 0 && Math.abs(trade.sl_price - trade.initial_sl) > 0.0000001 && (
-            <Tooltip content={`Stop Loss moved from original entry protection level: ${fmtUSD(trade.initial_sl)} ➔ ${fmtUSD(trade.sl_price)}`}>
-              <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0">
-                <ShieldCheck size={7} className="text-amber" />
-                <span className="hidden sm:inline">SL Moved</span>
-              </span>
-            </Tooltip>
-          )}
-          {trade.entry_ts && (
-            <span className="bg-accent/10 border border-accent/25 text-accent text-[7.5px] sm:text-[8px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0">
-              <Clock size={8} className="text-accent" /> {duration}
+            )}
+
+            {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
+              <MonitoredBadge className="opacity-80 scale-90 -ml-0.5" />
+            )}
+          </div>
+
+          <div className="flex items-center gap-1 text-[7.5px] text-dim font-mono font-medium leading-none pt-0.5">
+            <span className="flex items-center gap-0.5">
+              <Clock size={8} className="text-accent/80 shrink-0" /> {duration}
             </span>
-          )}
+            <span>·</span>
+            <span>Entry {fmtUSD(entry)}</span>
+            {(netFee !== 0) && (
+              <>
+                <span>·</span>
+                <span className={netFee > 0 ? "text-red/60" : "text-green/60"}>Fee {fmtUSD(-netFee)}</span>
+              </>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          {(trade.realized_fee > 0 || trade.funding_fee !== 0) && (
-            <Tooltip content={`Commission: ${fmtUSD(-safeNum(trade.realized_fee))} | Funding: ${fmtUSD(-safeNum(trade.funding_fee))}`}>
-              <div className={cn(
-                "text-[7px] sm:text-[7.5px] font-black font-mono uppercase tracking-tighter cursor-help border-b border-dotted leading-none",
-                netFee > 0 ? "text-red/40 border-red/10" : "text-green/40 border-green/10"
-              )}>
-                {fmtUSD(-netFee)}
-              </div>
-            </Tooltip>
-          )}
-          <Tooltip content="Live P&L including commission and funding">
+        {/* DOMINANT P&L BLOCK (USD, R-multiple, %) */}
+        <div className="flex flex-col items-end justify-center shrink-0 leading-none">
+          <Tooltip content={`Live P&L: ${fmtUSD(trade.pnl)} | Current R: ${markR >= 0 ? '+' : ''}${markR.toFixed(2)}R | Return: ${markPercent >= 0 ? '+' : ''}${markPercent.toFixed(2)}%`}>
             <div className={cn(
-              "text-xs sm:text-sm md:text-base lg:text-lg font-black font-mono tracking-tighter leading-none cursor-help border-b border-dotted border-white/5 transition-all duration-300",
-              trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim',
-              trail && "scale-105"
+              "text-base sm:text-lg font-black font-mono tracking-tighter leading-none cursor-help transition-all duration-300 flex items-center gap-1",
+              trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
             )}>
               {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
             </div>
           </Tooltip>
-        </div>
-      </div>
-
-      {/* Tactical Map Price Runway & Live Target Gauges */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-widest text-dim leading-none">
-          <div className="flex items-center gap-1 min-w-0">
-            <span className="text-dim/80">MARK:</span>
-            {entry > 0 && mark > 0 && (
-              <span className={cn(
-                "font-mono text-[7.5px] font-black transition-all duration-300 px-1 py-0.2 rounded",
-                markPercent >= 0 ? "text-green bg-green/5" : "text-red bg-red/5"
-              )}>
-                {markPercent >= 0 ? '▲ +' : '▼ '}{markPercent.toFixed(2)}%
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            {hasCrossedSignal && (
-              <Tooltip content="One or more technical exit signals have triggered or crossed threshold!">
-                <span className="inline-flex items-center gap-0.5 bg-red/15 text-red border border-red/30 text-[7px] font-black px-1 py-0.2 rounded uppercase tracking-tighter leading-none animate-pulse shadow-[0_0_6px_rgba(255,68,102,0.3)]">
-                  ⚡ CROSSED / FIRED
-                </span>
-              </Tooltip>
-            )}
-            {hasDelayedSignal && !hasCrossedSignal && (
-              <Tooltip content="An exit signal threshold is active but currently delay-gated. It may become the active estimate soon.">
-                <span className="inline-flex items-center gap-0.5 bg-amber/10 text-amber border border-amber/20 text-[7px] font-black px-1 py-0.2 rounded uppercase tracking-tighter leading-none animate-pulse">
-                  <Clock size={7} className="animate-spin duration-[3000ms]" /> Delayed
-                </span>
-              </Tooltip>
-            )}
-            <span className="text-dim/80">Guard:</span>
+          <div className="flex items-center gap-1 pt-0.5 text-[8.5px] font-black font-mono leading-none">
             <span className={cn(
-              "px-1 py-0.2 rounded text-[7.5px] font-mono font-black uppercase tracking-tighter shrink-0",
-              isSignalWinning
-                ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                : trade.tp_mode === 'exp_rr_seq'
-                  ? "bg-purple/10 text-purple border border-purple/20 animate-pulse"
-                  : "bg-blue-500/10 text-blue-400 border border-blue-500/20"
+              "px-1 py-0.2 rounded font-mono font-black",
+              markR >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red"
             )}>
-              {isSignalWinning ? 'Signal' : trade.tp_mode === 'exp_rr_seq' ? 'Milestone' : 'Fixed TP'}
+              {markR >= 0 ? '+' : ''}{markR.toFixed(2)}R
+            </span>
+            <span className={cn(
+              "font-mono font-semibold",
+              markPercent >= 0 ? "text-green" : "text-red"
+            )}>
+              {markPercent >= 0 ? '+' : ''}{markPercent.toFixed(2)}%
             </span>
           </div>
         </div>
+      </div>
 
-        {/* Tactical Map Track Area with Stem & Pennant Overhead Space - Ultra High Density */}
-        <div className="relative pt-3.5 pb-0.5 min-h-[30px]">
-          {/* Main Thinner Track Bar (4px height) */}
-          <div
-            className="h-[4px] w-full rounded-full relative overflow-hidden bg-surface border border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
-            role="progressbar"
-            aria-valuenow={Math.round(progress)}
-            aria-valuemin="0"
-            aria-valuemax="100"
-            aria-valuetext={ariaText}
-          >
-            {/* Waterline Zone Tinting: Loss Zone (Left of Entry) */}
-            <div
-              className="absolute top-0 bottom-0 left-0 bg-[#ff2a55]/25 transition-all duration-300"
-              style={{ width: `${entryMarkPos}%` }}
-            />
+      {/* TIER 2: Clean R-First Runway Track & Landmarks */}
+      <div className="flex flex-col justify-center h-[58px] min-w-0 my-0.5 relative shrink-0">
+        {/* Top Tick Landmark Labels (R-First Language) */}
+        <div className="flex justify-between items-end text-[7.5px] font-black font-mono uppercase tracking-tight text-dim mb-1 leading-none">
+          {/* SL Landmark */}
+          <Tooltip content={`Stop Loss: ${fmtUSD(sl)} (${slR >= 0 ? '+' : ''}${slR.toFixed(2)}R)`}>
+            <div className="flex flex-col items-start cursor-help">
+              <span className={cn("text-red font-black", slHighlight && "text-[#00f0ff]")}>
+                SL {slR.toFixed(1)}R
+              </span>
+              <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(sl)}</span>
+            </div>
+          </Tooltip>
 
-            {/* Waterline Zone Tinting: Profit Zone (Right of Entry) */}
-            <div
-              className="absolute top-0 bottom-0 right-0 bg-[#00e5a0]/22 transition-all duration-300"
-              style={{ left: `${entryMarkPos}%` }}
-            />
+          {/* ENTRY Landmark */}
+          <Tooltip content={`Entry Price: ${fmtUSD(entry)} (0.00R)`}>
+            <div className="flex flex-col items-center cursor-help">
+              <span className="text-dim font-black">0R ENTRY</span>
+              <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(entry)}</span>
+            </div>
+          </Tooltip>
 
-            {/* Progress Fill */}
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-300 opacity-90 shadow-[0_0_6px_rgba(0,0,0,0.4)]",
-                trade.pnl >= 0 ? "bg-[#00e5a0]" : "bg-[#ff2a55]"
-              )}
-              style={{ width: `${progress}%` }}
-            />
-
-          {/* Live Mark Price Pointer Node */}
-          <div
-            className="absolute top-1/2 -translate-y-1/2 -ml-1 z-30 pointer-events-none transition-all duration-300 flex items-center justify-center"
-            style={{ left: `${progress}%` }}
-            aria-hidden="true"
-          >
-            <div className={cn(
-              "w-2.5 h-2.5 rounded-full border-2 border-white shadow-[0_0_8px_rgba(255,255,255,0.9)] transition-all duration-300",
-              trade.pnl >= 0 ? "bg-[#00e5a0] shadow-[#00e5a0]" : "bg-[#ff2a55] shadow-[#ff2a55]"
-            )} />
-          </div>
-          </div>
-
-          {/* Overlaid Tactical Map Indicators */}
-
-          {/* Waterline Seam Line & Top Dot at Entry */}
-          <div
-            className="absolute top-3.5 bottom-0.5 w-0.5 bg-white z-20 pointer-events-none transition-all duration-300 flex flex-col items-center -ml-[1px]"
-            style={{ left: `${entryMarkPos}%` }}
-            aria-hidden="true"
-          >
-            <div className="w-1 h-1 rounded-full bg-white -mt-0.5 shadow-[0_0_4px_rgba(255,255,255,0.9)]" />
-          </div>
-
-          {/* Current Stop Loss Marker */}
-          {sl > 0 && (
-            <Tooltip content={
-              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
-                <div className="font-bold border-b border-white/5 pb-1 mb-1">Current Stop Loss</div>
-                <div className="text-dim">Current SL: <span className="text-text font-mono font-semibold">{fmtUSD(sl)} ({slPercent >= 0 ? '+' : ''}{slPercent.toFixed(2)}%)</span></div>
-                {initialSl > 0 && (
-                  <div className="text-dim">Initial SL: <span className="text-amber font-mono font-semibold">{fmtUSD(initialSl)} ({initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(2)}%)</span></div>
-                )}
-                <div className="text-dim">SL R-Multiple: <span className="text-text font-mono font-semibold">{slR >= 0 ? '+' : ''}{slR.toFixed(2)}R</span></div>
-                <div className="text-dim">Risk Lock: <span className={cn("font-mono font-semibold", trade.risk_usdt === 0 ? "text-green" : "text-amber")}>{trade.risk_usdt === 0 ? "Released" : "Locked"} ({trade.risk_lock_reason || (trade.risk_usdt === 0 ? "SL_AT_BREAKEVEN" : "SL_BELOW_ENTRY")})</span></div>
+          {/* PEAK Landmark (If active) */}
+          {peakR >= 0.1 && (
+            <Tooltip content={`Peak Profit Reached: +${peakR.toFixed(2)}R (${fmtUSD(peakPrice)})`}>
+              <div className="flex flex-col items-center cursor-help">
+                <span className={cn("text-purple font-black", peakHighlight && "text-[#00f0ff]")}>
+                  PEAK +{peakR.toFixed(1)}R
+                </span>
+                <span className="text-[6.5px] text-dim/70 font-normal">{fmtUSD(peakPrice)}</span>
               </div>
-            }>
-              <div
-                className={cn(
-                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-300 -ml-[1px]",
-                  slHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" : "w-0.5 bg-red"
-                )}
-                style={{ left: `${slPos}%` }}
-              />
             </Tooltip>
           )}
 
-          {/* Dedicated Trailing Stop Loss Flag Marker */}
-          {(trade.strategy_config?.trailing_stop_enabled || trade.strategy_config?.sl_type === 'trailing') && sl > 0 && (() => {
-            const trailingSlPos = slPos;
-            const isRrType = trade.strategy_config?.trailing_stop_type === 'rr';
-            const distanceLabel = isRrType
-              ? `${trade.strategy_config?.trailing_stop_rr || 1.0}R`
-              : `${trade.strategy_config?.trailing_stop_distance_pct || 1.0}%`;
+          {/* TP Landmark (Or Right Scale Target) */}
+          <Tooltip content={tp > 0 ? `Take Profit Target: ${fmtUSD(tp)} (+${tpR.toFixed(2)}R)` : `Target Scale: +${targetR.toFixed(1)}R`}>
+            <div className="flex flex-col items-end cursor-help">
+              <span className="text-green font-black">
+                {tp > 0 ? `TP +${tpR.toFixed(1)}R` : `+${targetR.toFixed(1)}R`}
+              </span>
+              <span className="text-[6.5px] text-dim/70 font-normal">
+                {fmtUSD(tp > 0 ? tp : (isLong ? entry + targetR * riskUnit : entry - targetR * riskUnit))}
+              </span>
+            </div>
+          </Tooltip>
+        </div>
 
-            return (
-              <Tooltip content={
-                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
-                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Active Trailing Stop Loss</div>
-                  <div className="text-dim">Trailing SL Level: <span className="text-purple-300 font-mono font-semibold">{fmtUSD(sl)}</span></div>
-                  <div className="text-dim">Trailing Distance: <span className="text-purple-300 font-mono font-semibold">{distanceLabel}</span></div>
-                  <div className="text-dim">Status: <span className="text-green font-mono font-semibold">ACTIVE (Dynamic Ratchet Engaged)</span></div>
-                </div>
-              }>
-                <div
-                  className="absolute top-0 bottom-0.5 z-25 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
-                  style={{ left: `${trailingSlPos}%` }}
-                >
-                  <div className="px-0.5 py-0 text-[6px] font-black uppercase rounded tracking-tighter shadow-[0_0_8px_rgba(168,85,247,0.8)] mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 bg-purple text-white animate-pulse">
-                    🛡️ TRAIL
-                  </div>
-                  <div className="flex-1 w-0.5 bg-purple shadow-[0_0_8px_#a855f7]" />
-                  <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[4px] border-t-purple -mt-0.5 shadow-[0_0_4px_#a855f7]" />
-                </div>
-              </Tooltip>
-            );
-          })()}
+        {/* Tactical R Runway Bar */}
+        <div
+          className="h-[6px] w-full rounded-full relative bg-surface border border-white/10 shadow-[inset_0_1px_2px_rgba(0,0,0,0.5)] my-1"
+          role="progressbar"
+          aria-valuenow={Math.round(progress)}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuetext={ariaText}
+        >
+          {/* Loss Zone Tinting */}
+          <div
+            className="absolute top-0 bottom-0 left-0 bg-red/20 rounded-l-full transition-all duration-300"
+            style={{ width: `${entryMarkPos}%` }}
+          />
 
-          {/* Trailing Stop Activation RR Flag */}
-          {trade.strategy_config?.trailing_stop_enabled && (trade.strategy_config?.trailing_activation_rr || 0) > 0 && (() => {
-            const activationRr = Number(trade.strategy_config.trailing_activation_rr);
-            const risk = Math.abs(entry - initialSl);
-            if (risk <= 0) return null;
-            const activationPrice = isLong ? entry + (risk * activationRr) : entry - (risk * activationRr);
-            const activationPos = pos(activationPrice);
-            const isActivated = rrValue >= activationRr;
+          {/* Profit Zone Tinting */}
+          <div
+            className="absolute top-0 bottom-0 right-0 bg-green/20 rounded-r-full transition-all duration-300"
+            style={{ left: `${entryMarkPos}%` }}
+          />
 
-            return (
-              <Tooltip content={
-                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
-                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Trailing Activation Threshold</div>
-                  <div className="text-dim">Required RR: <span className="text-purple-300 font-mono font-semibold">+{activationRr.toFixed(2)}R</span></div>
-                  <div className="text-dim">Activation Price: <span className="text-text font-mono font-semibold">{fmtUSD(activationPrice)}</span></div>
-                  <div className="text-dim">Status: <span className={cn("font-mono font-semibold", isActivated ? "text-green" : "text-amber")}>{isActivated ? "ACTIVE (Trailing engaged)" : "PENDING (Awaiting R:R target)"}</span></div>
-                </div>
-              }>
-                <div
-                  className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
-                  style={{ left: `${activationPos}%` }}
-                >
-                  <div className={cn(
-                    "px-0.5 py-0 text-[6px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
-                    isActivated
-                      ? "bg-purple text-white shadow-[0_0_8px_rgba(168,85,247,0.8)] animate-pulse"
-                      : "bg-surface/80 border border-purple-400/40 text-purple-300/80"
-                  )}>
-                    🎯 {activationRr}R
-                  </div>
-                  <div className={cn(
-                    "flex-1 w-px border-l border-dashed",
-                    isActivated ? "border-purple" : "border-purple-400/40"
-                  )} />
-                </div>
-              </Tooltip>
-            );
-          })()}
+          {/* Progress Fill */}
+          <div
+            className={cn(
+              "h-full rounded-full transition-all duration-300 opacity-90 shadow-[0_0_6px_rgba(0,0,0,0.4)]",
+              trade.pnl >= 0 ? "bg-green" : "bg-red"
+            )}
+            style={{ width: `${progress}%` }}
+          />
 
-          {/* Peak Line & Labeled Pennant Flag */}
-          {maxRr > 0 && (
-            <Tooltip content={
-              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                <div className="font-bold border-b border-white/5 pb-1 mb-1">Peak Target Achieved</div>
-                <div className="text-dim">Multiplier: <span className="text-text font-mono font-semibold">{maxRr.toFixed(2)}R</span></div>
-                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(peakPrice)}</span></div>
-                {isPeakBeyondTarget && (
-                  <div className="text-purple text-[10px] font-semibold mt-1">▲ Trailed beyond target!</div>
-                )}
-              </div>
-            }>
-              <div
-                className="absolute top-0 bottom-0.5 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
-                style={{ left: `${peakPos}%` }}
-              >
-                <div className={cn(
-                  "px-0.5 py-0 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300",
-                  peakHighlight ? "bg-purple text-white shadow-[0_0_10px_rgba(168,85,247,0.9)] scale-110" : "bg-purple/20 border border-purple/40 text-purple"
-                )}>
-                  PEAK
-                </div>
-                <div className="flex-1 w-px border-l border-dashed border-purple/70" />
-              </div>
-            </Tooltip>
+          {/* Entry Seam Marker Dot */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 -ml-0.5 w-1 h-2 rounded-full bg-white/90 z-20 pointer-events-none shadow-[0_0_4px_rgba(255,255,255,0.9)]"
+            style={{ left: `${entryMarkPos}%` }}
+            aria-hidden="true"
+          />
+
+          {/* Active SL Marker Line */}
+          {sl > 0 && (
+            <div
+              className={cn(
+                "absolute top-0 bottom-0 z-20 pointer-events-none transition-all duration-300 -ml-[1px]",
+                slHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" : "w-0.5 bg-red"
+              )}
+              style={{ left: `${slPos}%` }}
+            />
+          )}
+
+          {/* Peak Historical Landmark Marker */}
+          {peakR >= 0.1 && (
+            <div
+              className="absolute top-0 bottom-0 z-20 pointer-events-none transition-all duration-300 -ml-[1px] flex flex-col items-center"
+              style={{ left: `${peakPos}%` }}
+            >
+              <div className="w-0.5 h-full bg-purple shadow-[0_0_4px_rgba(168,85,247,0.8)]" />
+            </div>
           )}
 
           {/* Take Profit Target Line */}
           {tp > 0 && (
-            <Tooltip content={
-              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                <div className="font-bold border-b border-white/5 pb-1 mb-1">Take Profit Target</div>
-                <div className="text-dim">Target R: <span className="text-text font-mono font-semibold">+{tpR.toFixed(2)}R</span></div>
-                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(tp)}</span></div>
-              </div>
-            }>
-              <div
-                className={cn(
-                  "absolute top-3.5 bottom-0.5 z-20 cursor-help transition-all duration-300 -ml-[1px]",
-                  tpHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" : "w-0.5 bg-green"
-                )}
-                style={{ left: `${tpPos}%` }}
-              />
-            </Tooltip>
+            <div
+              className="absolute top-0 bottom-0 z-20 pointer-events-none transition-all duration-300 -ml-[1px] w-0.5 bg-green shadow-[0_0_4px_rgba(34,197,94,0.8)]"
+              style={{ left: `${tpPos}%` }}
+            />
           )}
 
-          {/* Est-Target Stem & Overhead Diamond */}
-          {trade.est_pnl_to_realize !== undefined && (
-            <Tooltip content={
-              <div className="flex flex-col gap-1 text-[11px] p-1 font-sans">
-                <div className="font-bold border-b border-white/5 pb-1 mb-1 flex items-center justify-between gap-4">
-                  <span>Est. Exit Target</span>
-                  <span className={cn("font-mono font-black", pnlClass(trade.est_pnl_to_realize))}>
-                    {fmtUSD(trade.est_pnl_to_realize)}
-                  </span>
-                </div>
-                <div className="text-dim">Source: <span className="text-text font-semibold">{estLabel}</span></div>
-                <div className="text-dim">Price: <span className="text-text font-mono font-semibold">{fmtUSD(estPrice)}</span></div>
-              </div>
-            }>
-              <div
-                className="absolute top-0 bottom-0.5 z-30 cursor-help transition-all duration-300 flex flex-col items-center -ml-[4px]"
-                style={{ left: `${estPos}%` }}
-              >
-                <div className={cn(
-                  "w-2 h-2 rotate-45 border bg-background mb-0.5 transition-all duration-300",
-                  estHighlight ? "border-[#00f0ff] shadow-[0_0_10px_#00f0ff] scale-110" : "border-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]"
-                )} />
-                <div className="flex-1 w-0.5 bg-emerald-400/80" />
-              </div>
-            </Tooltip>
-          )}
-
-          {/* Trailing Movement Trail (To/From Waterfall Fade Cue - Standard Fast 2.5s Dissolve) */}
+          {/* Trail Motion Blur */}
           <AnimatePresence>
             {trail && (
               <motion.div
@@ -654,12 +540,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 initial={{ opacity: 0.85, scaleY: 1 }}
                 animate={{ opacity: 0, scaleY: 0.3 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 2.5, ease: 'easeOut' }}
+                transition={{ duration: 1.5, ease: 'easeOut' }}
                 className={cn(
-                  "absolute top-[11px] h-[4px] rounded-full pointer-events-none z-30 blur-[0.3px]",
+                  "absolute top-0 bottom-0 rounded-full pointer-events-none z-30",
                   trail.isUp
-                    ? "bg-gradient-to-r from-transparent via-[#00f0ff]/80 to-[#00f0ff] shadow-[0_0_6px_rgba(0,240,255,0.6)]"
-                    : "bg-gradient-to-r from-[#f59e0b] via-[#f59e0b]/80 to-transparent shadow-[0_0_6px_rgba(245,158,11,0.6)]"
+                    ? "bg-gradient-to-r from-transparent via-[#00f0ff]/80 to-[#00f0ff]"
+                    : "bg-gradient-to-r from-[#f59e0b] via-[#f59e0b]/80 to-transparent"
                 )}
                 style={{
                   left: `${trail.start}%`,
@@ -669,68 +555,108 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             )}
           </AnimatePresence>
 
-          {/* Tiny Ultra-Bright Live Mark Indicator Dot (6px) with Brief Highlight */}
+          {/* Live Current Price Dot */}
           <div
             className={cn(
-              "absolute top-[12px] -ml-[3px] w-1.5 h-1.5 rounded-full z-40 transition-colors duration-300 pointer-events-none flex items-center justify-center",
-              trail
-                ? (trail.isUp
-                    ? "bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]"
-                    : "bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]")
-                : (trade.pnl >= 0
-                    ? "bg-[#00e5a0] shadow-[0_0_6px_#00e5a0]"
-                    : "bg-[#ff2a55] shadow-[0_0_6px_#ff2a55]")
+              "absolute top-1/2 -translate-y-1/2 -ml-1.5 w-3 h-3 rounded-full z-30 transition-all duration-300 flex items-center justify-center pointer-events-none",
+              trade.pnl >= 0 ? "bg-green shadow-[0_0_8px_rgba(34,197,94,0.9)]" : "bg-red shadow-[0_0_8px_rgba(239,68,68,0.9)]"
             )}
             style={{ left: `${progress}%` }}
           >
-            {/* Brief Direction Arc Segment */}
-            {trail && (
-              <div className={cn(
-                "absolute -inset-1 rounded-full border border-transparent transition-all duration-300 pointer-events-none",
-                trail.isUp ? "border-l-[#00f0ff] border-t-[#00f0ff]" : "border-r-[#f59e0b] border-b-[#f59e0b]"
-              )} />
-            )}
+            <div className="w-1 h-1 rounded-full bg-white shadow-sm" />
           </div>
         </div>
 
-        {/* Bottom Metadata Grid */}
-        <div className="flex justify-between items-center text-[7.5px] sm:text-[8px] font-bold text-dim uppercase tracking-widest font-mono leading-none pt-0.5">
-          <div className="flex items-center gap-0.5 sm:gap-1 min-w-0">
-            <span className="text-red font-black shrink-0">SL</span>
-            <span className={cn(
-              "font-black font-mono truncate transition-all duration-300",
-              slPercent >= 0 ? "text-green" : "text-red",
-              slHighlight && "text-[#00f0ff] font-extrabold"
-            )}>
-              {slPercent >= 0 ? `+${slPercent.toFixed(1)}%` : `${slPercent.toFixed(1)}%`}
+        {/* Current Price Callout Bar below Runway */}
+        <div className="flex justify-between items-center text-[7.5px] font-mono leading-none pt-0.5">
+          <div className="flex items-center gap-1 text-dim">
+            <span className="font-bold text-text">NOW: {fmtUSD(mark)}</span>
+            <span className={cn("font-black", markR >= 0 ? "text-green" : "text-red")}>
+              ({markR >= 0 ? '+' : ''}{markR.toFixed(2)}R)
             </span>
-            {initialSl > 0 && Math.abs(sl - initialSl) > 0.0000001 && (
-              <Tooltip content={`Initial SL Protection Level: ${initialSlPercent >= 0 ? '+' : ''}${initialSlPercent.toFixed(2)}%`}>
-                <span className="text-amber font-mono shrink-0 cursor-help">
-                  [{initialSlPercent >= 0 ? '+' : ''}{initialSlPercent.toFixed(1)}%]
-                </span>
-              </Tooltip>
-            )}
           </div>
-          <div className="flex items-center gap-0.5 sm:gap-1 text-center min-w-0 px-1">
-            <span className="text-dim/80 font-black shrink-0">ENTRY</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-white/80 shadow-[0_0_4px_rgba(255,255,255,0.8)] inline-block" />
-          </div>
-          <div className="flex items-center gap-1 text-right min-w-0">
-            <Tooltip content={`Current RR: ${Number(trade.rr || 0).toFixed(2)}R | Peak RR: ${Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R`}>
-              <span className="font-black font-mono cursor-help flex items-center gap-0.5 transition-all duration-300">
-                <span className={cn("text-accent transition-colors duration-300", trail && "text-[#00f0ff]")}>
-                  {Number(trade.rr || 0).toFixed(2)}R
-                </span>
-                <span className={cn(
-                  "text-dim/70 text-[7px] sm:text-[7.5px] transition-colors duration-300",
-                  peakHighlight && "text-purple font-extrabold"
-                )}>
-                  ({Number(trade.max_rr ?? trade.rr ?? 0).toFixed(2)}R Peak)
-                </span>
+
+          {/* Retracement & Giveback Warning */}
+          {isRetracing ? (
+            <Tooltip content={`Peak +${peakR.toFixed(2)}R retraced to +${markR.toFixed(2)}R. Profit giveback: -${givebackR.toFixed(2)}R (${givebackPctOfPeak.toFixed(0)}% of peak).`}>
+              <span className="text-amber font-black cursor-help flex items-center gap-0.5 bg-amber/10 border border-amber/20 px-1 py-0.2 rounded">
+                <AlertTriangle size={7} /> Giveback -{givebackR.toFixed(2)}R ({givebackPctOfPeak.toFixed(0)}%)
               </span>
             </Tooltip>
-          </div>
+          ) : peakR >= 0.2 ? (
+            <span className="text-dim/80">Peak: +{peakR.toFixed(2)}R</span>
+          ) : (
+            <span className="text-dim/80">Initial SL: {fmtUSD(initialSl)}</span>
+          )}
+        </div>
+      </div>
+
+      {/* TIER 3: Strategy & Engine Telemetry Layer (Distance to Danger, Exit Engine Status) */}
+      <div className="flex items-center justify-between text-[7.5px] font-mono font-bold uppercase tracking-wider text-dim border-t border-white/5 pt-1.5 h-[26px] min-w-0 shrink-0">
+        {/* Left: Distance to Danger Metrics */}
+        <div className="flex items-center gap-1.5 min-w-0 truncate">
+          <Tooltip content={`Room to Stop Loss: ${roomToSlR.toFixed(2)}R (${fmtUSD(roomToSlUsdt)})`}>
+            <span className="cursor-help flex items-center gap-0.5 text-text">
+              <span className="text-dim">Room SL:</span>
+              <span className={cn("font-black", roomToSlR < 0.5 ? "text-red" : "text-amber")}>
+                {roomToSlR.toFixed(2)}R
+              </span>
+            </span>
+          </Tooltip>
+
+          {roomToTpR !== null && (
+            <>
+              <span className="text-dim/40">·</span>
+              <Tooltip content={`Room to Take Profit: ${roomToTpR.toFixed(2)}R (${fmtUSD(roomToTpUsdt)})`}>
+                <span className="cursor-help flex items-center gap-0.5 text-text">
+                  <span className="text-dim">Room TP:</span>
+                  <span className="font-black text-green">{roomToTpR.toFixed(2)}R</span>
+                </span>
+              </Tooltip>
+            </>
+          )}
+        </div>
+
+        {/* Right: Strategy Engine State */}
+        <div className="flex items-center gap-1 shrink-0">
+          {hasCrossedSignal ? (
+            <Tooltip content="Strategy exit conditions triggered!">
+              <span className="bg-red/15 text-red border border-red/30 px-1 py-0.2 rounded font-black flex items-center gap-0.5 animate-pulse">
+                ⚡ FIRED
+              </span>
+            </Tooltip>
+          ) : hasDelayedSignal ? (
+            <Tooltip content="Exit signal active but delay-gated">
+              <span className="bg-amber/10 text-amber border border-amber/20 px-1 py-0.2 rounded font-black flex items-center gap-0.5">
+                <Clock size={7} className="animate-spin" /> DELAYED
+              </span>
+            </Tooltip>
+          ) : (
+            <Tooltip content={`Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active)`}>
+              <span className="bg-surface text-accent border border-accent/20 px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help">
+                <Activity size={7} className="text-accent shrink-0" /> MONITORING
+              </span>
+            </Tooltip>
+          )}
+
+          {/* Dual Indicator Markers Calculation & Rendering Retention (for tests & tooltips) */}
+          {dualIndicatorMarkers.length > 0 && (
+            <Tooltip content={
+              <div className="flex flex-col gap-1 text-[10px] p-1">
+                <div className="font-bold border-b border-white/10 pb-0.5">Dual Indicator Convergence</div>
+                {dualIndicatorMarkers.map(m => (
+                  <div key={m.key} className="flex items-center justify-between gap-2">
+                    <span>Dual Indicator ({m.label}):</span>
+                    <span className="font-mono font-bold text-accent">{fmtUSD(m.price)}</span>
+                  </div>
+                ))}
+              </div>
+            }>
+              <span className="bg-accent/10 border border-accent/20 text-accent px-1 py-0.2 rounded font-black cursor-help">
+                {dualIndicatorMarkers.length} IND
+              </span>
+            </Tooltip>
+          )}
         </div>
       </div>
     </motion.div>

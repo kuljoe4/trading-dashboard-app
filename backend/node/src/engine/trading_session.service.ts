@@ -1261,7 +1261,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       history: this.sessionState.closedTrades
         .slice(0, 50)
         .map((t) =>
-          this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price),
+          this.engineBroadcaster.serializeTrade(t, this.config!, t.exit_price, true),
         ),
     };
   }

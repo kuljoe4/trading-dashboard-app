@@ -2091,6 +2091,14 @@ const flattenConfig = (config) => {
       engulfing_sequential: config.engulfing_sequential !== false,
       required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
       required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
+      reject_entry_if_sl_exceeds_max: config.reject_entry_if_sl_exceeds_max !== false,
+      htf_ema_cross_boost_enabled: config.htf_ema_cross_boost_enabled !== false,
+      htf_ema_cross_interval: config.htf_ema_cross_interval || '4h',
+      htf_ema_cross_count: config.htf_ema_cross_count || 4,
+      htf_ema_fast_period: config.htf_ema_fast_period || 9,
+      htf_ema_slow_period: config.htf_ema_slow_period || 21,
+      htf_ema_cross_max_boost: config.htf_ema_cross_max_boost !== undefined ? config.htf_ema_cross_max_boost : 25.0,
+      htf_ema_cross_rr_weight: config.htf_ema_cross_rr_weight !== undefined ? config.htf_ema_cross_rr_weight : 1.5,
     };
 
     // Dynamically map all params (including suffixes) directly to flattened keys
@@ -2149,7 +2157,8 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
-      'slippage_abort_threshold'
+      'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
     ];
 
     numericFields.forEach(f => {
@@ -2251,7 +2260,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
   const [libraryExpanded, setLibraryExpanded] = useState(false);
-  const [recentExpanded, setRecentExpanded] = useState(true);
+  const [recentExpanded, setRecentExpanded] = useState(false);
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
       const stored = localStorage.getItem('recently_used_presets');
@@ -2274,20 +2283,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [showPasteOverlay, setShowPasteOverlay] = useState(false);
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState(null);
-  const [openSectionId, setOpenSectionId] = useState('scan_general');
-
-  // Accordion behavior: auto-expand the first section of the selected tab on tab change
-  useEffect(() => {
-    const defaults = {
-      scan: 'scan_general',
-      strategy: 'strategy_entry',
-      risk: 'risk_guards',
-      env: 'adv_env',
-    };
-    if (defaults[section]) {
-      setOpenSectionId(defaults[section]);
-    }
-  }, [section]);
+  const [openSectionId, setOpenSectionId] = useState(null);
 
   const modalRef = React.useRef(null);
 
@@ -2780,7 +2776,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
-      'slippage_abort_threshold'
+      'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
     ];
 
     numericFields.forEach(f => {
@@ -2788,6 +2785,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         c[f] = Number(c[f]);
       }
     });
+
+    c.htf_ema_cross_boost_enabled = c.htf_ema_cross_boost_enabled !== false;
+    c.htf_ema_cross_interval = c.htf_ema_cross_interval || '4h';
 
     c.scanner_weights = {
       momentum: Number(cfg.scanner_weights_momentum || 0) / 100,
@@ -3308,6 +3308,39 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'scan_general' ? null : 'scan_general')}
             >
               {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="scan_htf_cross"
+              icon={Award}
+              title="HTF EMA Cross Ranking"
+              subtitle="4H Higher-Timeframe historical performance score boost"
+              isOpen={openSectionId === 'scan_htf_cross'}
+              onToggle={() => setOpenSectionId(openSectionId === 'scan_htf_cross' ? null : 'scan_htf_cross')}
+            >
+              <div className="flex flex-col gap-4">
+                <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                      <Award size={20} />
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold">HTF EMA Cross Boost</div>
+                      <div className="text-[10px] text-dim font-medium uppercase">Rank symbols by historical 4H cross profit % & R:R</div>
+                    </div>
+                  </div>
+                  <Toggle value={cfg.htf_ema_cross_boost_enabled !== false} onChange={(v) => setField('htf_ema_cross_boost_enabled', v)} />
+                </div>
+
+                <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-6", cfg.htf_ema_cross_boost_enabled === false && "opacity-40 pointer-events-none")}>
+                  {renderField('HTF Interval', 'htf_ema_cross_interval', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
+                  {renderField('Cross Count', 'htf_ema_cross_count', 'number', null, { min: 1, max: 20 })}
+                  {renderField('Fast EMA Period', 'htf_ema_fast_period', 'number', null, { min: 2, max: 200 })}
+                  {renderField('Slow EMA Period', 'htf_ema_slow_period', 'number', null, { min: 2, max: 200 })}
+                  {renderField('Max Score Boost', 'htf_ema_cross_max_boost', 'number', null, { min: 0, max: 50, step: 1 })}
+                  {renderField('R:R Score Weight', 'htf_ema_cross_rr_weight', 'number', null, { min: 0, max: 10, step: 0.1 })}
+                </div>
+              </div>
             </CollapsibleSection>
 
             <CollapsibleSection
@@ -4368,6 +4401,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   { value: 'clamp', label: 'Clamp to Limits' },
                   { value: 'reject', label: 'Reject Entry' }
                 ])}
+                <div className="md:col-span-2 flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[10px] font-black text-dim uppercase tracking-widest">Reject Entry If SL Exceeds Max</span>
+                    <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Pre-filter scanner opportunities where calculated prospective SL exceeds sl_max_pct, rejecting wide high-risk moves to free up slots for better setups.</p>
+                  </div>
+                  <Toggle
+                    value={cfg.reject_entry_if_sl_exceeds_max !== false}
+                    onChange={(v) => setField('reject_entry_if_sl_exceeds_max', v)}
+                  />
+                </div>
                 {cfg.sl_type === 'pct' ? (
                   renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
                 ) : (

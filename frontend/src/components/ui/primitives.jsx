@@ -529,9 +529,41 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = propsResuming ?? (sessionActive && isResuming)
 
+  const [isScrolled, setIsScrolled] = React.useState(false)
   const [alertIndex, setAlertIndex] = React.useState(0)
   const [showDropdown, setShowDropdown] = React.useState(false)
   const [hasActiveModal, setHasActiveModal] = React.useState(false)
+
+  const headerRef = React.useRef(null);
+
+  // SRE-PERF: Auto-collapse sticky header on scroll for ultra-high-density screen real estate.
+  // Supports both global window scroll and parent modal / drawer scroll containers.
+  React.useEffect(() => {
+    if (!sticky) return;
+
+    let targetElement = window;
+    let scrollParent = null;
+
+    if (headerRef.current) {
+      scrollParent = headerRef.current.closest('.overflow-y-auto, [data-vaul-drawer-content], [role="dialog"]');
+      if (scrollParent) {
+        targetElement = scrollParent;
+      }
+    }
+
+    const handleScroll = () => {
+      const scrollY = targetElement === window ? window.scrollY : (targetElement?.scrollTop || 0);
+      setIsScrolled(prev => {
+        if (!prev && scrollY > 40) return true;
+        if (prev && scrollY < 10) return false;
+        return prev;
+      });
+    };
+
+    targetElement.addEventListener('scroll', handleScroll, { passive: true });
+    handleScroll();
+    return () => targetElement.removeEventListener('scroll', handleScroll);
+  }, [sticky]);
 
   const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
   const [lastProcessedAlert, setLastProcessedAlert] = React.useState(null)
@@ -590,32 +622,54 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
   return (
-    <div className={cn(
-      "z-40 transition-all duration-300 mb-2 lg:mb-3",
-      sticky && "sticky top-0 bg-background/90 backdrop-blur-md py-1.5 -mx-4 px-4 md:-mx-10 md:px-10 border-b border-border/10 shadow-sm"
-    )}>
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 relative w-full">
+    <div
+      ref={headerRef}
+      role="region"
+      aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
+      tabIndex={0}
+      className={cn(
+        "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
+        isScrolled ? "mb-0.5" : "mb-2 lg:mb-3",
+        sticky && "sticky top-0 bg-background/95 backdrop-blur-md border-b border-border/10 shadow-sm",
+        sticky && (isScrolled ? "py-0.5" : "py-1.5")
+      )}
+    >
+      <div className={cn(
+        "flex justify-between gap-1.5 sm:gap-2.5 relative w-full transition-all duration-300",
+        isScrolled ? "flex-row items-center min-h-[32px]" : "flex-col sm:flex-row sm:items-center"
+      )}>
         {/* Left Side: Title and Badges */}
-        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1 w-full">
+        <div className={cn(
+          "flex items-center gap-1.5 min-w-0 flex-1",
+          isScrolled ? "shrink-0 max-w-[45%] sm:max-w-none" : "w-full"
+        )}>
           {backAction && (
             <button
               onClick={backAction}
               aria-label="Go back"
-              className="p-1 hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              className={cn(
+                "hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                isScrolled ? "p-0.5" : "p-1"
+              )}
             >
-              <ChevronLeft size={14} className="text-dim group-hover:text-text" />
+              <ChevronLeft size={12} className="text-dim group-hover:text-text" />
             </button>
           )}
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-1.5 min-w-0">
             {Icon && (
-              <div className="w-7 h-7 rounded-lg bg-accent/5 border border-accent/10 flex items-center justify-center shrink-0">
-                <Icon size={14} className="text-accent" />
+              <div className={cn(
+                "rounded-lg bg-accent/5 border border-accent/10 flex items-center justify-center shrink-0 transition-all",
+                isScrolled ? "w-4 h-4" : "w-7 h-7"
+              )}>
+                <Icon size={isScrolled ? 10 : 14} className="text-accent" />
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase">{showResumingFeedback ? 'Resuming...' : title}</h1>
-                <div className="flex items-center gap-1.5 shrink-0 scale-[0.8] origin-left">
+              <div className="flex items-center gap-1 sm:gap-2 min-w-0">
+                <h1 className={cn("font-black tracking-tight truncate uppercase transition-all", isScrolled ? "text-[10px] sm:text-[11px]" : "text-xs md:text-sm")}>
+                  {showResumingFeedback ? 'Resuming...' : title}
+                </h1>
+                <div className={cn("flex items-center gap-0.5 shrink-0 origin-left transition-transform", isScrolled ? "scale-[0.65] sm:scale-[0.7]" : "scale-[0.75] sm:scale-[0.8]")}>
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
@@ -623,53 +677,69 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
                 </div>
               </div>
-              {subTitle && (
-                <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                  <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
-                    {subTitle}
-                  </p>
-                  <div className="flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
-                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
-                      {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
-                    </span>
-                    {wsStatus !== 'live' && (
-                      <button
-                        onClick={() => window.location.reload()}
-                        className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
-                        aria-label="Retry connection"
-                      >
-                        Retry
-                      </button>
-                    )}
-                    <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
-                  </div>
-                </div>
-              )}
+              <AnimatePresence>
+                {!isScrolled && subTitle && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                      <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
+                        {subTitle}
+                      </p>
+                      <div className="flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
+                        <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
+                          {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
+                        </span>
+                        {wsStatus !== 'live' && (
+                          <button
+                            onClick={() => window.location.reload()}
+                            className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
+                            aria-label="Retry connection"
+                          >
+                            Retry
+                          </button>
+                        )}
+                        <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
 
         {/* Center: Integrated Non-Blocking Horizontal Ticker */}
         {activeAlert && (
-          <div className="flex relative items-center justify-center min-w-0 w-full sm:w-auto flex-1 px-2 sm:px-4 z-50">
+          <div className={cn(
+            "flex relative items-center justify-center min-w-0 z-50",
+            isScrolled ? "flex-1 px-1 max-w-[200px] sm:max-w-[320px]" : "w-full sm:w-auto flex-1 px-2 sm:px-4"
+          )}>
             <div
               onClick={() => setShowDropdown(!showDropdown)}
-              className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-2 px-3.5 py-1 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-[10px] text-text max-w-[360px] lg:max-w-[440px] w-full transition-all duration-300 select-none animate-in fade-in"
+              className={cn(
+                "group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full",
+                isScrolled ? "px-2 py-0.5 text-[9px]" : "px-3.5 py-1 text-[10px] max-w-[360px] lg:max-w-[440px]"
+              )}
               title="Click to view all recent alerts"
             >
               {triggerRippleKey > 0 && (
                 <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
               )}
 
-              <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
+              <div className={cn("flex items-center min-w-0 flex-1 relative overflow-hidden", isScrolled ? "h-[14px]" : "h-[18px]")}>
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={activeAlert.id + '-' + activeAlert.count}
-                    initial={{ y: 15, opacity: 0 }}
+                    initial={{ y: 12, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
-                    exit={{ y: -15, opacity: 0 }}
+                    exit={{ y: -12, opacity: 0 }}
                     transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-                    className="flex items-center gap-1.5 min-w-0 w-full h-full"
+                    className="flex items-center gap-1 min-w-0 w-full h-full"
                   >
                     <span className={cn(
                       "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
@@ -678,7 +748,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                       activeAlert.level === 'success' ? "bg-green" :
                       "bg-accent"
                     )} />
-                    <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8.5px] text-white">
+                    <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8px] sm:text-[8.5px] text-white">
                       {activeAlert.title || 'Alert'}
                     </span>
                     <span className="opacity-30 shrink-0 font-black">|</span>
@@ -689,7 +759,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                       <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
                     )}
                     {alerts.length > 1 && (
-                      <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto">
+                      <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto hidden sm:inline">
                         +{alerts.length - 1} more
                       </span>
                     )}
@@ -766,7 +836,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         )}
 
         {/* Right Side: Children Action Items */}
-        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:shrink-0 w-full sm:w-auto justify-start sm:justify-end scale-95 sm:scale-90 origin-left sm:origin-right mt-1.5 sm:mt-0">
+        <div className={cn(
+          "flex items-center gap-1 sm:gap-1.5 flex-nowrap shrink-0 justify-end transition-transform origin-right",
+          isScrolled ? "mt-0 scale-85 sm:scale-90" : "mt-1.5 sm:mt-0 scale-95 sm:scale-90"
+        )}>
           {children}
         </div>
       </div>

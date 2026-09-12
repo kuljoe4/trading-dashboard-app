@@ -2,6 +2,7 @@ import React, { useMemo, useState, Suspense } from 'react'
 import { pnlColor, pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
+import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { 
   StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
   ConditionWidget, PnLBars, CopyButton, cn, ViewHeader, Tooltip
@@ -12,7 +13,7 @@ import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown
+  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
@@ -84,14 +85,21 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
+  const storeBalance = useTradingStore(state => state.balance);
+  const totalSessionPnl = useTradingStore(state => state.totalPnl || 0);
+
   const startingBal = useMemo(() => {
     const mode = strategyConfig?.trading_mode || (strategyConfig?.paper_mode ? 'paper' : 'live');
     return mode === 'paper'
       ? (strategyConfig?.paper_starting_balance || 10000)
       : (mode === 'testnet'
-          ? (strategyConfig?.testnet_starting_balance || 10000)
-          : (strategyConfig?.live_starting_balance || 10000));
-  }, [strategyConfig]);
+          ? (strategyConfig?.testnet_starting_balance && strategyConfig.testnet_starting_balance !== 10000
+              ? strategyConfig.testnet_starting_balance
+              : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000))
+          : (strategyConfig?.live_starting_balance && strategyConfig.live_starting_balance !== 10000
+              ? strategyConfig.live_starting_balance
+              : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000)));
+  }, [strategyConfig, storeBalance, totalSessionPnl]);
 
   // Per-strategy performance metrics calculation
   const stratPerformance = useMemo(() => {
@@ -155,9 +163,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       }
 
       const avgProximity = count > 0 ? sigSum / count : 0;
+      // BOLT FIX: Prevent undefined/uninitialized target threshold signals from inflating proximity to 100%.
+      // 100% proximity is reserved strictly when all signals fired AND signal details are present.
+      const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
       return {
         ...opp,
-        proximity: opp.signalResult?.allFired ? 100 : Math.round(avgProximity)
+        proximity: isFired ? 100 : Math.min(99, Math.round(avgProximity))
       };
     }).sort((a, b) => b.proximity - a.proximity);
   }, [strategyScannerResults, strategyConfig.enabled_signals, strategyConfig.scan_pct_threshold]);
@@ -464,7 +475,30 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       </div>
 
       <div className="mb-10">
-        <SectionLabel>Automation Gating</SectionLabel>
+        <div className="flex justify-between items-center mb-3">
+          <SectionLabel className="mb-0">Automation Gating</SectionLabel>
+          {(() => {
+            const detailRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
+            return (
+              <Tooltip content={detailRegime.guidance}>
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`Market Activity: ${detailRegime.label}`}
+                  className={cn(
+                    "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                    detailRegime.badgeClass
+                  )}
+                >
+                  {detailRegime.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
+                  {detailRegime.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
+                  {detailRegime.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
+                  <span>{detailRegime.label}</span>
+                </div>
+              </Tooltip>
+            );
+          })()}
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-4">
           <ConditionWidget label={`Scanner: % Move (${strategyConfig.scan_interval})`} value={bestOpp.pct} threshold={strategyConfig.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
           <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={bestOpp.symbol !== '---' ? `[${bestOpp.symbol}] ${signalResult.reason || "Awaiting signals"}` : (signalResult.reason || "Waiting for structural signal")} />
@@ -499,7 +533,17 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   )}
                 >
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-black font-mono">{opp.symbol}</span>
+                    <div className="flex items-center gap-1.5 font-mono">
+                      <span className="text-xs font-black">{opp.symbol}</span>
+                      <span className={cn(
+                        "text-[8px] font-black uppercase px-1 py-0.2 rounded border",
+                        (opp.dir === 'long' || opp.pct >= 0)
+                          ? "text-green border-green/30 bg-green/10"
+                          : "text-red border-red/30 bg-red/10"
+                      )}>
+                        {(opp.dir || (opp.pct >= 0 ? 'long' : 'short')).toUpperCase()}
+                      </span>
+                    </div>
                     <span className={cn(
                       "text-[9px] font-mono font-bold px-1.5 py-0.5 rounded",
                       isFired ? "bg-green/20 text-green" : "bg-surface text-dim"

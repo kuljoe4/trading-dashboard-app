@@ -242,6 +242,19 @@ export class SessionController {
       throw new BadRequestException("Invalid trade ID or symbol format");
     }
 
+    if (body.strategy_config) {
+      const configInstance = plainToInstance(SessionConfig, body.strategy_config);
+      // SEC-SENTINEL: Defense-in-depth whitelist and type validation on trade strategy configuration overrides
+      const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true });
+      if (errors.length > 0) {
+        const detailedErrors = formatValidationErrors(errors);
+        throw new BadRequestException({
+          message: "Invalid strategy_config parameters in update trade config",
+          detail: detailedErrors,
+        });
+      }
+    }
+
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];

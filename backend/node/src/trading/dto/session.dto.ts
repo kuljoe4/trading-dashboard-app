@@ -74,11 +74,13 @@ export class AdoptPositionDto {
   @IsOptional()
   @IsNumber()
   @Min(0.000001, { message: "Initial SL must be a positive number" })
+  @Max(100000000, { message: "Initial SL cannot exceed 100,000,000" })
   initialSl?: number;
 
   @IsOptional()
   @IsNumber()
   @Min(0.000001, { message: "Current SL must be a positive number" })
+  @Max(100000000, { message: "Current SL cannot exceed 100,000,000" })
   currentSl?: number;
 }
 
@@ -86,6 +88,7 @@ export class UpdateTradeConfigDto {
   @IsOptional()
   @IsNumber()
   @Min(0.000001, { message: "Stop loss must be a positive number" })
+  @Max(100000000, { message: "Current SL cannot exceed 100,000,000" })
   current_sl?: number;
 
   @IsOptional()

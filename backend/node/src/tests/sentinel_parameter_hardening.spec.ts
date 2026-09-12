@@ -125,6 +125,34 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       );
       expect(mockSessionService.updateTradeConfig).not.toHaveBeenCalled();
     });
+
+    it('should accept valid strategy_config overrides in updateTradeConfig', async () => {
+      const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const validBody = {
+        strategy_config: {
+          strategy_label: 'Custom Trade Overrides',
+          sl_distance_pct: 1.5,
+        },
+      };
+      await expect(controller.updateTradeConfig(validUuid, validBody as any, mockReq)).resolves.not.toThrow();
+      expect(mockSessionService.updateTradeConfig).toHaveBeenCalled();
+    });
+
+    it('should reject non-whitelisted properties in strategy_config overrides in updateTradeConfig', async () => {
+      const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const invalidBody = {
+        strategy_config: {
+          strategy_label: 'Valid Label',
+          unauthorized_extra_param: '<script>alert("xss")</script>',
+        },
+      };
+      await expect(controller.updateTradeConfig(validUuid, invalidBody as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockSessionService.updateTradeConfig).not.toHaveBeenCalled();
+    });
   });
 
   describe('getHistory Input Hardening', () => {
@@ -319,14 +347,25 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
     });
   });
 
-  describe('UpdateTradeConfigDto Sequence Element Bounds Validation', () => {
-    it('should accept valid non-negative sequence elements <= 100', async () => {
+  describe('UpdateTradeConfigDto Sequence Element Bounds and Price Validation', () => {
+    it('should accept valid non-negative sequence elements <= 100 and valid current_sl', async () => {
       const dto = plainToInstance(UpdateTradeConfigDto, {
+        current_sl: 50000,
         live_rr_sequence: [1.0, 2.5, 5.0],
         exit_rr_sequence: [0.0, 1.5, 3.0],
       });
       const errors = await validate(dto);
       expect(errors.length).toBe(0);
+    });
+
+    it('should reject current_sl exceeding 100,000,000 in UpdateTradeConfigDto', async () => {
+      const dto = plainToInstance(UpdateTradeConfigDto, {
+        current_sl: 100000001,
+      });
+      const errors = await validate(dto);
+      expect(errors.length).toBeGreaterThan(0);
+      const slErr = errors.find((e) => e.property === 'current_sl');
+      expect(slErr?.constraints?.max).toBeDefined();
     });
 
     it('should reject negative numbers in live_rr_sequence or exit_rr_sequence', async () => {

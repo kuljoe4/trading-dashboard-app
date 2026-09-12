@@ -60,8 +60,90 @@ export class ExecutionService {
     return 60 * 1000;
   }
 
+  private lastChecklistLogTs = 0;
+
+  public runPrerequisiteChecklist(config: SessionConfig) {
+    const activeTrades = this.positionTracker.activeList();
+    if (activeTrades.length === 0) return;
+
+    const now = Date.now();
+    // Throttle prerequisite checklist warnings to once per 2 minutes to prevent decision/alert log spam
+    if (now - this.lastChecklistLogTs < 120000) return;
+    this.lastChecklistLogTs = now;
+
+    const isLive = !config.paper_mode;
+    const isBanned = isLive && this.sessionState.isBanned();
+
+    // 1. Active Ban Checklist Warning
+    if (isBanned) {
+      const banUntilStr = this.sessionState.apiStatus.banUntil
+        ? new Date(this.sessionState.apiStatus.banUntil).toLocaleTimeString()
+        : 'unknown';
+      const banMsg = `⚠️ [Prerequisite Warning] Active Binance IP Ban detected until ${banUntilStr}! Exit monitoring and SL ratcheting are PAUSED in Live/Testnet mode. Active positions: ${activeTrades.map(t => t.symbol).join(', ')}`;
+      this.logger.warn(banMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: banMsg, level: 'warn' });
+      this.broadcastService.broadcast('alert', {
+        level: 'warning',
+        title: 'Exit Monitoring Paused (IP Ban)',
+        message: banMsg,
+      });
+    }
+
+    // 2. Per-trade Prerequisite Checks
+    for (const trade of activeTrades) {
+      const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
+
+      // a) Missing / Zero Stop Loss Warning
+      const currentSl = Number(trade.current_sl || trade.sl_price || 0);
+      const initialSl = Number(trade.initial_sl || 0);
+      if (currentSl <= 0 && initialSl <= 0) {
+        const slMsg = `⚠️ [Prerequisite Warning] Active trade ${trade.symbol} (${trade.direction}) has NO valid Stop Loss configured! Position is unprotected against adverse market swings.`;
+        this.logger.warn(slMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: slMsg, level: 'warn' });
+        this.broadcastService.broadcast('alert', {
+          level: 'warning',
+          title: 'Unprotected Position',
+          message: slMsg,
+          symbol: trade.symbol,
+        });
+      }
+
+      // b) Indicator Warmup / Data Starvation Check for Exit Signals
+      const exitSignals = activeConfig.exit_signals || [];
+      if (exitSignals.length > 0) {
+        const requiredWarmup = this.signalEngine.getRequiredWarmup(activeConfig);
+        const exitInterval = activeConfig.scan_interval || '1m';
+        const candles = this.klineStore.getRawCandles(trade.symbol, exitInterval);
+
+        if (candles.length < requiredWarmup) {
+          const warmupMsg = `⚠️ [Prerequisite Notice] Trade ${trade.symbol}: Exit indicator warmup in progress (${candles.length}/${requiredWarmup} candles for ${exitInterval}). Exit signals (${exitSignals.join(', ')}) will NOT fire until candle buffer converges.`;
+          this.logger.log(warmupMsg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warmupMsg, level: 'info' });
+        }
+      }
+
+      // c) Disconnected Price Stream Warning
+      const currentPrice = this.tickerCache.getPrice(trade.symbol);
+      if (!currentPrice || currentPrice <= 0) {
+        const streamMsg = `⚠️ [Prerequisite Warning] Trade ${trade.symbol}: Price ticker feed is unavailable/stalled. Real-time exit monitoring for ${trade.symbol} is degraded.`;
+        this.logger.warn(streamMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: streamMsg, level: 'warn' });
+      }
+
+      // d) Strategy Paused Notice
+      if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(trade.strategy_label) : false) {
+        const pauseMsg = `ℹ️ [Prerequisite Notice] Strategy "${trade.strategy_label}" for active trade ${trade.symbol} is PAUSED. New entries are disabled, but exit monitoring & stop loss protection remain active.`;
+        this.logger.log(pauseMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: pauseMsg, level: 'info' });
+      }
+    }
+  }
+
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
+
+    // Run Pre-Flight Prerequisite Checklist BEFORE the ban/gating return guards
+    this.runPrerequisiteChecklist(config);
 
     // BOLT: Global Ban Guard. If the system is banned, skip processing exits
     // to avoid potential API ban exacerbation.

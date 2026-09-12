@@ -323,3 +323,7 @@ Test-every-fix culture: each of the above got a regression spec (zero-SL rejecti
 ## 2026-08-27 - [Optimization] Fused maxRR Calculation in Dashboard Active Trades Aggregation
 **Learning:** Performing a separate `.reduce()` over active trades in React view hooks (e.g. `(activeTrades || []).reduce(...)` for `maxRR`) alongside an existing loop that computes active trade PnL maps creates duplicate $O(N)$ array traversals and callback closure allocations on high-frequency state/tick updates. Fusing `maxRR` into the existing single-pass `useMemo` loop eliminates redundant array iterations and callback allocations.
 **Action:** Always fuse secondary scalar metrics (e.g. `maxRR`, `totalPnl`) into existing single-pass collection traversal hooks in React views rather than adding separate `.reduce()` or `.map()` hooks.
+
+## 2026-09-12 - [Optimization] In-Loop Scalar Accumulation for Active Strategy PnL Sum
+**Learning:** Calling `Object.values(pnlMap)` to sum active strategy group totals after a collection traversal loop in React `useMemo` hooks allocates transient array objects on every high-frequency price tick frame. Accumulating scalar sums (`totPnl += pnlVal`) directly inside the single-pass active trade traversal loop yields exact numerical parity while eliminating `Object.values()` array heap allocations and avoiding secondary array iteration loops.
+**Action:** Accumulate scalar group totals in-place during collection traversal loops instead of calling `Object.values()` for secondary summation passes in high-frequency React hooks.

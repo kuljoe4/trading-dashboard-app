@@ -3141,7 +3141,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           let importedCount = 0;
           parsed.forEach(item => {
             if (item && item.name && item.config) {
-              presetsAPI.savePreset(item.name, item.config).catch(() => {});
+              presetsAPI.save(item.name, item.config).catch(() => {});
               importedCount++;
             }
           });
@@ -3173,15 +3173,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleSelectAllPresets = React.useCallback(() => {
-    if (selectedPresetNames.size === presetsList.length) {
+    if (selectedPresetNames.size === presets.length) {
       setSelectedPresetNames(new Set());
     } else {
-      setSelectedPresetNames(new Set(presetsList.map(p => p.name)));
+      setSelectedPresetNames(new Set(presets.map(p => p.name)));
     }
-  }, [presetsList, selectedPresetNames]);
+  }, [presets, selectedPresetNames]);
 
   const handleCopySelectedPresets = React.useCallback(async () => {
-    const selected = presetsList.filter(p => selectedPresetNames.has(p.name));
+    const selected = presets.filter(p => selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       await navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
@@ -3189,10 +3189,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } catch (e) {
       addAlert({ level: 'error', title: 'Copy Failed', message: 'Failed to write selected presets to clipboard.' });
     }
-  }, [presetsList, selectedPresetNames, addAlert]);
+  }, [presets, selectedPresetNames, addAlert]);
 
   const handleExportSelectedPresets = React.useCallback(() => {
-    const selected = presetsList.filter(p => selectedPresetNames.has(p.name));
+    const selected = presets.filter(p => selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected, null, 2));
@@ -3207,13 +3207,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } catch (e) {
       addAlert({ level: 'error', title: 'Export Failed', message: 'Failed to export selected presets.' });
     }
-  }, [presetsList, selectedPresetNames, addAlert]);
+  }, [presets, selectedPresetNames, addAlert]);
 
   const handleDeleteSelectedPresets = React.useCallback(async () => {
     const names = Array.from(selectedPresetNames);
     if (names.length === 0 || sessionActive) return;
     try {
-      await Promise.all(names.map(name => presetsAPI.deletePreset(name)));
+      await Promise.all(names.map(name => presetsAPI.delete(name)));
       setSelectedPresetNames(new Set());
       await fetchPresets();
       addAlert({ level: 'success', title: 'Presets Deleted', message: `Successfully deleted ${names.length} selected preset(s).` });
@@ -4981,7 +4981,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       onClick={handleSelectAllPresets}
                       className="px-2.5 py-2 text-[11px] font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
                     >
-                      <Check size={12} /> {selectedPresetNames.size === presetsList.length && presetsList.length > 0 ? "Deselect All" : "Select All"}
+                      <Check size={12} /> {selectedPresetNames.size === presets.length && presets.length > 0 ? "Deselect All" : "Select All"}
                     </Btn>
                   </Tooltip>
                 </div>

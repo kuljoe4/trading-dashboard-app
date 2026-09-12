@@ -451,14 +451,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       if (running) {
         st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
       } else if (st.sessionActive) {
-        // BOLT: Defensive Termination Guard.
-        // If we think we're running but the backend says no, we only stop locally
-        // if we are NOT currently in a 'Resuming' window.
-        // This prevents the UI from wiping during the backend's boot reconciliation.
-        const isResuming = st.isThrottled || st.wsStatus !== 'live' || st.isSyncingOnResume;
-        if (!isResuming) {
-           st.setSessionActive(false, null);
-        }
+        // When backend REST status confirms session is no longer running, exit resuming state
+        st.setSessionActive(false, null);
       }
 
       // BOLT: Centralize merge logic via updateStats

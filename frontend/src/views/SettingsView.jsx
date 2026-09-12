@@ -652,7 +652,7 @@ export function SettingsView() {
             </button>
             {openSections.has('performance') && (
               <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-1.5">
                       <label htmlFor="hot_loop_interval_ms" className="text-[10px] text-dim font-bold tracking-widest uppercase">Hot Loop (ms)</label>
@@ -702,9 +702,30 @@ export function SettingsView() {
                       className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
                     />
                   </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <label htmlFor="rate_limit_warning_interval_min" className="text-[10px] text-dim font-bold tracking-widest uppercase">Rate Warning Cooldown</label>
+                      <Tooltip content="Minimum interval between rate limit surge & prerequisite warning alerts (default: 5 minutes, in 5-min multiples)">
+                        <AlertCircle size={12} className="text-dim cursor-help" />
+                      </Tooltip>
+                    </div>
+                    <select
+                      id="rate_limit_warning_interval_min"
+                      value={cfg.rate_limit_warning_interval_min || 5}
+                      onChange={(e) => patchConfig({ rate_limit_warning_interval_min: Number(e.target.value) })}
+                      className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all cursor-pointer"
+                    >
+                      <option value={5}>5 Minutes (Default)</option>
+                      <option value={10}>10 Minutes</option>
+                      <option value={15}>15 Minutes</option>
+                      <option value={20}>20 Minutes</option>
+                      <option value={30}>30 Minutes</option>
+                      <option value={60}>60 Minutes (1 Hour)</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-4 border-t border-border/50">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border/50">
                   <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
                     <label htmlFor="track_binance_rate_limits" className="cursor-pointer select-none flex-grow mr-4">
                       <div className="text-sm font-bold">Track Rate Limits</div>
@@ -712,7 +733,6 @@ export function SettingsView() {
                     </label>
                     <button
                       id="track_binance_rate_limits"
-                      type="button"
                       onClick={() => patchConfig({ track_binance_rate_limits: cfg.track_binance_rate_limits === false ? true : false })}
                       role="switch"
                       aria-checked={cfg.track_binance_rate_limits !== false}
@@ -736,7 +756,6 @@ export function SettingsView() {
                     </label>
                     <button
                       id="debug_mode"
-                      type="button"
                       onClick={() => patchConfig({ debug_mode: !cfg.debug_mode })}
                       role="switch"
                       aria-checked={cfg.debug_mode === true}
@@ -749,35 +768,6 @@ export function SettingsView() {
                       <div className={cn(
                         "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
                         (cfg.debug_mode === true) ? "translate-x-7" : "translate-x-1"
-                      )} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-cyan-500/30 transition-colors">
-                    <label htmlFor="htf_ema_cross_boost_enabled" className="cursor-pointer select-none flex-grow mr-4">
-                      <div className="text-sm font-bold flex items-center gap-1.5">
-                        <span>HTF EMA Cross</span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold uppercase">
-                          {cfg.htf_ema_cross_boost_enabled !== false ? 'Active' : 'Idled'}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Idle HTF cross ranking to conserve CPU & WS load</div>
-                    </label>
-                    <button
-                      id="htf_ema_cross_boost_enabled"
-                      type="button"
-                      onClick={() => patchConfig({ htf_ema_cross_boost_enabled: cfg.htf_ema_cross_boost_enabled === false ? true : false })}
-                      role="switch"
-                      aria-checked={cfg.htf_ema_cross_boost_enabled !== false}
-                      aria-label="Toggle HTF EMA Cross Calculations"
-                      className={cn(
-                        "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                        (cfg.htf_ema_cross_boost_enabled !== false) ? "bg-cyan-500" : "bg-border"
-                      )}
-                    >
-                      <div className={cn(
-                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                        (cfg.htf_ema_cross_boost_enabled !== false) ? "translate-x-7" : "translate-x-1"
                       )} />
                     </button>
                   </div>

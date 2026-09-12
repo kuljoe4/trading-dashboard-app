@@ -264,23 +264,8 @@ export class SessionLifecycleService {
     if (open.length > 0) {
       await this.progress(`Resuming ${open.length} active trades...`);
       for (const t of open) {
-        // Coerce numeric fields to ensure mathematical integrity on resumption
-        t.entry_price = Number(t.entry_price || 0);
-        t.current_sl = Number(t.current_sl || t.initial_sl || 0);
-        t.initial_sl = Number(t.initial_sl || 0);
-        t.qty = Number(t.qty || 0);
-        if (t.tp != null) t.tp = Number(t.tp);
-        t.max_rr_achieved = Number(t.max_rr_achieved || 0);
-        t.min_rr_achieved = Number(t.min_rr_achieved || 0);
-        t.pnl = Number(t.pnl || 0);
-        t.risk_usdt = Number(t.risk_usdt || 0);
-
         this.positionTracker.addTrade(t);
         this.sessionState.updateStatsOnEntry(t.id, t.strategy_label);
-
-        const diagMsg = `[Trade Rehydration] Active trade ${t.symbol} (${t.direction}) resumed: Entry=${t.entry_price}, Current SL=${t.current_sl}, Initial SL=${t.initial_sl}, Qty=${t.qty}, Peak R:R=${t.max_rr_achieved}R`;
-        this.logger.log(diagMsg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: diagMsg, level: 'info' });
       }
     }
     this.sessionState.setActiveTrades(this.positionTracker.activeList());

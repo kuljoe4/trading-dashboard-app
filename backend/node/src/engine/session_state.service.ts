@@ -1,10 +1,10 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
+import { ENGINE_EVENTS } from './events';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { roundEight } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
-import { ENGINE_EVENTS } from './events';
 
 @Injectable()
 export class SessionStateService {
@@ -268,7 +268,10 @@ export class SessionStateService {
     const tenSecAgo = now - 10000;
     this.restCallTimestamps = this.restCallTimestamps.filter(t => t >= tenSecAgo);
 
-    if (this.restCallTimestamps.length > 30 && now - this.lastSurgeWarningTs > 120000) {
+    const intervalMin = this.config?.rate_limit_warning_interval_min || 5;
+    const intervalMs = Math.max(5, intervalMin) * 60 * 1000;
+
+    if (this.restCallTimestamps.length > 30 && now - this.lastSurgeWarningTs > intervalMs) {
       this.lastSurgeWarningTs = now;
       const surgeMsg = `⚠️ [Rate Surge Warning] Rapid REST API call surge detected (${this.restCallTimestamps.length} calls in 10s)! Slowing down background tasks to protect IP reputation.`;
       this.logger.warn(surgeMsg);
@@ -310,7 +313,10 @@ export class SessionStateService {
       // Prune events older than 60s
       this.highWeightEvents = this.highWeightEvents.filter(t => t >= now - 60000);
 
-      if (this.highWeightEvents.length >= 3 && now - this.last80PctWarningTs > 120000) {
+      const intervalMin = this.config?.rate_limit_warning_interval_min || 5;
+      const intervalMs = Math.max(5, intervalMin) * 60 * 1000;
+
+      if (this.highWeightEvents.length >= 3 && now - this.last80PctWarningTs > intervalMs) {
         this.last80PctWarningTs = now;
         const spikeMsg = `⚠️ [Rate Surge Alert] High API Weight Spike detected! Used weight reached ${(ratio * 100).toFixed(1)}% (${used1m}/${effectiveLimit}) ${this.highWeightEvents.length} times in the last minute. Proactive request throttling engaged.`;
         this.logger.warn(spikeMsg);

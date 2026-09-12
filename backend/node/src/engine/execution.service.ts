@@ -67,8 +67,11 @@ export class ExecutionService {
     if (activeTrades.length === 0) return;
 
     const now = Date.now();
-    // Throttle prerequisite checklist warnings to once per 2 minutes to prevent decision/alert log spam
-    if (now - this.lastChecklistLogTs < 120000) return;
+    const intervalMin = config?.rate_limit_warning_interval_min || 5;
+    const intervalMs = Math.max(5, intervalMin) * 60 * 1000;
+
+    // Throttle prerequisite checklist warnings using configured rate_limit_warning_interval_min (default: 5m)
+    if (now - this.lastChecklistLogTs < intervalMs) return;
     this.lastChecklistLogTs = now;
 
     const isLive = !config.paper_mode;
@@ -143,12 +146,8 @@ export class ExecutionService {
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
 
-    // Run Pre-Flight Prerequisite Checklist BEFORE processing exits
+    // Run Pre-Flight Prerequisite Checklist BEFORE checking exits
     this.runPrerequisiteChecklist(config);
-
-    // UNBLOCKED INDICATOR EVALUATION: Local indicator checks (EMA cross, trailing stop, peak R:R)
-    // continue executing in Node.js memory even during an active IP ban using local WebSocket prices & candles.
-    // Only REST order dispatch calls inside OrderManagerService are gated if banned.
 
     const activeTrades = this.positionTracker.activeList();
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);

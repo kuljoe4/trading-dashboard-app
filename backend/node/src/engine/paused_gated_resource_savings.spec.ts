@@ -1,6 +1,4 @@
 import { ExecutionService } from './execution.service';
-import { PositionTrackerService } from './positionTracker';
-import { SessionStateService } from './session_state.service';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 

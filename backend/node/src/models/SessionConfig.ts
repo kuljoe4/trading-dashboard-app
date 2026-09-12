@@ -478,6 +478,12 @@ export class SessionConfig {
   @IsOptional()
   track_binance_rate_limits?: boolean = true;
 
+  @IsNumber()
+  @Min(5)
+  @Max(60)
+  @IsOptional()
+  rate_limit_warning_interval_min?: number = 5;
+
   // Schedule & Advanced Risk
   @IsArray()
   @IsOptional()

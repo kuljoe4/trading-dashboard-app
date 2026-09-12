@@ -1,13 +1,16 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { OnEvent } from '@nestjs/event-emitter';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { OnEvent, EventEmitter2 } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { roundEight } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
+import { ENGINE_EVENTS } from './events';
 
 @Injectable()
 export class SessionStateService {
   private readonly logger = new Logger(SessionStateService.name);
+
+  constructor(@Optional() private readonly eventEmitter?: EventEmitter2) {}
   private static readonly DEFAULT_STRATEGY_LABEL = 'Momentum Strategy';
 
   public balancePaper = 0;
@@ -248,15 +251,46 @@ export class SessionStateService {
     return ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(this.gateState || '');
   }
 
+  private highWeightEvents: number[] = [];
+  private restCallTimestamps: number[] = [];
+  private last80PctWarningTs = 0;
+  private lastSurgeWarningTs = 0;
+
+  @OnEvent('binance.rest_request')
+  handleRestRequest() {
+    this.recordRestRequest();
+  }
+
+  public recordRestRequest() {
+    const now = Date.now();
+    this.restCallTimestamps.push(now);
+    // Prune calls older than 10 seconds
+    const tenSecAgo = now - 10000;
+    this.restCallTimestamps = this.restCallTimestamps.filter(t => t >= tenSecAgo);
+
+    if (this.restCallTimestamps.length > 30 && now - this.lastSurgeWarningTs > 120000) {
+      this.lastSurgeWarningTs = now;
+      const surgeMsg = `⚠️ [Rate Surge Warning] Rapid REST API call surge detected (${this.restCallTimestamps.length} calls in 10s)! Slowing down background tasks to protect IP reputation.`;
+      this.logger.warn(surgeMsg);
+      if (this.eventEmitter) {
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: surgeMsg, level: 'warn' });
+        this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+          level: 'warning',
+          title: 'REST API Surge Warning',
+          message: surgeMsg,
+        });
+      }
+    }
+  }
+
   @OnEvent('binance.weight_update')
   updateRateLimit(used1m: number, limit?: number) {
     this.binanceRateLimit.used_1m = used1m;
+    const effectiveLimit = limit || this.binanceRateLimit.limit || 2400;
     if (limit) {
       this.binanceRateLimit.limit = limit;
 
       // SRE: Proactively sync with static gateway queue
-      // Since BinanceClientFactory might not be available yet due to circular dep,
-      // we use a dynamic check if needed, but BinanceRequestQueue is static.
       try {
         const { BinanceRequestQueue } = require('../lib/binanceClientFactory');
         if (BinanceRequestQueue && typeof BinanceRequestQueue.setWeightLimit === 'function') {
@@ -264,6 +298,30 @@ export class SessionStateService {
         }
       } catch (e) {
         // Fallback or ignore if module not loaded
+      }
+    }
+
+    // Rate Limit Surge Guard: Detect when 80%+ weight limit is hit repeatedly
+    const now = Date.now();
+    const ratio = effectiveLimit > 0 ? used1m / effectiveLimit : 0;
+
+    if (ratio >= 0.8) {
+      this.highWeightEvents.push(now);
+      // Prune events older than 60s
+      this.highWeightEvents = this.highWeightEvents.filter(t => t >= now - 60000);
+
+      if (this.highWeightEvents.length >= 3 && now - this.last80PctWarningTs > 120000) {
+        this.last80PctWarningTs = now;
+        const spikeMsg = `⚠️ [Rate Surge Alert] High API Weight Spike detected! Used weight reached ${(ratio * 100).toFixed(1)}% (${used1m}/${effectiveLimit}) ${this.highWeightEvents.length} times in the last minute. Proactive request throttling engaged.`;
+        this.logger.warn(spikeMsg);
+        if (this.eventEmitter) {
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: spikeMsg, level: 'warn' });
+          this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+            level: 'warning',
+            title: 'High API Weight Spike',
+            message: spikeMsg,
+          });
+        }
       }
     }
   }

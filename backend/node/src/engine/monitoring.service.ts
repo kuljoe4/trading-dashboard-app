@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { roundTo } from '../lib/math';
 
 @Injectable()
@@ -19,7 +20,7 @@ export class MonitoringService {
     ts: number;
   } = { stage: 'IDLE', ts: Date.now() };
 
-  constructor() {
+  constructor(@Optional() private readonly eventEmitter?: EventEmitter2) {
     // BOLT: System health monitoring (CPU, RAM, Event Loop Lag) removed per requirement
   }
 
@@ -87,5 +88,8 @@ export class MonitoringService {
 
   incrementApiRequests() {
     this.apiRequestCount++;
+    if (this.eventEmitter) {
+      this.eventEmitter.emit('binance.rest_request');
+    }
   }
 }

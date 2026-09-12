@@ -131,8 +131,9 @@ export class ExecutionService {
       }
 
       // d) Strategy Paused Notice
-      if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(trade.strategy_label) : false) {
-        const pauseMsg = `ℹ️ [Prerequisite Notice] Strategy "${trade.strategy_label}" for active trade ${trade.symbol} is PAUSED. New entries are disabled, but exit monitoring & stop loss protection remain active.`;
+      const stratLabel = trade.strategy_label || 'Momentum Strategy';
+      if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(stratLabel) : false) {
+        const pauseMsg = `ℹ️ [Prerequisite Notice] Strategy "${stratLabel}" for active trade ${trade.symbol} is PAUSED. New entries are disabled, but exit monitoring & stop loss protection remain active.`;
         this.logger.log(pauseMsg);
         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: pauseMsg, level: 'info' });
       }
@@ -142,14 +143,12 @@ export class ExecutionService {
   async checkExits(config: SessionConfig, onTradeUpdate?: (t: Trade, b: number) => Promise<void>) {
     if (this.positionTracker.activeCount() === 0) return;
 
-    // Run Pre-Flight Prerequisite Checklist BEFORE the ban/gating return guards
+    // Run Pre-Flight Prerequisite Checklist BEFORE processing exits
     this.runPrerequisiteChecklist(config);
 
-    // BOLT: Global Ban Guard. If the system is banned, skip processing exits
-    // to avoid potential API ban exacerbation.
-    if (!config.paper_mode && this.sessionState.isBanned()) {
-      return;
-    }
+    // UNBLOCKED INDICATOR EVALUATION: Local indicator checks (EMA cross, trailing stop, peak R:R)
+    // continue executing in Node.js memory even during an active IP ban using local WebSocket prices & candles.
+    // Only REST order dispatch calls inside OrderManagerService are gated if banned.
 
     const activeTrades = this.positionTracker.activeList();
     const balance = this.sessionState.getBalance(config.paper_mode ?? true);
@@ -292,6 +291,13 @@ export class ExecutionService {
 
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
+
+        // Fast-fail resource optimization: Skip entries if this strategy is paused
+        const currentStrategyLabel = symbolConfig.strategy_label || strategyLabel || 'Momentum Strategy';
+        if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(currentStrategyLabel) : (this.sessionState.paused || (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.has(currentStrategyLabel)))) {
+          this.logger.debug(`Strategy "${currentStrategyLabel}" is paused. Skipping entries for ${opp.symbol}.`);
+          continue;
+        }
 
         // Anti-whipsaw / same-candle re-entry protection
         const uniqueTimeframes = new Set<string>();

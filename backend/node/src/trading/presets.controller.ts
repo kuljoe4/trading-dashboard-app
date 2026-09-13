@@ -50,14 +50,27 @@ export class PresetsController {
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
 
-    // SEC-SENTINEL: Defense-in-depth validation of the strategy configuration
+    // SEC-SENTINEL: Defense-in-depth validation of the outer preset DTO and strategy configuration
     // SENTINEL: Enforce whitelist and forbidNonWhitelisted to prevent arbitrary parameter injection/pollution in preset configuration
-    const configInstance = plainToInstance(SessionConfig, body.config || {});
+    const presetDto = plainToInstance(CreateStrategyPresetDto, body || {});
+    const dtoErrors = await validate(presetDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      this.logger.warn(
+        `Preset DTO validation failed: ${JSON.stringify(detailedErrors)}`,
+      );
+      throw new BadRequestException({
+        message: "Invalid strategy preset parameters",
+        detail: detailedErrors,
+      });
+    }
+
+    const configInstance = plainToInstance(SessionConfig, presetDto.config || {});
     const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true });
     if (errors.length > 0) {
       const detailedErrors = formatValidationErrors(errors);
       this.logger.warn(
-        `Preset validation failed for "${body.name}": ${JSON.stringify(detailedErrors)}`,
+        `Preset validation failed for "${presetDto.name}": ${JSON.stringify(detailedErrors)}`,
       );
       throw new BadRequestException({
         message: "Invalid strategy configuration in preset",
@@ -66,21 +79,21 @@ export class PresetsController {
     }
 
     let preset = await this.presetRepository.findOne({
-      where: { name: body.name },
+      where: { name: presetDto.name },
     });
 
     const action = preset ? "UPDATE_PRESET" : "CREATE_PRESET";
     if (preset) {
-      preset.config = body.config;
+      preset.config = presetDto.config;
       await this.presetRepository.save(preset);
-      this.logger.log(`Preset updated: ${body.name} by ${clientIp}`);
+      this.logger.log(`Preset updated: ${presetDto.name} by ${clientIp}`);
     } else {
       preset = this.presetRepository.create({
-        name: body.name,
-        config: body.config,
+        name: presetDto.name,
+        config: presetDto.config,
       });
       await this.presetRepository.save(preset);
-      this.logger.log(`New preset created: ${body.name} by ${clientIp}`);
+      this.logger.log(`New preset created: ${presetDto.name} by ${clientIp}`);
     }
 
     await this.auditLog.log({
@@ -88,7 +101,7 @@ export class PresetsController {
       actor: clientIp,
       ip: clientIp,
       userAgent: req.headers["user-agent"],
-      details: { name: body.name },
+      details: { name: presetDto.name },
     });
 
     return preset;

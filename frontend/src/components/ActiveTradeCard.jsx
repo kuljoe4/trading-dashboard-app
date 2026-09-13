@@ -103,13 +103,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const roomToTpR = tp > 0 ? Math.max(0, isLong ? (tp - mark) / riskUnit : (mark - tp) / riskUnit) : null
   const roomToTpUsdt = tp > 0 ? Math.max(0, Math.abs(tp - mark) * Number(trade.qty || 0)) : null
 
-  // Trade Phase Resolution
-  const isRiskReleased = trade.risk_usdt === 0 || (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6)
+  // Trade Phase Resolution - Strict evaluation requiring active SL >= entry for breakeven or explicit engine release
+  const isSlAtBreakeven = sl > 0 && (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6)
+  const isRiskReleased = isSlAtBreakeven || (trade.risk_usdt === 0 && Number(trade.initial_risk_usdt) > 0)
   let tradePhase = 'INITIAL RISK'
   if (isRetracing) {
     tradePhase = 'RETRACING'
   } else if (isRiskReleased) {
-    tradePhase = 'RISK LOCKED'
+    tradePhase = 'RISK PROTECTED'
   } else if (markR > 0) {
     tradePhase = 'IN PROFIT'
   }
@@ -229,7 +230,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss'
   const rrValue = markR.toFixed(2)
-  const riskLockText = isRiskReleased ? 'RISK LOCKED (0.00R Protected)' : `Locked (${fmtUSD(trade.risk_usdt)})`
+  const riskLockText = isRiskReleased ? 'RISK PROTECTED (0.00R Initial Risk)' : `Active Risk (${fmtUSD(trade.risk_usdt || trade.initial_risk_usdt || 0)})`
   const ariaText = `${trade.symbol} ${trade.direction}: ${fmtUSD(trade.pnl)} (${rrValue}R ${pnlLabel}). Phase: ${tradePhase}. Risk status: ${riskLockText}. Live mark at ${rrValue}R.`
 
   const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee)
@@ -344,20 +345,25 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             {/* Risk Phase & Protection Badges */}
             {isRiskReleased ? (
               <Tooltip content={`INITIAL RISK PROTECTED: Stop Loss moved to entry or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Initial risk is 0.00R.`}>
-                <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm">
+                <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm font-mono">
                   <Lock size={7} className="text-green shrink-0" />
-                  <span>RISK LOCKED</span>
+                  <span>RISK PROTECTED</span>
+                </span>
+              </Tooltip>
+            ) : trade.initial_sl > 0 && Math.abs((trade.sl_price || sl) - trade.initial_sl) > 0.0000001 ? (
+              <Tooltip content={`Stop Loss ratcheted from ${fmtUSD(trade.initial_sl)} to ${fmtUSD(trade.sl_price || sl)}`}>
+                <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 font-mono">
+                  <ShieldCheck size={7} className="text-amber" />
+                  <span>SL MOVED</span>
                 </span>
               </Tooltip>
             ) : (
-              trade.initial_sl > 0 && Math.abs(trade.sl_price - trade.initial_sl) > 0.0000001 && (
-                <Tooltip content={`Stop Loss ratcheted from ${fmtUSD(trade.initial_sl)} to ${fmtUSD(trade.sl_price)}`}>
-                  <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0">
-                    <ShieldCheck size={7} className="text-amber" />
-                    <span>SL MOVED</span>
-                  </span>
-                </Tooltip>
-              )
+              <Tooltip content={`Active Trade Risk: ${fmtUSD(trade.risk_usdt || trade.initial_risk_usdt || 0)}`}>
+                <span className="bg-surface text-dim border border-white/10 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 font-mono">
+                  <ShieldCheck size={7} className="text-dim/70" />
+                  <span>RISK: {fmtUSD(trade.risk_usdt || trade.initial_risk_usdt || 0)}</span>
+                </span>
+              </Tooltip>
             )}
 
             {trade.strategy_config?.trailing_stop_enabled && (

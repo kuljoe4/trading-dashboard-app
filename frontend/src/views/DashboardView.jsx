@@ -828,7 +828,20 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   }, [onPause, s.strategy_label, isPausing]);
 
   const activeCount = s.activeTradeCount || 0;
-  const maxOpen = config.max_open_trades || 5;
+  const isAutoAdjust = config.auto_adjust_max_trades_enabled || false;
+  const activeRisk = useTradingStore(state => {
+    const trades = state.activeTrades || [];
+    const stratLabel = s.strategy_label || 'Momentum Strategy';
+    return trades
+      .filter(t => (t.strategy_label || 'Momentum Strategy') === stratLabel)
+      .reduce((acc, t) => acc + (t.risk_usdt || 0), 0);
+  });
+  const isZeroActiveRiskExpanded = isAutoAdjust && activeCount > 0 && activeRisk <= 1e-6;
+  const effectiveMaxOpen = isZeroActiveRiskExpanded
+    ? Math.min(config.auto_adjust_max_trades_max || 5, Math.max(config.max_open_trades || 5, activeCount) + (config.auto_adjust_max_trades_step || 1))
+    : (config.max_open_trades || 5);
+
+  const maxOpen = effectiveMaxOpen;
   const capacityPct = Math.max(0, Math.min(100, (activeCount / maxOpen) * 100));
 
   const handleKeyDown = (e) => {
@@ -1009,6 +1022,13 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
               <Tooltip content={`HTF EMA Cross Ranking Active: ${config.htf_ema_cross_interval || '4h'} timeframe (${config.htf_ema_fast_period || 9}/${config.htf_ema_slow_period || 21} EMAs, Boost Weight: ${config.htf_ema_cross_rr_weight || 1.5}x)`}>
                 <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help">
                   ⚡ {(config.htf_ema_cross_interval || '4h').toUpperCase()} HTF Cross (+{config.htf_ema_cross_max_boost || 25} Max)
+                </span>
+              </Tooltip>
+            )}
+            {isZeroActiveRiskExpanded && (
+              <Tooltip content={`Dynamic Capacity Expanded: All open trades risk-protected (0.00 USDT active risk). Max trades boosted to ${maxOpen} (Step +${config.auto_adjust_max_trades_step || 1}, Max ${config.auto_adjust_max_trades_max || 5}).`}>
+                <span className="bg-green/10 text-green border border-green/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help animate-pulse">
+                  ⚡ DYNAMIC MAX: {activeCount}/{maxOpen} (+{config.auto_adjust_max_trades_step || 1})
                 </span>
               </Tooltip>
             )}

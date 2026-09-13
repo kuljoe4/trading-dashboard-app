@@ -603,7 +603,12 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </span>
             </Tooltip>
           ) : (
-            <span className="text-accent font-black bg-accent/10 border border-accent/20 px-1 py-0.2 rounded flex items-center gap-0.5">
+            <span className={cn(
+              "font-black px-1 py-0.2 rounded flex items-center gap-0.5 border",
+              exitSignalProximity >= 80 ? "text-red bg-red/10 border-red/20" :
+              exitSignalProximity >= 50 ? "text-amber bg-amber/10 border-amber/20" :
+              "text-accent bg-accent/10 border-accent/20"
+            )}>
               <Activity size={7} /> Prox: {exitSignalProximity}%
             </span>
           )}

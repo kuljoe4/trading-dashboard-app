@@ -1900,7 +1900,6 @@ export class OrderManagerService {
   public async fetchAllOpenOrders(): Promise<(BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]> {
     if (!this.binanceClient) return [];
     try {
-      this.monitoringService.incrementApiRequests();
       // Use standard endpoint
       const response = await this.binanceClient.restAPI.currentAllOpenOrders();
       this.updateWeight(response?.headers);
@@ -1932,7 +1931,6 @@ export class OrderManagerService {
   public async fetchAllOpenAlgoOrders(): Promise<BinanceAlgoOrderReceipt[]> {
     if (!this.binanceClient) return [];
     try {
-      this.monitoringService.incrementApiRequests();
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
       this.updateWeight(response?.headers);
       const data = (await response.data()) as (BinanceAlgoOrderReceipt[] | { orders: BinanceAlgoOrderReceipt[] });
@@ -2157,7 +2155,6 @@ export class OrderManagerService {
     if (!this.binanceClient) return [];
     if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
     try {
-      this.monitoringService.incrementApiRequests();
       // 1. Fetch standard orders
       const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol });
       this.updateWeight(res?.headers);
@@ -2178,7 +2175,6 @@ export class OrderManagerService {
   public async fetchOpenAlgoOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<BinanceAlgoOrderReceipt[]> {
     if (!this.binanceClient) return [];
     try {
-      this.monitoringService.incrementApiRequests();
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders({ symbol });
       this.updateWeight(response?.headers);
       const data = (await response.data()) as (BinanceAlgoOrderReceipt[] | { orders: BinanceAlgoOrderReceipt[] });

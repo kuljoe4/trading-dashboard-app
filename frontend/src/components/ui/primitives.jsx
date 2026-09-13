@@ -628,48 +628,37 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
       tabIndex={0}
       className={cn(
-        "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset",
-        isScrolled ? "mb-0.5" : "mb-2 lg:mb-3",
-        sticky && "sticky top-0 bg-background/95 backdrop-blur-md border-b border-border/10 shadow-sm",
-        sticky && (isScrolled ? "py-0.5" : "py-1.5")
+        "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset mb-3 lg:mb-4 py-2 px-1 sm:px-2 rounded-2xl",
+        sticky && "sticky top-0 backdrop-blur-xl border-b transition-colors",
+        sticky && isScrolled
+          ? "bg-background/90 border-border/40 shadow-md shadow-black/30"
+          : "bg-background/60 border-border/20 shadow-none"
       )}
     >
-      <div className={cn(
-        "flex justify-between gap-1.5 sm:gap-2.5 relative w-full transition-all duration-300",
-        isScrolled ? "flex-row items-center min-h-[32px]" : "flex-col sm:flex-row sm:items-center"
-      )}>
-        {/* Left Side: Title and Badges */}
-        <div className={cn(
-          "flex items-center gap-1.5 min-w-0 flex-1",
-          isScrolled ? "shrink-0 max-w-[45%] sm:max-w-none" : "w-full"
-        )}>
+      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 relative w-full min-h-[38px]">
+        {/* Left Side: Title, Icon and Badges */}
+        <div className="flex items-center gap-2 min-w-0 max-w-full sm:max-w-none flex-1">
           {backAction && (
             <button
               onClick={backAction}
               aria-label="Go back"
-              className={cn(
-                "hover:bg-surface border border-border rounded-lg transition-all active:scale-90 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                isScrolled ? "p-0.5" : "p-1"
-              )}
+              className="p-1.5 hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
-              <ChevronLeft size={12} className="text-dim group-hover:text-text" />
+              <ChevronLeft size={14} className="text-dim group-hover:text-text" />
             </button>
           )}
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
             {Icon && (
-              <div className={cn(
-                "rounded-lg bg-accent/5 border border-accent/10 flex items-center justify-center shrink-0 transition-all",
-                isScrolled ? "w-4 h-4" : "w-7 h-7"
-              )}>
-                <Icon size={isScrolled ? 10 : 14} className="text-accent" />
+              <div className="w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 transition-all">
+                <Icon size={14} className="text-accent" />
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-1 sm:gap-2 min-w-0">
-                <h1 className={cn("font-black tracking-tight truncate uppercase transition-all", isScrolled ? "text-[10px] sm:text-[11px]" : "text-xs md:text-sm")}>
+              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
+                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase text-text">
                   {showResumingFeedback ? 'Resuming...' : title}
                 </h1>
-                <div className={cn("flex items-center gap-0.5 shrink-0 origin-left transition-transform", isScrolled ? "scale-[0.65] sm:scale-[0.7]" : "scale-[0.75] sm:scale-[0.8]")}>
+                <div className="flex items-center gap-1 shrink-0 scale-90 sm:scale-100 origin-left">
                   {tradingMode === 'paper' && <PaperBadge />}
                   {tradingMode === 'testnet' && <DemoBadge />}
                   {tradingMode === 'live' && <LiveBadge />}
@@ -677,61 +666,45 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
                 </div>
               </div>
-              <AnimatePresence>
-                {!isScrolled && subTitle && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="overflow-hidden"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                      <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
-                        {subTitle}
-                      </p>
-                      <div className="flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.8] origin-left">
-                        <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
-                          {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
-                        </span>
-                        {wsStatus !== 'live' && (
-                          <button
-                            onClick={() => window.location.reload()}
-                            className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
-                            aria-label="Retry connection"
-                          >
-                            Retry
-                          </button>
-                        )}
-                        <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {subTitle && (
+                <div className="flex items-center gap-2 min-w-0 transition-opacity duration-200">
+                  <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
+                    {subTitle}
+                  </p>
+                  <div className="hidden sm:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.85] origin-left">
+                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
+                      {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
+                    </span>
+                    {wsStatus !== 'live' && (
+                      <button
+                        onClick={() => window.location.reload()}
+                        className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
+                        aria-label="Retry connection"
+                      >
+                        Retry
+                      </button>
+                    )}
+                    <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Center: Integrated Non-Blocking Horizontal Ticker */}
+        {/* Center: Integrated Non-Blocking Horizontal Alert Ticker */}
         {activeAlert && (
-          <div className={cn(
-            "flex relative items-center justify-center min-w-0 z-50",
-            isScrolled ? "flex-1 px-1 max-w-[200px] sm:max-w-[320px]" : "w-full sm:w-auto flex-1 px-2 sm:px-4"
-          )}>
+          <div className="flex relative items-center justify-center min-w-0 z-50 w-full sm:w-auto flex-1 px-1 sm:px-2 order-3 sm:order-2 mt-1 sm:mt-0">
             <div
               onClick={() => setShowDropdown(!showDropdown)}
-              className={cn(
-                "group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/30 hover:bg-surface/60 border border-border/40 hover:border-accent/30 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full",
-                isScrolled ? "px-2 py-0.5 text-[9px]" : "px-3.5 py-1 text-[10px] max-w-[360px] lg:max-w-[440px]"
-              )}
+              className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/50 hover:bg-surface/80 border border-border/50 hover:border-accent/40 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full px-3 py-1 text-[10px] max-w-full sm:max-w-[360px] lg:max-w-[440px]"
               title="Click to view all recent alerts"
             >
               {triggerRippleKey > 0 && (
                 <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
               )}
 
-              <div className={cn("flex items-center min-w-0 flex-1 relative overflow-hidden", isScrolled ? "h-[14px]" : "h-[18px]")}>
+              <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={activeAlert.id + '-' + activeAlert.count}
@@ -739,7 +712,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                     animate={{ y: 0, opacity: 1 }}
                     exit={{ y: -12, opacity: 0 }}
                     transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-                    className="flex items-center gap-1 min-w-0 w-full h-full"
+                    className="flex items-center gap-1.5 min-w-0 w-full h-full"
                   >
                     <span className={cn(
                       "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
@@ -836,12 +809,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         )}
 
         {/* Right Side: Children Action Items */}
-        <div className={cn(
-          "flex items-center gap-1 sm:gap-1.5 flex-nowrap shrink-0 justify-end transition-transform origin-right",
-          isScrolled ? "mt-0 scale-85 sm:scale-90" : "mt-1.5 sm:mt-0 scale-95 sm:scale-90"
-        )}>
-          {children}
-        </div>
+        {children && (
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap shrink-0 justify-end order-2 sm:order-3 max-w-full">
+            {children}
+          </div>
+        )}
       </div>
     </div>
   )

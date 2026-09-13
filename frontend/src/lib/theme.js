@@ -246,15 +246,26 @@ export const solveSmoothing = (points) => {
     const next = points[i + 1];
     const prevPrev = points[i - 2] || prev;
 
+    // Fix deformed lines / loops when adjacent x-coordinates coincide or have near-zero deltas
+    const dx = curr.x - prev.x;
+    if (Math.abs(dx) < 1e-5) {
+      path[i] = ` L ${curr.x} ${curr.y}`;
+      continue;
+    }
+
     const minY = Math.min(prev.y, curr.y);
     const maxY = Math.max(prev.y, curr.y);
 
-    // Control points
-    const cp1x = prev.x + (curr.x - prevPrev.x) / 6;
+    // Control points constrained strictly to the horizontal span [prev.x, curr.x]
+    let cp1x = prev.x + (curr.x - prevPrev.x) / 6;
     let cp1y = prev.y + (curr.y - prevPrev.y) / 6;
 
-    const cp2x = curr.x - ((next ? next.x : curr.x) - prev.x) / 6;
+    let cp2x = curr.x - ((next ? next.x : curr.x) - prev.x) / 6;
     let cp2y = curr.y - ((next ? next.y : curr.y) - prev.y) / 6;
+
+    // Clamp control point x-coordinates to avoid backward loops or horizontal overshoots
+    cp1x = Math.max(prev.x, Math.min(curr.x, cp1x));
+    cp2x = Math.max(prev.x, Math.min(curr.x, cp2x));
 
     // Monotonic control point clamping to prevent overshoot/bowing beyond segment bounds
     cp1y = Math.max(minY, Math.min(maxY, cp1y));

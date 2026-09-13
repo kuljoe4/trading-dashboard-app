@@ -582,26 +582,35 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           </div>
         </div>
 
-        {/* Current Price Callout Bar below Runway */}
+        {/* Current Price Callout Bar below Runway with Surface Initial SL Distance & Indicator Proximities */}
         <div className="flex justify-between items-center text-[7.5px] font-mono leading-none pt-0.5">
-          <div className="flex items-center gap-1 text-dim">
+          <div className="flex items-center gap-1.5 text-dim">
             <span className="font-bold text-text">NOW: {fmtUSD(mark)}</span>
             <span className={cn("font-black", markR >= 0 ? "text-green" : "text-red")}>
               ({markR >= 0 ? '+' : ''}{markR.toFixed(2)}R)
             </span>
+            {/* Surface Initial SL Distance % directly in place */}
+            <span className="text-dim/80 font-bold border-l border-white/10 pl-1.5">
+              Init SL: {fmtUSD(initialSl)} ({((entry > 0 ? Math.abs(initialSl - entry) / entry : 0) * 100).toFixed(1)}%)
+            </span>
           </div>
 
-          {/* Retracement & Giveback Warning */}
+          {/* Surface Indicator Proximity % directly in place or Retracement Warning */}
           {isRetracing ? (
             <Tooltip content={`Peak +${peakR.toFixed(2)}R retraced to +${markR.toFixed(2)}R. Profit giveback: -${givebackR.toFixed(2)}R (${givebackPctOfPeak.toFixed(0)}% of peak).`}>
               <span className="text-amber font-black cursor-help flex items-center gap-0.5 bg-amber/10 border border-amber/20 px-1 py-0.2 rounded">
                 <AlertTriangle size={7} /> Giveback -{givebackR.toFixed(2)}R ({givebackPctOfPeak.toFixed(0)}%)
               </span>
             </Tooltip>
-          ) : peakR >= 0.2 ? (
-            <span className="text-dim/80">Peak: +{peakR.toFixed(2)}R</span>
           ) : (
-            <span className="text-dim/80">Initial SL: {fmtUSD(initialSl)}</span>
+            <span className={cn(
+              "font-black px-1 py-0.2 rounded flex items-center gap-0.5 border",
+              exitSignalProximity >= 80 ? "text-red bg-red/10 border-red/20" :
+              exitSignalProximity >= 50 ? "text-amber bg-amber/10 border-amber/20" :
+              "text-accent bg-accent/10 border-accent/20"
+            )}>
+              <Activity size={7} /> Prox: {exitSignalProximity}%
+            </span>
           )}
         </div>
       </div>

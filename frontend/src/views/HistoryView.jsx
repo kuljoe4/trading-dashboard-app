@@ -1598,14 +1598,35 @@ export const HistoryView = () => {
   // from the mount useEffect. HistoryView relies on `lifetimeAnalytics` (via `fetchLifetimeAnalytics`)
   // for all its lifetime stats and analytical calculations, while active/session-level analytics
   // are already handled by other components or the global store, making the local fetch redundant.
-  const [lifetimeMode, setLifetimeMode] = useState(localStorage.getItem('history_trade_mode') || 'paper')
-  const [timeRange, setTimeRange] = useState('ALL') // '24H', '7D', '30D', 'ALL'
-  const [tradeLimit, setTradeLimit] = useState(1000) // 50, 100, 250, 500, 1000, 'ALL'
+  const [lifetimeMode, setLifetimeMode] = useState(() => localStorage.getItem('history_trade_mode') || 'paper')
+  const [timeRange, setTimeRange] = useState(() => localStorage.getItem('history_time_range') || 'ALL') // '24H', '7D', '30D', 'ALL'
+  const [tradeLimit, setTradeLimit] = useState(() => {
+    const saved = localStorage.getItem('history_trade_limit')
+    if (!saved) return 1000
+    return saved === 'ALL' ? 'ALL' : Number(saved) || 1000
+  }) // 50, 100, 250, 500, 1000, 'ALL'
+  const [sortBy, setSortBy] = useState(() => localStorage.getItem('history_sort_by') || 'time') // 'time', 'pnl', 'winrate'
   const [loading, setLoading] = useState(true)
   const isFirstRender = React.useRef(true)
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [search, setSearch] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
+  // Handlers for persisting history settings
+  const handleTimeRangeChange = (val) => {
+    setTimeRange(val);
+    localStorage.setItem('history_time_range', val);
+  };
+
+  const handleTradeLimitChange = (val) => {
+    setTradeLimit(val);
+    localStorage.setItem('history_trade_limit', String(val));
+  };
+
+  const handleSortByChange = (val) => {
+    setSortBy(val);
+    localStorage.setItem('history_sort_by', val);
+  };
 
   // Controlled expansion state for sessions
   const [expandedSessionIds, setExpandedSessionIds] = useState(new Set())
@@ -1735,7 +1756,6 @@ export const HistoryView = () => {
     return mapped;
   }, [sessionList, tradeHistory]);
 
-  const [sortBy, setSortBy] = useState('time'); // 'time', 'pnl', 'winrate'
 
   const sessionsToRender = useMemo(() => {
     const term = search.toLowerCase().trim()
@@ -2021,7 +2041,7 @@ export const HistoryView = () => {
                     <button
                       key={r}
                       type="button"
-                      onClick={() => setTimeRange(r)}
+                      onClick={() => handleTimeRangeChange(r)}
                       aria-pressed={timeRange === r}
                       aria-label={`Filter history to ${r} time range`}
                       className={cn(
@@ -2041,7 +2061,7 @@ export const HistoryView = () => {
                     <button
                       key={String(l)}
                       type="button"
-                      onClick={() => setTradeLimit(l)}
+                      onClick={() => handleTradeLimitChange(l)}
                       aria-pressed={tradeLimit === l}
                       aria-label={`Set trade history limit to ${l}`}
                       className={cn(
@@ -2064,7 +2084,7 @@ export const HistoryView = () => {
                   ].map(opt => (
                     <button
                       key={opt.id}
-                      onClick={() => setSortBy(opt.id)}
+                      onClick={() => handleSortByChange(opt.id)}
                       aria-pressed={sortBy === opt.id}
                       aria-label={`Sort sessions by ${opt.label}`}
                       className={cn(

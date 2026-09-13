@@ -115,13 +115,16 @@ export class ExecutionService {
       const exitSignals = activeConfig.exit_signals || [];
       if (exitSignals.length > 0) {
         const requiredWarmup = this.signalEngine.getRequiredWarmup(activeConfig);
-        const exitInterval = activeConfig.scan_interval || '1m';
-        const candles = this.klineStore.getRawCandles(trade.symbol, exitInterval);
+        for (const exitSig of exitSignals) {
+          const rawTf = activeConfig.signal_timeframes?.[exitSig];
+          const exitInterval = (!rawTf || rawTf === 'default') ? (activeConfig.scan_interval || '1m') : rawTf;
+          const candles = this.klineStore.getRawCandles(trade.symbol, exitInterval);
 
-        if (candles.length < requiredWarmup) {
-          const warmupMsg = `⚠️ [Prerequisite Notice] Trade ${trade.symbol}: Exit indicator warmup in progress (${candles.length}/${requiredWarmup} candles for ${exitInterval}). Exit signals (${exitSignals.join(', ')}) will NOT fire until candle buffer converges.`;
-          this.logger.log(warmupMsg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warmupMsg, level: 'info' });
+          if (candles.length < requiredWarmup) {
+            const warmupMsg = `⚠️ [Prerequisite Notice] Trade ${trade.symbol}: Exit indicator warmup in progress (${candles.length}/${requiredWarmup} candles for ${exitInterval}). Exit signals (${exitSig}) will NOT fire until candle buffer converges.`;
+            this.logger.log(warmupMsg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warmupMsg, level: 'info' });
+          }
         }
       }
 

@@ -4259,6 +4259,33 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 />
               </div>
 
+              {/* Dynamic Auto-Adjust Max Open Trades on Zero Risk */}
+              <div className="p-4 my-4 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
+                      <Zap size={12} className="text-accent" />
+                      Auto-Adjust Max Open Trades (Zero Active Risk)
+                    </span>
+                    <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-xl">
+                      Dynamically step up max allowed trades when strategy active risk reaches 0 (all open positions risk-protected). Step down when active risk is re-locked.
+                    </p>
+                  </div>
+                  <Toggle
+                    value={cfg.auto_adjust_max_trades_enabled || false}
+                    onChange={(v) => setField('auto_adjust_max_trades_enabled', v)}
+                  />
+                </div>
+
+                {cfg.auto_adjust_max_trades_enabled && (
+                  <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border/20">
+                    {renderField('Min Limit', 'auto_adjust_max_trades_min', 'number', null, { min: 1, max: 20 })}
+                    {renderField('Max Limit', 'auto_adjust_max_trades_max', 'number', null, { min: 1, max: 50 })}
+                    {renderField('Step Size', 'auto_adjust_max_trades_step', 'number', null, { min: 1, max: 5 })}
+                  </div>
+                )}
+              </div>
+
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex justify-between items-center">
                   <div className="flex flex-col">

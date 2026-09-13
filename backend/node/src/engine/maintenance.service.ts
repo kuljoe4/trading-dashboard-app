@@ -74,7 +74,8 @@ export class MaintenanceService {
 
         const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
         const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
-        return secondsSinceUpdate >= 45;
+        // Optimization: For active trades with recent WebSocket updates, audit every 180s instead of 45s to reduce REST weight
+        return secondsSinceUpdate >= 180;
       });
 
       if (tradesToAudit.length === 0) return;

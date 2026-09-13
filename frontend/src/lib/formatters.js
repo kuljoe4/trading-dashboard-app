@@ -181,46 +181,51 @@ export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) =
     return { supertrend, direction, insufficientData: true };
   }
 
-  // Safe getter for OHLC values from different possible shapes
-  const getCandle = (c) => ({
-    open: Number(c.open ?? c.o ?? 0),
-    high: Number(c.high ?? c.h ?? 0),
-    low: Number(c.low ?? c.l ?? 0),
-    close: Number(c.close ?? c.c ?? 0),
-  });
+  // BOLT OPTIMIZATION: Zero-allocation candle property accessors and scalar tracking across loop iterations.
+  // Replaces getCandle(c) helper calls that allocate short-lived { open, high, low, close } objects per candle
+  // with direct primitive property lookups and tracked prevClose scalar, eliminating GC pressure on cache misses.
+  const c0 = candles[0];
+  const c0High = Number(c0.high ?? c0.h ?? 0);
+  const c0Low = Number(c0.low ?? c0.l ?? 0);
+  let prevClose = Number(c0.close ?? c0.c ?? 0);
+  let trSum = c0High - c0Low;
 
-  // 1. Calculate TR sum for the initial period to bootstrap ATR
-  const c0 = getCandle(candles[0]);
-  let trSum = c0.high - c0.low;
   for (let i = 1; i < period; i++) {
-    const ci = getCandle(candles[i]);
-    const ciPrev = getCandle(candles[i - 1]);
-    const hL = ci.high - ci.low;
-    const hC = Math.abs(ci.high - ciPrev.close);
-    const lC = Math.abs(ci.low - ciPrev.close);
+    const ci = candles[i];
+    const ciHigh = Number(ci.high ?? ci.h ?? 0);
+    const ciLow = Number(ci.low ?? ci.l ?? 0);
+    const ciClose = Number(ci.close ?? ci.c ?? 0);
+    const hL = ciHigh - ciLow;
+    const hC = Math.abs(ciHigh - prevClose);
+    const lC = Math.abs(ciLow - prevClose);
     trSum += Math.max(hL, hC, lC);
+    prevClose = ciClose;
   }
 
   let prevAtr = trSum / period;
 
-  // 2. Initialize variables for tracking final bands and supertrend
-  const cpMinus1 = getCandle(candles[period - 1]);
-  const initHl2 = (cpMinus1.high + cpMinus1.low) / 2;
+  // Initialize variables for tracking final bands and supertrend
+  const cpMinus1 = candles[period - 1];
+  const cpMinus1High = Number(cpMinus1.high ?? cpMinus1.h ?? 0);
+  const cpMinus1Low = Number(cpMinus1.low ?? cpMinus1.l ?? 0);
+  const initHl2 = (cpMinus1High + cpMinus1Low) / 2;
   let prevFinalUpper = initHl2 + multiplier * prevAtr;
   let prevFinalLower = initHl2 - multiplier * prevAtr;
 
   supertrend[period - 1] = prevFinalUpper;
   direction[period - 1] = 'down';
 
-  // 3. Main single-pass loop over the remaining candles
+  // Main single-pass loop over the remaining candles
   for (let i = period; i < len; i++) {
-    const ci = getCandle(candles[i]);
-    const ciPrev = getCandle(candles[i - 1]);
+    const ci = candles[i];
+    const ciHigh = Number(ci.high ?? ci.h ?? 0);
+    const ciLow = Number(ci.low ?? ci.l ?? 0);
+    const ciClose = Number(ci.close ?? ci.c ?? 0);
 
     // Calculate TR
-    const hL = ci.high - ci.low;
-    const hC = Math.abs(ci.high - ciPrev.close);
-    const lC = Math.abs(ci.low - ciPrev.close);
+    const hL = ciHigh - ciLow;
+    const hC = Math.abs(ciHigh - prevClose);
+    const lC = Math.abs(ciLow - prevClose);
     const tr = Math.max(hL, hC, lC);
 
     // Calculate ATR (Wilder's RMA smoothing)
@@ -228,12 +233,11 @@ export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) =
     prevAtr = atr;
 
     // Calculate basic bands
-    const hl2 = (ci.high + ci.low) / 2;
+    const hl2 = (ciHigh + ciLow) / 2;
     const basicUpper = hl2 + multiplier * atr;
     const basicLower = hl2 - multiplier * atr;
 
     // Calculate final bands
-    const prevClose = ciPrev.close;
     let finalUpper = 0;
     let finalLower = 0;
 
@@ -252,7 +256,7 @@ export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) =
     // Calculate Supertrend and direction
     const prevST = supertrend[i - 1];
     if (prevST === prevFinalUpper) {
-      if (ci.close > finalUpper) {
+      if (ciClose > finalUpper) {
         supertrend[i] = finalLower;
         direction[i] = 'up'; // bullish breakout
       } else {
@@ -260,7 +264,7 @@ export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) =
         direction[i] = 'down';
       }
     } else { // prevST === prevFinalLower
-      if (ci.close < finalLower) {
+      if (ciClose < finalLower) {
         supertrend[i] = finalUpper;
         direction[i] = 'down'; // bearish breakout
       } else {
@@ -269,9 +273,10 @@ export const calculateSupertrend = (candles = [], period = 10, multiplier = 3) =
       }
     }
 
-    // Update band trackers for next iteration
+    // Update trackers for next iteration
     prevFinalUpper = finalUpper;
     prevFinalLower = finalLower;
+    prevClose = ciClose;
   }
 
   const result = { supertrend, direction, insufficientData: false };

@@ -84,8 +84,25 @@ export class RiskEngineService {
       }
     }
 
-    // 1. Static Configuration Checks
-    const maxOpenTrades = config.max_open_trades ?? 5;
+    // Dynamic max trades calculation when zero active risk auto-adjust is enabled for strategy
+    let effectiveMaxOpenTrades = config.max_open_trades ?? 5;
+    if (config.auto_adjust_max_trades_enabled) {
+      const minLimit = config.auto_adjust_max_trades_min ?? Math.min(1, config.max_open_trades ?? 5);
+      const maxLimit = config.auto_adjust_max_trades_max ?? Math.max(5, (config.max_open_trades ?? 5) + 2);
+      const step = config.auto_adjust_max_trades_step ?? 1;
+      const baseMax = config.max_open_trades ?? 5;
+
+      // Expansion condition: Strategy has active positions, but active risk is 0 (all positions risk-protected/breakeven)
+      if (activeTradesCountForStrategy > 0 && totalSlUsedForStrategy <= 1e-6) {
+        effectiveMaxOpenTrades = Math.min(maxLimit, Math.max(baseMax, activeTradesCountForStrategy) + step);
+      } else if (totalSlUsedForStrategy > 1e-6) {
+        // Contraction condition: Active risk is non-zero, lock back to base/min limit
+        effectiveMaxOpenTrades = Math.max(minLimit, baseMax);
+      }
+    }
+
+    // 1. Static/Dynamic Configuration Checks
+    const maxOpenTrades = effectiveMaxOpenTrades;
     const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
     const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
     const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;

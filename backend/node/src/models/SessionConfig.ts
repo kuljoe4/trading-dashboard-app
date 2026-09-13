@@ -618,6 +618,28 @@ export class SessionConfig {
 
   @IsBoolean()
   @IsOptional()
+  auto_adjust_max_trades_enabled?: boolean = false;
+
+  @IsNumber()
+  @Min(1)
+  @Max(20)
+  @IsOptional()
+  auto_adjust_max_trades_min?: number = 1;
+
+  @IsNumber()
+  @Min(1)
+  @Max(50)
+  @IsOptional()
+  auto_adjust_max_trades_max?: number = 5;
+
+  @IsNumber()
+  @Min(1)
+  @Max(5)
+  @IsOptional()
+  auto_adjust_max_trades_step?: number = 1;
+
+  @IsBoolean()
+  @IsOptional()
   force_risk_release?: boolean = false;
 
   @IsBoolean()

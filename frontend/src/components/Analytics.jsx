@@ -958,7 +958,7 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
   // Expanded UX & Controls
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [groupingMode, setGroupingMode] = useState('auto'); // 'auto' | 'raw' | 'grouped'
-  const [axisMode, setAxisMode] = useState('time'); // 'time' | 'trade'
+  const [axisMode, setAxisMode] = useState('trade'); // Default to 'trade' as requested to prevent time-axis distortion
   const [activePreset, setActivePreset] = useState('ALL'); // '1W' | '1M' | '3M' | '6M' | 'YTD' | '1Y' | 'ALL' | 'Custom'
   const [rangeSpan, setRangeSpan] = useState([0, 100]); // percentage [minX, maxX]
   const [isDraggingBrush, setIsDraggingBrush] = useState(false);
@@ -1233,6 +1233,14 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
         x = ((d.ts - minTs) / timeSpanMs) * 100;
       } else {
         x = (i / (series.length - 1)) * 100;
+      }
+
+      // Enforce strictly monotonic x-coordinates for 'time' mode when multiple trades occur at identical timestamps
+      if (i > 0 && axisMode === 'time') {
+        const prevX = series[i - 1]?.x ?? 0;
+        if (x <= prevX) {
+          x = prevX + 0.01;
+        }
       }
 
       const yPnl = 100 - ((d.cumPnl - minPnl) / rangePnl) * 100;

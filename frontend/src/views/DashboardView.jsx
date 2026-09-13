@@ -845,23 +845,10 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
   const isCompact = viewMode === 'compact';
   const isList = viewMode === 'list';
 
-  // Ultra-compact single-row List view rendering (High-density, controls omitted, icon cues & color-coded PnL)
+  // Mobile-Optimized List view rendering (Prevents overlaps, clean responsive hierarchy, icon cues & color-coded PnL)
   if (isList) {
     const isPosActive = s.activePnl >= 0;
     const isPosReturn = s.totalPnl >= 0;
-
-    const abbrevLabel = (() => {
-      const clean = (s.strategy_label || '').trim();
-      if (!clean) return 'STR';
-      const words = clean.split(/[\s_\-]+/).filter(Boolean);
-      if (words.length >= 3) {
-        return (words[0][0] + words[1][0] + words[2][0]).toUpperCase();
-      }
-      if (words.length === 2) {
-        return (words[0].substring(0, 2) + words[1][0]).toUpperCase();
-      }
-      return clean.substring(0, 3).toUpperCase();
-    })();
 
     return (
       <div
@@ -871,13 +858,13 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         role="button"
         tabIndex={0}
         className={cn(
-          "bg-surface border border-border/40 rounded-xl px-3 py-1.5 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[38px]",
+          "bg-surface border border-border/40 rounded-xl p-2.5 sm:px-3 sm:py-2 flex items-center justify-between gap-2.5 w-full shadow-sm cursor-pointer hover:border-accent/40 hover:bg-white/[0.02] transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden min-h-[42px]",
           className,
           isResuming && "opacity-80 border-accent/20"
         )}
         aria-label={`View details for ${s.strategy_label} strategy, active P&L ${fmtUSD(s.activePnl)}, session return ${fmtUSD(s.totalPnl)}`}
       >
-        {/* Left: Color Status Dot Cue & Strategy Name */}
+        {/* Left: Color Status Dot Cue, Strategy Name & Timeframe Badge */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <Tooltip content={s.sessionActive ? "Engine Status: Active" : "Engine Status: Stopped"}>
             <span className={cn(
@@ -889,14 +876,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           </Tooltip>
 
           <Tooltip content={`Strategy: ${s.strategy_label}`}>
-            <h3 className="font-black font-mono text-xs tracking-tight uppercase text-text group-hover:text-accent transition-colors cursor-help">
-              {abbrevLabel}
+            <h3 className="font-black font-mono text-xs tracking-tight uppercase text-text group-hover:text-accent transition-colors cursor-help truncate max-w-[120px] xs:max-w-[180px] sm:max-w-none">
+              {s.strategy_label}
             </h3>
           </Tooltip>
 
           {/* Timeframe Icon Cue Badge */}
           <Tooltip content={`Timeframe scan interval: ${config.scan_interval}`}>
-            <span className="text-[8px] font-mono font-black text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded uppercase shrink-0 flex items-center gap-1 cursor-help">
+            <span className="text-[8px] font-mono font-black text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded uppercase shrink-0 hidden xs:flex items-center gap-1 cursor-help">
               <Zap size={9} />
               {config.scan_interval}
             </span>
@@ -920,24 +907,18 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         </div>
 
         {/* Right: Color-Coded Active PnL & Session Return Badges + Position Allocation Pill */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0 font-mono text-xs">
+        <div className="flex items-center gap-1.5 xs:gap-2 sm:gap-3 shrink-0 font-mono text-xs">
           {/* Active PnL Color-Coded Badge */}
           <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)} (${(() => {
             const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
             return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
           })()})`}>
             <div className={cn(
-              "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[11px] leading-none shrink-0",
+              "px-2 py-0.5 rounded-lg border flex items-center gap-1 font-black text-[10px] xs:text-[11px] leading-none shrink-0",
               isPosActive ? "bg-green/10 border-green/25 text-green" : "bg-red/10 border-red/25 text-red"
             )}>
               {isPosActive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
               <span>{fmtUSD(s.activePnl)}</span>
-              <span className="text-[9px] opacity-80">
-                ({(() => {
-                  const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
-                  return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(1)}%`;
-                })()})
-              </span>
             </div>
           </Tooltip>
 
@@ -954,7 +935,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
           {/* Position Slot Capacity Pill */}
           <Tooltip content={`Active Positions: ${activeCount} out of ${maxOpen} maximum slots`}>
             <div className={cn(
-              "px-2 py-0.5 rounded-full border text-[10px] font-black font-mono shrink-0 flex items-center gap-1",
+              "px-1.5 sm:px-2 py-0.5 rounded-full border text-[9px] xs:text-[10px] font-black font-mono shrink-0 flex items-center gap-1",
               activeCount > 0 ? "bg-accent/15 border-accent/30 text-accent" : "bg-background/60 border-border/30 text-dim"
             )}>
               <Users size={10} />

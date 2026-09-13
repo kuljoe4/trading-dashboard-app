@@ -164,7 +164,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           pos: pos(sig.threshold),
           fired: sig.fired && sig.active,
           isFast: key.includes('fast'),
-          isSlow: key.includes('slow')
+          isSlow: key.includes('slow'),
+          signal: sig
         }
         list.push(item)
         if (item.isFast) grp.fast = item
@@ -178,7 +179,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           price: sig.fast_value,
           pos: pos(sig.fast_value),
           fired: sig.fired,
-          isFast: true
+          isFast: true,
+          signal: sig
         }
         list.push(item)
         grp.fast = item
@@ -191,7 +193,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           price: sig.slow_value,
           pos: pos(sig.slow_value),
           fired: sig.fired,
-          isSlow: true
+          isSlow: true,
+          signal: sig
         }
         list.push(item)
         grp.slow = item
@@ -426,8 +429,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           {/* SL Landmark */}
           {(() => {
             const slDistPct = entry > 0 ? (Math.abs(sl - entry) / entry) * 100 : 0;
+            const initialSlDistPct = entry > 0 ? (Math.abs(initialSl - entry) / entry) * 100 : 0;
             return (
-              <Tooltip content={`Stop Loss: ${fmtUSD(sl)} (${slR >= 0 ? '+' : ''}${slR.toFixed(2)}R) • Distance: ${slDistPct.toFixed(2)}%`}>
+              <Tooltip content={`Stop Loss: ${fmtUSD(sl)} (${slR >= 0 ? '+' : ''}${slR.toFixed(2)}R) • Current Dist: ${slDistPct.toFixed(2)}% • Initial SL: ${fmtUSD(initialSl)} (${initialSlDistPct.toFixed(2)}%)`}>
                 <div className="flex flex-col items-start cursor-help">
                   <span className={cn("text-red font-black", slHighlight && "text-[#00f0ff]")}>
                     SL {slR.toFixed(1)}R
@@ -650,11 +654,11 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               <div className="flex flex-col gap-1 text-[10px] p-1">
                 <div className="font-bold border-b border-white/10 pb-0.5">Dual Indicator Convergence</div>
                 {dualIndicatorMarkers.map(m => {
-                  const proxPct = mark > 0 ? (Math.abs(m.price - mark) / mark) * 100 : 0;
+                  const prox = m.signal ? calculateProximity(m.signal, mark, entry, isLong, true) : (mark > 0 ? (1 - Math.abs(m.price - mark) / mark) * 100 : 0);
                   return (
                     <div key={m.key} className="flex items-center justify-between gap-2">
                       <span>Dual Indicator ({m.label}):</span>
-                      <span className="font-mono font-bold text-accent">{fmtUSD(m.price)} ({proxPct.toFixed(2)}% prox)</span>
+                      <span className="font-mono font-bold text-accent">{fmtUSD(m.price)} ({prox.toFixed(1)}% prox)</span>
                     </div>
                   );
                 })}

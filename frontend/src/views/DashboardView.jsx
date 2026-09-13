@@ -1822,7 +1822,14 @@ ReconciliationCenter.displayName = 'ReconciliationCenter';
 
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
-  const [cardViewMode, setCardViewMode] = useState('detailed') // 'detailed' | 'compact'
+  const [cardViewMode, setCardViewMode] = useState(() => {
+    return localStorage.getItem('dashboard_card_view_mode') || 'detailed';
+  });
+
+  const handleCardViewModeChange = (mode) => {
+    setCardViewMode(mode);
+    localStorage.setItem('dashboard_card_view_mode', mode);
+  };
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterActive, setFilterActive] = useState(false)
@@ -3087,7 +3094,7 @@ export function DashboardView({ initialStrategy }) {
                     role="tab"
                     aria-selected={cardViewMode === 'detailed'}
                     aria-controls="active-strategy-cards-container"
-                    onClick={() => setCardViewMode('detailed')}
+                    onClick={() => handleCardViewModeChange('detailed')}
                     className={cn(
                       "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                       cardViewMode === 'detailed' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
@@ -3101,7 +3108,7 @@ export function DashboardView({ initialStrategy }) {
                     role="tab"
                     aria-selected={cardViewMode === 'compact'}
                     aria-controls="active-strategy-cards-container"
-                    onClick={() => setCardViewMode('compact')}
+                    onClick={() => handleCardViewModeChange('compact')}
                     className={cn(
                       "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                       cardViewMode === 'compact' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
@@ -3115,7 +3122,7 @@ export function DashboardView({ initialStrategy }) {
                     role="tab"
                     aria-selected={cardViewMode === 'list'}
                     aria-controls="active-strategy-cards-container"
-                    onClick={() => setCardViewMode('list')}
+                    onClick={() => handleCardViewModeChange('list')}
                     className={cn(
                       "px-2 sm:px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
                       cardViewMode === 'list' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"

@@ -137,7 +137,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                   </div>
                   <Tooltip content="Close">
                     <Dialog.Close asChild>
-                      <button className="text-dim hover:text-text p-1.5 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close dialog">
+                      <button type="button" className="text-dim hover:text-text p-1.5 hover:bg-white/5 rounded-lg transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer" aria-label="Close dialog">
                         <X size={16} />
                       </button>
                     </Dialog.Close>
@@ -290,7 +290,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                 {/* Footer */}
                 <div className="mt-5 pt-3 border-t border-border/10 flex justify-end">
                   <Dialog.Close asChild>
-                    <button className="px-5 py-2 bg-accent/10 hover:bg-accent/15 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer h-9">
+                    <button type="button" aria-label="Close details dialog" className="px-5 py-2 bg-accent/10 hover:bg-accent/15 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer h-9">
                       Close Details
                     </button>
                   </Dialog.Close>
@@ -1443,6 +1443,8 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                   <button
                     type="button"
                     onClick={() => setSessionStrategyFilter('ALL')}
+                    aria-pressed={sessionStrategyFilter === 'ALL'}
+                    aria-label="Filter session trades to all strategies"
                     className={cn(
                       "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                       sessionStrategyFilter === 'ALL'
@@ -1457,6 +1459,8 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                       key={st.label}
                       type="button"
                       onClick={() => setSessionStrategyFilter(st.label)}
+                      aria-pressed={sessionStrategyFilter === st.label}
+                      aria-label={`Filter session trades to strategy ${st.label}`}
                       className={cn(
                         "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         sessionStrategyFilter === st.label
@@ -1920,6 +1924,7 @@ export const HistoryView = () => {
               {['paper', 'testnet', 'live'].map(m => (
                 <button
                   key={m}
+                  type="button"
                   onClick={() => {
                     setLifetimeMode(m);
                     localStorage.setItem('history_trade_mode', m);
@@ -2365,6 +2370,8 @@ export const HistoryView = () => {
                               return (
                                 <button
                                   key={tier.id}
+                                  type="button"
+                                  aria-label={`Set target RR ratio to ${tier.label} (${Number(tier.rr || 0).toFixed(1)}R)`}
                                   onClick={() => {
                                     const config = useTradingStore.getState().config;
                                     const patch = {};
@@ -2385,7 +2392,7 @@ export const HistoryView = () => {
                                     });
                                   }}
                                   className={cn(
-                                    "flex items-center justify-between p-3 rounded-2xl border transition-all text-left group/tier relative overflow-hidden focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                                    "flex items-center justify-between p-3 rounded-2xl border transition-all text-left group/tier relative overflow-hidden focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                                     tier.active ? "bg-accent/5 border-accent/20" : "bg-background/20 border-border/50 hover:border-accent/30 hover:bg-accent/5"
                                   )}
                                 >

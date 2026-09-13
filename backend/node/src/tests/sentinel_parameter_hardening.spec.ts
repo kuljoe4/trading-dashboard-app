@@ -4,6 +4,11 @@ import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { SessionController } from '../trading/session.controller';
 import { SessionService } from '../trading/session.service';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { PresetsController } from '../trading/presets.controller';
+import { StrategyPreset } from '../models/entities/StrategyPreset.entity';
+import { AuditLogService } from '../trading/audit-log.service';
+import { CreateStrategyPresetDto } from '../trading/dto/strategy-preset.dto';
 import { BacktestService, RunBacktestDto } from '../engine/backtest.service';
 import { SmartOptimizerService, RunOptimizationDto } from '../engine/smart-optimizer.service';
 import { ConfigService } from '@nestjs/config';
@@ -389,6 +394,110 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       expect(errors.length).toBeGreaterThan(0);
       const liveErr = errors.find((e) => e.property === 'live_rr_sequence');
       expect(liveErr?.constraints?.max).toBeDefined();
+    });
+  });
+
+  describe('PresetsController & CreateStrategyPresetDto Whitelist Validation', () => {
+    let presetsController: PresetsController;
+    let mockPresetRepository: any;
+
+    beforeEach(async () => {
+      mockPresetRepository = {
+        find: jest.fn().mockResolvedValue([]),
+        findOne: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockImplementation((dto) => dto),
+        save: jest.fn().mockImplementation((dto) => Promise.resolve({ id: 'p1', ...dto })),
+        remove: jest.fn().mockResolvedValue({ success: true }),
+      };
+
+      const module: TestingModule = await Test.createTestingModule({
+        controllers: [PresetsController],
+        providers: [
+          {
+            provide: getRepositoryToken(StrategyPreset),
+            useValue: mockPresetRepository,
+          },
+          {
+            provide: SessionService,
+            useValue: mockSessionService,
+          },
+          {
+            provide: AuditLogService,
+            useValue: {
+              log: jest.fn().mockResolvedValue({}),
+            },
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn().mockReturnValue('secret-key'),
+            },
+          },
+        ],
+      }).compile();
+
+      presetsController = module.get<PresetsController>(PresetsController);
+    });
+
+    it('should accept valid strategy preset payloads in savePreset', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const validPayload = {
+        name: 'Conservative Scalp (15m)',
+        config: {
+          strategy_label: 'Conservative Scalp',
+          scan_interval: '15m',
+        },
+      };
+
+      await expect(presetsController.savePreset(validPayload as any, mockReq)).resolves.not.toThrow();
+      expect(mockPresetRepository.save).toHaveBeenCalled();
+    });
+
+    it('should reject non-whitelisted top-level properties in savePreset', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const invalidPayload = {
+        name: 'Valid Name',
+        config: {
+          strategy_label: 'Valid Strategy',
+        },
+        unauthorized_top_level_param: 'malicious payload',
+      };
+
+      await expect(presetsController.savePreset(invalidPayload as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockPresetRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('should reject invalid preset name containing HTML tags in savePreset', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const invalidPayload = {
+        name: '<script>alert("XSS")</script>',
+        config: {
+          strategy_label: 'Valid Strategy',
+        },
+      };
+
+      await expect(presetsController.savePreset(invalidPayload as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockPresetRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('should reject non-whitelisted properties in nested config in savePreset', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const invalidPayload = {
+        name: 'Valid Name',
+        config: {
+          strategy_label: 'Valid Strategy',
+          unauthorized_extra_config: '<script>alert(1)</script>',
+        },
+      };
+
+      await expect(presetsController.savePreset(invalidPayload as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockPresetRepository.save).not.toHaveBeenCalled();
     });
   });
 

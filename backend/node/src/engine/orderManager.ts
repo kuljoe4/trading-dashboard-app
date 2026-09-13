@@ -1742,21 +1742,24 @@ export class OrderManagerService {
       let exchangeState: any = null;
 
       try {
-        // SRE: Query by both clientOrderId and clientAlgoId (Binance SDK/API variance)
-        const queryRes = await this.binanceClient.restAPI.queryOrder({
+        // SRE: Algorithmic SL orders (sl-...) reside on Binance Algo endpoint.
+        // Query queryAlgoOrder first to avoid triggering "Order does not exist" (-2013) on standard queryOrder.
+        const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({
           symbol: trade.symbol,
-          origClientOrderId: deterministicClientId
+          clientAlgoId: deterministicClientId
         });
+        this.updateWeight(queryRes?.headers);
         exchangeState = await queryRes.data();
       } catch (e: any) {
-        // Fallback for algo orders which might use clientAlgoId
+        // Fallback to standard queryOrder for legacy or non-algo SL orders
         try {
-           const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({
+           const queryRes = await this.binanceClient.restAPI.queryOrder({
              symbol: trade.symbol,
-             clientAlgoId: deterministicClientId
+             origClientOrderId: deterministicClientId
            });
+           this.updateWeight(queryRes?.headers);
            exchangeState = await queryRes.data();
-        } catch (algoErr) {
+        } catch (stdErr) {
            this.logger.debug(`[SL] No existing order with ID ${deterministicClientId} found via query.`);
         }
       }

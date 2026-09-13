@@ -118,7 +118,7 @@ describe('Watchdog Robustness', () => {
       symbol: `BTCUSDT_${i}`,
       binance_order_id: `123_${i}`,
       qty: 1.0,
-      updated_at: new Date(Date.now() - 150000), // 150s ago (> 120s)
+      updated_at: new Date(Date.now() - 150000), // 150s ago (> 120s nuclear threshold)
     })) as Trade[];
 
     (positionTracker.activeList as jest.Mock).mockReturnValue(trades);

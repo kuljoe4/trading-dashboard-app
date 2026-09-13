@@ -31,7 +31,7 @@ export class MaintenanceService {
    * have a corresponding SL order on Binance. If missing, it re-places it.
    */
   private getOrderId(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): string {
-    return String((o as any).algoId || (o as any).orderId || '');
+    return String((o as any).algoId || (o as any).orderId || (o as any).clientAlgoId || (o as any).clientOrderId || '');
   }
 
   private getOrderQty(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): number {
@@ -74,8 +74,8 @@ export class MaintenanceService {
 
         const lastUpdateTs = trade.updated_at ? new Date(trade.updated_at).getTime() : 0;
         const secondsSinceUpdate = (Date.now() - lastUpdateTs) / 1000;
-        // Optimization: For active trades with recent WebSocket updates, audit every 180s instead of 45s to reduce REST weight
-        return secondsSinceUpdate >= 180;
+        // Optimization: Audit active trades after 45s cooldown to verify protection before the 120s nuclear threshold
+        return secondsSinceUpdate >= 45;
       });
 
       if (tradesToAudit.length === 0) return;
@@ -202,10 +202,16 @@ export class MaintenanceService {
           }
 
           let slOrders = slOrdersBySymbol.get(trade.symbol) || [];
-          let matchingOrder = slOrders.find(o =>
-            this.getOrderId(o) === trade.binance_stop_order_id ||
-            o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
-          );
+          const expectedClientPrefix = `sl-${(trade.id || '').substring(0, 8)}`;
+          let matchingOrder = slOrders.find(o => {
+            const oId = this.getOrderId(o);
+            const clientOrderId = String((o as any).clientOrderId || (o as any).clientAlgoId || '');
+            return (
+              (trade.binance_stop_order_id && oId === String(trade.binance_stop_order_id)) ||
+              (trade.binance_stop_order_id && clientOrderId === String(trade.binance_stop_order_id)) ||
+              (clientOrderId && clientOrderId.startsWith(expectedClientPrefix))
+            );
+          });
 
           if (!matchingOrder) {
             const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });

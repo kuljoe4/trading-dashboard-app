@@ -106,7 +106,7 @@ describe('SL Integrity (Chronos Audit)', () => {
         binance_order_id: 'ent-123',
         binance_stop_order_id: 'sl-tracked',
         qty: 1.0,
-        updated_at: new Date(Date.now() - 60000), // Force audit
+        updated_at: new Date(Date.now() - 60000), // Force audit (> 45s)
       } as Trade;
 
       // @ts-ignore

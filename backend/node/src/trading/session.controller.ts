@@ -36,7 +36,18 @@ export class SessionController {
 
   @Post("smart-optimizer/run")
   async runSmartOptimization(@Body() body: RunOptimizationDto) {
-    const baseConfig = plainToInstance(SessionConfig, body.baseConfig || {});
+    // SEC-SENTINEL: Defense-in-depth validation of outer RunOptimizationDto payload
+    const optDto = plainToInstance(RunOptimizationDto, body || {});
+    const dtoErrors = await validate(optDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid smart optimizer parameters",
+        detail: detailedErrors,
+      });
+    }
+
+    const baseConfig = plainToInstance(SessionConfig, optDto.baseConfig || {});
     // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
     const errors = await validate(baseConfig, { whitelist: true, forbidNonWhitelisted: true });
     if (errors.length > 0) {
@@ -47,7 +58,7 @@ export class SessionController {
       });
     }
     return this.smartOptimizerService.runOptimization({
-      ...body,
+      ...optDto,
       baseConfig,
     });
   }
@@ -67,7 +78,18 @@ export class SessionController {
 
   @Post("backtest")
   async runBacktest(@Body() body: RunBacktestDto) {
-    const config = plainToInstance(SessionConfig, body.config || {});
+    // SEC-SENTINEL: Defense-in-depth validation of outer RunBacktestDto payload
+    const backtestDto = plainToInstance(RunBacktestDto, body || {});
+    const dtoErrors = await validate(backtestDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid backtest parameters",
+        detail: detailedErrors,
+      });
+    }
+
+    const config = plainToInstance(SessionConfig, backtestDto.config || {});
     // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
     const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
     if (errors.length > 0) {
@@ -78,7 +100,7 @@ export class SessionController {
       });
     }
     return this.backtestService.runBacktest({
-      ...body,
+      ...backtestDto,
       config,
     });
   }
@@ -200,6 +222,16 @@ export class SessionController {
   @Get("status")
   async getStatus() {
     return this.sessionService.getStatus(false);
+  }
+
+  @Get("logs")
+  async getLogs(@Query("limit") limit?: string) {
+    let parsedLimit = 200;
+    if (limit !== undefined && limit !== null) {
+      const num = Number(limit);
+      if (!isNaN(num)) parsedLimit = num;
+    }
+    return this.sessionService.getLogs(parsedLimit);
   }
 
   @Get("trade/:id")

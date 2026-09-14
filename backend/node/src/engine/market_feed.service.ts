@@ -53,6 +53,7 @@ export class MarketFeedService {
   private hasSuccessfullyBuiltWatchlist = false;
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
+  private lastBackfillAttemptMap: Map<string, number> = new Map();
   private binanceClient: any = null;
 
   private currentConfig: SessionConfig | null = null;
@@ -239,8 +240,6 @@ export class MarketFeedService {
     }
 
     try {
-      this.monitoringService.incrementApiRequests();
-
       let data: BinanceExchangeInfo | null = null;
       if (this.binanceClient) {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information from SDK...`);
@@ -1267,24 +1266,31 @@ export class MarketFeedService {
        }
     }
 
+    const cacheKey = `${symbol}:${resolvedInterval}`;
+    const lastAttempt = this.lastBackfillAttemptMap.get(cacheKey) || 0;
+    if (Date.now() - lastAttempt < 5 * 60 * 1000) {
+      this.logger.debug(`[MarketFeed] Skipping recent kline backfill attempt for ${cacheKey} (Cooldown active).`);
+      return;
+    }
+
     if (existingCandles.length > 0) {
       // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order.
-      // If the most recent candle is fresh and we have sufficient candles, skip backfill to avoid endless REST/DB thrashing.
+      // If the most recent candle is fresh, skip backfill to avoid endless REST/DB thrashing.
       const lastCandle = existingCandles[existingCandles.length - 1];
       const intervalMs = this.parseIntervalToMs(resolvedInterval);
       const isFresh = (lastCandle.time + intervalMs) >= (Date.now() - (intervalMs * 2));
 
       if (isFresh && existingCandles.length >= requiredWarmup) {
-        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length} candles and data is fresh.`);
+        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
         return;
       }
     }
 
+    this.lastBackfillAttemptMap.set(cacheKey, Date.now());
     this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
-      this.monitoringService.incrementApiRequests();
       let klines: any[][];
 
       if (this.binanceClient) {

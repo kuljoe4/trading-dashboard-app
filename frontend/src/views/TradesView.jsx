@@ -413,7 +413,7 @@ const TradesView = () => {
           <AnimatePresence mode="popLayout">
             <div className={cn(
               "grid gap-4",
-              viewMode === 'list' ? "grid-cols-1" : viewMode === 'compact' ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3" : "grid-cols-1"
+              viewMode === 'compact' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
             )}>
               {filteredTrades.map((trade, idx) => (
                 <motion.div
@@ -426,6 +426,7 @@ const TradesView = () => {
                   <ActiveTradeCard
                     trade={trade}
                     config={config}
+                    compact={viewMode !== 'detailed'}
                     onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
                     onMouseEnter={preloadTradeDetailModal}
                     isResuming={isResuming}

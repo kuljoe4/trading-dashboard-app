@@ -2723,7 +2723,7 @@ export class SessionService implements OnModuleInit {
           order: { ts: "DESC" },
           take: 100,
         })
-      : [];
+      : undefined;
 
     return {
       running: session.running,
@@ -2761,6 +2761,35 @@ export class SessionService implements OnModuleInit {
       config: session.config,
       startTime: session.startTime,
     };
+  }
+
+  async getLogs(limit = 200) {
+    let sid = this.currentSessionId;
+    if (!sid) {
+      const activeSession = await this.sessionRepository.findOne({
+        where: { running: true },
+        order: { startTime: "DESC" },
+      });
+      if (activeSession) {
+        sid = activeSession.id;
+      } else {
+        const lastSession = await this.sessionRepository.findOne({
+          where: {},
+          order: { startTime: "DESC" },
+        });
+        if (lastSession) sid = lastSession.id;
+      }
+    }
+    if (!sid) return [];
+
+    const takeAmount = limit === 0 ? 1000 : Math.min(Math.max(limit, 1), 1000);
+    const logs = await this.logRepository.find({
+      select: ["id", "sessionId", "ts", "level", "msg"],
+      where: { sessionId: sid },
+      order: { ts: "DESC" },
+      take: takeAmount,
+    });
+    return logs;
   }
 
   async getHistory(sessionId?: string, limit?: number) {

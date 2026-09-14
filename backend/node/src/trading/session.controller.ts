@@ -224,6 +224,16 @@ export class SessionController {
     return this.sessionService.getStatus(false);
   }
 
+  @Get("logs")
+  async getLogs(@Query("limit") limit?: string) {
+    let parsedLimit = 200;
+    if (limit !== undefined && limit !== null) {
+      const num = Number(limit);
+      if (!isNaN(num)) parsedLimit = num;
+    }
+    return this.sessionService.getLogs(parsedLimit);
+  }
+
   @Get("trade/:id")
   async getTrade(@Param("id") id: string) {
     // SENTINEL: Input validation to ensure 'id' is a valid UUID or Binance symbol format.

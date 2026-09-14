@@ -240,8 +240,6 @@ export class MarketFeedService {
     }
 
     try {
-      this.monitoringService.incrementApiRequests();
-
       let data: BinanceExchangeInfo | null = null;
       if (this.binanceClient) {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information from SDK...`);
@@ -1293,7 +1291,6 @@ export class MarketFeedService {
 
     await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
     try {
-      this.monitoringService.incrementApiRequests();
       let klines: any[][];
 
       if (this.binanceClient) {

@@ -87,9 +87,6 @@ export class MaintenanceService {
         return;
       }
 
-      // SRE: Optimized Audit Pattern. For small sets of trades (<= 5), use targeted per-symbol calls
-      // to minimize weight (7 weight per symbol). Revert to bulk for larger sets (45+ weight).
-      const useBulkAudit = tradesToAudit.length > 5 && !targetSymbol;
       let activePositionsMap = new Map<string, BinancePositionV3>();
       let slOrdersBySymbol = new Map<string, (BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]>();
 
@@ -104,7 +101,40 @@ export class MaintenanceService {
       const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
       const processedOrphans = new Set<string>();
 
-      if (useBulkAudit) {
+      // SRE: Zero-Weight WebSocket-First Audit. Check if real-time UDS cache contains entries for all symbols.
+      // If cached, perform targeted zero-weight audit (0 REST calls). Revert to bulk REST audit only if cache missing or targetSymbol specified.
+      const hasAllCached = uniqueSymbols.every(s => this.sessionState.realTimePositions.has(s) && this.sessionState.realTimeOrders.has(s));
+      const useBulkAudit = tradesToAudit.length > 5 && !targetSymbol && !hasAllCached;
+
+      if (hasAllCached) {
+        this.logger.log(`[Watchdog] Performing zero-weight WebSocket cache audit for ${uniqueSymbols.length} symbols...`);
+        for (const symbol of uniqueSymbols) {
+          const cachedPos = this.sessionState.realTimePositions.get(symbol);
+          if (cachedPos && Math.abs(cachedPos.amount) > 0) {
+            activePositionsMap.set(symbol, {
+              symbol,
+              positionAmt: String(cachedPos.amount),
+              entryPrice: String(cachedPos.entryPrice),
+              unRealizedProfit: '0',
+              positionSide: 'BOTH',
+              breakEvenPrice: '0',
+              markPrice: '0',
+              liquidationPrice: '0',
+              leverage: '0',
+              maxNotionalValue: '0',
+              marginType: 'cross',
+              isolatedMargin: '0',
+              isAutoAddMargin: 'false',
+              notional: '0',
+              isolatedWallet: '0',
+              updateTime: Date.now(),
+            });
+          }
+
+          const cachedOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+          slOrdersBySymbol.set(symbol, cachedOrders.filter(isSlOrder));
+        }
+      } else if (useBulkAudit) {
         this.logger.log(`[Watchdog] Performing bulk audit for ${tradesToAudit.length} trades...`);
         // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
         const allPositions = await this.orderManager.fetchAllPositions();

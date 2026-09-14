@@ -226,7 +226,7 @@ export class SessionController {
 
   @Get("logs")
   async getLogs(@Query("limit") limit?: string) {
-    let parsedLimit = 200;
+    let parsedLimit = 50;
     if (limit !== undefined && limit !== null) {
       const num = Number(limit);
       if (!isNaN(num)) parsedLimit = num;

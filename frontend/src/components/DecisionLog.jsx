@@ -261,12 +261,12 @@ export const DecisionLog = React.memo(() => {
   const [search, setSearch] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [logLimit, setLogLimit] = useState(() => {
-    return localStorage.getItem('decision_log_limit') || '500';
+    return localStorage.getItem('decision_log_limit') || '50';
   });
 
   const handleFetchLogs = useCallback(async (limitStr) => {
     setIsRefreshing(true);
-    const limitNum = limitStr === 'ALL' ? 1000 : Number(limitStr) || 500;
+    const limitNum = limitStr === 'ALL' ? 1000 : Number(limitStr) || 50;
     try {
       if (fetchLogs) {
         await fetchLogs(limitNum);

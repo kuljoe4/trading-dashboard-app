@@ -1,12 +1,12 @@
 import React from 'react'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
-import { ShieldCheck, RefreshCw, Clock, Lock, Activity, ChevronRight, AlertTriangle } from 'lucide-react'
+import { ShieldCheck, RefreshCw, Clock, Lock, Activity, AlertTriangle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 
-export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter }) => {
+export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter, compact = false }) => {
   const now = useNow()
 
   const handleKeyDown = (e) => {
@@ -27,20 +27,6 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const sl = Number(trade.sl_price || 0)
   const tp = Number(trade.tp_price || 0)
   const isLong = trade.direction === 'LONG'
-
-  // Resolve Est. Target and Winning Source
-  let estPrice = sl
-  let estLabel = 'Stop Loss'
-  if (trade.est_pnl_source && trade.est_pnl_source.startsWith('signal:')) {
-    const key = trade.est_pnl_source.substring(7)
-    const sig = trade.exit_signals_status?.[key]
-    if (sig && typeof sig.threshold === 'number' && sig.threshold > 0) {
-      estPrice = sig.threshold
-      estLabel = sig.label || key
-    }
-  }
-
-  const isSignalWinning = trade.est_pnl_source && trade.est_pnl_source.startsWith('signal:')
 
   // Check exit signal triggers & delays
   let hasCrossedSignal = false
@@ -81,15 +67,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const slR = getR(sl)
   const markR = getR(mark)
   const tpR = tp > 0 ? getR(tp) : 0
-  const initialSlR = getR(initialSl)
 
   // Percentages relative to entry
   const markPercent = (entry > 0 && mark > 0)
     ? (isLong ? ((mark - entry) / entry) * 100 : ((entry - mark) / entry) * 100)
-    : 0
-
-  const slPercent = (entry > 0 && sl > 0)
-    ? (isLong ? ((sl - entry) / entry) * 100 : ((entry - sl) / entry) * 100)
     : 0
 
   // Peak Giveback Metrics
@@ -133,29 +114,16 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const entryMarkPos = pos(entry)
   const slPos = pos(sl)
   const tpPos = tp > 0 ? pos(tp) : null
-  const estPos = pos(estPrice)
   const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit)
   const peakPos = pos(peakPrice)
 
   // Dual Indicator Markers calculation (retained for telemetry & compatibility)
-  const { dualIndicatorMarkers, dualGroups } = React.useMemo(() => {
-    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [], dualGroups: [] }
+  const { dualIndicatorMarkers } = React.useMemo(() => {
+    if (!trade.exit_signals_status) return { dualIndicatorMarkers: [] }
     const list = []
-    const groupsMap = new Map()
 
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
       if (!sig) continue
-
-      let groupKey = 'default'
-      if (key.includes('_')) {
-        const parts = key.split('_')
-        if (parts.length >= 2) groupKey = `${parts[0]}_${parts[1]}`
-      }
-
-      if (!groupsMap.has(groupKey)) {
-        groupsMap.set(groupKey, { key: groupKey, label: sig.label || groupKey.toUpperCase(), fast: null, slow: null })
-      }
-      const grp = groupsMap.get(groupKey)
 
       if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
         const item = {
@@ -169,8 +137,6 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           signal: sig
         }
         list.push(item)
-        if (item.isFast) grp.fast = item
-        if (item.isSlow) grp.slow = item
       }
 
       if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
@@ -184,7 +150,6 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           signal: sig
         }
         list.push(item)
-        grp.fast = item
       }
 
       if (typeof sig.slow_value === 'number' && sig.slow_value > 0) {
@@ -198,34 +163,10 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           signal: sig
         }
         list.push(item)
-        grp.slow = item
       }
     }
 
-    const groupSpans = []
-    for (const grp of groupsMap.values()) {
-      if (grp.fast && grp.slow) {
-        const minPos = Math.min(grp.fast.pos, grp.slow.pos)
-        const maxPos = Math.max(grp.fast.pos, grp.slow.pos)
-        const width = Math.max(0.5, maxPos - minPos)
-        const gapPct = entry > 0 ? (Math.abs(grp.fast.price - grp.slow.price) / entry) * 100 : 0
-        const proximity = Math.max(0, Math.min(1, 1 - gapPct / 4))
-        groupSpans.push({
-          key: grp.key,
-          label: grp.label,
-          minPos,
-          maxPos,
-          width,
-          gapPct,
-          proximity,
-          fastPrice: grp.fast.price,
-          slowPrice: grp.slow.price,
-          isFired: grp.fast.fired || grp.slow.fired
-        })
-      }
-    }
-
-    return { dualIndicatorMarkers: list, dualGroups: groupSpans }
+    return { dualIndicatorMarkers: list }
   }, [trade.exit_signals_status, mark, entry, totalRangeR, leftEdgeR])
 
   const pnlLabel = Number(trade.pnl || 0) >= 0 ? 'profit' : 'loss'
@@ -582,35 +523,19 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           </div>
         </div>
 
-        {/* Current Price Callout Bar below Runway with Surface Initial SL Distance & Indicator Proximities */}
+        {/* Current Price Callout Bar below Runway */}
         <div className="flex justify-between items-center text-[7.5px] font-mono leading-none pt-0.5">
           <div className="flex items-center gap-1.5 text-dim">
             <span className="font-bold text-text">NOW: {fmtUSD(mark)}</span>
-            <span className={cn("font-black", markR >= 0 ? "text-green" : "text-red")}>
-              ({markR >= 0 ? '+' : ''}{markR.toFixed(2)}R)
-            </span>
-            {/* Surface Initial SL Distance % directly in place */}
-            <span className="text-dim/80 font-bold border-l border-white/10 pl-1.5">
-              Init SL: {fmtUSD(initialSl)} ({((entry > 0 ? Math.abs(initialSl - entry) / entry : 0) * 100).toFixed(1)}%)
-            </span>
           </div>
 
-          {/* Surface Indicator Proximity % directly in place or Retracement Warning */}
-          {isRetracing ? (
+          {/* Retracement Giveback Warning if active */}
+          {isRetracing && (
             <Tooltip content={`Peak +${peakR.toFixed(2)}R retraced to +${markR.toFixed(2)}R. Profit giveback: -${givebackR.toFixed(2)}R (${givebackPctOfPeak.toFixed(0)}% of peak).`}>
               <span className="text-amber font-black cursor-help flex items-center gap-0.5 bg-amber/10 border border-amber/20 px-1 py-0.2 rounded">
                 <AlertTriangle size={7} /> Giveback -{givebackR.toFixed(2)}R ({givebackPctOfPeak.toFixed(0)}%)
               </span>
             </Tooltip>
-          ) : (
-            <span className={cn(
-              "font-black px-1 py-0.2 rounded flex items-center gap-0.5 border",
-              exitSignalProximity >= 80 ? "text-red bg-red/10 border-red/20" :
-              exitSignalProximity >= 50 ? "text-amber bg-amber/10 border-amber/20" :
-              "text-accent bg-accent/10 border-accent/20"
-            )}>
-              <Activity size={7} /> Prox: {exitSignalProximity}%
-            </span>
           )}
         </div>
       </div>
@@ -656,9 +581,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </span>
             </Tooltip>
           ) : (
-            <Tooltip content={`Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active)`}>
-              <span className="bg-surface text-accent border border-accent/20 px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help">
-                <Activity size={7} className="text-accent shrink-0" /> MONITORING
+            <Tooltip content={`Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active, ${exitSignalProximity}% proximity)`}>
+              <span className={cn(
+                "border px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help",
+                exitSignalProximity >= 80 ? "text-red bg-red/10 border-red/20" :
+                exitSignalProximity >= 50 ? "text-amber bg-amber/10 border-amber/20" :
+                "bg-surface text-accent border-accent/20"
+              )}>
+                <Activity size={7} className="shrink-0" /> MONITORING {exitSignalProximity > 0 ? `· ${exitSignalProximity}%` : ''}
               </span>
             </Tooltip>
           )}

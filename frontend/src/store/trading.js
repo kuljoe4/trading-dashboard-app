@@ -558,7 +558,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  fetchLogs: async (limit = 200) => {
+  fetchLogs: async (limit = 50) => {
     try {
       const res = await sessionAPI.logs(limit);
       if (res.data && Array.isArray(res.data)) {
@@ -571,7 +571,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               existingMap.set(key, l);
             }
           });
-          return { logs: Array.from(existingMap.values()).slice(0, MAX_LOG_LINES) };
+          const mergedLogs = Array.from(existingMap.values())
+            .sort((a, b) => new Date(b.ts || 0).getTime() - new Date(a.ts || 0).getTime())
+            .slice(0, MAX_LOG_LINES);
+          return { logs: mergedLogs };
         });
       }
     } catch (e) {}
@@ -808,7 +811,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 existingMap.set(key, l);
               }
             });
-            nextLogs = Array.from(existingMap.values()).slice(0, MAX_LOG_LINES);
+            nextLogs = Array.from(existingMap.values())
+              .sort((a, b) => new Date(b.ts || 0).getTime() - new Date(a.ts || 0).getTime())
+              .slice(0, MAX_LOG_LINES);
           }
 
           // BOLT: Prevent flickering during config sync

@@ -1280,8 +1280,8 @@ export class MarketFeedService {
       const intervalMs = this.parseIntervalToMs(resolvedInterval);
       const isFresh = (lastCandle.time + intervalMs) >= (Date.now() - (intervalMs * 2));
 
-      if (isFresh) {
-        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length} candles and data is fresh.`);
+      if (isFresh && existingCandles.length >= requiredWarmup) {
+        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
         return;
       }
     }

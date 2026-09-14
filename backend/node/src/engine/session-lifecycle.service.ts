@@ -135,7 +135,6 @@ export class SessionLifecycleService {
 
         if (shouldSyncMode) {
           try {
-            this.monitoringService.incrementApiRequests();
             const currentModeRes = await bc.restAPI.getCurrentPositionMode();
             const currentModeData =
               (await currentModeRes.data()) as BinancePositionMode;
@@ -148,7 +147,6 @@ export class SessionLifecycleService {
                 last_mode_sync: Date.now(),
               });
             } else {
-              this.monitoringService.incrementApiRequests();
               const modeRes = await bc.restAPI.changePositionMode({
                 dualSidePosition: false,
               } as any);
@@ -334,7 +332,6 @@ export class SessionLifecycleService {
     }
 
     try {
-      this.monitoringService.incrementApiRequests();
       // P0 FIX: Multi-collateral support - fetch ALL balances, not just USDT
       // Live accounts commonly use Multi-Asset mode (USDC, FDUSD, etc.)
       const res = await bc.restAPI.futuresAccountBalanceV3();
@@ -753,7 +750,6 @@ export class SessionLifecycleService {
     }
 
     try {
-      this.monitoringService.incrementApiRequests();
       const res = await bc.restAPI.startUserDataStream();
       if (!res || !res.data)
         throw new Error(
@@ -1045,7 +1041,6 @@ export class SessionLifecycleService {
         }
 
         try {
-          this.monitoringService.incrementApiRequests();
           await bc.restAPI.keepaliveUserDataStream({
             listenKey: this.listenKey,
           });

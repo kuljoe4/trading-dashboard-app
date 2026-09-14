@@ -1920,6 +1920,12 @@ export class OrderManagerService {
         list.push(o);
         ordersBySymbol.set(o.symbol, list);
       }
+      // Clean up symbols that previously had orders in realTimeOrders but no longer do
+      for (const cachedSymbol of Array.from(this.sessionState.realTimeOrders.keys())) {
+        if (!ordersBySymbol.has(cachedSymbol)) {
+          this.sessionState.realTimeOrders.set(cachedSymbol, []);
+        }
+      }
       for (const [symbol, list] of ordersBySymbol.entries()) {
         this.sessionState.realTimeOrders.set(symbol, list);
       }
@@ -2131,7 +2137,6 @@ export class OrderManagerService {
     
     for (let i = 0; i < retries; i++) {
         try {
-          this.monitoringService.incrementApiRequests();
           // Finding 7: Use V3 for targeted active positions
           const response = await this.binanceClient.restAPI.positionInformationV3();
           this.updateWeight(response.headers);

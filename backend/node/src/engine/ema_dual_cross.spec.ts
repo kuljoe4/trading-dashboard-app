@@ -217,5 +217,114 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
       expect(result.details?.ema_dual_cross.fired).toBe(false);
       expect(result.details?.ema_dual_cross.description).toContain('rejected by MACD histogram');
     });
+
+    it('should fire SHORT exit when fast EMA crosses above slow EMA and MACD histogram is GREEN (positive)', () => {
+      // For a SHORT position exit, the fast EMA crossing above slow EMA signals a bullish reversal.
+      // With MACD filter enabled, the exit should be allowed if MACD histogram is GREEN (positive).
+      const prices = [...Array(80).fill(100), 120];
+      const candles = mockCandles(prices);
+      (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
+
+      jest.spyOn(service, 'calculateMACD').mockReturnValue({
+        macdLine: [1],
+        signalLine: [0.5],
+        histogram: [0.5], // GREEN histogram bar
+        insufficientData: false,
+      });
+
+      const config = new SessionConfig();
+      config.exit_signals = ['ema_dual_cross'];
+      config.signal_params = {
+        exit_ema_fast: 5,
+        exit_ema_slow: 10,
+        ema_dual_macd_filter: true,
+      };
+
+      const result = service.checkEntry('PONSUSDT', config, '15m', 'SHORT', 'exit');
+      expect(result.allFired).toBe(true);
+      expect(result.details?.ema_dual_cross.fired).toBe(true);
+    });
+
+    it('should reject SHORT exit when fast EMA crosses above slow EMA but MACD histogram is RED (negative)', () => {
+      // For a SHORT position exit, if MACD histogram is still RED (negative), the exit should be rejected.
+      const prices = [...Array(80).fill(100), 120];
+      const candles = mockCandles(prices);
+      (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
+
+      jest.spyOn(service, 'calculateMACD').mockReturnValue({
+        macdLine: [-1],
+        signalLine: [-0.5],
+        histogram: [-0.00087006], // RED histogram bar
+        insufficientData: false,
+      });
+
+      const config = new SessionConfig();
+      config.exit_signals = ['ema_dual_cross'];
+      config.signal_params = {
+        exit_ema_fast: 5,
+        exit_ema_slow: 10,
+        ema_dual_macd_filter: true,
+      };
+
+      const result = service.checkEntry('PONSUSDT', config, '15m', 'SHORT', 'exit');
+      expect(result.allFired).toBe(false);
+      expect(result.details?.ema_dual_cross.fired).toBe(false);
+      expect(result.details?.ema_dual_cross.description).toContain('rejected by MACD histogram');
+      expect(result.details?.ema_dual_cross.description).toContain('expected Green');
+    });
+
+    it('should fire LONG exit when fast EMA crosses below slow EMA and MACD histogram is RED (negative)', () => {
+      // For a LONG position exit, fast EMA crossing below slow EMA signals a bearish reversal.
+      // With MACD filter enabled, the exit should be allowed if MACD histogram is RED (negative).
+      const prices = [...Array(80).fill(100), 80];
+      const candles = mockCandles(prices);
+      (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
+
+      jest.spyOn(service, 'calculateMACD').mockReturnValue({
+        macdLine: [-1],
+        signalLine: [-0.5],
+        histogram: [-0.5], // RED histogram bar
+        insufficientData: false,
+      });
+
+      const config = new SessionConfig();
+      config.exit_signals = ['ema_dual_cross'];
+      config.signal_params = {
+        exit_ema_fast: 5,
+        exit_ema_slow: 10,
+        ema_dual_macd_filter: true,
+      };
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
+      expect(result.allFired).toBe(true);
+      expect(result.details?.ema_dual_cross.fired).toBe(true);
+    });
+
+    it('should reject LONG exit when fast EMA crosses below slow EMA but MACD histogram is GREEN (positive)', () => {
+      const prices = [...Array(80).fill(100), 80];
+      const candles = mockCandles(prices);
+      (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
+
+      jest.spyOn(service, 'calculateMACD').mockReturnValue({
+        macdLine: [1],
+        signalLine: [0.5],
+        histogram: [0.5], // GREEN histogram bar
+        insufficientData: false,
+      });
+
+      const config = new SessionConfig();
+      config.exit_signals = ['ema_dual_cross'];
+      config.signal_params = {
+        exit_ema_fast: 5,
+        exit_ema_slow: 10,
+        ema_dual_macd_filter: true,
+      };
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
+      expect(result.allFired).toBe(false);
+      expect(result.details?.ema_dual_cross.fired).toBe(false);
+      expect(result.details?.ema_dual_cross.description).toContain('rejected by MACD histogram');
+      expect(result.details?.ema_dual_cross.description).toContain('expected Red');
+    });
   });
 });

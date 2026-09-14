@@ -858,12 +858,23 @@ export class SignalEngineService {
         const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
         if (macdRes.histogram && macdRes.histogram.length > 0) {
           macdHistValue = macdRes.histogram[macdRes.histogram.length - 1];
-          if (side === 'SHORT' && macdHistValue >= 0) {
-            fired = false;
-            macdRejected = true;
-          } else if (side === 'LONG' && macdHistValue <= 0) {
-            fired = false;
-            macdRejected = true;
+          const isExit = purpose === 'exit';
+          if (!isExit) {
+            if (side === 'SHORT' && macdHistValue >= 0) {
+              fired = false;
+              macdRejected = true;
+            } else if (side === 'LONG' && macdHistValue <= 0) {
+              fired = false;
+              macdRejected = true;
+            }
+          } else {
+            if (side === 'SHORT' && macdHistValue <= 0) {
+              fired = false;
+              macdRejected = true;
+            } else if (side === 'LONG' && macdHistValue >= 0) {
+              fired = false;
+              macdRejected = true;
+            }
           }
         }
       }
@@ -872,7 +883,10 @@ export class SignalEngineService {
 
       let description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`;
       if (macdRejected) {
-        description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${side === 'SHORT' ? 'Red' : 'Green'})`;
+        const expectedColor = purpose === 'exit'
+          ? (side === 'SHORT' ? 'Green' : 'Red')
+          : (side === 'SHORT' ? 'Red' : 'Green');
+        description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
       }
 
       return {
@@ -975,12 +989,23 @@ export class SignalEngineService {
         const completedIdx = candles.length - 2;
         if (macdRes.histogram && macdRes.histogram.length > completedIdx) {
           macdHistValue = macdRes.histogram[completedIdx];
-          if (side === 'SHORT' && macdHistValue >= 0) {
-            fired = false;
-            macdRejected = true;
-          } else if (side === 'LONG' && macdHistValue <= 0) {
-            fired = false;
-            macdRejected = true;
+          const isExit = purpose === 'exit';
+          if (!isExit) {
+            if (side === 'SHORT' && macdHistValue >= 0) {
+              fired = false;
+              macdRejected = true;
+            } else if (side === 'LONG' && macdHistValue <= 0) {
+              fired = false;
+              macdRejected = true;
+            }
+          } else {
+            if (side === 'SHORT' && macdHistValue <= 0) {
+              fired = false;
+              macdRejected = true;
+            } else if (side === 'LONG' && macdHistValue >= 0) {
+              fired = false;
+              macdRejected = true;
+            }
           }
         }
       }
@@ -989,7 +1014,10 @@ export class SignalEngineService {
 
       let description = `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`;
       if (macdRejected) {
-        description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${side === 'SHORT' ? 'Red' : 'Green'})`;
+        const expectedColor = purpose === 'exit'
+          ? (side === 'SHORT' ? 'Green' : 'Red')
+          : (side === 'SHORT' ? 'Red' : 'Green');
+        description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
       }
 
       return {

@@ -28,16 +28,16 @@ describe('Session Logs & REST Endpoint Unit Tests', () => {
     expect(status.logLines).toBeUndefined();
   });
 
-  it('SessionController.getLogs defaults limit to 200 and parses numeric query params', async () => {
+  it('SessionController.getLogs defaults limit to 50 and parses numeric query params', async () => {
     sessionService.getLogs.mockResolvedValue([
       { id: 'log-1', ts: '2026-09-14T20:00:00.000Z', level: 'info', msg: 'Engine started' },
     ]);
 
     const resultDefault = await sessionController.getLogs();
-    expect(sessionService.getLogs).toHaveBeenCalledWith(200);
+    expect(sessionService.getLogs).toHaveBeenCalledWith(50);
     expect(resultDefault).toHaveLength(1);
 
-    await sessionController.getLogs('50');
-    expect(sessionService.getLogs).toHaveBeenCalledWith(50);
+    await sessionController.getLogs('100');
+    expect(sessionService.getLogs).toHaveBeenCalledWith(100);
   });
 });

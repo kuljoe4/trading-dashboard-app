@@ -2763,7 +2763,7 @@ export class SessionService implements OnModuleInit {
     };
   }
 
-  async getLogs(limit = 200) {
+  async getLogs(limit = 50) {
     let sid = this.currentSessionId;
     if (!sid) {
       const activeSession = await this.sessionRepository.findOne({

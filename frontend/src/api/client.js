@@ -248,6 +248,7 @@ export const createSessionAPI = (apiInstance = api) => ({
   delete: (id) => apiInstance.delete(`/session/${id}`),
   rateLimit: () => apiInstance.get('/session/binance/rate-limit'),
   history: (sessionId) => apiInstance.get('/session/history', { params: { sessionId } }),
+  logs: (limit) => apiInstance.get('/session/logs', { params: { limit } }),
   getTrade: (id) => apiInstance.get(`/session/trade/${id}`),
   closeTrade: (symbol) => apiInstance.post(`/session/trade/${symbol}/close`),
   updateTradeConfig: (id, payload) => apiInstance.patch(`/session/trade/${id}/config`, payload),

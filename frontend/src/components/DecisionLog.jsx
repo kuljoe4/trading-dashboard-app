@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X, ChevronDown, Clock } from 'lucide-react'
+import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X, ChevronDown, Clock, RotateCw } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -248,15 +248,44 @@ const LogEntry = React.memo(({ log }) => {
 })
 
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
+const LIMIT_OPTIONS = ['50', '100', '250', '500', 'ALL'];
 
 export const DecisionLog = React.memo(() => {
   const logs = useTradingStore(state => state.logs)
   const logFilters = useTradingStore(state => state.logFilters)
   const toggleLogFilter = useTradingStore(state => state.toggleLogFilter)
+  const fetchLogs = useTradingStore(state => state.fetchLogs)
   const listRef = useRef(null)
   const searchInputRef = useRef(null)
   const [isAtTop, setIsAtTop] = useState(true)
   const [search, setSearch] = useState('')
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [logLimit, setLogLimit] = useState(() => {
+    return localStorage.getItem('decision_log_limit') || '500';
+  });
+
+  const handleFetchLogs = useCallback(async (limitStr) => {
+    setIsRefreshing(true);
+    const limitNum = limitStr === 'ALL' ? 1000 : Number(limitStr) || 500;
+    try {
+      if (fetchLogs) {
+        await fetchLogs(limitNum);
+      }
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 200);
+    }
+  }, [fetchLogs]);
+
+  useEffect(() => {
+    handleFetchLogs(logLimit);
+  }, [logLimit, handleFetchLogs]);
+
+  const handleLimitChange = (opt) => {
+    setLogLimit(opt);
+    try {
+      localStorage.setItem('decision_log_limit', opt);
+    } catch (e) {}
+  };
 
   const safeLogs = Array.isArray(logs) ? logs : [];
   const safeLogFilters = logFilters && typeof logFilters === 'object' ? logFilters : DEFAULT_LOG_FILTERS;
@@ -265,7 +294,7 @@ export const DecisionLog = React.memo(() => {
     () => {
       // BOLT: Single-pass filter and pre-computed search term for O(N) efficiency
       const term = search ? search.toLowerCase() : null;
-      return safeLogs.filter((log) => {
+      const filtered = safeLogs.filter((log) => {
         if (!log) return false;
         // BOLT: Use pre-normalized properties from store but add defensive fallback to prevent crashes
         const level = log.level || 'info';
@@ -275,8 +304,11 @@ export const DecisionLog = React.memo(() => {
         if (term && !msg.toLowerCase().includes(term)) return false;
         return true;
       });
+
+      const maxCount = logLimit === 'ALL' ? 1000 : (Number(logLimit) || 500);
+      return filtered.slice(0, maxCount);
     },
-    [safeLogs, safeLogFilters, search]
+    [safeLogs, safeLogFilters, search, logLimit]
   )
 
   const lastReadLogId = useRef(null);
@@ -380,7 +412,41 @@ export const DecisionLog = React.memo(() => {
               )
             })}
           </div>
-          <span className="text-[9px] text-dim font-bold uppercase tracking-widest bg-background/50 px-2 py-1 rounded border border-border/50 shrink-0 mt-1 md:mt-0 w-full md:w-auto text-center md:text-left">Latest 500</span>
+          <div className="flex items-center gap-2 shrink-0 mt-1 md:mt-0 w-full md:w-auto justify-between md:justify-end">
+            <Tooltip content="Refresh Logs">
+              <button
+                type="button"
+                onClick={() => handleFetchLogs(logLimit)}
+                disabled={isRefreshing}
+                aria-label="Refresh decision logs"
+                className="p-1.5 rounded-lg border border-border bg-surface text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RotateCw size={12} className={cn("transition-transform", isRefreshing && "animate-spin text-accent")} />
+              </button>
+            </Tooltip>
+
+            <div role="group" aria-label="Log count limit" className="flex items-center gap-1 bg-background/50 p-1 rounded-lg border border-border/50 shrink-0">
+              <span className="text-[9px] font-bold text-dim/80 uppercase px-1 hidden sm:inline">Limit:</span>
+              {LIMIT_OPTIONS.map((opt) => {
+                const active = logLimit === opt;
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    aria-pressed={active}
+                    aria-label={`Show ${opt} logs`}
+                    onClick={() => handleLimitChange(opt)}
+                    className={cn(
+                      "px-2 py-0.5 rounded text-[9.5px] font-mono font-bold transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                      active ? "bg-accent text-white shadow-sm font-black" : "text-dim hover:text-text hover:bg-white/5"
+                    )}
+                  >
+                    {opt}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 

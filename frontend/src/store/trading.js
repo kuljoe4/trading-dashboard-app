@@ -558,6 +558,24 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchLogs: async (limit = 200) => {
+    try {
+      const res = await sessionAPI.logs(limit);
+      if (res.data && Array.isArray(res.data)) {
+        const incoming = res.data.map(normalizeLog).filter(Boolean);
+        set(st => {
+          const existingMap = new Map((st.logs || []).map(l => [l.id || `${l.ts}-${l.msg}`, l]));
+          incoming.forEach(l => {
+            const key = l.id || `${l.ts}-${l.msg}`;
+            if (!existingMap.has(key)) {
+              existingMap.set(key, l);
+            }
+          });
+          return { logs: Array.from(existingMap.values()).slice(0, MAX_LOG_LINES) };
+        });
+      }
+    } catch (e) {}
+  },
   updateStats: (updates) => set((st) => {
     // BOLT: Session Stickiness Logic.
     // We defensively protect the session state and critical metrics during 'Resuming' windows.
@@ -739,6 +757,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }));
       get().fetchTradeHistory('all');
       get().fetchAnalytics();
+      get().fetchLogs();
     };
     let lsu = 0;
     ws.onmessage = (e) => {
@@ -779,6 +798,19 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             nextHistory = Array.from(m.values()).sort((a, b) => (b.exit_ts_ms || 0) - (a.exit_ts_ms || 0));
           }
 
+          let nextLogs = st.logs || [];
+          if (Array.isArray(d.logLines) && d.logLines.length > 0) {
+            const incoming = d.logLines.map(normalizeLog).filter(Boolean);
+            const existingMap = new Map((st.logs || []).map(l => [l.id || `${l.ts}-${l.msg}`, l]));
+            incoming.forEach(l => {
+              const key = l.id || `${l.ts}-${l.msg}`;
+              if (!existingMap.has(key)) {
+                existingMap.set(key, l);
+              }
+            });
+            nextLogs = Array.from(existingMap.values()).slice(0, MAX_LOG_LINES);
+          }
+
           // BOLT: Prevent flickering during config sync
           const nextConfig = d.config ? (st.configSyncing ? st.config : deepMerge(st.config, d.config)) : st.config;
 
@@ -799,7 +831,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
-            logs: (Array.isArray(d.logLines) ? d.logLines.map(normalizeLog) : st.logs || []).filter(Boolean),
+            logs: nextLogs,
             scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(normalizeOpportunity) : st.scannerResults || []).filter(Boolean),
             activeWindows: Array.isArray(d.activeWindows) ? d.activeWindows.map(w => ({...w})) : (Array.isArray(st.activeWindows) ? st.activeWindows : []),
             tradeHistory: nextHistory,

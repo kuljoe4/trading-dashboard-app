@@ -234,4 +234,24 @@ describe("SessionController", () => {
       expect(JSON.stringify(errors)).toContain("scan_interval must be a valid Binance kline interval");
     });
   });
+
+  describe("runSmartOptimization & runBacktest DTO Whitelist Validation", () => {
+    it("should throw BadRequestException when runSmartOptimization receives non-whitelisted properties", async () => {
+      const payload: any = {
+        iterations: 10,
+        unauthorizedProperty: "malicious_payload",
+      };
+
+      await expect(controller.runSmartOptimization(payload)).rejects.toThrow(BadRequestException);
+    });
+
+    it("should throw BadRequestException when runBacktest receives non-whitelisted properties", async () => {
+      const payload: any = {
+        days: 14,
+        unauthorizedProperty: "malicious_payload",
+      };
+
+      await expect(controller.runBacktest(payload)).rejects.toThrow(BadRequestException);
+    });
+  });
 });

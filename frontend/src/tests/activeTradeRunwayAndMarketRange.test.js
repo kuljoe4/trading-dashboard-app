@@ -22,6 +22,22 @@ test('Active Trade Runway Card Dual Indicators & Global 24h Market Range Verific
     'ActiveTradeCard must render dual indicator markers on the runway track'
   );
 
+  // Verify dead code removal (dualGroups and est_pnl_source)
+  assert.ok(
+    !cardCode.includes('dualGroups'),
+    'ActiveTradeCard must not compute dead dualGroups array'
+  );
+  assert.ok(
+    !cardCode.includes('est_pnl_source'),
+    'ActiveTradeCard must not execute unused est_pnl_source target resolution'
+  );
+
+  // Verify proximity is merged into MONITORING badge
+  assert.ok(
+    cardCode.includes('MONITORING') && cardCode.includes('exitSignalProximity'),
+    'ActiveTradeCard must merge proximity percentage directly into MONITORING badge'
+  );
+
   // Verify global 24h market range is part of global regime in ScannerOverlay, not in active trade card
   assert.ok(
     regimeCode.includes('btc24hHigh'),

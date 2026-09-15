@@ -422,17 +422,19 @@ export class SessionService implements OnModuleInit {
 
         await queryRunner.manager.update(SettingsEntity, "default", updateData);
 
-        // Record Balance Snapshot
-        const snapshot = this.balanceHistoryRepository.create({
-          timestamp: new Date(),
-          balance: balance,
-          pnl: roundEight(trade.pnl || 0),
-          type: trade.status === "OPEN" ? "TRADE_OPEN" : "TRADE_CLOSE",
-          sessionId: sessionId,
-          tradeId: trade.id,
-          tradingMode: mode as any,
-        });
-        await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
+        // Record Balance Snapshot strictly on trade completion to prevent per-tick DB inflation
+        if (trade.status !== "OPEN") {
+          const snapshot = this.balanceHistoryRepository.create({
+            timestamp: new Date(),
+            balance: balance,
+            pnl: roundEight(trade.pnl || 0),
+            type: "TRADE_CLOSE",
+            sessionId: sessionId,
+            tradeId: trade.id,
+            tradingMode: mode as any,
+          });
+          await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
+        }
       }
 
       await queryRunner.commitTransaction();

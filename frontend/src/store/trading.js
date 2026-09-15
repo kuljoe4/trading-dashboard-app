@@ -280,15 +280,10 @@ export const normalizeLog = (l = {}) => {
   const source = getObjectSource(l);
   const lv = (source.level ?? source.lv ?? 'info').toString().toLowerCase();
   const m = (source.msg ?? source.message ?? '').toString().trim();
-  const rawTs = source.ts_ms ?? source.ts_ms_num ?? source.timestamp ?? source.ts;
-  const ts_ms = typeof rawTs === 'number'
-    ? rawTs
-    : (rawTs ? (Number.isNaN(new Date(rawTs).getTime()) ? Date.now() : new Date(rawTs).getTime()) : Date.now());
   return {
     ...source,
     id: source.id || Math.random().toString(36).substring(2, 15),
-    ts: source.ts || source.timestamp || new Date(ts_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    ts_ms,
+    ts: source.ts || source.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info',
     msg: m
   };
@@ -575,9 +570,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               existingMap.set(key, l);
             }
           });
-          // BOLT OPTIMIZATION: Pre-calculated ts_ms numeric timestamp sorting avoids instantiation of new Date() objects inside O(N log N) sort comparator (~26x speedup).
           const mergedLogs = Array.from(existingMap.values())
-            .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
+            .sort((a, b) => new Date(b.ts || 0).getTime() - new Date(a.ts || 0).getTime())
             .slice(0, MAX_LOG_LINES);
           return { logs: mergedLogs };
         });
@@ -816,9 +810,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 existingMap.set(key, l);
               }
             });
-            // BOLT OPTIMIZATION: Pre-calculated ts_ms numeric timestamp sorting avoids instantiation of new Date() objects inside O(N log N) sort comparator (~26x speedup).
             nextLogs = Array.from(existingMap.values())
-              .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
+              .sort((a, b) => new Date(b.ts || 0).getTime() - new Date(a.ts || 0).getTime())
               .slice(0, MAX_LOG_LINES);
           }
 

@@ -3039,10 +3039,13 @@ export class SessionService implements OnModuleInit {
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
         .execute();
 
+      const balanceCutoff = new Date(
+        Date.now() - 7 * 24 * 60 * 60 * 1000,
+      );
       const deletedBalanceHistory = await this.balanceHistoryRepository
         .createQueryBuilder()
         .delete()
-        .where("timestamp < :cutoff", { cutoff: tradeCutoff })
+        .where("timestamp < :cutoff", { cutoff: balanceCutoff })
         .execute();
 
       // SEC-02: Cleanup old kline data to prevent unbounded storage growth

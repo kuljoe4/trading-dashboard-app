@@ -1,7 +1,7 @@
-import React, { useState, lazy, Suspense, useMemo } from 'react'
+import React, { useState, useEffect, useRef, lazy, Suspense, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
-import { SectionLabel, StatCard, cn, ViewHeader, Btn } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, ViewHeader, Btn, Tooltip } from '../components/ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
@@ -15,9 +15,10 @@ const preloadTradeDetailModal = () => {
   import('../components/TradeDetailModal');
 };
 
-import { Search, Filter, SlidersHorizontal, ChevronDown, LayoutGrid, Layers, List } from 'lucide-react'
+import { Search, Filter, SlidersHorizontal, ChevronDown, LayoutGrid, Layers, List, XCircle } from 'lucide-react'
 
 const TradesView = () => {
+  const searchInputRef = useRef(null)
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
@@ -73,6 +74,18 @@ const TradesView = () => {
       return next;
     });
   };
+
+  // Hotkey listener: '/' to focus search input
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
@@ -258,13 +271,34 @@ const TradesView = () => {
                 <div className="relative group w-full sm:max-w-[260px]">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     placeholder="Search active positions..."
                     aria-label="Search active positions"
                     value={search}
                     onChange={(e) => handleSearchChange(e.target.value)}
-                    className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-3 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                    onKeyDown={(e) => e.key === 'Escape' && handleSearchChange('')}
+                    className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-10 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
                   />
+                  {search ? (
+                    <Tooltip content="Clear Search">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleSearchChange('');
+                          searchInputRef.current?.focus();
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5 cursor-pointer"
+                        aria-label="Clear active positions search"
+                      >
+                        <XCircle size={13} />
+                      </button>
+                    </Tooltip>
+                  ) : (
+                    <kbd className="absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+                      /
+                    </kbd>
+                  )}
                 </div>
 
                 {/* Toggle Advanced Filters Button */}

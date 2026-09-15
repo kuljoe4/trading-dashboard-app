@@ -3,25 +3,25 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 
-test('TradesView search input includes ref-based focus recovery, clear button with Tooltip, focus rings, and shortcut hint', () => {
+test('TradesView filter toolbar features ultra-dense mobile-optimized chip groups, aria-pressed attributes, and reset button', () => {
   const p1 = path.join(process.cwd(), 'frontend/src/views/TradesView.jsx');
   const p2 = path.join(process.cwd(), 'src/views/TradesView.jsx');
   const filePath = fs.existsSync(p1) ? p1 : p2;
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
-  // Verify ref attachment to search input
-  assert.match(fileContent, /ref=\{searchInputRef\}/, 'TradesView search input should attach searchInputRef');
+  // Verify ultra-dense filter toolbar element
+  assert.match(fileContent, /id="active-trades-filter-toolbar"/, 'TradesView should render ultra-dense filter toolbar container');
 
-  // Verify type="button", cursor-pointer, and focus ring styling on clear search button
-  assert.match(fileContent, /type="button"/, 'TradesView clear button should specify type="button"');
-  assert.match(fileContent, /aria-label="Clear active positions search"/, 'TradesView clear button should specify descriptive ARIA label');
-  assert.match(fileContent, /focus-visible:ring-accent/, 'TradesView clear button should specify accent focus-visible ring');
-  assert.match(fileContent, /cursor-pointer/, 'TradesView clear button should specify cursor-pointer');
+  // Verify strategy, direction, and risk filter chip groups with WCAG aria-pressed state
+  assert.match(fileContent, /aria-pressed=\{strategyFilter === 'ALL'\}/, 'TradesView strategy filter should enforce aria-pressed state');
+  assert.match(fileContent, /aria-pressed=\{directionFilter === d\}/, 'TradesView direction filter should enforce aria-pressed state');
+  assert.match(fileContent, /aria-pressed=\{riskFilter === r\.id\}/, 'TradesView risk filter should enforce aria-pressed state');
 
-  // Verify focus recovery on clear
-  assert.match(fileContent, /searchInputRef\.current\?\.focus\(\)/, 'TradesView clear handler should programmatically restore focus to search input');
+  // Verify type="button", focus ring, and cursor-pointer on filter triggers
+  assert.match(fileContent, /type="button"/, 'TradesView filter buttons should specify type="button"');
+  assert.match(fileContent, /focus-visible:ring-accent/, 'TradesView filter buttons should specify focus-visible rings');
+  assert.match(fileContent, /cursor-pointer/, 'TradesView filter buttons should specify cursor-pointer');
 
-  // Verify global '/' hotkey listener and inline <kbd> badge
-  assert.match(fileContent, /e\.key === '\/'/, 'TradesView should listen for slash hotkey');
-  assert.match(fileContent, /<kbd/, 'TradesView should render kbd badge when search query is empty');
+  // Verify reset filters button functionality
+  assert.match(fileContent, /resetAllFilters/, 'TradesView should feature a resetAllFilters handler for active filters');
 });

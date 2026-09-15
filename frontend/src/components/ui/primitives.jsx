@@ -694,10 +694,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
         {/* Center: Integrated Non-Blocking Horizontal Alert Ticker */}
         {activeAlert && (
-          <div className="flex relative items-center justify-center min-w-0 z-50 w-full sm:w-auto flex-1 px-1 sm:px-2 order-3 sm:order-2 mt-1 sm:mt-0">
+          <div className="flex relative items-center justify-center min-w-0 sm:min-w-[200px] z-50 w-full sm:w-auto flex-1 px-1 sm:px-2 order-3 sm:order-2 mt-1 sm:mt-0">
             <div
               onClick={() => setShowDropdown(!showDropdown)}
-              className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/50 hover:bg-surface/80 border border-border/50 hover:border-accent/40 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full px-3 py-1 text-[10px] max-w-full sm:max-w-[360px] lg:max-w-[440px]"
+              className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full px-3 py-1 text-[10px] max-w-full sm:max-w-[360px] lg:max-w-[440px] shadow-xs"
               title="Click to view all recent alerts"
             >
               {triggerRippleKey > 0 && (
@@ -721,11 +721,11 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                       activeAlert.level === 'success' ? "bg-green" :
                       "bg-accent"
                     )} />
-                    <span className="font-black uppercase tracking-wider shrink-0 opacity-80 text-[8px] sm:text-[8.5px] text-white">
+                    <span className="font-black uppercase tracking-wider shrink-0 opacity-90 text-[8px] sm:text-[8.5px] text-white">
                       {activeAlert.title || 'Alert'}
                     </span>
                     <span className="opacity-30 shrink-0 font-black">|</span>
-                    <span className="font-semibold truncate text-dim group-hover:text-text transition-colors">
+                    <span className="font-semibold truncate text-text/90 group-hover:text-text transition-colors">
                       {activeAlert.message}
                     </span>
                     {activeAlert.count > 1 && (
@@ -758,7 +758,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
             {showDropdown && (
               <>
                 <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
-                <div className="absolute top-full mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+                <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 bg-surface/98 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-w-[calc(100vw-2rem)] max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
                   <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
                     <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
                     <button

@@ -1621,6 +1621,7 @@ export const HistoryView = () => {
   const handleTradeLimitChange = (val) => {
     setTradeLimit(val);
     localStorage.setItem('history_trade_limit', String(val));
+    fetchTradeHistory('all', val);
   };
 
   const handleSortByChange = (val) => {
@@ -1875,7 +1876,7 @@ export const HistoryView = () => {
     import('../components/Analytics').catch(() => {})
 
     Promise.all([
-      fetchTradeHistory(),
+      fetchTradeHistory('all', tradeLimit),
       fetchLifetimeAnalytics(lifetimeMode),
       fetchSessions()
     ]).finally(() => {

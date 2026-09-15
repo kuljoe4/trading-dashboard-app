@@ -528,9 +528,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         sessionStorage.removeItem('config_draft');
         sessionStorage.removeItem('loaded_preset_name');
       }
-      // Proactively clear ephemeral state on termination and reset session config back to defaultConfig to prevent stale settings/variants bleeding
+      // Proactively clear ephemeral state on termination while preserving user strategy configuration
       set({
-        config: defaultConfig,
         activeTrades: [],
         scannerResults: [],
         variantScannerResults: {},
@@ -557,7 +556,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); const sessions = (r.data || []).map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 })); set({ sessionList: sessions }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  fetchTradeHistory: async (sid = 'all') => { set({ isSyncing: true }); try { const r = await sessionAPI.history(sid); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchTradeHistory: async (sid = 'all', limit = 1000) => { set({ isSyncing: true }); try { const parsedLimit = limit === 'ALL' || limit === 'all' ? 5000 : limit; const r = await sessionAPI.history(sid, parsedLimit); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLogs: async (limit = 50) => {
     try {
       const res = await sessionAPI.logs(limit);

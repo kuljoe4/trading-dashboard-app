@@ -1305,6 +1305,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   updateConfig(config: SessionConfig) {
     const prev = this.config;
     this.config = config;
+    this.sessionState.config = config;
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
 

@@ -229,61 +229,65 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         subTitle={`Loop Monitoring · ${s.strategyId?.substring(0, 8)}`}
         backAction={onBack}
       >
-         <div className="flex items-center gap-2 flex-wrap py-1">
-           <CopyButton value={s.strategyId} className="p-1 hidden sm:inline-flex" />
-           <StatusBadge status={s.sessionActive} />
-           {isVariant && (
-             <span className="px-2.5 py-1 rounded-lg bg-purple/10 text-purple border border-purple/20 text-[10px] font-black uppercase tracking-widest">
-               Variant
+         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap py-0.5 justify-end">
+           <CopyButton value={s.strategyId} className="p-1.5 hidden sm:inline-flex" />
+           <div className="flex items-center gap-1 bg-surface-light/40 border border-border/40 rounded-xl px-2 py-1">
+             <StatusBadge status={s.sessionActive} />
+             {isVariant && (
+               <span className="px-1.5 py-0.5 rounded bg-purple/10 text-purple border border-purple/20 text-[9px] font-black uppercase tracking-wider">
+                 Variant
+               </span>
+             )}
+             <span className="px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[9px] font-black uppercase tracking-wider opacity-80">
+               {activeTradeCount} ACTIVE
              </span>
-           )}
-           <span className="px-2.5 py-1 rounded-lg bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[10px] font-black uppercase tracking-widest opacity-75">
-             {activeTradeCount} ACTIVE
-           </span>
+           </div>
 
            {/* Strategy Control Actions (Pause/Resume & Edit Configuration) */}
-           {sessionActive && (
-             <Tooltip content={isStrategyPaused ? "Resume Strategy Automation" : "Pause Strategy Automation"}>
+           <div className="flex items-center gap-1.5 shrink-0">
+             {sessionActive && (
+               <Tooltip content={isStrategyPaused ? "Resume Strategy Automation" : "Pause Strategy Automation"}>
+                 <button
+                   type="button"
+                   disabled={isPausing}
+                   aria-busy={isPausing}
+                   onClick={async () => {
+                     if (isPausing) return;
+                     setIsPausing(true);
+                     try {
+                       await onPause(s.strategy_label);
+                     } finally {
+                       setIsPausing(false);
+                     }
+                   }}
+                   className={cn(
+                     "px-2.5 py-1.5 min-h-[32px] sm:px-3 rounded-xl border text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer active:scale-95",
+                     isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
+                       isStrategyPaused
+                         ? "bg-green/10 text-green border-green/20 hover:bg-green/20"
+                         : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20"
+                     )
+                   )}
+                   aria-label={isPausing ? (isStrategyPaused ? "Resuming strategy..." : "Pausing strategy...") : (isStrategyPaused ? "Resume strategy" : "Pause strategy")}
+                 >
+                   {isPausing ? <Loader2 size={12} className="animate-spin text-accent" /> : (isStrategyPaused ? <Play size={12} fill="currentColor" /> : <Pause size={12} fill="currentColor" />)}
+                   <span>{isPausing ? (isStrategyPaused ? "Resuming..." : "Pausing...") : (isStrategyPaused ? "Resume" : "Pause")}</span>
+                 </button>
+               </Tooltip>
+             )}
+
+             <Tooltip content="Edit Strategy Configuration">
                <button
                  type="button"
-                 disabled={isPausing}
-                 aria-busy={isPausing}
-                 aria-disabled={isPausing}
-                 onClick={async () => {
-                   if (isPausing) return;
-                   setIsPausing(true);
-                   try {
-                     await onPause(s.strategy_label);
-                   } finally {
-                     setIsPausing(false);
-                   }
-                 }}
-                 className={cn(
-                   "p-2 sm:px-3 sm:py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
-                   isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
-                     isStrategyPaused
-                       ? "bg-green/10 text-green border-green/20 hover:bg-green/20 active:scale-95 cursor-pointer"
-                       : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20 active:scale-95 cursor-pointer"
-                   )
-                 )}
-                 aria-label={isPausing ? (isStrategyPaused ? "Resuming strategy..." : "Pausing strategy...") : (isStrategyPaused ? "Resume strategy" : "Pause strategy")}
+                 onClick={onEdit}
+                 className="px-2.5 py-1.5 min-h-[32px] sm:px-3 bg-surface border border-border text-dim hover:text-accent hover:border-accent/40 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer"
+                 aria-label="Edit strategy configuration"
                >
-                 {isPausing ? <Loader2 size={12} className="animate-spin text-accent" /> : (isStrategyPaused ? <Play size={12} fill="currentColor" /> : <Pause size={12} fill="currentColor" />)}
-                 <span className="hidden sm:inline">{isPausing ? (isStrategyPaused ? "Resuming..." : "Pausing...") : (isStrategyPaused ? "Resume" : "Pause")}</span>
+                 <Edit3 size={12} />
+                 <span>Edit</span>
                </button>
              </Tooltip>
-           )}
-
-           <Tooltip content="Edit Strategy Configuration">
-             <button
-               onClick={onEdit}
-               className="p-2 sm:px-3 sm:py-1.5 bg-surface border border-border text-dim hover:text-accent hover:border-accent/40 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0"
-               aria-label="Edit strategy configuration"
-             >
-               <Edit3 size={12} />
-               <span className="hidden sm:inline">Edit</span>
-             </button>
-           </Tooltip>
+           </div>
          </div>
       </ViewHeader>
 

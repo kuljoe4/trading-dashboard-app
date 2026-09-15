@@ -1535,6 +1535,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
          <StatCard label="Entry" value={price(entry)} color="text-dim" compact />
       </div>
 
+      {/* Entry Signal & Technical Context */}
+      <EntrySignalContext trade={trade} activeSessionConfig={activeSessionConfig} />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
          <div className="lg:col-span-2 flex flex-col gap-3 md:gap-4">
             <RRLadder trade={trade} interactiveEnabled={interactiveEnabled} />

@@ -741,7 +741,7 @@ export class OrderManagerService {
     qty: number,
     slPrice: number,
     tpPrice: number | null,
-    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct'> = {},
+    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct' | 'entry_reason' | 'entry_signal_type' | 'entry_signal_reason'> = {},
   ): Promise<ExecutionResult<Trade>> {
     const filters = this.marketFeed.getSymbolFilters(symbol);
 
@@ -833,7 +833,9 @@ export class OrderManagerService {
         rr_sequence_index: -1,
         sl_adjustments: [],
         status: 'OPEN',
-        entry_signal_type: 'combo',
+        entry_signal_type: metadata.entry_signal_type || 'combo',
+        entry_reason: metadata.entry_reason || metadata.entry_signal_reason,
+        entry_signal_reason: metadata.entry_signal_reason || metadata.entry_reason,
         entry_signal_confidence: 1.0,
         pnl: 0,
         realized_fee: 0,

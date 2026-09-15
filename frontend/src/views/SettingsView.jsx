@@ -903,66 +903,27 @@ export function SettingsView() {
             </button>
             {openSections.has('scanner_bandwidth') && (
               <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
-                    <label htmlFor="global_scanner_enabled" className="cursor-pointer select-none flex-grow mr-4">
-                      <div className="text-sm font-bold">Global Market Scanner</div>
-                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Saves ~45-60% backend CPU & bandwidth</div>
-                    </label>
-                    <button
-                      id="global_scanner_enabled"
-                      onClick={() => patchConfig({ global_scanner_enabled: cfg.global_scanner_enabled === false ? true : false })}
-                      role="switch"
-                      aria-checked={cfg.global_scanner_enabled !== false}
-                      aria-label="Toggle Global Market Scanner"
-                      className={cn(
-                        "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                        (cfg.global_scanner_enabled !== false) ? "bg-green" : "bg-border"
-                      )}
-                    >
-                      <div className={cn(
-                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                        (cfg.global_scanner_enabled !== false) ? "translate-x-7" : "translate-x-1"
-                      )} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
-                    <label htmlFor="htf_ema_cross_boost_enabled" className="cursor-pointer select-none flex-grow mr-4">
-                      <div className="text-sm font-bold">4H HTF EMA Cross Ranking</div>
-                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Disables 4H kline subscriptions & HTF cross math</div>
-                    </label>
-                    <button
-                      id="htf_ema_cross_boost_enabled"
-                      onClick={() => patchConfig({ htf_ema_cross_boost_enabled: cfg.htf_ema_cross_boost_enabled === false ? true : false })}
-                      role="switch"
-                      aria-checked={cfg.htf_ema_cross_boost_enabled !== false}
-                      aria-label="Toggle 4H HTF EMA Cross Ranking"
-                      className={cn(
-                        "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
-                        (cfg.htf_ema_cross_boost_enabled !== false) ? "bg-green" : "bg-border"
-                      )}
-                    >
-                      <div className={cn(
-                        "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
-                        (cfg.htf_ema_cross_boost_enabled !== false) ? "translate-x-7" : "translate-x-1"
-                      )} />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
-                  <label htmlFor="watchlist_size" className="text-[10px] text-dim font-bold tracking-widest uppercase">Scanner Watchlist Stream Limit</label>
-                  <input
-                    id="watchlist_size"
-                    type="number"
-                    min={CONFIG_LIMITS.WATCHLIST_MIN}
-                    max={CONFIG_LIMITS.WATCHLIST_MAX}
-                    value={cfg.watchlist_size || CONFIG_LIMITS.WATCHLIST_DEFAULT}
-                    onChange={(e) => patchConfig({ watchlist_size: Number(e.target.value) })}
-                    className="w-full max-w-[200px] bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-4 py-3 text-sm font-mono text-text transition-all"
-                  />
-                  <p className="text-[9px] text-dim font-medium uppercase">Limit active Binance WebSocket symbol subscriptions (default: 50). Reducing to 10-15 lowers memory and network egress.</p>
+                <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
+                  <label htmlFor="global_scanner_enabled" className="cursor-pointer select-none flex-grow mr-4">
+                    <div className="text-sm font-bold">Global Market Scanner</div>
+                    <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Saves ~45-60% backend CPU & bandwidth</div>
+                  </label>
+                  <button
+                    id="global_scanner_enabled"
+                    onClick={() => patchConfig({ global_scanner_enabled: cfg.global_scanner_enabled === false ? true : false })}
+                    role="switch"
+                    aria-checked={cfg.global_scanner_enabled !== false}
+                    aria-label="Toggle Global Market Scanner"
+                    className={cn(
+                      "w-12 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none",
+                      (cfg.global_scanner_enabled !== false) ? "bg-green" : "bg-border"
+                    )}
+                  >
+                    <div className={cn(
+                      "absolute top-1 w-4 h-4 bg-white rounded-full transition-transform",
+                      (cfg.global_scanner_enabled !== false) ? "translate-x-7" : "translate-x-1"
+                    )} />
+                  </button>
                 </div>
               </div>
             )}

@@ -294,8 +294,25 @@ export class ExecutionService {
         const sc = symbolConfigMap?.get(opp.symbol);
         const symbolConfig = (sc?.use_custom_config && sc.custom_config) ? { ...config, ...sc.custom_config } as SessionConfig : config;
 
+        let currentStrategyLabel = symbolConfig.strategy_label || strategyLabel || 'Momentum Strategy';
+        let resolvedConfig = symbolConfig;
+
+        if (opp.strategy_label && opp.strategy_label !== currentStrategyLabel) {
+          const variant = (config.strategy_variants || []).find((v: any) => v.strategy_label === opp.strategy_label);
+          if (variant) {
+            currentStrategyLabel = variant.strategy_label || opp.strategy_label;
+            resolvedConfig = {
+              ...symbolConfig,
+              ...variant,
+              signal_params: {
+                ...(symbolConfig?.signal_params || {}),
+                ...(variant?.signal_params || {}),
+              },
+            } as SessionConfig;
+          }
+        }
+
         // Fast-fail resource optimization: Skip entries if this strategy is paused
-        const currentStrategyLabel = symbolConfig.strategy_label || strategyLabel || 'Momentum Strategy';
         if (this.sessionState.isStrategyPaused ? this.sessionState.isStrategyPaused(currentStrategyLabel) : (this.sessionState.paused || (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.has(currentStrategyLabel)))) {
           this.logger.debug(`Strategy "${currentStrategyLabel}" is paused. Skipping entries for ${opp.symbol}.`);
           continue;
@@ -474,7 +491,7 @@ export class ExecutionService {
 
         // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
-        let signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
+        let signalResult = this.signalEngine.checkEntry(opp.symbol, resolvedConfig, resolvedConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
@@ -484,7 +501,7 @@ export class ExecutionService {
 
         // If signal fired, re-check with minimal=false to get technical details (e.g. engulfing boundaries)
         // required for structural Stop Loss calculations and full telemetry.
-        signalResult = this.signalEngine.checkEntry(opp.symbol, symbolConfig, symbolConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
+        signalResult = this.signalEngine.checkEntry(opp.symbol, resolvedConfig, resolvedConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
 
         const price = this.tickerCache.getPrice(opp.symbol);
         if (!price) continue;
@@ -633,9 +650,12 @@ export class ExecutionService {
             slPrice,
             tpPrice,
             {
-              strategy_label: strategyLabel,
-              strategy_config: sizeResult.isNominalOvershoot ? { ...symbolConfig, is_nominal_overshoot: true } : symbolConfig,
-              entry_daily_change_pct: dailyChangeAtEntry
+              strategy_label: currentStrategyLabel,
+              strategy_config: sizeResult.isNominalOvershoot ? { ...resolvedConfig, is_nominal_overshoot: true } : resolvedConfig,
+              entry_daily_change_pct: dailyChangeAtEntry,
+              entry_reason: signalResult.reason,
+              entry_signal_type: signalResult.firedSignals?.join(', ') || 'combo',
+              entry_signal_reason: signalResult.reason,
             }
           );
 

@@ -79,6 +79,10 @@ export class Trade {
 
   entry_signal_type?: string;
 
+  entry_reason?: string;
+
+  entry_signal_reason?: string;
+
   entry_signal_confidence = 0;
 
   sl_adjustments?: {

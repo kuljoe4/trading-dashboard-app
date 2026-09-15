@@ -227,9 +227,15 @@ export class SessionController {
   @Get("logs")
   async getLogs(@Query("limit") limit?: string) {
     let parsedLimit = 50;
-    if (limit !== undefined && limit !== null) {
-      const num = Number(limit);
-      if (!isNaN(num)) parsedLimit = num;
+    if (limit !== undefined && limit !== null && limit !== "") {
+      // SENTINEL: Enforce explicit string type assertion, length bounds, and positive integer format
+      if (typeof limit !== "string" || limit.length > 10 || !/^\d+$/.test(limit)) {
+        throw new BadRequestException("Invalid limit format. Must be a positive integer.");
+      }
+      parsedLimit = parseInt(limit, 10);
+      if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 1000) {
+        throw new BadRequestException("Limit must be between 1 and 1000");
+      }
     }
     return this.sessionService.getLogs(parsedLimit);
   }

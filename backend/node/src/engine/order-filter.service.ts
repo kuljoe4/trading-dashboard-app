@@ -12,6 +12,8 @@ export class OrderFilterService {
   private readonly logger = new Logger(OrderFilterService.name);
   private leverageBrackets: Map<string, any> = new Map();
   private lastBracketFetch = 0;
+  private deviationWarningCooldowns: Map<string, number> = new Map();
+  private readonly DEVIATION_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 
   constructor(
     private readonly marketFeed: MarketFeedService,
@@ -95,7 +97,12 @@ export class OrderFilterService {
               }
 
               if (deviation > 0.1) {
-                this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
+                const now = Date.now();
+                const lastWarn = this.deviationWarningCooldowns.get(symbol) || 0;
+                if (now - lastWarn >= this.DEVIATION_COOLDOWN_MS) {
+                  this.deviationWarningCooldowns.set(symbol, now);
+                  this.logger.warn(`${symbol}: SL/TP Price ${finalPrice} significantly far from Mark (${(deviation * 100).toFixed(2)}%). Proceeding with filtered price.`);
+                }
               }
             }
           }

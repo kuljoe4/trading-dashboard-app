@@ -9,6 +9,8 @@ export class FixSchemaDrift1718710000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "initial_risk_usdt" numeric(20,8)`);
         await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "exit_signal_type" character varying`);
         await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "exit_signal_reason" character varying`);
+        await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "entry_reason" character varying`);
+        await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "entry_signal_reason" character varying`);
         await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "max_rr_achieved" numeric(20,8) NOT NULL DEFAULT '0'`);
         await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "rr_sequence_index" integer NOT NULL DEFAULT 0`);
         await queryRunner.query(`ALTER TABLE "trade_entity" ADD COLUMN IF NOT EXISTS "binance_stop_order_type" character varying`);
@@ -28,6 +30,8 @@ export class FixSchemaDrift1718710000000 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "binance_stop_order_type"`);
         await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "rr_sequence_index"`);
         await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "max_rr_achieved"`);
+        await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "entry_signal_reason"`);
+        await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "entry_reason"`);
         await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "exit_signal_reason"`);
         await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "exit_signal_type"`);
         await queryRunner.query(`ALTER TABLE "trade_entity" DROP COLUMN IF EXISTS "initial_risk_usdt"`);

@@ -994,5 +994,85 @@ describe('SessionService Validation', () => {
       expect(res.trade.initial_sl).toBe(manualInitialSl); // Manual initial SL is respected!
       expect(res.trade.current_sl).toBe(manualCurrentSl); // Manual current SL is respected!
     });
+
+    it('adoptPositionManually should pass a fully initialized tempTrade with id and binance_order_id to placeStopLoss', async () => {
+      (service as any).sessionRunning = true;
+      (service as any).currentSessionId = 'session-123';
+
+      const mockConfig = new SessionConfig();
+      mockConfig.strategy_label = 'Momentum Strategy';
+
+      mockRepository.findOne.mockResolvedValue({
+        id: 'session-123',
+        tradingMode: 'live',
+        paperMode: false,
+        config: mockConfig
+      });
+
+      mockTradingSessionService.getActiveTradesRaw = jest.fn().mockReturnValue([]);
+      mockOrderManagerService.fetchPosition = jest.fn().mockResolvedValue({
+        symbol: 'XMRUSDT',
+        positionAmt: '-0.052',
+        entryPrice: '517.41',
+        markPrice: '515.00'
+      });
+      mockOrderManagerService.fetchOpenOrders = jest.fn().mockResolvedValue([]);
+
+      let capturedTempTrade: any = null;
+      mockOrderManagerService.placeStopLoss = jest.fn().mockImplementation((trade: any, slPrice: number) => {
+        capturedTempTrade = trade;
+        return {
+          orderId: 'sl-order-999',
+          price: slPrice
+        };
+      });
+
+      mockTradeRepository.create.mockImplementation((dto: any) => dto);
+      mockTradeRepository.save.mockResolvedValue({});
+
+      mockTradingSessionService.addTrade = jest.fn();
+      mockTradingSessionService.seedActiveTrades = jest.fn();
+
+      const res = await service.adoptPositionManually('XMRUSDT', 'Momentum Strategy');
+      expect(res.status).toBe('adopted');
+      expect(capturedTempTrade).not.toBeNull();
+      expect(capturedTempTrade.id).toBeDefined();
+      expect(typeof capturedTempTrade.id).toBe('string');
+      expect(capturedTempTrade.binance_order_id).toContain('RECON-');
+      expect(capturedTempTrade.is_reconciliation).toBe(true);
+    });
+
+    it('cleanupOldData should prune balance history records using a 3-day retention cutoff', async () => {
+      const mockExecute = jest.fn().mockResolvedValue({ affected: 15 });
+      const mockAndWhere = jest.fn().mockReturnValue({ execute: mockExecute });
+      const mockWhere = jest.fn().mockReturnValue({ execute: mockExecute, andWhere: mockAndWhere });
+      const mockDelete = jest.fn().mockReturnValue({ where: mockWhere });
+      const mockQueryBuilder = { delete: mockDelete, from: jest.fn().mockReturnThis(), where: mockWhere };
+
+      const mockBalanceHistoryRepo = {
+        createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder)
+      };
+      (service as any).balanceHistoryRepository = mockBalanceHistoryRepo;
+      (service as any).tradeRepository = { createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder) };
+      (service as any).logRepository = { createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder) };
+      (service as any).sessionRepository = {
+        find: jest.fn().mockResolvedValue([]),
+        manager: { createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder) }
+      };
+
+      await (service as any).cleanupOldData();
+
+      expect(mockDelete).toHaveBeenCalled();
+      expect(mockWhere).toHaveBeenCalledWith('timestamp < :cutoff', expect.objectContaining({
+        cutoff: expect.any(Date)
+      }));
+      const callArgs = mockWhere.mock.calls.find(call => call[0] === 'timestamp < :cutoff');
+      if (callArgs) {
+        const cutoffDate: Date = callArgs[1].cutoff;
+        const diffMs = Date.now() - cutoffDate.getTime();
+        const expectedMs = 3 * 24 * 60 * 60 * 1000;
+        expect(Math.abs(diffMs - expectedMs)).toBeLessThan(5000); // within 5s
+      }
+    });
   });
 });

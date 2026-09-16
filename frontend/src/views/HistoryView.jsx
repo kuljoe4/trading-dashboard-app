@@ -814,7 +814,20 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
   return (
     <div className="bg-background/40 border border-border/40 rounded-xl p-3 sm:p-4 flex flex-col gap-4 overflow-hidden w-full" onClick={(e) => e.stopPropagation()}>
       {/* Responsive Header Row */}
-      <div className="flex items-center justify-between gap-3 w-full cursor-pointer select-none" onClick={() => setIsExpanded(prev => !prev)}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={isExpanded}
+        aria-label={isExpanded ? 'Collapse predictive RR target calculator' : 'Expand predictive RR target calculator'}
+        onClick={() => setIsExpanded(prev => !prev)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsExpanded(prev => !prev);
+          }
+        }}
+        className="flex items-center justify-between gap-3 w-full cursor-pointer select-none group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg p-1 -m-1 transition-colors hover:bg-white/[0.02]"
+      >
         <div className="flex flex-col min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-dim font-black uppercase tracking-widest truncate">Predictive RR Target Calculator</span>
@@ -825,16 +838,11 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
           <span className="text-[8.5px] text-dim/60 font-medium mt-0.5 leading-tight">Simulate win rate and P&L at custom Reward-to-Risk ratios</span>
         </div>
 
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); setIsExpanded(prev => !prev); }}
-          className="p-1 rounded hover:bg-border/30 text-dim transition-colors focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none cursor-pointer shrink-0"
-          aria-label={isExpanded ? 'Collapse calculator' : 'Expand calculator'}
-        >
+        <div className="p-1 rounded text-dim group-hover:text-text transition-colors shrink-0">
           <svg className={cn("w-4 h-4 transition-transform duration-200", isExpanded && "transform rotate-180")} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
           </svg>
-        </button>
+        </div>
       </div>
 
       {isExpanded && (

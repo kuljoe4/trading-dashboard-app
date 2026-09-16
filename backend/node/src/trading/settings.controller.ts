@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, UseGuards, Logger, Req } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, Logger, Req, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Request } from 'express';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { UpdateKeysDto } from './dto/update-keys.dto';
 import { ValidateKeysDto } from './dto/validate-keys.dto';
@@ -10,7 +12,7 @@ import { ApiKeyGuard } from '../lib/api-key.guard';
 import { extractIp } from '../lib/throttle';
 import { AuditLogService } from './audit-log.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
-import { sanitize } from '../lib/logger';
+import { formatValidationErrors, sanitize } from '../lib/logger';
 
 /**
  * Securely masks API keys and secrets.
@@ -68,6 +70,17 @@ export class SettingsController {
 
   @Post('keys/validate')
   async validateKeys(@Body() body: ValidateKeysDto) {
+    // SEC-SENTINEL: Defense-in-depth validation of ValidateKeysDto payload
+    const keysDto = plainToInstance(ValidateKeysDto, body || {});
+    const dtoErrors = await validate(keysDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: 'Invalid key validation parameters',
+        detail: detailedErrors,
+      });
+    }
+
     const results: any = {
       valid: true,
       checks: []
@@ -181,6 +194,17 @@ export class SettingsController {
 
   @Post('keys')
   async updateKeys(@Body() body: UpdateKeysDto, @Req() req: Request) {
+    // SEC-SENTINEL: Defense-in-depth validation of UpdateKeysDto payload
+    const keysDto = plainToInstance(UpdateKeysDto, body || {});
+    const dtoErrors = await validate(keysDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: 'Invalid API key parameters',
+        detail: detailedErrors,
+      });
+    }
+
     try {
       let settings = await this.settingsRepository.findOne({
         where: { id: 'default' },

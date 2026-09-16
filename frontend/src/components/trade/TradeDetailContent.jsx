@@ -970,6 +970,111 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
   )
 })
 
+const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
+  if (!trade) return null;
+
+  const entryType = trade.entry_signal_type || trade.strategy_label || 'combo';
+  const entryReason = trade.entry_reason || trade.entry_signal_reason || 'Signal conditions satisfied on entry evaluation pass';
+  const strategyLabel = trade.strategy_label || activeSessionConfig?.strategy_label || 'Momentum Strategy';
+  const initialRisk = Number(trade.initial_risk_usdt || trade.risk_usdt || 0);
+  const entryDailyChange = Number(trade.entry_daily_change_pct || 0);
+  const signalParams = trade.strategy_config?.signal_params || activeSessionConfig?.signal_params || {};
+
+  const paramEntries = Object.entries(signalParams).filter(([_, v]) => v !== undefined && v !== null && v !== '');
+
+  const scanInterval = trade.strategy_config?.scan_interval || activeSessionConfig?.scan_interval || '1m';
+
+  const entryTs = trade.created_at || trade.entry_ts;
+  const entryTimeFormatted = entryTs ? new Date(entryTs).toLocaleString() : 'Live Session';
+
+  return (
+    <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3">
+      <div className="flex items-center justify-between mb-0">
+        <SectionLabel className="mb-0 flex items-center gap-1.5 text-accent">
+          <Zap size={14} className="fill-accent text-accent" /> Entry Signal Context & Execution Metadata
+        </SectionLabel>
+        <span className="text-[8px] font-mono font-bold bg-accent/10 border border-accent/20 text-accent px-2 py-0.5 rounded-full uppercase">
+          {strategyLabel}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {/* Entry Trigger & Signal Type */}
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+          <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+            <Activity size={10} className="text-accent" /> Trigger Signal
+          </span>
+          <span className="font-mono text-xs font-bold text-text uppercase tracking-tight">
+            {entryType.replace(/_/g, ' ')}
+          </span>
+          <p className="text-[9px] text-dim/80 font-medium leading-normal mt-0.5">
+            {entryReason}
+          </p>
+        </div>
+
+        {/* Execution Risk & Sizing Context */}
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+          <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+            <BarChart3 size={10} className="text-amber" /> Execution Risk & Timing
+          </span>
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-dim">Initial Risk:</span>
+            <span className="font-bold text-red">{fmtUSD(initialRisk)}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-dim">24h Δ at Entry:</span>
+            <span className={cn("font-bold", pnlClass(entryDailyChange))}>
+              {entryDailyChange >= 0 ? '+' : ''}{entryDailyChange.toFixed(2)}%
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-[9px] font-mono text-dim/70 mt-0.5">
+            <span>Entered At:</span>
+            <span>{entryTimeFormatted}</span>
+          </div>
+        </div>
+
+        {/* Timeframe & Candle Warmup Status */}
+        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 md:col-span-2 lg:col-span-1">
+          <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+            <Clock size={10} className="text-green" /> Timeframe & Warmup Status
+          </span>
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-dim">Scan Interval:</span>
+            <span className="font-bold text-text">{scanInterval}</span>
+          </div>
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className="text-dim">Warmup Candles:</span>
+            <span className="font-bold text-green flex items-center gap-1">
+              <CheckCircle2 size={11} /> Completed
+            </span>
+          </div>
+          <span className="text-[8px] text-dim/60 uppercase tracking-wider font-bold mt-0.5">
+            Chart execution timing synced with WebSocket price ticks
+          </span>
+        </div>
+      </div>
+
+      {/* Configured Signal Parameters */}
+      {paramEntries.length > 0 && (
+        <div className="bg-background/30 border border-border/30 rounded-xl p-2.5 flex flex-col gap-1.5">
+          <span className="text-[7.5px] font-black text-dim/70 uppercase tracking-widest">
+            Configured Signal Parameters
+          </span>
+          <div className="flex flex-wrap gap-1.5">
+            {paramEntries.map(([k, v]) => (
+              <span key={k} className="inline-flex items-center gap-1 bg-surface border border-border/40 px-2 py-0.5 rounded text-[8px] font-mono">
+                <span className="text-dim/60 uppercase">{k}:</span>
+                <span className="font-bold text-text/90">{String(v)}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+EntrySignalContext.displayName = 'EntrySignalContext';
+
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
   const activeSessionPnl = useTradingStore(state => state.totalPnl);
   const activeSessionConfig = useTradingStore(state => state.config);

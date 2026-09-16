@@ -31,3 +31,30 @@ test('TradeDetailContent inline editing triggers use semantic buttons with aria-
     'Inline edit triggers must feature WCAG focus-visible ring styles'
   )
 })
+
+test('TradeDetailContent defines and renders EntrySignalContext component without ReferenceError', () => {
+  const filePath = path.join(process.cwd(), 'frontend/src/components/trade/TradeDetailContent.jsx')
+  const content = fs.readFileSync(filePath, 'utf8')
+
+  // Check EntrySignalContext definition
+  assert.ok(
+    content.includes('const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {'),
+    'EntrySignalContext component should be defined in TradeDetailContent.jsx'
+  )
+
+  // Check EntrySignalContext usage in TradeDetailContent
+  assert.ok(
+    content.includes('<EntrySignalContext trade={trade} activeSessionConfig={activeSessionConfig} />'),
+    'EntrySignalContext JSX element should be rendered in TradeDetailContent'
+  )
+
+  // Check EntrySignalContext features
+  assert.ok(
+    content.includes('Entry Signal Context & Execution Metadata'),
+    'EntrySignalContext should render header title'
+  )
+  assert.ok(
+    content.includes('Warmup Candles:'),
+    'EntrySignalContext should render warmup candle completion status'
+  )
+})

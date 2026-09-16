@@ -1,7 +1,7 @@
-import React, { useState, lazy, Suspense, useMemo } from 'react'
+import React, { useState, useEffect, useRef, lazy, Suspense, useMemo } from 'react'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
-import { SectionLabel, StatCard, cn, ViewHeader, Btn } from '../components/ui/primitives'
+import { SectionLabel, StatCard, cn, ViewHeader, Btn, Tooltip } from '../components/ui/primitives'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Briefcase, Zap } from 'lucide-react'
@@ -15,19 +15,13 @@ const preloadTradeDetailModal = () => {
   import('../components/TradeDetailModal');
 };
 
-import { Search, Filter, SlidersHorizontal, ChevronDown, LayoutGrid, Layers, List } from 'lucide-react'
+import { Filter, SlidersHorizontal, ChevronDown, RotateCcw } from 'lucide-react'
 
 const TradesView = () => {
   const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
-  // Persisted view mode ('detailed' | 'compact' | 'list') and filter settings
-  const [viewMode, setViewMode] = useState(() => {
-    return localStorage.getItem('trades_view_mode') || 'detailed';
-  });
-  const [search, setSearch] = useState(() => {
-    return localStorage.getItem('trades_filter_search') || '';
-  });
+  // Persisted filter settings
   const [strategyFilter, setStrategyFilter] = useState(() => {
     return localStorage.getItem('trades_filter_strategy') || 'ALL';
   });
@@ -40,16 +34,6 @@ const TradesView = () => {
   const [filtersExpanded, setFiltersExpanded] = useState(() => {
     return localStorage.getItem('trades_filters_expanded') === 'true';
   });
-
-  const handleViewModeChange = (mode) => {
-    setViewMode(mode);
-    localStorage.setItem('trades_view_mode', mode);
-  };
-
-  const handleSearchChange = (val) => {
-    setSearch(val);
-    localStorage.setItem('trades_filter_search', val);
-  };
 
   const handleStrategyFilterChange = (val) => {
     setStrategyFilter(val);
@@ -72,6 +56,12 @@ const TradesView = () => {
       localStorage.setItem('trades_filters_expanded', String(next));
       return next;
     });
+  };
+
+  const resetAllFilters = () => {
+    handleStrategyFilterChange('ALL');
+    handleDirectionFilterChange('ALL');
+    handleRiskFilterChange('ALL');
   };
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
@@ -181,13 +171,9 @@ const TradesView = () => {
       {(() => {
         const availableStrategies = Array.from(new Set((activeTrades || []).map(t => t.strategy_label || 'Momentum Strategy')));
 
+        const hasActiveFilters = strategyFilter !== 'ALL' || directionFilter !== 'ALL' || riskFilter !== 'ALL';
+
         const filteredTrades = (activeTrades || []).filter(t => {
-          if (search) {
-            const term = search.toLowerCase().trim();
-            const symbolMatch = (t.symbol || '').toLowerCase().includes(term);
-            const stratMatch = (t.strategy_label || '').toLowerCase().includes(term);
-            if (!symbolMatch && !stratMatch) return false;
-          }
           if (strategyFilter !== 'ALL' && (t.strategy_label || 'Momentum Strategy') !== strategyFilter) {
             return false;
           }
@@ -208,98 +194,66 @@ const TradesView = () => {
 
         return (
           <div className="flex flex-col gap-6">
-            {/* Filter Toolbar & View Mode Switcher */}
-            <div className="bg-background/95 border border-border/30 rounded-2xl p-3 shadow-sm flex flex-col gap-3 w-full">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 w-full">
-                {/* View Mode Selector Tabs */}
-                <div className="flex items-center bg-surface/60 border border-border/40 p-0.5 rounded-xl self-start sm:self-auto" role="tablist" aria-label="Active positions view mode selection">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={viewMode === 'detailed'}
-                    onClick={() => handleViewModeChange('detailed')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                      viewMode === 'detailed' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
-                    )}
-                  >
-                    <LayoutGrid size={12} />
-                    <span>Detailed</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={viewMode === 'compact'}
-                    onClick={() => handleViewModeChange('compact')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                      viewMode === 'compact' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
-                    )}
-                  >
-                    <Layers size={12} />
-                    <span>Compact</span>
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={viewMode === 'list'}
-                    onClick={() => handleViewModeChange('list')}
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                      viewMode === 'list' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text"
-                    )}
-                  >
-                    <List size={12} />
-                    <span>List</span>
-                  </button>
-                </div>
-
-                {/* Search Bar */}
-                <div className="relative group w-full sm:max-w-[260px]">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
-                  <input
-                    type="text"
-                    placeholder="Search active positions..."
-                    aria-label="Search active positions"
-                    value={search}
-                    onChange={(e) => handleSearchChange(e.target.value)}
-                    className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-3 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-                  />
-                </div>
-
-                {/* Toggle Advanced Filters Button */}
-                <button
-                  type="button"
-                  onClick={handleToggleFilters}
-                  aria-expanded={filtersExpanded}
-                  aria-label={filtersExpanded ? "Collapse active trade filters" : "Expand active trade filters"}
-                  className={cn(
-                    "px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider flex items-center gap-1.5 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 self-end sm:self-auto",
-                    filtersExpanded
-                      ? "bg-accent/15 border-accent/40 text-accent"
-                      : "bg-surface border-border/40 text-dim hover:text-text hover:border-accent/30"
+            {/* Ultra-Dense Mobile-Optimized Filter Bar */}
+            <div id="active-trades-filter-toolbar" className="bg-background/95 border border-border/40 rounded-2xl p-2.5 sm:p-3 shadow-sm flex flex-col gap-2 w-full">
+              <div className="flex items-center justify-between gap-2 w-full">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
+                    <Filter size={12} className="text-accent" />
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-text">Tactical Filters</span>
+                  {hasActiveFilters && (
+                    <span className="px-1.5 py-0.2 rounded-full bg-accent/20 text-accent border border-accent/30 text-[8px] font-mono font-black">
+                      ACTIVE
+                    </span>
                   )}
-                >
-                  <SlidersHorizontal size={12} className={cn(filtersExpanded ? "text-accent" : "text-dim")} />
-                  <span>Filters</span>
-                  <ChevronDown size={12} className={cn("transition-transform duration-200", filtersExpanded && "rotate-180")} />
-                </button>
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  {hasActiveFilters && (
+                    <button
+                      type="button"
+                      onClick={resetAllFilters}
+                      className="px-2 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
+                      aria-label="Reset position filters"
+                    >
+                      <RotateCcw size={10} />
+                      <span className="hidden sm:inline">Reset</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleToggleFilters}
+                    aria-expanded={filtersExpanded}
+                    aria-label={filtersExpanded ? "Collapse active trade filters" : "Expand active trade filters"}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
+                      filtersExpanded
+                        ? "bg-accent/15 border-accent/40 text-accent"
+                        : "bg-surface border-border/40 text-dim hover:text-text hover:border-accent/30"
+                    )}
+                  >
+                    <SlidersHorizontal size={11} className={cn(filtersExpanded ? "text-accent" : "text-dim")} />
+                    <span>Options</span>
+                    <ChevronDown size={11} className={cn("transition-transform duration-200", filtersExpanded && "rotate-180")} />
+                  </button>
+                </div>
               </div>
 
-              {/* Collapsible Filter Panel */}
+              {/* Collapsible Ultra-Dense Filter Chip Groups */}
               {filtersExpanded && (
-                <div className="pt-2 border-t border-border/20 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="pt-2 border-t border-border/20 flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
                   {/* Strategy Filter */}
                   {availableStrategies.length > 1 && (
-                    <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl overflow-x-auto no-scrollbar">
-                      <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Strategy:</span>
+                    <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                      <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Strategy:</span>
                       <button
                         type="button"
                         onClick={() => handleStrategyFilterChange('ALL')}
                         aria-pressed={strategyFilter === 'ALL'}
                         className={cn(
-                          "px-2 py-1 rounded-lg text-[8.5px] font-black tracking-wider uppercase transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                          strategyFilter === 'ALL' ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                          "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                          strategyFilter === 'ALL' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                         )}
                       >
                         ALL
@@ -311,8 +265,8 @@ const TradesView = () => {
                           onClick={() => handleStrategyFilterChange(st)}
                           aria-pressed={strategyFilter === st}
                           className={cn(
-                            "px-2 py-1 rounded-lg text-[8.5px] font-black tracking-wider uppercase transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                            strategyFilter === st ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                            "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                            strategyFilter === st ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                           )}
                         >
                           {st}
@@ -322,8 +276,8 @@ const TradesView = () => {
                   )}
 
                   {/* Direction Filter */}
-                  <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
-                    <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Direction:</span>
+                  <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                    <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Direction:</span>
                     {['ALL', 'LONG', 'SHORT'].map(d => (
                       <button
                         key={d}
@@ -331,8 +285,8 @@ const TradesView = () => {
                         onClick={() => handleDirectionFilterChange(d)}
                         aria-pressed={directionFilter === d}
                         className={cn(
-                          "px-2 py-1 rounded-lg text-[8.5px] font-black tracking-wider uppercase transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                          directionFilter === d ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                          "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                          directionFilter === d ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                         )}
                       >
                         {d}
@@ -341,8 +295,8 @@ const TradesView = () => {
                   </div>
 
                   {/* Risk Status Filter */}
-                  <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
-                    <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Risk:</span>
+                  <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                    <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Risk:</span>
                     {[
                       { id: 'ALL', label: 'ALL' },
                       { id: 'PROTECTED', label: 'PROTECTED' },
@@ -354,8 +308,8 @@ const TradesView = () => {
                         onClick={() => handleRiskFilterChange(r.id)}
                         aria-pressed={riskFilter === r.id}
                         className={cn(
-                          "px-2 py-1 rounded-lg text-[8.5px] font-black tracking-wider uppercase transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                          riskFilter === r.id ? "bg-accent/15 text-accent border border-accent/20" : "text-dim hover:text-text"
+                          "px-2 py-0.5 rounded-md text-[8px] font-black tracking-wider uppercase transition-all shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none",
+                          riskFilter === r.id ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
                         )}
                       >
                         {r.label}
@@ -394,16 +348,11 @@ const TradesView = () => {
           <div className="bg-surface/20 border border-border border-dashed rounded-3xl p-12 flex flex-col items-center justify-center text-center">
             <h3 className="text-base font-bold mb-1">No Matching Active Positions</h3>
             <p className="text-dim text-xs max-w-xs mx-auto mb-4">
-              No open trades match your current search or filter parameters.
+              No open trades match your current filter parameters.
             </p>
             <Btn
               variant="secondary"
-              onClick={() => {
-                handleSearchChange('');
-                handleStrategyFilterChange('ALL');
-                handleDirectionFilterChange('ALL');
-                handleRiskFilterChange('ALL');
-              }}
+              onClick={resetAllFilters}
               className="px-6 text-xs"
             >
               Reset Filters
@@ -411,10 +360,7 @@ const TradesView = () => {
           </div>
         ) : (
           <AnimatePresence mode="popLayout">
-            <div className={cn(
-              "grid gap-4",
-              viewMode === 'compact' ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3" : "grid-cols-1"
-            )}>
+            <div className="grid gap-4 grid-cols-1">
               {filteredTrades.map((trade, idx) => (
                 <motion.div
                   key={trade.id || trade.symbol}
@@ -426,7 +372,7 @@ const TradesView = () => {
                   <ActiveTradeCard
                     trade={trade}
                     config={config}
-                    compact={viewMode !== 'detailed'}
+                    compact={false}
                     onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
                     onMouseEnter={preloadTradeDetailModal}
                     isResuming={isResuming}

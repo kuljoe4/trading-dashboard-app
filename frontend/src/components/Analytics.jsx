@@ -5,48 +5,93 @@ import { formatDuration } from '../lib/formatters';
 import { cn, Tooltip } from '../components/ui/primitives';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, X, List, Grid, Maximize2, Minimize2, Layers, ZoomIn } from 'lucide-react';
 
-const downsample = (data, threshold = 100) => {
-  if (data.length <= threshold) return data;
-  const factor = Math.floor(data.length / threshold);
-  const result = [];
-  for (let i = 0; i < data.length; i += factor) {
-    result.push(data[i]);
-  }
-  // Ensure the last point is always included to show current PnL accurately
-  if (result[result.length - 1] !== data[data.length - 1]) {
-    result.push(data[data.length - 1]);
-  }
-  return result;
-};
-
 export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hideAxes = false, configChanges = [] }) => {
   const gradientId = useId().replace(/:/g, '')
   const glowId = `${gradientId}-glow`
   const containerRef = useRef(null);
   const [hoverData, setHoverData] = useState(null);
 
-  const { points, viewMin, viewMax, viewRange } = useMemo(() => {
+  // BOLT OPTIMIZATION: Fused Single-Pass Downsampling, Extreme Tracking & Peak Path Generation
+  // Consolidates downsampling, valid PnL filtering, scalar min/max tracking, and SVG peak/drawdown path construction
+  // into fused single-pass loops, eliminating downsample(data).filter(...) intermediate arrays, Math.min(...values)
+  // spread allocations, and redundant peak array iterations.
+  const { points, viewMin, viewMax, viewRange, peakPathD, drawdownPathD } = useMemo(() => {
     const safeData = Array.isArray(data) ? data : [];
-    const downsampled = downsample(safeData).filter(d => d && typeof d.pnl === 'number');
-    if (!downsampled || downsampled.length < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1 };
+    const len = safeData.length;
+    if (len < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1, peakPathD: '', drawdownPathD: '' };
 
-    const values = downsampled.map(d => d.pnl);
-    const min = Math.min(0, ...values);
-    const max = Math.max(0.1, ...values);
+    const threshold = 100;
+    const factor = len > threshold ? Math.floor(len / threshold) : 1;
+    const downsampled = [];
+    let min = 0;
+    let max = 0.1;
+
+    for (let i = 0; i < len; i += factor) {
+      const d = safeData[i];
+      if (d && typeof d.pnl === 'number' && !Number.isNaN(d.pnl)) {
+        downsampled.push(d);
+        if (d.pnl < min) min = d.pnl;
+        if (d.pnl > max) max = d.pnl;
+      }
+    }
+
+    // Always include the last valid point if step skipped it
+    const lastPoint = safeData[len - 1];
+    if (lastPoint && typeof lastPoint.pnl === 'number' && !Number.isNaN(lastPoint.pnl)) {
+      if (downsampled.length === 0 || downsampled[downsampled.length - 1] !== lastPoint) {
+        downsampled.push(lastPoint);
+        if (lastPoint.pnl < min) min = lastPoint.pnl;
+        if (lastPoint.pnl > max) max = lastPoint.pnl;
+      }
+    }
+
+    const dsLen = downsampled.length;
+    if (dsLen < 2) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1, peakPathD: '', drawdownPathD: '' };
+
     const range = max - min;
     const padding = range * 0.15; // Slightly more padding
-
     const vMin = min - padding;
     const vMax = max + padding;
     const vRange = vMax - vMin;
 
-    const pts = downsampled.map((d, i) => {
-      const x = (i / (downsampled.length - 1)) * 100;
-      const y = 100 - ((d.pnl - vMin) / vRange) * 100;
-      return { x, y, pnl: d.pnl, ts: d.ts, configChange: d.configChange };
-    });
+    const pts = new Array(dsLen);
+    let peakD = '';
+    let peakRevD = '';
+    let eqD = '';
+    let currentMinY = Infinity;
 
-    return { points: pts, viewMin: vMin, viewMax: vMax, viewRange: vRange };
+    for (let i = 0; i < dsLen; i++) {
+      const d = downsampled[i];
+      const x = (i / (dsLen - 1)) * 100;
+      const y = 100 - ((d.pnl - vMin) / vRange) * 100;
+      pts[i] = { x, y, pnl: d.pnl, ts: d.ts, configChange: d.configChange };
+
+      // Inverted Y: max PnL corresponds to minimum Y coordinate
+      if (y < currentMinY) {
+        currentMinY = y;
+      }
+
+      if (i === 0) {
+        peakD = `M ${x} ${currentMinY}`;
+        peakRevD = ` L ${x} ${currentMinY}`;
+        eqD = `M ${x} ${y}`;
+      } else {
+        peakD += ` L ${x} ${currentMinY}`;
+        peakRevD = ` L ${x} ${currentMinY}` + peakRevD;
+        eqD += ` L ${x} ${y}`;
+      }
+    }
+
+    const ddPathD = `${eqD}${peakRevD} Z`;
+
+    return {
+      points: pts,
+      viewMin: vMin,
+      viewMax: vMax,
+      viewRange: vRange,
+      peakPathD: peakD,
+      drawdownPathD: ddPathD
+    };
   }, [data]);
 
   // Derived list of config change markers on timeline
@@ -99,41 +144,6 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
 
   const areaAboveD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
   const areaBelowD = points.length >= 2 ? `${pathD} L 100 ${zeroY} L 0 ${zeroY} Z` : '';
-
-  const peaks = useMemo(() => {
-    if (points.length < 2) return [];
-    let currentMax = -Infinity;
-    return points.map(p => {
-        // Remember Y is inverted, so max PnL is MIN Y
-        if (currentMax === -Infinity || p.y < currentMax) {
-            currentMax = p.y;
-        }
-        return { x: p.x, y: currentMax };
-    });
-  }, [points]);
-
-  const peakPathD = useMemo(() => {
-    if (peaks.length < 2) return '';
-    let d = `M ${peaks[0].x} ${peaks[0].y}`;
-    for (let i = 1; i < peaks.length; i++) {
-        d += ` L ${peaks[i].x} ${peaks[i].y}`;
-    }
-    return d;
-  }, [peaks]);
-
-  const drawdownPathD = useMemo(() => {
-    if (points.length < 2 || peaks.length < 2) return '';
-    // Combine peak path and equity path to form a closed area for shading
-    let d = `M ${points[0].x} ${points[0].y}`;
-    for (let i = 1; i < points.length; i++) {
-        d += ` L ${points[i].x} ${points[i].y}`;
-    }
-    for (let i = peaks.length - 1; i >= 0; i--) {
-        d += ` L ${peaks[i].x} ${peaks[i].y}`;
-    }
-    d += ' Z';
-    return d;
-  }, [points, peaks]);
 
   const handleInteraction = (clientX) => {
     if (!containerRef.current || points.length < 2) return;

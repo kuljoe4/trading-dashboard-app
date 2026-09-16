@@ -92,6 +92,12 @@ export class TradeEntity {
   @Column({ type: 'varchar', nullable: true })
   entry_signal_type: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  entry_reason: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  entry_signal_reason: string | null;
+
   @Column('decimal', { precision: 10, scale: 4, default: 0 })
   entry_signal_confidence: number;
 

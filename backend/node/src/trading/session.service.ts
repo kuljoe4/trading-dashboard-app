@@ -422,17 +422,19 @@ export class SessionService implements OnModuleInit {
 
         await queryRunner.manager.update(SettingsEntity, "default", updateData);
 
-        // Record Balance Snapshot
-        const snapshot = this.balanceHistoryRepository.create({
-          timestamp: new Date(),
-          balance: balance,
-          pnl: roundEight(trade.pnl || 0),
-          type: trade.status === "OPEN" ? "TRADE_OPEN" : "TRADE_CLOSE",
-          sessionId: sessionId,
-          tradeId: trade.id,
-          tradingMode: mode as any,
-        });
-        await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
+        // Record Balance Snapshot strictly on trade completion to prevent per-tick DB inflation
+        if (trade.status !== "OPEN") {
+          const snapshot = this.balanceHistoryRepository.create({
+            timestamp: new Date(),
+            balance: balance,
+            pnl: roundEight(trade.pnl || 0),
+            type: "TRADE_CLOSE",
+            sessionId: sessionId,
+            tradeId: trade.id,
+            tradingMode: mode as any,
+          });
+          await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
+        }
       }
 
       await queryRunner.commitTransaction();
@@ -3017,7 +3019,7 @@ export class SessionService implements OnModuleInit {
       });
       const logRetentionDays = (settings as any)?.log_retention_days || 7;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
-      const klineRetentionDays = 7;
+      const klineRetentionDays = (settings as any)?.kline_retention_days || 3;
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,
@@ -3039,19 +3041,29 @@ export class SessionService implements OnModuleInit {
         .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
         .execute();
 
+      const balanceCutoff = new Date(
+        Date.now() - 7 * 24 * 60 * 60 * 1000,
+      );
       const deletedBalanceHistory = await this.balanceHistoryRepository
         .createQueryBuilder()
         .delete()
-        .where("timestamp < :cutoff", { cutoff: tradeCutoff })
+        .where("timestamp < :cutoff", { cutoff: balanceCutoff })
         .execute();
 
-      // SEC-02: Cleanup old kline data to prevent unbounded storage growth
-      const klineCutoff = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+      // SEC-02: Interval-aware kline cleanup to protect HTF EMA Cross Ranking (4h) & warmup while pruning high-volume 1m rows
+      // 1m klines: 3 days retention (~210K rows saved)
+      // HTF klines (4h, 1h, 1d, etc.): 60 days retention (ensures ~180-200 HTF candles for 4h EMA 9/21 cross ranking accuracy)
+      const klineCutoff1m = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+      const klineCutoffHtf = Date.now() - 60 * 24 * 60 * 60 * 1000;
+
       const deletedKlines = await this.sessionRepository.manager
         .createQueryBuilder()
         .delete()
         .from("klines")
-        .where("time < :cutoff", { cutoff: klineCutoff })
+        .where("(interval = '1m' AND time < :cutoff1m) OR (interval != '1m' AND time < :cutoffHtf)", {
+          cutoff1m: klineCutoff1m,
+          cutoffHtf: klineCutoffHtf,
+        })
         .execute();
 
       // SENTINEL: Also cleanup audit logs periodically
@@ -3080,6 +3092,20 @@ export class SessionService implements OnModuleInit {
         if (!runningIds.has(sid)) {
           this.sessionLogCounts.delete(sid);
           sessionLogCountCleared++;
+        }
+      }
+
+      // Refresh PostgreSQL query planner statistics via lightweight ANALYZE without CPU spikes (autovacuum handles dead tuple vacuuming in background)
+      const totalDeleted = (deletedLogs.affected || 0) + (deletedTrades.affected || 0) + (deletedBalanceHistory.affected || 0) + (deletedKlines.affected || 0) + (deletedAudit || 0);
+      if (totalDeleted > 0) {
+        try {
+          await this.sessionRepository.query(
+            "ANALYZE klines; ANALYZE trade_entity; ANALYZE balance_history; ANALYZE log; ANALYZE audit_logs;"
+          );
+        } catch (analyzeErr: any) {
+          this.logger.debug(
+            `Periodic ANALYZE skipped or non-Postgres driver: ${analyzeErr?.message || analyzeErr}`
+          );
         }
       }
 

@@ -8,6 +8,7 @@ describe("SessionController Query Parameter Validation", () => {
   beforeEach(() => {
     mockSessionService = {
       getHistory: jest.fn().mockResolvedValue({ trades: [] }),
+      getLogs: jest.fn().mockResolvedValue([]),
       getLifetimeAnalytics: jest.fn().mockResolvedValue({ totalPnl: 0 }),
     };
 
@@ -70,6 +71,41 @@ describe("SessionController Query Parameter Validation", () => {
       const longMode = "paper_long_invalid_string_exceeding_twenty_chars" as any;
       await expect(controller.getLifetimeAnalytics(longMode)).rejects.toThrow(BadRequestException);
       expect(mockSessionService.getLifetimeAnalytics).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("getLogs", () => {
+    it("should accept undefined/omitted limit and default to 50", async () => {
+      await expect(controller.getLogs()).resolves.not.toThrow();
+      expect(mockSessionService.getLogs).toHaveBeenCalledWith(50);
+    });
+
+    it("should accept valid numeric limit string between 1 and 1000", async () => {
+      await expect(controller.getLogs("100")).resolves.not.toThrow();
+      expect(mockSessionService.getLogs).toHaveBeenCalledWith(100);
+    });
+
+    it("should reject non-string array limit query parameter to prevent HPP type confusion", async () => {
+      const invalidArray = ["50", "100"] as any;
+      await expect(controller.getLogs(invalidArray)).rejects.toThrow(BadRequestException);
+      expect(mockSessionService.getLogs).not.toHaveBeenCalled();
+    });
+
+    it("should reject non-digit strings in limit query parameter", async () => {
+      await expect(controller.getLogs("50abc")).rejects.toThrow(BadRequestException);
+      await expect(controller.getLogs("abc")).rejects.toThrow(BadRequestException);
+      expect(mockSessionService.getLogs).not.toHaveBeenCalled();
+    });
+
+    it("should reject limit string exceeding 10 characters", async () => {
+      await expect(controller.getLogs("100000000000")).rejects.toThrow(BadRequestException);
+      expect(mockSessionService.getLogs).not.toHaveBeenCalled();
+    });
+
+    it("should reject limit out of bounds (< 1 or > 1000)", async () => {
+      await expect(controller.getLogs("0")).rejects.toThrow(BadRequestException);
+      await expect(controller.getLogs("1001")).rejects.toThrow(BadRequestException);
+      expect(mockSessionService.getLogs).not.toHaveBeenCalled();
     });
   });
 });

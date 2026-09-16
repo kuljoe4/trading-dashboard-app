@@ -205,7 +205,7 @@ const usdFormatter4 = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 4
 });
 
-export const fmtUSD = (val) => {
+export const fmtUSD = (val, showArrow = false) => {
   const n = Number(val || 0);
   const absN = Math.abs(n);
   const formatter = (absN < 1 && absN > 0) ? usdFormatter4 : usdFormatter2;
@@ -213,6 +213,10 @@ export const fmtUSD = (val) => {
 
   // If the value rounds to zero or is exactly zero, return neutral format
   if (n === 0 || formatted === '0.00' || formatted === '0.0000') return `$${formatted}`;
+
+  if (!showArrow) {
+    return n < 0 ? `-$${formatted}` : `$${formatted}`;
+  }
 
   // BOLT: Clean up visuals - use either arrow OR sign, not both (Double Negative issue)
   // We'll keep the arrow as it's more distinct in the financial context.

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
+import { BadRequestException } from '@nestjs/common';
 import { SettingsController, maskApiKey } from './settings.controller';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { AuditLogService } from './audit-log.service';
@@ -220,5 +221,77 @@ describe('SettingsController: validateKeys error sanitization', () => {
     expect(result.checks[0].message).not.toContain('secret_key_123456');
     expect(result.checks[0].message).not.toContain('super_secret_password');
     expect(result.checks[0].message).toContain('[MASKED]');
+  });
+});
+
+describe('SettingsController: defense-in-depth DTO whitelist validation', () => {
+  let controller: SettingsController;
+
+  beforeAll(() => {
+    process.env.ENCRYPTION_KEY = 'super-secret-encryption-key-for-testing';
+  });
+
+  beforeEach(async () => {
+    jest.clearAllMocks();
+
+    const module: TestingModule = await Test.createTestingModule({
+      controllers: [SettingsController],
+      providers: [
+        {
+          provide: getRepositoryToken(SettingsEntity),
+          useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() },
+        },
+        {
+          provide: AuditLogService,
+          useValue: { log: jest.fn() },
+        },
+        {
+          provide: BinanceClientFactory,
+          useValue: { createClient: jest.fn() },
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: jest.fn() },
+        },
+      ],
+    }).compile();
+
+    controller = module.get<SettingsController>(SettingsController);
+  });
+
+  it('should throw BadRequestException when updateKeys payload contains non-whitelisted properties', async () => {
+    const invalidDto = {
+      api_key: 'valid_api_key_123456',
+      unauthorized_extra_field: 'malicious_payload',
+    } as any;
+
+    const req = {
+      ip: '127.0.0.1',
+      headers: { 'user-agent': 'test-agent' },
+    } as any;
+
+    await expect(controller.updateKeys(invalidDto, req)).rejects.toThrow(BadRequestException);
+  });
+
+  it('should throw BadRequestException when validateKeys payload contains non-whitelisted properties', async () => {
+    const invalidDto = {
+      api_key: 'valid_api_key_123456',
+      unauthorized_extra_field: 'malicious_payload',
+    } as any;
+
+    await expect(controller.validateKeys(invalidDto)).rejects.toThrow(BadRequestException);
+  });
+
+  it('should throw BadRequestException when API key contains invalid characters (e.g. script injection)', async () => {
+    const invalidDto = {
+      api_key: '<script>alert("xss")</script>',
+    } as any;
+
+    const req = {
+      ip: '127.0.0.1',
+      headers: { 'user-agent': 'test-agent' },
+    } as any;
+
+    await expect(controller.updateKeys(invalidDto, req)).rejects.toThrow(BadRequestException);
   });
 });

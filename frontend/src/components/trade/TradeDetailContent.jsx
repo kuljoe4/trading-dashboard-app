@@ -978,14 +978,25 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
   const strategyLabel = trade.strategy_label || activeSessionConfig?.strategy_label || 'Momentum Strategy';
   const initialRisk = Number(trade.initial_risk_usdt || trade.risk_usdt || 0);
   const entryDailyChange = Number(trade.entry_daily_change_pct || 0);
-  const signalParams = trade.strategy_config?.signal_params || activeSessionConfig?.signal_params || {};
 
-  const paramEntries = Object.entries(signalParams).filter(([_, v]) => v !== undefined && v !== null && v !== '');
+  const signalParams = trade.strategy_config?.signal_params || activeSessionConfig?.signal_params;
+
+  const paramEntries = useMemo(() => {
+    if (!signalParams) return [];
+    return Object.entries(signalParams).filter(([_, v]) => v !== undefined && v !== null && v !== '');
+  }, [signalParams]);
 
   const scanInterval = trade.strategy_config?.scan_interval || activeSessionConfig?.scan_interval || '1m';
 
   const entryTs = trade.created_at || trade.entry_ts;
-  const entryTimeFormatted = entryTs ? new Date(entryTs).toLocaleString() : 'Live Session';
+  const entryTimeFormatted = useMemo(() => {
+    if (!entryTs) return 'Live Session';
+    try {
+      return new Date(entryTs).toLocaleString();
+    } catch (e) {
+      return String(entryTs);
+    }
+  }, [entryTs]);
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3">
@@ -1236,6 +1247,185 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       i === idx ? { ...row, [field]: Number(value) } : row
     ))
   }
+
+  const handleCopyFormLadderToClipboard = () => {
+    const text = formLadder.map(r => `${r.trigger} -> ${r.exit}`).join('\n');
+    navigator.clipboard.writeText(text);
+    useTradingStore.getState().addAlert({
+      level: 'info',
+      title: 'Milestones Copied',
+      message: 'Guard Ladder milestones copied to clipboard.'
+    });
+  };
+
+  const handlePasteFormLadderFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const lines = text.split(/[\r\n]+/);
+      const parsedPairs = [];
+      lines.forEach(line => {
+        const trimmed = line.trim();
+        if (!trimmed) return;
+        if (trimmed.includes('->') || trimmed.includes(':') || trimmed.includes(',')) {
+          const parts = trimmed.split(/->|:|,/);
+          const trig = parseFloat(parts[0]);
+          const ex = parseFloat(parts[1] ?? '0');
+          if (!isNaN(trig)) {
+            parsedPairs.push({ trigger: trig, exit: isNaN(ex) ? 0 : ex });
+          }
+        } else {
+          const val = parseFloat(trimmed);
+          if (!isNaN(val)) {
+            parsedPairs.push({ trigger: val, exit: Math.max(0, val - 1) });
+          }
+        }
+      });
+      if (parsedPairs.length > 0) {
+        parsedPairs.sort((a, b) => a.trigger - b.trigger);
+        const newRows = parsedPairs.map((p, idx) => ({
+          id: `ladder-paste-${Date.now()}-${idx}-${Math.random()}`,
+          trigger: p.trigger,
+          exit: p.exit
+        }));
+        setFormLadder(newRows);
+        useTradingStore.getState().addAlert({
+          level: 'success',
+          title: 'Milestones Pasted',
+          message: `Pasted ${parsedPairs.length} milestones into form.`
+        });
+      }
+    } catch (err) {
+      useTradingStore.getState().addAlert({
+        level: 'warn',
+        title: 'Paste Failed',
+        message: 'Could not read clipboard. Please check formatting.'
+      });
+    }
+  };
+
+  const handleCopyEditorConfigToClipboard = async () => {
+    try {
+      const sortedLadder = [...formLadder].sort((a, b) => Number(a.trigger || 0) - Number(b.trigger || 0));
+      const live_rr_sequence = sortedLadder.map(r => Number(r.trigger));
+      const exit_rr_sequence = sortedLadder.map(r => Number(r.exit));
+
+      const signal_params = {};
+      Object.entries(formOverrides).forEach(([k, v]) => {
+        if (v !== '' && v !== null && v !== undefined) {
+          const num = Number(v);
+          if (!isNaN(num) && v !== '') {
+            signal_params[k] = num;
+          } else if (v === 'true' || v === 'false') {
+            signal_params[k] = v === 'true';
+          } else {
+            signal_params[k] = v;
+          }
+        }
+      });
+
+      const exit_signal_delays = {};
+      Object.entries(formDelays).forEach(([k, v]) => {
+        if (v !== '' && v !== null && v !== undefined) {
+          if (typeof v === 'string' && /^\d+c$/.test(v)) {
+            exit_signal_delays[k] = v;
+          } else {
+            const num = Number(v);
+            if (!isNaN(num) && num >= 0) {
+              exit_signal_delays[k] = num;
+            }
+          }
+        }
+      });
+
+      const configPayload = {
+        current_sl: Number(formSl),
+        live_rr_sequence,
+        exit_rr_sequence,
+        strategy_config: {
+          signal_params,
+          exit_signal_delays,
+          force_risk_release: formForceRiskRelease
+        }
+      };
+
+      await navigator.clipboard.writeText(JSON.stringify(configPayload, null, 2));
+      useTradingStore.getState().addAlert({
+        level: 'success',
+        title: 'Config Copied',
+        message: 'Active Exit Guard configuration JSON copied to clipboard.'
+      });
+    } catch (e) {
+      useTradingStore.getState().addAlert({
+        level: 'error',
+        title: 'Copy Failed',
+        message: 'Unable to write configuration to clipboard.'
+      });
+    }
+  };
+
+  const handlePasteEditorConfigFromClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) {
+        useTradingStore.getState().addAlert({
+          level: 'warning',
+          title: 'Clipboard Empty',
+          message: 'No clipboard content found to paste.'
+        });
+        return;
+      }
+      const parsed = JSON.parse(text);
+
+      if (parsed.current_sl && !isNaN(Number(parsed.current_sl))) {
+        setFormSl(Number(parsed.current_sl));
+      }
+
+      const triggers = Array.isArray(parsed.live_rr_sequence) ? parsed.live_rr_sequence : [];
+      const exits = Array.isArray(parsed.exit_rr_sequence) ? parsed.exit_rr_sequence : [];
+      if (triggers.length > 0) {
+        const newLadder = triggers.map((trigger, idx) => ({
+          id: `ladder-paste-cfg-${Date.now()}-${idx}-${Math.random()}`,
+          trigger: Number(trigger),
+          exit: exits[idx] !== undefined ? Number(exits[idx]) : 0
+        })).sort((a, b) => a.trigger - b.trigger);
+        setFormLadder(newLadder);
+      }
+
+      const sc = parsed.strategy_config || {};
+      if (sc.force_risk_release !== undefined) {
+        setFormForceRiskRelease(Boolean(sc.force_risk_release));
+      }
+
+      if (sc.signal_params && typeof sc.signal_params === 'object') {
+        const newOverrides = { ...formOverrides };
+        Object.entries(sc.signal_params).forEach(([k, v]) => {
+          newOverrides[k] = String(v);
+        });
+        setFormOverrides(newOverrides);
+      }
+
+      if (sc.exit_signal_delays && typeof sc.exit_signal_delays === 'object') {
+        const newDelays = { ...formDelays };
+        Object.entries(sc.exit_signal_delays).forEach(([k, v]) => {
+          newDelays[k] = v;
+        });
+        setFormDelays(newDelays);
+      }
+
+      useTradingStore.getState().addAlert({
+        level: 'success',
+        title: 'Config Pasted',
+        message: 'Active Exit Guard configuration loaded from clipboard.'
+      });
+    } catch (err) {
+      useTradingStore.getState().addAlert({
+        level: 'error',
+        title: 'Paste Failed',
+        message: 'Invalid JSON exit guard configuration in clipboard.'
+      });
+    }
+  };
 
   const handleSaveTradeConfig = async () => {
     if (ladderValidationError) return;
@@ -1824,28 +2014,54 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
               <SectionLabel className="mb-0 flex items-center gap-1.5">
                 <Sliders size={14} className="text-accent" /> Active Exit Guard Configuration
               </SectionLabel>
-              <Btn
-                variant={isEditing ? "ghost" : "primary"}
-                onClick={() => setIsEditing(!isEditing)}
-                className={cn(
-                  "px-3.5 py-1.5 h-8 text-[10px] uppercase tracking-wider font-black rounded-lg transition-all duration-300",
-                  isEditing
-                    ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 hover:text-accent shadow-[0_0_15px_rgba(91,111,255,0.15)]"
-                    : "bg-surface hover:bg-accent hover:text-white text-text border border-border/60 hover:border-accent hover:shadow-[0_0_20px_rgba(91,111,255,0.2)]"
-                )}
-              >
-                {isEditing ? (
+              <div className="flex items-center gap-1.5">
+                {isEditing && (
                   <>
-                    <Sliders size={11} className="animate-pulse" />
-                    <span>Collapse Editor</span>
-                  </>
-                ) : (
-                  <>
-                    <Sliders size={11} />
-                    <span>Edit Config</span>
+                    <Tooltip content="Copy Active Exit Guard Config JSON to Clipboard">
+                      <button
+                        type="button"
+                        onClick={handleCopyEditorConfigToClipboard}
+                        className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                        aria-label="Copy Active Exit Guard Config to Clipboard"
+                      >
+                        <Copy size={10} /> Copy Config
+                      </button>
+                    </Tooltip>
+                    <Tooltip content="Paste Active Exit Guard Config JSON from Clipboard">
+                      <button
+                        type="button"
+                        onClick={handlePasteEditorConfigFromClipboard}
+                        className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                        aria-label="Paste Active Exit Guard Config from Clipboard"
+                      >
+                        <ClipboardPaste size={10} /> Paste Config
+                      </button>
+                    </Tooltip>
                   </>
                 )}
-              </Btn>
+                <Btn
+                  variant={isEditing ? "ghost" : "primary"}
+                  onClick={() => setIsEditing(!isEditing)}
+                  className={cn(
+                    "px-3.5 py-1.5 h-8 text-[10px] uppercase tracking-wider font-black rounded-lg transition-all duration-300",
+                    isEditing
+                      ? "bg-accent/10 border-accent/30 text-accent hover:bg-accent/20 hover:text-accent shadow-[0_0_15px_rgba(91,111,255,0.15)]"
+                      : "bg-surface hover:bg-accent hover:text-white text-text border border-border/60 hover:border-accent hover:shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+                  )}
+                >
+                  {isEditing ? (
+                    <>
+                      <Sliders size={11} className="animate-pulse" />
+                      <span>Collapse Editor</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sliders size={11} />
+                      <span>Edit Config</span>
+                    </>
+                  )}
+                </Btn>
+              </div>
             </div>
 
             <AnimatePresence initial={false}>
@@ -1931,14 +2147,36 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                         <SectionLabel className="text-[10px] text-accent/80 tracking-widest font-black uppercase mb-0">
                           Profit-Locking Guard Ladder Milestones
                         </SectionLabel>
-                        <Btn
-                          variant="ghost"
-                          onClick={handleAddLadderRow}
-                          className="px-2.5 py-1 h-7 text-[9px] uppercase tracking-wider font-black rounded-lg border border-border/40 hover:border-accent/40 text-accent/80 hover:text-accent hover:bg-accent/5 transition-all duration-300 active:scale-95"
-                          icon={Plus}
-                        >
-                          Add Milestone
-                        </Btn>
+                        <div className="flex items-center gap-1.5">
+                          <Tooltip content="Copy Guard Ladder Milestones to Clipboard">
+                            <button
+                              type="button"
+                              onClick={handleCopyFormLadderToClipboard}
+                              className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                              aria-label="Copy Guard Ladder Milestones to Clipboard"
+                            >
+                              <Copy size={10} /> Copy
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Paste Guard Ladder Milestones from Clipboard (e.g. 1 -> 0, 2 -> 1, 4 -> 2 or 1,2,4)">
+                            <button
+                              type="button"
+                              onClick={handlePasteFormLadderFromClipboard}
+                              className="px-2 py-1 bg-background border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+                              aria-label="Paste Guard Ladder Milestones from Clipboard"
+                            >
+                              <ClipboardPaste size={10} /> Paste
+                            </button>
+                          </Tooltip>
+                          <Btn
+                            variant="ghost"
+                            onClick={handleAddLadderRow}
+                            className="px-2.5 py-1 h-7 text-[9px] uppercase tracking-wider font-black rounded-lg border border-border/40 hover:border-accent/40 text-accent/80 hover:text-accent hover:bg-accent/5 transition-all duration-300 active:scale-95"
+                            icon={Plus}
+                          >
+                            Add Milestone
+                          </Btn>
+                        </div>
                       </div>
 
                       {ladderValidationError && (

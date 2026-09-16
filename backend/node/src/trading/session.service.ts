@@ -3095,16 +3095,16 @@ export class SessionService implements OnModuleInit {
         }
       }
 
-      // Execute VACUUM ANALYZE to reclaim dead tuple storage (56.2K dead rows) and refresh planner statistics when records are pruned
+      // Refresh PostgreSQL query planner statistics via lightweight ANALYZE without CPU spikes (autovacuum handles dead tuple vacuuming in background)
       const totalDeleted = (deletedLogs.affected || 0) + (deletedTrades.affected || 0) + (deletedBalanceHistory.affected || 0) + (deletedKlines.affected || 0) + (deletedAudit || 0);
       if (totalDeleted > 0) {
         try {
           await this.sessionRepository.query(
-            "VACUUM ANALYZE klines; VACUUM ANALYZE trade_entity; VACUUM ANALYZE balance_history; VACUUM ANALYZE log; VACUUM ANALYZE audit_logs;"
+            "ANALYZE klines; ANALYZE trade_entity; ANALYZE balance_history; ANALYZE log; ANALYZE audit_logs;"
           );
-        } catch (vacuumErr: any) {
+        } catch (analyzeErr: any) {
           this.logger.debug(
-            `Periodic VACUUM ANALYZE skipped or non-Postgres driver: ${vacuumErr?.message || vacuumErr}`
+            `Periodic ANALYZE skipped or non-Postgres driver: ${analyzeErr?.message || analyzeErr}`
           );
         }
       }

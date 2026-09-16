@@ -3050,13 +3050,20 @@ export class SessionService implements OnModuleInit {
         .where("timestamp < :cutoff", { cutoff: balanceCutoff })
         .execute();
 
-      // SEC-02: Cleanup old kline data to prevent unbounded storage growth (defaults to 3 days to optimize Postgres storage footprint)
-      const klineCutoff = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+      // SEC-02: Interval-aware kline cleanup to protect HTF EMA Cross Ranking (4h) & warmup while pruning high-volume 1m rows
+      // 1m klines: 3 days retention (~210K rows saved)
+      // HTF klines (4h, 1h, 1d, etc.): 60 days retention (ensures ~180-200 HTF candles for 4h EMA 9/21 cross ranking accuracy)
+      const klineCutoff1m = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+      const klineCutoffHtf = Date.now() - 60 * 24 * 60 * 60 * 1000;
+
       const deletedKlines = await this.sessionRepository.manager
         .createQueryBuilder()
         .delete()
         .from("klines")
-        .where("time < :cutoff", { cutoff: klineCutoff })
+        .where("(interval = '1m' AND time < :cutoff1m) OR (interval != '1m' AND time < :cutoffHtf)", {
+          cutoff1m: klineCutoff1m,
+          cutoffHtf: klineCutoffHtf,
+        })
         .execute();
 
       // SENTINEL: Also cleanup audit logs periodically

@@ -58,3 +58,48 @@ test('TradeDetailContent defines and renders EntrySignalContext component withou
     'EntrySignalContext should render warmup candle completion status'
   )
 })
+
+test('TradeDetailContent includes copy and paste actions for Active Exit Guard Config and Milestones', () => {
+  const filePath = path.join(process.cwd(), 'frontend/src/components/trade/TradeDetailContent.jsx')
+  const content = fs.readFileSync(filePath, 'utf8')
+
+  // Check Active Config Copy/Paste handlers
+  assert.ok(
+    content.includes('handleCopyEditorConfigToClipboard'),
+    'TradeDetailContent should define handleCopyEditorConfigToClipboard'
+  )
+  assert.ok(
+    content.includes('handlePasteEditorConfigFromClipboard'),
+    'TradeDetailContent should define handlePasteEditorConfigFromClipboard'
+  )
+
+  // Check Form Ladder Copy/Paste handlers
+  assert.ok(
+    content.includes('handleCopyFormLadderToClipboard'),
+    'TradeDetailContent should define handleCopyFormLadderToClipboard'
+  )
+  assert.ok(
+    content.includes('handlePasteFormLadderFromClipboard'),
+    'TradeDetailContent should define handlePasteFormLadderFromClipboard'
+  )
+
+  // Check Copy Config / Paste Config buttons aria-labels
+  assert.ok(
+    content.includes('aria-label="Copy Active Exit Guard Config to Clipboard"'),
+    'Copy Active Exit Guard Config button should have dynamic aria-label'
+  )
+  assert.ok(
+    content.includes('aria-label="Paste Active Exit Guard Config from Clipboard"'),
+    'Paste Active Exit Guard Config button should have dynamic aria-label'
+  )
+
+  // Check Copy / Paste Milestones buttons aria-labels inside editor
+  assert.ok(
+    content.includes('aria-label="Copy Guard Ladder Milestones to Clipboard"'),
+    'Copy Guard Ladder Milestones button should specify aria-label'
+  )
+  assert.ok(
+    content.includes('aria-label="Paste Guard Ladder Milestones from Clipboard"'),
+    'Paste Guard Ladder Milestones button should specify aria-label'
+  )
+})

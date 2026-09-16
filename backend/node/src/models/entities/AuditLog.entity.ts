@@ -10,7 +10,6 @@ export class AuditLog {
   timestamp: Date;
 
   @Column({ type: 'varchar', length: 50 })
-  @Index()
   action: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -23,7 +22,6 @@ export class AuditLog {
   userAgent: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  @Index()
   resourceId: string | null; // e.g., Trade ID, Session ID
 
   @Column({ type: 'jsonb', nullable: true })

@@ -3019,7 +3019,7 @@ export class SessionService implements OnModuleInit {
       });
       const logRetentionDays = (settings as any)?.log_retention_days || 7;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
-      const klineRetentionDays = 7;
+      const klineRetentionDays = (settings as any)?.kline_retention_days || 3;
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,
@@ -3050,7 +3050,7 @@ export class SessionService implements OnModuleInit {
         .where("timestamp < :cutoff", { cutoff: balanceCutoff })
         .execute();
 
-      // SEC-02: Cleanup old kline data to prevent unbounded storage growth
+      // SEC-02: Cleanup old kline data to prevent unbounded storage growth (defaults to 3 days to optimize Postgres storage footprint)
       const klineCutoff = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
       const deletedKlines = await this.sessionRepository.manager
         .createQueryBuilder()
@@ -3085,6 +3085,20 @@ export class SessionService implements OnModuleInit {
         if (!runningIds.has(sid)) {
           this.sessionLogCounts.delete(sid);
           sessionLogCountCleared++;
+        }
+      }
+
+      // Execute VACUUM ANALYZE to reclaim dead tuple storage (56.2K dead rows) and refresh planner statistics when records are pruned
+      const totalDeleted = (deletedLogs.affected || 0) + (deletedTrades.affected || 0) + (deletedBalanceHistory.affected || 0) + (deletedKlines.affected || 0) + (deletedAudit || 0);
+      if (totalDeleted > 0) {
+        try {
+          await this.sessionRepository.query(
+            "VACUUM ANALYZE klines; VACUUM ANALYZE trade_entity; VACUUM ANALYZE balance_history; VACUUM ANALYZE log; VACUUM ANALYZE audit_logs;"
+          );
+        } catch (vacuumErr: any) {
+          this.logger.debug(
+            `Periodic VACUUM ANALYZE skipped or non-Postgres driver: ${vacuumErr?.message || vacuumErr}`
+          );
         }
       }
 

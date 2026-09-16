@@ -1,6 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, Index } from 'typeorm';
 
 @Entity()
+@Index(['sessionId', 'timestamp'])
 export class BalanceHistory {
   @PrimaryGeneratedColumn('uuid')
   id: string;

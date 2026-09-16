@@ -873,7 +873,8 @@ export class OrderManagerService {
           const qtyPrecision = filters?.qtyPrecision ?? 8;
           const pricePrecision = filters?.pricePrecision ?? 8;
 
-          const entryOrderId = `ent-${trade.id.replace(/-/g, '').substring(0, 20)}`;
+          const tradeId = trade.id || uuid();
+          const entryOrderId = `ent-${tradeId.replace(/-/g, '').substring(0, 20)}`;
           if (entryOrderId.length > 36) {
              this.logger.error(`[${symbol}] CRITICAL: Generated ClientOrderId too long: ${entryOrderId}`);
           }
@@ -1102,7 +1103,8 @@ export class OrderManagerService {
 
           const slResult = await this.placeStopLoss(trade, slPrice, trade.entry_price);
           if (slResult?.orderId === 'TRIGGERED_LOCALLY') {
-             this.logger.log(`[${trade.id.substring(0, 8)}] SL for ${symbol} was triggered locally during entry. Trade will be handled by event-driven closure.`);
+             const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+             this.logger.log(`[${tradeIdShort8}] SL for ${symbol} was triggered locally during entry. Trade will be handled by event-driven closure.`);
              // CHRONOS: Return SL_FAILED to prevent ExecutionService from re-adding this closed trade as 'OPEN'
              // Note: in-flight cleanup handled in finally block
              return { status: ExecutionStatus.SL_FAILED, data: trade, error: 'Stop loss triggered locally during entry' };
@@ -1289,7 +1291,8 @@ export class OrderManagerService {
                continue adaptiveLoop;
         }
 
-        this.logger.warn(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL ${currentSlPrice} already breached by price ${currentMarketPrice}. Adaptive limit reached or not profitable. Closing.`);
+        const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
+        this.logger.warn(`[${tradeIdShort8}] ${trade.symbol} SL ${currentSlPrice} already breached by price ${currentMarketPrice}. Adaptive limit reached or not profitable. Closing.`);
         const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
         // SRE Loop Prevention: Only emit EXCHANGE_CLOSE if we are not already in a close sequence or close_blocked
@@ -1302,7 +1305,7 @@ export class OrderManagerService {
             feesAlreadyAccounted: false // Local trigger, fee not yet accounted by UDS
           });
         } else {
-          this.logger.log(`[${trade.id.substring(0, 8)}] ${trade.symbol} SL breach detected but skipped EXCHANGE_CLOSE event dispatch (isClosing=${isClosing}, close_blocked=${!!trade.close_blocked}).`);
+          this.logger.log(`[${tradeIdShort8}] ${trade.symbol} SL breach detected but skipped EXCHANGE_CLOSE event dispatch (isClosing=${isClosing}, close_blocked=${!!trade.close_blocked}).`);
         }
         return { orderId: 'TRIGGERED_LOCALLY', price: currentSlPrice };
       }
@@ -1343,7 +1346,7 @@ export class OrderManagerService {
         quantity: Number(trade.qty || 0).toFixed(qtyPrecision),
         triggerPrice: Number(currentSlPrice || 0).toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
-        clientAlgoId: `sl-${trade.id.substring(0, 8)}`,
+        clientAlgoId: `sl-${(trade.id || uuid()).substring(0, 8)}`,
         reduceOnly: true,
         priceProtect: true
       };
@@ -1456,7 +1459,7 @@ export class OrderManagerService {
           const standardParams = { ...slOrderParams };
           delete standardParams.algoType;
           delete (standardParams as any).clientAlgoId;
-          standardParams.newClientOrderId = `sl-${trade.id.substring(0, 8)}`;
+          standardParams.newClientOrderId = `sl-${(trade.id || uuid()).substring(0, 8)}`;
 
           standardParams.type = 'STOP_MARKET';
           // COMPLIANCE: Standard API uses stopPrice, while Algo API used triggerPrice
@@ -1740,7 +1743,7 @@ export class OrderManagerService {
       }
 
       // 2. Audit check for any untracked or duplicate deterministic SLs
-      const deterministicClientId = `sl-${trade.id.substring(0, 8)}`;
+      const deterministicClientId = `sl-${(trade.id || uuid()).substring(0, 8)}`;
       let exchangeState: any = null;
 
       try {
@@ -2725,7 +2728,7 @@ export class OrderManagerService {
       // BOLT OPTIMIZATION: Use pre-parsed precision
       const limitQtyPrecision = filters?.qtyPrecision ?? 8;
 
-      const clientOrderId = `cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}`;
+      const clientOrderId = `cls-lim-${(trade.id || uuid()).replace(/-/g, '').substring(0, 16)}`;
       const limitResponse = await this.binanceClient.restAPI.newOrder({
         symbol,
         side: trade.direction === 'LONG' ? 'SELL' : 'BUY',
@@ -2916,7 +2919,7 @@ export class OrderManagerService {
           if (exitReason === EXIT_REASONS.TP_HIT) prefix = 'tp';
           else if (exitReason.startsWith(EXIT_REASONS.SIGNAL) || exitReason === EXIT_REASONS.TRAILING_STOP) prefix = 'sig';
 
-          const clientOrderId = `${prefix}-${trade.id.replace(/-/g, '').substring(0, 20)}`;
+          const clientOrderId = `${prefix}-${(trade.id || uuid()).replace(/-/g, '').substring(0, 20)}`;
 
           // COMPLIANCE: Ensure price filters and ticker-informed quantities are used for emergency closes
           // to stay within PERCENT_PRICE boundaries.

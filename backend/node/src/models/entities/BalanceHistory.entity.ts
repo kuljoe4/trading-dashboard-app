@@ -7,7 +7,6 @@ export class BalanceHistory {
   id: string;
 
   @CreateDateColumn()
-  @Index()
   timestamp: Date;
 
   @Column('decimal', { precision: 20, scale: 8 })
@@ -26,6 +25,5 @@ export class BalanceHistory {
   tradeId: string | null;
 
   @Column({ type: 'varchar', default: 'paper' })
-  @Index()
   tradingMode: 'paper' | 'testnet' | 'live';
 }

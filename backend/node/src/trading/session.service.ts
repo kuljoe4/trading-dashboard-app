@@ -2126,16 +2126,21 @@ export class SessionService implements OnModuleInit {
           ? manualCurrentSl
           : (slPrice || initialSl);
 
+        const tradeId = uuid();
+
         if (!slId && mode !== "paper") {
           this.logger.log(`[Reconciliation] Proactively placing Stop Loss order on exchange for adopted ${exPos.symbol} @ ${finalSlPrice}`);
           try {
             const tempTrade = {
+              id: tradeId,
               symbol: exPos.symbol,
               direction,
               entry_price: entryPrice,
               qty,
               initial_sl: initialSl,
               current_sl: finalSlPrice,
+              binance_order_id: "RECON-" + tradeId.substring(0, 8),
+              is_reconciliation: true,
             } as any;
             const slResult = await this.orderManager.placeStopLoss(tempTrade, finalSlPrice, entryPrice);
             if (slResult && slResult.orderId) {
@@ -2151,7 +2156,7 @@ export class SessionService implements OnModuleInit {
 
         // Create synthetic trade for tracking/protection
         const syntheticTrade = this.tradeRepository.create({
-          id: uuid(),
+          id: tradeId,
           symbol: exPos.symbol,
           direction,
           entry_price: entryPrice,
@@ -3042,7 +3047,7 @@ export class SessionService implements OnModuleInit {
         .execute();
 
       const balanceCutoff = new Date(
-        Date.now() - 7 * 24 * 60 * 60 * 1000,
+        Date.now() - 3 * 24 * 60 * 60 * 1000,
       );
       const deletedBalanceHistory = await this.balanceHistoryRepository
         .createQueryBuilder()

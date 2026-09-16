@@ -70,6 +70,20 @@ export class SessionService implements OnModuleInit {
   private sessionLogCounts = new Map<string, number>();
   private adoptingSymbols: Set<string> = new Set();
 
+  // BOLT: In-memory state tracking to debounce high-frequency open trade tick updates
+  private openTradeLastSavedState = new Map<
+    string,
+    {
+      current_sl: number;
+      tp: number | null;
+      rr_sequence_index: number;
+      qty: number;
+      status: string;
+      pnl: number;
+      lastSavedTs: number;
+    }
+  >();
+
   constructor(
     @InjectRepository(SessionEntity)
     private sessionRepository: Repository<SessionEntity>,
@@ -346,13 +360,88 @@ export class SessionService implements OnModuleInit {
       return;
     }
 
+    const isTradeOpen = trade.status === "OPEN";
+
+    // 0. OPEN TRADE DEBOUNCE / SKIP UNNECESSARY DB WRITES
+    // If trade is OPEN, check if critical persistence fields (current_sl, tp, rr_sequence_index, qty, status, pnl) changed.
+    // Routine mark_price / max_rr_achieved updates on open trades are throttled to at most once per 15s.
+    if (isTradeOpen && trade.id) {
+      const lastState = this.openTradeLastSavedState.get(trade.id);
+      if (lastState) {
+        const criticalChanged =
+          Number(trade.current_sl || 0) !== lastState.current_sl ||
+          Number(trade.tp || 0) !== (lastState.tp || 0) ||
+          Number(trade.rr_sequence_index ?? -1) !== lastState.rr_sequence_index ||
+          Number(trade.qty || 0) !== lastState.qty ||
+          trade.status !== lastState.status ||
+          Number(trade.pnl || 0) !== lastState.pnl;
+
+        const timeElapsed = Date.now() - lastState.lastSavedTs;
+        if (!criticalChanged && timeElapsed < 15000) {
+          // Skip database write for routine tick update
+          return;
+        }
+      }
+    } else if (!isTradeOpen && trade.id) {
+      this.openTradeLastSavedState.delete(trade.id);
+    }
+
+    // 1. STREAMLINED PERSISTENCE FOR OPEN TRADES
+    // Bypasses FOR UPDATE pessimistic session locks and redundant SUM(trade.pnl), Session, Settings, & BalanceHistory updates
+    if (isTradeOpen) {
+      try {
+        const persistenceTrade = { ...trade };
+        persistenceTrade.pnl = Number(trade.pnl || 0);
+        persistenceTrade.pnl_pct = 0;
+
+        const tradeEntity = this.tradeRepository.create({
+          ...persistenceTrade,
+          exit_signal_type: trade.exit_signal_type,
+          exit_signal_reason: trade.exit_signal_reason,
+          exit_signals_status: trade.exit_signals_status,
+          entry_signal_type: trade.entry_signal_type,
+          entry_signal_confidence: trade.entry_signal_confidence,
+          mark_price: trade.mark_price,
+          last_price: trade.last_price,
+          close_attempts: trade.close_attempts || 0,
+          last_close_attempt_ts: trade.last_close_attempt_ts,
+          close_blocked: !!trade.close_blocked,
+          illiquid_blocked: !!trade.illiquid_blocked,
+          _sig_json: trade._sig_json,
+          sessionId,
+        });
+
+        await this.tradeRepository.save(tradeEntity);
+
+        if (trade.id) {
+          this.openTradeLastSavedState.set(trade.id, {
+            current_sl: Number(trade.current_sl || 0),
+            tp: trade.tp ? Number(trade.tp) : null,
+            rr_sequence_index: Number(trade.rr_sequence_index ?? -1),
+            qty: Number(trade.qty || 0),
+            status: trade.status,
+            pnl: Number(trade.pnl || 0),
+            lastSavedTs: Date.now(),
+          });
+        }
+        return;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `[CRITICAL] Streamlined open trade save failed for ${trade.symbol}: ${errorMsg}`,
+        );
+        throw error;
+      }
+    }
+
+    // 2. FULL ATOMIC TRANSACTION FOR TERMINAL TRADE CLOSURES & BALANCE UPDATES
     const queryRunner =
       this.sessionRepository.manager.connection.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
-      // 0. Lock Session row to serialize all updates for this session and fetch metadata
+      // Lock Session row to serialize all updates for this session and fetch metadata
       const session = await queryRunner.manager.findOne(SessionEntity, {
         where: { id: sessionId },
         lock: { mode: "pessimistic_write" },
@@ -363,15 +452,7 @@ export class SessionService implements OnModuleInit {
         throw new Error(`Session ${sessionId} not found during atomic save.`);
       }
 
-      // 1. Save Trade record
       const persistenceTrade = { ...trade };
-      if (trade.status === "OPEN") {
-        // For OPEN trades, we save the current 'realized' portion (fees + funding)
-        // to ensure correct appliedPnL initialization on restart.
-        // Unrealized price PnL is not included in trade.pnl for open trades in the engine.
-        persistenceTrade.pnl = Number(trade.pnl || 0);
-        persistenceTrade.pnl_pct = 0;
-      }
 
       const tradeEntity = this.tradeRepository.create({
         ...persistenceTrade,
@@ -391,10 +472,9 @@ export class SessionService implements OnModuleInit {
       });
       await queryRunner.manager.save(TradeEntity, tradeEntity);
 
-      // 2. Update Session PnL and Balance
+      // Update Session PnL and Balance
       // DATA-CONSISTENCY: Use trade summation for PnL in ALL modes (including Paper)
       // to ensure consistency and prevent corruption from manual balance adjustments.
-      // This ensures that fees and funding from active trades are reflected in totalPnl immediately.
       const aggregation = await queryRunner.manager
         .createQueryBuilder(TradeEntity, "trade")
         .select("SUM(trade.pnl)", "sum")
@@ -411,7 +491,7 @@ export class SessionService implements OnModuleInit {
         totalPnl: realizedPnl,
       });
 
-      // 3. Update Global Settings and record History for all modes
+      // Update Global Settings and record History for all modes
       if (session) {
         const mode =
           session.tradingMode || (session.paperMode ? "paper" : "live");
@@ -422,7 +502,7 @@ export class SessionService implements OnModuleInit {
 
         await queryRunner.manager.update(SettingsEntity, "default", updateData);
 
-        // Record Balance Snapshot strictly on trade completion to prevent per-tick DB inflation
+        // Record Balance Snapshot strictly on trade completion
         if (trade.status !== "OPEN") {
           const snapshot = this.balanceHistoryRepository.create({
             timestamp: new Date(),

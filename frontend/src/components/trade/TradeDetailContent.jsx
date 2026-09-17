@@ -1045,24 +1045,67 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
         </div>
 
         {/* Timeframe & Candle Warmup Status */}
-        <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 md:col-span-2 lg:col-span-1">
-          <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
-            <Clock size={10} className="text-green" /> Timeframe & Warmup Status
-          </span>
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-dim">Scan Interval:</span>
-            <span className="font-bold text-text">{scanInterval}</span>
-          </div>
-          <div className="flex items-center justify-between text-xs font-mono">
-            <span className="text-dim">Warmup Candles:</span>
-            <span className="font-bold text-green flex items-center gap-1">
-              <CheckCircle2 size={11} /> Completed
-            </span>
-          </div>
-          <span className="text-[8px] text-dim/60 uppercase tracking-wider font-bold mt-0.5">
-            Chart execution timing synced with WebSocket price ticks
-          </span>
-        </div>
+        {(() => {
+          const exitSignals = trade.exit_signals_status || {};
+          let warmingItem = null;
+          for (const key in exitSignals) {
+            if (Object.prototype.hasOwnProperty.call(exitSignals, key)) {
+              const s = exitSignals[key];
+              if (s && (s.is_warming_up || s.insufficientData)) {
+                warmingItem = { key, ...s };
+                break;
+              }
+            }
+          }
+
+          let warmupInfo = {
+            isWarmingUp: false,
+            text: 'Completed',
+            detail: 'All indicator buffers converged across entry & exit timeframes.',
+          };
+
+          if (warmingItem) {
+            const candles = warmingItem.warmup_candles ?? warmingItem.value ?? 0;
+            const required = warmingItem.required_warmup ?? warmingItem.threshold ?? 70;
+            const tf = warmingItem.warmup_tf || trade.strategy_config?.signal_timeframes?.[warmingItem.key] || scanInterval;
+            const pct = required > 0 ? Math.min(100, Math.round((candles / required) * 100)) : 0;
+            warmupInfo = {
+              isWarmingUp: true,
+              text: `In Progress (${candles}/${required} - ${tf})`,
+              detail: `Exit indicator (${warmingItem.label || warmingItem.key}) warmup in progress: ${candles}/${required} candles (${pct}%) for ${tf}`,
+            };
+          }
+
+          return (
+            <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 md:col-span-2 lg:col-span-1">
+              <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+                <Clock size={10} className={warmupInfo.isWarmingUp ? "text-amber" : "text-green"} /> Timeframe & Warmup Status
+              </span>
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-dim">Scan Interval:</span>
+                <span className="font-bold text-text">{scanInterval}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="text-dim">Warmup Candles:</span>
+                <Tooltip content={warmupInfo.detail}>
+                  <span className={cn(
+                    "font-bold flex items-center gap-1 cursor-help",
+                    warmupInfo.isWarmingUp ? "text-amber" : "text-green"
+                  )}>
+                    {warmupInfo.isWarmingUp ? <Loader2 size={11} className="animate-spin text-amber" /> : <CheckCircle2 size={11} />}
+                    {warmupInfo.text}
+                  </span>
+                </Tooltip>
+              </div>
+              <span className={cn(
+                "text-[8px] uppercase tracking-wider font-bold mt-0.5",
+                warmupInfo.isWarmingUp ? "text-amber/90" : "text-dim/60"
+              )}>
+                {warmupInfo.isWarmingUp ? `⚠️ ${warmupInfo.detail}` : 'Chart execution timing synced with WebSocket price ticks'}
+              </span>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Configured Signal Parameters */}

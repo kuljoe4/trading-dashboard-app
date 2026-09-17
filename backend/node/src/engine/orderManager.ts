@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
@@ -10,6 +10,7 @@ import { SignalEngineService } from './signalEngine';
 import { OrderFilterService } from './order-filter.service';
 import { MarketFeedService } from './market_feed.service';
 import { TickerCacheService } from './ticker_cache.service';
+import { KlineStoreService } from './kline_store.service';
 import { MonitoringService } from './monitoring.service';
 import { PositionTrackerService } from './positionTracker';
 import { SessionStateService } from './session_state.service';
@@ -132,6 +133,7 @@ export class OrderManagerService {
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
     private readonly orderFilterService: OrderFilterService,
+    @Optional() private readonly klineStore?: KlineStoreService,
   ) {}
 
   @OnEvent('binance.order_update')
@@ -1974,7 +1976,23 @@ export class OrderManagerService {
       : (trade.entry_ts ? new Date(trade.entry_ts).getTime() : 0);
     const tradeAgeSec = entryTs > 0 ? (Date.now() - entryTs) / 1000 : 0;
 
-    const statuses: Record<string, { fired: boolean, active: boolean, remaining_delay: number, config_delay?: number | string, label: string, value: number, threshold: number, unit: string, description?: string, insufficientData?: boolean, threshold_is_price?: boolean }> = {};
+    const statuses: Record<string, {
+      fired: boolean,
+      active: boolean,
+      remaining_delay: number,
+      config_delay?: number | string,
+      label: string,
+      value: number,
+      threshold: number,
+      unit: string,
+      description?: string,
+      insufficientData?: boolean,
+      threshold_is_price?: boolean,
+      warmup_candles?: number,
+      required_warmup?: number,
+      warmup_tf?: string,
+      is_warming_up?: boolean,
+    }> = {};
     const delays = config.exit_signal_delays || {};
     const logic = config.exit_signal_logic || 'any';
 
@@ -2014,15 +2032,21 @@ export class OrderManagerService {
           }
         }
 
+        const signalTf = (config.signal_timeframes?.[exitSignal] && config.signal_timeframes?.[exitSignal] !== 'default')
+          ? config.signal_timeframes[exitSignal]
+          : (interval || config.scan_interval || '1m');
+
         let requiredDelaySec = delaySec;
         if (isCandleDelay) {
-          // Resolve timeframe: signal_timeframes or fallback to interval or scan_interval
-          const signalTf = (config.signal_timeframes?.[exitSignal] && config.signal_timeframes?.[exitSignal] !== 'default')
-            ? config.signal_timeframes[exitSignal]
-            : (interval || config.scan_interval || '5m');
           const candleMs = parseIntervalToMs(signalTf);
           requiredDelaySec = (candleCount * candleMs) / 1000;
         }
+
+        const exitCandles = this.klineStore ? this.klineStore.getRawCandles(symbol, signalTf) : [];
+        const requiredWarmup = typeof this.signalEngine?.getRequiredWarmup === 'function'
+          ? (this.signalEngine.getRequiredWarmup(config) || 0)
+          : 0;
+        const isWarmingUp = requiredWarmup > 0 && exitCandles.length < requiredWarmup;
 
         const detail = consolidatedResult.details ? consolidatedResult.details[exitSignal] : null;
         const isFired = !!(detail?.fired || (consolidatedResult.firedSignals.includes(exitSignal)));
@@ -2061,8 +2085,12 @@ export class OrderManagerService {
           threshold: detail?.threshold ?? 1,
           unit: detail?.unit ?? '%',
           description: detail?.description || `Signal ${exitSignal} ${isFired ? 'fired' : 'not fired'}`,
-          insufficientData: detail?.insufficientData,
+          insufficientData: detail?.insufficientData || isWarmingUp,
           threshold_is_price: detail?.threshold_is_price,
+          warmup_candles: exitCandles.length,
+          required_warmup: requiredWarmup,
+          warmup_tf: signalTf,
+          is_warming_up: isWarmingUp,
         };
 
         if (isFired && isActive) {

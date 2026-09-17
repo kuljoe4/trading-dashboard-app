@@ -75,6 +75,10 @@ export class Trade {
     description?: string;
     insufficientData?: boolean;
     threshold_is_price?: boolean;
+    warmup_candles?: number;
+    required_warmup?: number;
+    warmup_tf?: string;
+    is_warming_up?: boolean;
   }>;
 
   entry_signal_type?: string;

@@ -117,7 +117,8 @@ export const AuthOverlay = () => {
                 <button
                   type="submit"
                   disabled={!key.trim()}
-                  className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/20 cursor-pointer group"
+                  aria-label="Unlock Dashboard"
+                  className="w-full bg-accent hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-accent/20 cursor-pointer group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                 >
                   Unlock Dashboard
                   <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />

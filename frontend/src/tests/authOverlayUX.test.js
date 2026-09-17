@@ -37,9 +37,12 @@ describe('AuthOverlay Micro-UX & Accessibility Standard', () => {
     assert.ok(sourceCode.includes('inputRef.current?.focus()'), 'Clear button must restore focus to inputRef');
   });
 
-  test('enforces submit button disabled affordance and cursor styling', () => {
+  test('enforces submit button disabled affordance, accessibility, and focus ring styling', () => {
     assert.ok(sourceCode.includes('disabled={!key.trim()}'), 'Submit button must disable when key is empty');
     assert.ok(sourceCode.includes('disabled:opacity-50 disabled:cursor-not-allowed'), 'Submit button must style disabled state');
     assert.ok(sourceCode.includes('cursor-pointer'), 'Interactive buttons must include cursor-pointer');
+    assert.ok(sourceCode.includes('aria-label="Unlock Dashboard"'), 'Submit button must include descriptive aria-label');
+    assert.ok(sourceCode.includes('focus-visible:ring-2 focus-visible:ring-accent'), 'Submit button must apply focus-visible ring');
+    assert.ok(sourceCode.includes('focus-visible:outline-none'), 'Submit button must outline-none on focus-visible');
   });
 });

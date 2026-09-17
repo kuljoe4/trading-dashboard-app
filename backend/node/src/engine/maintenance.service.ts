@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
@@ -6,6 +6,7 @@ import { PositionTrackerService } from './positionTracker';
 import { OrderManagerService } from './orderManager';
 import { TickerCacheService } from './ticker_cache.service';
 import { SessionStateService } from './session_state.service';
+import { MonitoringService } from './monitoring.service';
 import { ENGINE_EVENTS } from './events';
 import { roundEight } from '../lib/math';
 import { EXIT_REASONS } from '../models/constants';
@@ -24,6 +25,7 @@ export class MaintenanceService {
     private readonly tickerCache: TickerCacheService,
     private readonly sessionState: SessionStateService,
     private readonly eventEmitter: EventEmitter2,
+    @Optional() private readonly monitoringService?: MonitoringService,
   ) {}
 
   /**
@@ -107,6 +109,8 @@ export class MaintenanceService {
       const useBulkAudit = tradesToAudit.length > 5 && !targetSymbol && !hasAllCached;
 
       if (hasAllCached) {
+        this.monitoringService?.recordCacheHit('uds_positions');
+        this.monitoringService?.recordCacheHit('uds_orders');
         this.logger.log(`[Watchdog] Performing zero-weight WebSocket cache audit for ${uniqueSymbols.length} symbols...`);
         for (const symbol of uniqueSymbols) {
           const cachedPos = this.sessionState.realTimePositions.get(symbol);
@@ -135,6 +139,8 @@ export class MaintenanceService {
           slOrdersBySymbol.set(symbol, cachedOrders.filter(isSlOrder));
         }
       } else if (useBulkAudit) {
+        this.monitoringService?.recordCacheMiss('uds_positions');
+        this.monitoringService?.recordCacheMiss('uds_orders');
         this.logger.log(`[Watchdog] Performing bulk audit for ${tradesToAudit.length} trades...`);
         // BOLT: Coordinated Snapshot Pattern for positions (Weight 5)
         const allPositions = await this.orderManager.fetchAllPositions();
@@ -151,6 +157,8 @@ export class MaintenanceService {
           slOrdersBySymbol.set(o.symbol, list);
         });
       } else {
+        this.monitoringService?.recordCacheMiss('uds_positions');
+        this.monitoringService?.recordCacheMiss('uds_orders');
         this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
         for (const symbol of uniqueSymbols) {
            // Zero-Weight Path: Try local WebSocket cache first

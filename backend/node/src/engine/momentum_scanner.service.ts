@@ -316,8 +316,8 @@ export class MomentumScannerService {
       return null;
     }
 
-    // 2. Calculate HTF (4H default) EMA Dual Cross historical performance ranking score
-    const htfPerfResult = this.calculateHtfEmaCrossPerf(symbol, config);
+    // 2. Calculate HTF (4H default) EMA Dual Cross historical performance ranking score using prospective candidate SL distance
+    const htfPerfResult = this.calculateHtfEmaCrossPerf(symbol, config, slCheck.slDistPct);
 
     // Calculate opportunity score (0-100)
     // Based on: momentum magnitude, volume, volatility, plus HTF 4H EMA cross historical performance ranking
@@ -431,6 +431,7 @@ export class MomentumScannerService {
   private calculateHtfEmaCrossPerf(
     symbol: string,
     config: SessionConfig,
+    candidateSlDistPct?: number,
   ): { perf: Opportunity['htf_ema_cross_perf']; scoreBoost: number } | null {
     if (config.htf_ema_cross_boost_enabled === false) {
       return null;
@@ -446,8 +447,12 @@ export class MomentumScannerService {
       return null;
     }
 
+    const slDistPct = candidateSlDistPct !== undefined && candidateSlDistPct > 0
+      ? candidateSlDistPct
+      : (config.sl_distance_pct ?? 0.8);
+
     const latestTs = candles[candles.length - 1].time;
-    const cacheKey = `${symbol}_${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${latestTs}`;
+    const cacheKey = `${symbol}_${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${slDistPct.toFixed(2)}_${latestTs}`;
 
     const cached = this.htfCrossPerfCache.get(symbol);
     if (cached && cached.key === cacheKey) {
@@ -468,8 +473,6 @@ export class MomentumScannerService {
     const peakRrs: number[] = [];
     let wins = 0;
     let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
-
-    const slDistPct = config.sl_distance_pct ?? 0.8;
 
     // Scan backwards from second-to-last candle to find crossovers
     for (let i = candles.length - 2; i >= slowPeriod; i--) {

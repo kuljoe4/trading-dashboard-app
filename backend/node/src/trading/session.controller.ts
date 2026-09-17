@@ -174,10 +174,21 @@ export class SessionController {
 
   @Post("pause")
   async pauseSession(@Body() body: PauseSessionDto, @Req() req: Request) {
+    // SEC-SENTINEL: Defense-in-depth validation of PauseSessionDto payload
+    const pauseDto = plainToInstance(PauseSessionDto, body || {});
+    const dtoErrors = await validate(pauseDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid pause session parameters",
+        detail: detailedErrors,
+      });
+    }
+
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
-    return this.sessionService.pauseSession(body.paused, body.strategyLabel, clientIp, userAgent);
+    return this.sessionService.pauseSession(pauseDto.paused, pauseDto.strategyLabel, clientIp, userAgent);
   }
 
   @Delete("trades/orphans")

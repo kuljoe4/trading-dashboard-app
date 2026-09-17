@@ -21,6 +21,7 @@ describe("SessionController", () => {
           provide: SessionService,
           useValue: {
             startSession: jest.fn().mockResolvedValue({ id: 'test-session-id' }),
+            pauseSession: jest.fn().mockResolvedValue({ success: true }),
             getTrade: jest.fn(),
             getHistory: jest.fn(),
             getLifetimeAnalytics: jest.fn(),
@@ -232,6 +233,24 @@ describe("SessionController", () => {
       const errors = await validate(dto);
       expect(errors.length).toBeGreaterThan(0);
       expect(JSON.stringify(errors)).toContain("scan_interval must be a valid Binance kline interval");
+    });
+  });
+
+  describe("pauseSession DTO Whitelist Validation", () => {
+    it("should accept valid PauseSessionDto payloads", async () => {
+      const mockReq = { ip: "127.0.0.1", headers: {} } as any;
+      const validPayload = { paused: true, strategyLabel: "Strategy_A" };
+
+      await controller.pauseSession(validPayload as any, mockReq);
+
+      expect(sessionService.pauseSession).toHaveBeenCalledWith(true, "Strategy_A", "127.0.0.1", undefined);
+    });
+
+    it("should throw BadRequestException when pauseSession receives non-whitelisted properties", async () => {
+      const mockReq = { ip: "127.0.0.1", headers: {} } as any;
+      const invalidPayload = { paused: true, maliciousProp: "injected" };
+
+      await expect(controller.pauseSession(invalidPayload as any, mockReq)).rejects.toThrow(BadRequestException);
     });
   });
 

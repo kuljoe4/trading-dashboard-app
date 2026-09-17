@@ -122,10 +122,36 @@ export class TickerCacheService {
     return this.tickers.size;
   }
 
+  /**
+   * BOLT OPTIMIZATION: Zero-allocation cache key generator for topByVolume/topByChangePct.
+   * Avoids copying ([...excluded]) and sorting arrays when empty, single-element, or pre-sorted.
+   * Prevents memory churn and CPU overhead in high-frequency scanner polling cycles.
+   */
+  private getCacheKey(n: number, excluded?: string[]): string {
+    if (!excluded || excluded.length === 0) return String(n);
+    const len = excluded.length;
+    if (len === 1) return `${n}_${excluded[0]}`;
+
+    // Fast O(K) check: if the excluded array is already sorted (most common case),
+    // join directly without allocating a temporary array for .sort()
+    let isSorted = true;
+    for (let i = 1; i < len; i++) {
+      if (excluded[i] < excluded[i - 1]) {
+        isSorted = false;
+        break;
+      }
+    }
+
+    if (isSorted) {
+      return `${n}_${excluded.join(',')}`;
+    }
+
+    return `${n}_${[...excluded].sort().join(',')}`;
+  }
+
   topByVolume(n: number, excluded: string[] = []): Ticker[] {
-    // BOLT OPTIMIZATION: Avoid expensive sort/join for empty exclusion lists (common case)
-    const hasExclusions = excluded && excluded.length > 0;
-    const cacheKey = !hasExclusions ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
+    // BOLT OPTIMIZATION: Use zero-allocation cache key generator
+    const cacheKey = this.getCacheKey(n, excluded);
     const cached = this._topByVolumeCache[cacheKey];
     const now = Date.now();
 
@@ -133,6 +159,7 @@ export class TickerCacheService {
       return cached.data;
     }
 
+    const hasExclusions = excluded && excluded.length > 0;
     const excludedSet = hasExclusions ? new Set(excluded) : null;
     const all = this.getLatestTickers();
     this.logger.verbose(`topByVolume requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
@@ -171,7 +198,8 @@ export class TickerCacheService {
   }
 
   topByChangePct(n: number, excluded: string[] = []): Ticker[] {
-    const cacheKey = excluded.length === 0 ? String(n) : `${n}_${[...excluded].sort().join(',')}`;
+    // BOLT OPTIMIZATION: Use zero-allocation cache key generator
+    const cacheKey = this.getCacheKey(n, excluded);
     const cached = this._topByChangeCache[cacheKey];
     const now = Date.now();
 
@@ -179,7 +207,8 @@ export class TickerCacheService {
       return cached.data;
     }
 
-    const excludedSet = excluded.length > 0 ? new Set(excluded) : null;
+    const hasExclusions = excluded && excluded.length > 0;
+    const excludedSet = hasExclusions ? new Set(excluded) : null;
     const all = this.getLatestTickers();
     this.logger.verbose(`topByChangePct requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 

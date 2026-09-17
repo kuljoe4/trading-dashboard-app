@@ -2,6 +2,7 @@ import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateCol
 import { Session } from './Session.entity';
 
 @Entity()
+@Index(['sessionId', 'status'])
 export class TradeEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

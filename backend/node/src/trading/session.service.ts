@@ -2285,7 +2285,22 @@ export class SessionService implements OnModuleInit {
   private updateSessionPromiseChains: Map<string, Promise<any>> = new Map();
 
   async forceBackfillKlines(symbol: string, interval: string) {
-    return this.marketFeed.forceBackfillKlines(symbol, interval);
+    const result = await this.marketFeed.forceBackfillKlines(symbol, interval);
+
+    const activeTrades = this.tradingSessionService?.sessionState?.activeTrades || [];
+    const activeTrade = activeTrades.find(
+      (t: Trade) => t.symbol === symbol && t.status === "OPEN"
+    );
+
+    if (activeTrade) {
+      const config = (this.tradingSessionService?.sessionState?.config || activeTrade.strategy_config || {}) as SessionConfig;
+      this.orderManager.checkExitSignals(symbol, activeTrade, config, config.scan_interval || "1m");
+    }
+
+    return {
+      ...result,
+      trade: activeTrade || null,
+    };
   }
 
   async updateSession(

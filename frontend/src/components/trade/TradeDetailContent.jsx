@@ -1086,6 +1086,17 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
             try {
               const res = await sessionAPI.backfillKlines(trade.symbol, tf);
               const data = res?.data;
+
+              if (data?.trade) {
+                useTradingStore.setState(st => ({
+                  activeTrades: (st.activeTrades || []).map(t =>
+                    (t.id === data.trade.id || t.symbol === data.trade.symbol)
+                      ? { ...t, ...data.trade }
+                      : t
+                  )
+                }));
+              }
+
               useTradingStore.getState().addAlert({
                 level: data?.isWarmupComplete ? 'success' : 'info',
                 title: data?.isWarmupComplete ? 'Warmup Complete' : 'Candles Synced',

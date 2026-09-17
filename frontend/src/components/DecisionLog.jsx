@@ -10,6 +10,35 @@ const REGEX_POSITIVE = /BUY|PROFIT|TP|HIT|SUCCESS|STARTED|ENTER/i;
 const REGEX_NEGATIVE = /SELL|LOSS|SL|REJECTED|ERROR|FAILED|STOPPED|CRITICAL|GATED|SLEEPING/i;
 const REGEX_NEUTRAL = /MONITORING|WARM-UP|SYNC|LIFECYCLE|RECONCILING|ADAPTIVE|COOLDOWN|VARIANT/i;
 
+export const formatLogTimestamp = (ts_ms, fallbackTs) => {
+  if (typeof ts_ms === 'number' && !Number.isNaN(ts_ms) && ts_ms > 0) {
+    const d = new Date(ts_ms);
+    return {
+      formatted: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      fullLocal: d.toLocaleString(),
+      iso: d.toISOString()
+    };
+  }
+  if (fallbackTs) {
+    const parsed = new Date(fallbackTs).getTime();
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      const d = new Date(parsed);
+      return {
+        formatted: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        fullLocal: d.toLocaleString(),
+        iso: d.toISOString()
+      };
+    }
+    return { formatted: String(fallbackTs), fullLocal: String(fallbackTs), iso: '' };
+  }
+  const now = new Date();
+  return {
+    formatted: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    fullLocal: now.toLocaleString(),
+    iso: now.toISOString()
+  };
+};
+
 const formatMessage = (msg) => {
   if (typeof msg !== 'string') return msg == null ? '' : String(msg);
   if (!msg) return msg;
@@ -135,7 +164,10 @@ const LogEntry = React.memo(({ log }) => {
   const safeLog = (log && typeof log === 'object') ? log : {};
   const logLevel = String(safeLog.level ?? 'info').toLowerCase();
   const logMessage = typeof safeLog.msg === 'string' ? safeLog.msg : String(safeLog.msg ?? '');
-  const logTimestamp = String(safeLog.ts ?? '');
+
+  const timestampInfo = useMemo(() => {
+    return formatLogTimestamp(safeLog.ts_ms, safeLog.ts);
+  }, [safeLog.ts_ms, safeLog.ts]);
 
   const isRoutine = useMemo(() => {
     const lower = logMessage.toLowerCase();
@@ -162,7 +194,14 @@ const LogEntry = React.memo(({ log }) => {
           aria-label={shouldTruncate ? (isExpanded ? "Collapse log message" : "Expand log message") : "View log details"}
           aria-expanded={shouldTruncate ? isExpanded : undefined}
         >
-          <span className="text-dim/60 whitespace-nowrap shrink-0 sm:mb-0 mb-0.5">[{logTimestamp}]</span>
+          <time
+            dateTime={timestampInfo.iso}
+            title={timestampInfo.fullLocal}
+            aria-label={`Time: ${timestampInfo.fullLocal}`}
+            className="text-dim/60 whitespace-nowrap shrink-0 sm:mb-0 mb-0.5 cursor-help"
+          >
+            [{timestampInfo.formatted}]
+          </time>
           <span className={cn(
             "transition-colors break-words break-all min-w-0 flex-1",
             shouldTruncate && !isExpanded && "line-clamp-2",
@@ -196,7 +235,7 @@ const LogEntry = React.memo(({ log }) => {
             <VisuallyHidden>
               <Dialog.Title id="log-title">Log Detail</Dialog.Title>
               <Dialog.Description id="log-description">
-                Details for log entry at {logTimestamp} with level {logLevel}.
+                Details for log entry at {timestampInfo.fullLocal} with level {logLevel}.
               </Dialog.Description>
             </VisuallyHidden>
             <div className="flex justify-between items-center mb-4">
@@ -211,7 +250,9 @@ const LogEntry = React.memo(({ log }) => {
                 </div>
                 <div>
                   <div className="text-xs font-black uppercase tracking-widest">Log Detail</div>
-                  <div className="text-[9px] text-dim font-mono font-bold uppercase">{logTimestamp} • {logLevel}</div>
+                  <div className="text-[9px] text-dim font-mono font-bold uppercase">
+                    <time dateTime={timestampInfo.iso} title={timestampInfo.fullLocal}>{timestampInfo.fullLocal}</time> • {logLevel}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">

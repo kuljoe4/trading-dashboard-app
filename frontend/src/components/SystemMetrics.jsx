@@ -1,8 +1,7 @@
 import React from 'react';
 import { Drawer } from 'vaul';
-import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2, Copy, Check, Info, X } from 'lucide-react';
+import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2, Copy, Check, Info, X, Filter, Database, Server } from 'lucide-react';
 import { cn, PulseDot, Tooltip, Btn, VisuallyHidden } from './ui/primitives';
-import { motion, AnimatePresence } from 'framer-motion';
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
   <div className={cn("flex items-center gap-2", compact ? "px-2" : "gap-3")}>
@@ -64,28 +63,58 @@ const LoopVisualizer = ({ pipeline }) => {
 export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStatus, gateState, isEcoMode, activeTrades = [], config = {}, compact = false }) => {
   const [copiedDiag, setCopiedDiag] = React.useState(false);
   const [isMobileDiagOpen, setIsMobileDiagOpen] = React.useState(false);
+  const [selectedEndpoint, setSelectedEndpoint] = React.useState('all');
+  const [selectedStatus, setSelectedStatus] = React.useState('all');
+
+  const app = monitoring?.application || {};
+  const breakdown = app.api_requests_breakdown || {};
+  const rawLogs = app.rest_telemetry_logs || [];
+  const cacheMetrics = app.cache_metrics || { hit_ratio_pct: 100, hits_total: 0, misses_total: 0, breakdown: {} };
+  const resourceFootprints = app.resource_footprints || { heap_used_mb: 0, heap_total_mb: 0, rss_mb: 0 };
+  const recommendations = app.recommendations || [];
+  const telemetryEnabled = app.telemetry_enabled !== false && config?.track_binance_rate_limits !== false;
+
+  const endpointOptions = React.useMemo(() => {
+    return ['all', ...Object.keys(breakdown)];
+  }, [breakdown]);
+
+  const filteredLogs = React.useMemo(() => {
+    return rawLogs.filter(log => {
+      const matchEndpoint = selectedEndpoint === 'all' || log.label === selectedEndpoint;
+      const matchStatus = selectedStatus === 'all' || log.status === selectedStatus;
+      return matchEndpoint && matchStatus;
+    });
+  }, [rawLogs, selectedEndpoint, selectedStatus]);
 
   const handleCopyDiagnostics = React.useCallback(async () => {
     try {
-      const breakdown = monitoring?.application?.api_requests_breakdown || {};
-      const logs = monitoring?.application?.rest_telemetry_logs || [];
-      const app = monitoring?.application || {};
-
       const diagSnippet = [
         `### REST API Telemetry & Diagnostic Snippet`,
         `**Timestamp:** ${new Date().toISOString()}`,
         `**Trading Mode:** ${config?.trading_mode || (config?.paper_mode ? 'paper' : 'live')}`,
         `**WS Status:** ${wsStatus}`,
         `**API Weight:** ${rateLimit?.used_weight_1m ?? 0} / ${rateLimit?.limit ?? 2400}`,
-        `**Total REST Calls:** ${app.api_requests_total ?? 0}`,
+        `**Total REST Calls:** ${app.api_requests_total ?? 0} (Success Rate: ${app.api_success_rate_pct ?? 100}%)`,
+        `**Cache Hit Ratio:** ${cacheMetrics.hit_ratio_pct}% (${cacheMetrics.hits_total} hits / ${cacheMetrics.misses_total} misses)`,
+        `**Memory Footprint:** ${resourceFootprints.heap_used_mb || 0}MB used / ${resourceFootprints.heap_total_mb || 0}MB heap`,
         `**Active Positions:** ${activeTrades.length}`,
         `**Watchlist Size:** ${config?.symbols?.length || 0}`,
+        ``,
+        `#### Reconciliation & Audit Architecture:`,
+        `- **Audit Strategy:** Smart Hybrid Mode (Bulk positionInformationV3 for N>=2 symbols [5 weight], Targeted open orders [2 weight/sym])`,
+        `- **UDS Zero-Weight Audit:** ${wsStatus === 'live' ? 'ACTIVE (WebSocket cache used during steady-state trading; 0 REST weight)' : 'FALLBACK (REST polling active)'}`,
+        `- **positionInformationV3:** Position Risk & Ground Truth Sync (Bulk 5 Weight)`,
+        `- **currentAllOpenOrders:** Standard Open Orders Verification (1 Weight/sym)`,
+        `- **currentAllAlgoOpenOrders:** Algorithmic & Conditional SL/TP Trigger Orders Verification (1 Weight/sym)`,
         ``,
         `#### Endpoint Request Breakdown:`,
         Object.entries(breakdown).map(([label, cnt]) => `- \`${label}\`: ${cnt}`).join('\n') || '- None recorded',
         ``,
+        `#### SRE Recommendations:`,
+        recommendations.map(r => `- ${r}`).join('\n') || '- System optimal',
+        ``,
         `#### Recent REST Call Telemetry Logs:`,
-        logs.map(l => `- [${new Date(l.ts).toISOString().substring(11, 19)}] \`${l.label}\` | ${l.duration}ms | W:${l.weight} | Status: ${l.status.toUpperCase()}${l.errorMsg ? ` (${l.errorMsg})` : ''}`).join('\n') || '- No recent logs'
+        filteredLogs.map(l => `- [${new Date(l.ts).toISOString().substring(11, 19)}] \`${l.label}\` | ${l.duration}ms | W:${l.weight} | Status: ${l.status.toUpperCase()}${l.errorMsg ? ` (${l.errorMsg})` : ''}`).join('\n') || '- No matching logs'
       ].join('\n');
 
       await navigator.clipboard.writeText(diagSnippet);
@@ -94,7 +123,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
     } catch (e) {
       console.error('Failed to copy diagnostics snippet', e);
     }
-  }, [monitoring, rateLimit, wsStatus, config, activeTrades]);
+  }, [app, breakdown, rawLogs, filteredLogs, cacheMetrics, resourceFootprints, recommendations, rateLimit, wsStatus, config, activeTrades]);
 
   return (
   <div className={cn("flex items-center gap-4 overflow-hidden", compact ? "justify-center" : "flex-col w-full")}>
@@ -113,6 +142,12 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
         )}
       </div>
 
+      {!telemetryEnabled && !compact && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber/10 rounded-xl border border-amber/20 text-amber text-[9px] font-bold uppercase tracking-wider">
+          <Database size={11} /> Paused
+        </div>
+      )}
+
       {isEcoMode && !compact && (
         <div className="flex items-center gap-1.5 px-3 py-3 bg-green/10 rounded-xl border border-green/20 text-green text-[10px] font-bold uppercase tracking-widest animate-in fade-in slide-in-from-left-2">
           <Leaf size={12} fill="currentColor" /> ECO
@@ -123,20 +158,48 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
     <Tooltip
       side={compact ? "bottom" : "top"}
       content={
-        <div className="flex flex-col gap-1 p-0.5">
-          <div className="font-bold border-b border-border/50 pb-1 mb-1 uppercase tracking-widest text-[9px]">Binance API Weight</div>
-          <div className="flex justify-between gap-6">
+        <div className="flex flex-col gap-1.5 p-1 min-w-[210px]">
+          <div className="flex items-center justify-between border-b border-border/50 pb-1 mb-0.5">
+            <span className="font-bold uppercase tracking-widest text-[9px]">Binance API Weight</span>
+            <Btn
+              variant="ghost"
+              onClick={handleCopyDiagnostics}
+              className="px-1.5 py-0.5 text-[8px] font-bold border border-border/50 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1 shrink-0"
+              aria-label="Copy Diagnostic Telemetry Snippet"
+            >
+              {copiedDiag ? <Check size={9} className="text-green" /> : <Copy size={9} />}
+              {copiedDiag ? "Copied" : "Copy Diag"}
+            </Btn>
+          </div>
+          <div className="flex justify-between gap-6 text-[10px]">
             <span className="text-dim">Used (1m):</span>
-            <span>{rateLimit?.used_weight_1m ?? 0}</span>
+            <span className="font-mono font-bold">{rateLimit?.used_weight_1m ?? 0}</span>
           </div>
-          <div className="flex justify-between gap-6">
+          <div className="flex justify-between gap-6 text-[10px]">
             <span className="text-dim">Limit:</span>
-            <span>{rateLimit?.limit ?? 1200}</span>
+            <span className="font-mono">{rateLimit?.limit ?? 2400}</span>
           </div>
+          <div className="flex justify-between gap-6 text-[10px] pt-1 border-t border-border/30">
+            <span className="text-dim">Cache Hit Ratio:</span>
+            <span className="font-mono text-green font-bold">{cacheMetrics.hit_ratio_pct}%</span>
+          </div>
+          {breakdown && Object.keys(breakdown).length > 0 && (
+            <div className="mt-1 pt-1 border-t border-border/30 flex flex-col gap-1">
+              <span className="text-[8px] font-black text-dim uppercase tracking-widest">Active REST Calls</span>
+              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-0.5 text-[8px] font-mono">
+                {Object.entries(breakdown).map(([label, count]) => (
+                  <span key={label} className="px-1 py-0.5 rounded bg-surface/80 border border-border/50 text-text/80 flex items-center gap-1">
+                    <span className="text-accent font-bold">{count}</span>
+                    <span className="truncate max-w-[85px]" title={label}>{label}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {rateLimitLastSync && (
-            <div className="flex justify-between gap-6 mt-1 pt-1 border-t border-border/30">
+            <div className="flex justify-between gap-6 mt-1 pt-1 border-t border-border/30 text-[9px]">
               <span className="text-dim">Last Sync:</span>
-              <span className="text-accent">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="text-accent font-mono">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           )}
         </div>
@@ -162,13 +225,46 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
       {!compact && (
         <div className="w-full mt-4 pt-4 border-t border-border/50 flex flex-col gap-4">
            <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] mb-1">Pipeline Health</div>
-           <LoopVisualizer pipeline={monitoring?.application?.loop_pipeline} />
+           <LoopVisualizer pipeline={app.loop_pipeline} />
 
-           {/* Ultra-Dense Endpoint Breakdown Badges */}
-           {monitoring?.application?.api_requests_breakdown && Object.keys(monitoring.application.api_requests_breakdown).length > 0 && (
+           {/* Cache Performance Visualization */}
+           <div className="bg-surface/50 border border-border/50 rounded-xl p-2.5 flex flex-col gap-2">
+             <div className="flex items-center justify-between">
+               <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+                 <Database size={10} className="text-accent" /> Cache Performance
+               </span>
+               <span className="font-mono text-[9px] font-bold text-green">
+                 {cacheMetrics.hit_ratio_pct}% Hits ({cacheMetrics.hits_total}h / {cacheMetrics.misses_total}m)
+               </span>
+             </div>
+             <div className="w-full bg-border/40 h-1.5 rounded-full overflow-hidden flex">
+               <div className="bg-green h-full transition-all duration-500" style={{ width: `${cacheMetrics.hit_ratio_pct}%` }} />
+               <div className="bg-amber/60 h-full transition-all duration-500" style={{ width: `${100 - cacheMetrics.hit_ratio_pct}%` }} />
+             </div>
+             {cacheMetrics.breakdown && Object.keys(cacheMetrics.breakdown).length > 0 && (
+               <div className="flex flex-wrap gap-1 text-[8px] font-mono">
+                 {Object.entries(cacheMetrics.breakdown).map(([domain, data]) => {
+                   const tot = (data.hits || 0) + (data.misses || 0);
+                   if (tot === 0) return null;
+                   const ratio = Math.round(((data.hits || 0) / tot) * 100);
+                   return (
+                     <span key={domain} className="px-1.5 py-0.5 rounded bg-background border border-border/60 text-dim flex items-center gap-1">
+                       <span className="text-text font-bold">{domain.replace(/_/g, ' ')}:</span>
+                       <span className={ratio >= 90 ? "text-green" : "text-amber"}>{ratio}%</span>
+                     </span>
+                   );
+                 })}
+               </div>
+             )}
+           </div>
+
+           {/* Filterable Endpoint Breakdown & Call Success Rates */}
+           {breakdown && Object.keys(breakdown).length > 0 && (
              <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30">
                <div className="flex items-center justify-between">
-                 <span className="text-[8px] font-black text-dim uppercase tracking-widest">REST Call Distribution</span>
+                 <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+                   <Filter size={9} className="text-accent" /> REST Call Filter
+                 </span>
                  <Tooltip content="Copy detailed diagnostic telemetry snippet to clipboard">
                    <Btn
                      variant="ghost"
@@ -180,13 +276,36 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
                    </Btn>
                  </Tooltip>
                </div>
-               <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-1 text-[9px] font-mono">
-                 {Object.entries(monitoring.application.api_requests_breakdown).map(([label, count]) => (
-                   <span key={label} className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-text/80 flex items-center gap-1">
-                     <span className="text-accent font-bold">{count}</span>
-                     <span className="truncate max-w-[90px]" title={label}>{label}</span>
-                   </span>
+
+               {/* Endpoint Filter Chips */}
+               <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+                 {endpointOptions.map(ep => (
+                   <button
+                     key={ep}
+                     type="button"
+                     onClick={() => setSelectedEndpoint(ep)}
+                     className={cn(
+                       "px-1.5 py-0.5 rounded text-[8px] font-mono font-bold uppercase tracking-tight shrink-0 transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                       selectedEndpoint === ep
+                         ? "bg-accent text-white shadow-sm"
+                         : "bg-surface border border-border/60 text-dim hover:text-text"
+                     )}
+                   >
+                     {ep === 'all' ? 'ALL CALLS' : ep}
+                   </button>
                  ))}
+               </div>
+
+               {/* Filtered Endpoint Badges */}
+               <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto pr-1 text-[9px] font-mono">
+                 {Object.entries(breakdown)
+                   .filter(([label]) => selectedEndpoint === 'all' || label === selectedEndpoint)
+                   .map(([label, count]) => (
+                     <span key={label} className="px-1.5 py-0.5 rounded bg-surface border border-border/60 text-text/80 flex items-center gap-1">
+                       <span className="text-accent font-bold">{count}</span>
+                       <span className="truncate max-w-[90px]" title={label}>{label}</span>
+                     </span>
+                   ))}
                </div>
              </div>
            )}
@@ -195,35 +314,50 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
               <SystemMetric
                 icon={Zap}
                 label="Calls"
-                value={monitoring?.application?.api_requests_total ?? '---'}
+                value={app.api_requests_total ?? '---'}
                 colorClass="text-accent"
                 compact={compact}
               />
               <SystemMetric
                 icon={CheckCircle2}
-                label="UDS"
-                value={monitoring?.application?.exchange_uds_status === 'CONNECTED' ? 'Live' : 'Stall'}
-                colorClass={monitoring?.application?.exchange_uds_status === 'CONNECTED' ? "text-green" : "text-red"}
+                label="Success"
+                value={app.api_success_rate_pct ? `${app.api_success_rate_pct}%` : '100%'}
+                colorClass={app.api_success_rate_pct < 95 ? "text-amber" : "text-green"}
                 compact={compact}
               />
            </div>
 
-           <div className="flex flex-col gap-2 mt-1">
-              <SystemMetric
-                icon={Activity}
-                label="Hot Loop"
-                value={monitoring?.application ? `${monitoring.application.hot_loop_ms}ms` : '---ms'}
-                colorClass={monitoring?.application?.hot_loop_ms > 100 ? "text-red" : "text-dim"}
-                compact={compact}
-              />
-              <SystemMetric
-                icon={Activity}
-                label="Main Loop"
-                value={monitoring?.application ? `${monitoring.application.main_loop_ms}ms` : '---ms'}
-                colorClass={monitoring?.application?.main_loop_ms > 500 ? "text-red" : "text-dim"}
-                compact={compact}
-              />
+           {/* System Resource Footprints Audit Card */}
+           <div className="bg-surface/40 border border-border/50 rounded-xl p-2.5 flex flex-col gap-1.5 font-mono text-[9px]">
+             <div className="flex items-center justify-between text-[8px] font-black text-dim uppercase tracking-widest">
+               <span className="flex items-center gap-1"><Server size={10} className="text-accent" /> Memory & Loops</span>
+               <span className="text-text font-bold">{resourceFootprints.heap_used_mb || 0}MB / {resourceFootprints.heap_total_mb || 0}MB</span>
+             </div>
+             <div className="grid grid-cols-2 gap-2 text-dim">
+               <div className="flex justify-between">
+                 <span>Hot Loop:</span>
+                 <span className={app.hot_loop_ms > 100 ? "text-red font-bold" : "text-text font-bold"}>{app.hot_loop_ms ?? 0}ms</span>
+               </div>
+               <div className="flex justify-between">
+                 <span>Main Loop:</span>
+                 <span className={app.main_loop_ms > 500 ? "text-red font-bold" : "text-text font-bold"}>{app.main_loop_ms ?? 0}ms</span>
+               </div>
+             </div>
            </div>
+
+           {/* Automated SRE Recommendations */}
+           {recommendations.length > 0 && (
+             <div className="flex flex-col gap-1 pt-1 border-t border-border/30">
+               <span className="text-[8px] font-black text-dim uppercase tracking-widest">SRE Guidance</span>
+               <div className="flex flex-col gap-1">
+                 {recommendations.slice(0, 3).map((rec, idx) => (
+                   <span key={idx} className="text-[8px] text-dim/90 font-medium leading-tight flex items-start gap-1">
+                     <span className="text-accent shrink-0">➔</span> {rec}
+                   </span>
+                 ))}
+               </div>
+             </div>
+           )}
         </div>
       )}
 
@@ -232,13 +366,13 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
           <SystemMetric
             icon={Zap}
             label="REST"
-            value={monitoring?.application?.api_requests_total ?? '---'}
+            value={app.api_requests_total ?? '---'}
             colorClass="text-accent"
             compact={compact}
           />
           <div className="w-px h-3 bg-border/50" />
           <div className="flex items-center gap-2">
-             <PulseDot color={monitoring?.application?.exchange_uds_status === 'CONNECTED' ? "bg-green" : "bg-red"} />
+             <PulseDot color={app.exchange_uds_status === 'CONNECTED' ? "bg-green" : "bg-red"} />
              <button
                type="button"
                onClick={() => setIsMobileDiagOpen(true)}
@@ -288,27 +422,27 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
                 </Btn>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 font-mono">
                 <div className="p-3 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
                   <span className="text-[9px] font-bold text-dim uppercase tracking-wider">API Weight 1M</span>
                   <span className="text-sm font-black text-text">{rateLimit?.used_weight_1m ?? 0} / {rateLimit?.limit ?? 2400}</span>
                 </div>
                 <div className="p-3 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
-                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider">Total REST Calls</span>
-                  <span className="text-sm font-black text-accent">{monitoring?.application?.api_requests_total ?? '---'}</span>
+                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider">Cache Hit Ratio</span>
+                  <span className="text-sm font-black text-green">{cacheMetrics.hit_ratio_pct}%</span>
                 </div>
               </div>
 
               <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
                 <span className="text-[10px] font-black text-dim uppercase tracking-widest">Pipeline Health</span>
-                <LoopVisualizer pipeline={monitoring?.application?.loop_pipeline} />
+                <LoopVisualizer pipeline={app.loop_pipeline} />
               </div>
 
-              {monitoring?.application?.api_requests_breakdown && Object.keys(monitoring.application.api_requests_breakdown).length > 0 && (
+              {breakdown && Object.keys(breakdown).length > 0 && (
                 <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
                   <span className="text-[10px] font-black text-dim uppercase tracking-widest">REST Endpoint Call Distribution</span>
                   <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
-                    {Object.entries(monitoring.application.api_requests_breakdown).map(([label, count]) => (
+                    {Object.entries(breakdown).map(([label, count]) => (
                       <span key={label} className="px-2 py-1 rounded-lg bg-surface border border-border/60 text-text flex items-center gap-1.5">
                         <span className="text-accent font-bold">{count}</span>
                         <span className="truncate max-w-[120px]" title={label}>{label}</span>

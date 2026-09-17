@@ -1278,36 +1278,57 @@ export class SessionService implements OnModuleInit {
           new Set(tradesToVerify.map((t) => t.symbol)),
         );
 
-        // Smart Tiered Audit: For sessions with <= 5 trades, use targeted per-symbol audits (Weight 5+1).
-        // For larger sets, revert to bulk audits (Weight 5+40).
-        const useBulkAudit = uniqueSymbols.length > 5;
+        // Smart Hybrid Audit:
+        // Position info: Bulk fetchAllPositions() costs 5 weight total regardless of symbol count,
+        // whereas per-symbol fetchPosition() costs 5 weight per symbol. So for uniqueSymbols.length >= 2,
+        // bulk position fetching saves 5 * (N - 1) API weight.
+        // Open orders: Targeted fetchOpenOrders() costs 2 weight per symbol (1 standard + 1 algo),
+        // whereas bulk fetchAllOpenOrders() costs 60 weight (40 standard + 20 algo).
         this.logger.log(
-          `[Reconciliation] Starting audit for ${uniqueSymbols.length} symbols. Mode: ${useBulkAudit ? "BULK" : "TARGETED"}`,
+          `[Reconciliation] Starting audit for ${uniqueSymbols.length} symbols. Mode: HYBRID`,
         );
 
         let activeExPositions: any[] = [];
         let allOpenOrders: any[] = [];
 
-        if (useBulkAudit) {
+        // 1. Positions: Bulk fetch if >= 2 symbols (5 weight total vs 5*N weight)
+        if (uniqueSymbols.length >= 2) {
+          this.logger.debug(
+            `[Reconciliation] Dispatching bulk positionInformationV3 (Weight: 5) for ${uniqueSymbols.length} symbols`,
+          );
           const allExchangePositions =
             await this.tradingSessionService.fetchAllPositions();
+          const targetSymbolSet = new Set(uniqueSymbols);
           activeExPositions = allExchangePositions.filter(
-            (p) => Math.abs(parseFloat(p.positionAmt)) > 0,
+            (p) => targetSymbolSet.has(p.symbol) && Math.abs(parseFloat(p.positionAmt)) > 0,
+          );
+        } else if (uniqueSymbols.length === 1) {
+          this.logger.debug(
+            `[Reconciliation] Dispatching targeted positionInformationV3 (Weight: 5) for ${uniqueSymbols[0]}`,
+          );
+          const pos = await this.orderManager.fetchPosition(uniqueSymbols[0], {
+            forceFresh: true,
+          });
+          if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
+            activeExPositions.push(pos);
+          }
+        }
+
+        // 2. Open Orders: Bulk if > 20 symbols, targeted if <= 20 symbols
+        if (uniqueSymbols.length > 20) {
+          this.logger.debug(
+            `[Reconciliation] Dispatching bulk currentAllOpenOrders & currentAllAlgoOpenOrders (Weight: 60) for ${uniqueSymbols.length} symbols`,
           );
           allOpenOrders = await this.orderManager.fetchAllOpenOrders();
         } else {
-          // Targeted Audit: Fetch only what we need to save weight in Window 1
-          // BOLT: Added small delay between symbol audits to avoid IP-ban burst penalties on boot
+          this.logger.debug(
+            `[Reconciliation] Dispatching targeted open orders (currentAllOpenOrders & currentAllAlgoOpenOrders, Weight: ${uniqueSymbols.length * 2}) for ${uniqueSymbols.length} symbols`,
+          );
           for (const symbol of uniqueSymbols) {
-            const pos = await this.orderManager.fetchPosition(symbol, {
-              forceFresh: true,
-            });
-            if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0)
-              activeExPositions.push(pos);
             const orders = await this.orderManager.fetchOpenOrders(symbol);
             allOpenOrders.push(...orders);
             if (uniqueSymbols.length > 1) {
-              await new Promise((resolve) => setTimeout(resolve, 300));
+              await new Promise((resolve) => setTimeout(resolve, 100));
             }
           }
         }
@@ -2285,7 +2306,22 @@ export class SessionService implements OnModuleInit {
   private updateSessionPromiseChains: Map<string, Promise<any>> = new Map();
 
   async forceBackfillKlines(symbol: string, interval: string) {
-    return this.marketFeed.forceBackfillKlines(symbol, interval);
+    const result = await this.marketFeed.forceBackfillKlines(symbol, interval);
+
+    const activeTrades = this.tradingSessionService?.sessionState?.activeTrades || [];
+    const activeTrade = activeTrades.find(
+      (t: Trade) => t.symbol === symbol && t.status === "OPEN"
+    );
+
+    if (activeTrade) {
+      const config = (this.tradingSessionService?.sessionState?.config || activeTrade.strategy_config || {}) as SessionConfig;
+      this.orderManager.checkExitSignals(symbol, activeTrade, config, config.scan_interval || "1m");
+    }
+
+    return {
+      ...result,
+      trade: activeTrade || null,
+    };
   }
 
   async updateSession(

@@ -478,6 +478,10 @@ export class SessionConfig {
   @IsOptional()
   track_binance_rate_limits?: boolean = true;
 
+  @IsBoolean()
+  @IsOptional()
+  telemetry_enabled?: boolean = true;
+
   @IsNumber()
   @Min(5)
   @Max(60)

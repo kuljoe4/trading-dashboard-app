@@ -12,6 +12,8 @@ import { roundEight } from '../lib/math';
 import { ENGINE_EVENTS } from './events';
 import { CONFIG_LIMITS, EXIT_REASONS } from '../models/constants';
 
+const EMPTY_ARRAY: string[] = Object.freeze([]) as unknown as string[];
+
 @Injectable()
 export class PositionTrackerService {
   private readonly logger = new Logger(PositionTrackerService.name);
@@ -144,9 +146,18 @@ export class PositionTrackerService {
     return Array.from(this.inFlightEntries.keys());
   }
 
+  /**
+   * BOLT OPTIMIZATION: Returns unique symbols for open trades, entering symbols, and in-flight entries.
+   * Short-circuits empty tracking collections with frozen EMPTY_ARRAY constant to avoid heap allocations.
+   */
   getPositionSymbols(): string[] {
+    if (this.trades.size === 0 && this.enteringSymbols.size === 0 && this.inFlightEntries.size === 0) {
+      return EMPTY_ARRAY;
+    }
     const set = new Set<string>();
-    for (const t of this.trades.values()) set.add(t.symbol);
+    for (const t of this.trades.values()) {
+      if (t.symbol) set.add(t.symbol);
+    }
     for (const s of this.enteringSymbols) set.add(s);
     for (const s of this.inFlightEntries.keys()) set.add(s);
     return Array.from(set);

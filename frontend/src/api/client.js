@@ -135,6 +135,7 @@ const sessionConfigAllowedKeys = [
   'live_starting_balance',
   'leverage',
   'track_binance_rate_limits',
+  'telemetry_enabled',
   'rate_limit_warning_interval_min',
   'global_scanner_enabled',
   'single_symbol_configs',

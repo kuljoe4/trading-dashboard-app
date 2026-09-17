@@ -2,13 +2,14 @@ import React, { useState, useEffect, useMemo, memo, useRef } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight,
-  Edit3, Sliders, Plus, Trash, Copy, ClipboardPaste, RefreshCw
+  Edit3, Sliders, Plus, Trash, Copy, ClipboardPaste, RefreshCw, AlertTriangle
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { useTradingStore } from '../../store/trading'
 import { sessionAPI } from '../../api/client'
 import { price, formatDuration, calculateProximity } from '../../lib/formatters'
 import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '../ui/primitives'
+import { analyzeTradeDiagnostics } from '../../utils/tradeDiagnostics'
 import { SignalGauge } from '../ui/SignalGauge'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ConfirmationModal } from '../ConfirmationModal'
@@ -1193,6 +1194,28 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   // Master switch to enable/disable touch/click-to-edit inline interactivity
   const [interactiveEnabled, setInteractiveEnabled] = useState(false);
 
+  const [copiedTrace, setCopiedTrace] = useState(false);
+  const diagnostics = useMemo(() => analyzeTradeDiagnostics(trade, activeSessionConfig), [trade, activeSessionConfig]);
+
+  const handleCopyTrace = async () => {
+    try {
+      await navigator.clipboard.writeText(diagnostics.traceSnippet);
+      setCopiedTrace(true);
+      useTradingStore.getState().addAlert({
+        level: 'success',
+        title: 'Trace Copied',
+        message: `Diagnostic trace snippet for ${trade?.symbol || 'trade'} copied to clipboard.`
+      });
+      setTimeout(() => setCopiedTrace(false), 2000);
+    } catch (e) {
+      useTradingStore.getState().addAlert({
+        level: 'error',
+        title: 'Copy Failed',
+        message: 'Unable to write trace snippet to clipboard.'
+      });
+    }
+  };
+
   // Inline Stop Loss Editor State
   const [isEditingSl, setIsEditingSl] = useState(false)
   const [tempSl, setTempSl] = useState(trade?.sl_price || trade?.current_sl || 0)
@@ -1662,6 +1685,74 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
   return (
     <div className="flex flex-col gap-4 md:gap-6">
+      {/* Top Diagnostic Control Bar */}
+      <div className="flex items-center justify-between gap-2 bg-surface/80 border border-border/60 rounded-2xl p-2.5 md:px-4 md:py-3 shadow-sm">
+        <div className="flex items-center gap-2">
+          <SectionLabel className="mb-0 flex items-center gap-1.5 text-text">
+            <Activity size={13} className="text-accent" /> Active Trade Diagnostics
+          </SectionLabel>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <Tooltip content="Copy complete Markdown diagnostic trace snippet for this trade to clipboard">
+            <Btn
+              variant="ghost"
+              onClick={handleCopyTrace}
+              className="px-2.5 py-1 text-[9px] font-bold border border-accent/30 bg-accent/10 hover:bg-accent/20 text-accent flex items-center gap-1.5 shrink-0"
+              aria-label="Copy Diagnostic Trace Snippet"
+            >
+              {copiedTrace ? <CheckCircle2 size={11} className="text-green" /> : <Copy size={11} />}
+              {copiedTrace ? "Copied Trace" : "Trace Diagnostics"}
+            </Btn>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Discrepancy & Diagnostic Callout Banner */}
+      {diagnostics.issues.length > 0 && (
+        <div className="flex flex-col gap-2 p-3 md:p-4 bg-background/90 border border-border/80 rounded-2xl shadow-sm">
+          <div className="flex items-center justify-between border-b border-border/40 pb-2">
+            <div className="flex items-center gap-2 font-black uppercase text-xs tracking-wider">
+              <ShieldAlert size={14} className={diagnostics.hasError ? "text-red" : "text-amber"} />
+              <span className={diagnostics.hasError ? "text-red" : "text-amber"}>
+                {diagnostics.hasError ? "Critical Trade Discrepancy Detected" : "Trade Protection & Execution Warnings"}
+              </span>
+            </div>
+            <Btn
+              variant="ghost"
+              onClick={handleCopyTrace}
+              className="px-2 py-0.5 text-[8px] font-bold border border-border/60 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1"
+              aria-label="Copy Diagnostic Trace"
+            >
+              <Copy size={9} /> Copy Trace
+            </Btn>
+          </div>
+          <div className="flex flex-col gap-1.5 text-xs font-mono">
+            {diagnostics.issues.map((issue, idx) => (
+              <div
+                key={idx}
+                className={cn(
+                  "p-2.5 rounded-xl border flex items-start gap-2.5 text-[10px] md:text-[11px]",
+                  issue.type === 'error' ? "bg-red/10 border-red/30 text-red-200" :
+                  issue.type === 'warning' ? "bg-amber/10 border-amber/30 text-amber-200" :
+                  "bg-surface border-border/60 text-dim"
+                )}
+              >
+                <div className="mt-0.5 shrink-0">
+                  {issue.type === 'error' ? <ShieldAlert size={13} className="text-red" /> :
+                   issue.type === 'warning' ? <AlertTriangle size={13} className="text-amber" /> :
+                   <Info size={13} className="text-accent" />}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="font-black uppercase tracking-wider text-[9px]">{issue.title}</span>
+                  <span className="font-medium text-text/90 leading-normal">{issue.message}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* PnL Hero Section */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 md:gap-6">
         <div className="relative group flex-1">

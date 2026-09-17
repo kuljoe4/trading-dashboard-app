@@ -152,22 +152,11 @@ export class MaintenanceService {
         });
       } else {
         this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
-        if (uniqueSymbols.length >= 2) {
-          this.logger.debug(`[Watchdog] Dispatching bulk positionInformationV3 (Weight: 5) for ${uniqueSymbols.length} symbols`);
-          const allPositions = await this.orderManager.fetchAllPositions();
-          const targetSet = new Set(uniqueSymbols);
-          allPositions
-            .filter(p => targetSet.has(p.symbol) && Math.abs(parseFloat(p.positionAmt)) > 0)
-            .forEach(p => activePositionsMap.set(p.symbol, p));
-        }
         for (const symbol of uniqueSymbols) {
-           if (uniqueSymbols.length < 2) {
-             this.logger.debug(`[Watchdog] Dispatching targeted positionInformationV3 (Weight: 5) for ${symbol}`);
-             // Zero-Weight Path: Try cache first
-             const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
-             if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
-               activePositionsMap.set(symbol, pos);
-             }
+           // Zero-Weight Path: Try local WebSocket cache first
+           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
+           if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
+             activePositionsMap.set(symbol, pos);
            }
 
            const orders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: false });

@@ -123,20 +123,44 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
     <Tooltip
       side={compact ? "bottom" : "top"}
       content={
-        <div className="flex flex-col gap-1 p-0.5">
-          <div className="font-bold border-b border-border/50 pb-1 mb-1 uppercase tracking-widest text-[9px]">Binance API Weight</div>
-          <div className="flex justify-between gap-6">
+        <div className="flex flex-col gap-1.5 p-1 min-w-[200px]">
+          <div className="flex items-center justify-between border-b border-border/50 pb-1 mb-0.5">
+            <span className="font-bold uppercase tracking-widest text-[9px]">Binance API Weight</span>
+            <Btn
+              variant="ghost"
+              onClick={handleCopyDiagnostics}
+              className="px-1.5 py-0.5 text-[8px] font-bold border border-border/50 hover:border-accent/40 text-dim hover:text-accent flex items-center gap-1 shrink-0"
+              aria-label="Copy Diagnostic Telemetry Snippet"
+            >
+              {copiedDiag ? <Check size={9} className="text-green" /> : <Copy size={9} />}
+              {copiedDiag ? "Copied" : "Copy Diag"}
+            </Btn>
+          </div>
+          <div className="flex justify-between gap-6 text-[10px]">
             <span className="text-dim">Used (1m):</span>
-            <span>{rateLimit?.used_weight_1m ?? 0}</span>
+            <span className="font-mono font-bold">{rateLimit?.used_weight_1m ?? 0}</span>
           </div>
-          <div className="flex justify-between gap-6">
+          <div className="flex justify-between gap-6 text-[10px]">
             <span className="text-dim">Limit:</span>
-            <span>{rateLimit?.limit ?? 1200}</span>
+            <span className="font-mono">{rateLimit?.limit ?? 2400}</span>
           </div>
+          {monitoring?.application?.api_requests_breakdown && Object.keys(monitoring.application.api_requests_breakdown).length > 0 && (
+            <div className="mt-1 pt-1 border-t border-border/30 flex flex-col gap-1">
+              <span className="text-[8px] font-black text-dim uppercase tracking-widest">Active REST Calls</span>
+              <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-0.5 text-[8px] font-mono">
+                {Object.entries(monitoring.application.api_requests_breakdown).map(([label, count]) => (
+                  <span key={label} className="px-1 py-0.5 rounded bg-surface/80 border border-border/50 text-text/80 flex items-center gap-1">
+                    <span className="text-accent font-bold">{count}</span>
+                    <span className="truncate max-w-[85px]" title={label}>{label}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {rateLimitLastSync && (
-            <div className="flex justify-between gap-6 mt-1 pt-1 border-t border-border/30">
+            <div className="flex justify-between gap-6 mt-1 pt-1 border-t border-border/30 text-[9px]">
               <span className="text-dim">Last Sync:</span>
-              <span className="text-accent">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="text-accent font-mono">{new Date(rateLimitLastSync).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           )}
         </div>

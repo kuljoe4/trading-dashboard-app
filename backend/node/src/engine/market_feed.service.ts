@@ -1230,6 +1230,83 @@ export class MarketFeedService {
     this.logger.log(`Sequential kline backfill complete. Duration: ${duration.toFixed(1)}s | Weight Used: ${weightUsed} (Total: ${endWeight})`);
   }
 
+  public async forceBackfillKlines(symbol: string, interval: string): Promise<{ success: boolean; symbol: string; interval: string; count: number; requiredWarmup: number; isWarmupComplete: boolean; message: string }> {
+    if (this.sessionState.isBanned()) {
+      throw new Error("Binance IP is currently banned. Kline sync is paused.");
+    }
+
+    const resolvedInterval = this.resolveInterval(interval, this.sessionState.config) || interval;
+    const cacheKey = `${symbol}:${resolvedInterval}`;
+    const lastAttempt = this.lastBackfillAttemptMap.get(cacheKey) || 0;
+    const now = Date.now();
+
+    if (now - lastAttempt < 10000) {
+      const waitSec = Math.ceil((10000 - (now - lastAttempt)) / 1000);
+      throw new Error(`Candle sync on cooldown for ${symbol} ${resolvedInterval}. Please wait ${waitSec}s.`);
+    }
+
+    this.lastBackfillAttemptMap.set(cacheKey, now);
+
+    let requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
+    if (this.sessionState.config?.strategy_variants) {
+      for (const variant of this.sessionState.config.strategy_variants) {
+        if ((variant as any).enabled !== false) {
+          const variantWarmup = this.signalEngine.getRequiredWarmup({
+            ...this.sessionState.config,
+            ...variant,
+            signal_params: {
+              ...(this.sessionState.config?.signal_params || {}),
+              ...(variant?.signal_params || {}),
+            },
+          } as SessionConfig);
+          if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
+        }
+      }
+    }
+
+    this.logger.log(`[Manual Sync] Force backfilling klines for ${symbol} ${resolvedInterval}...`);
+
+    let klines: any[][] = [];
+    if (this.binanceClient) {
+      const response = await this.binanceClient.restAPI.klineCandlestickData({
+        symbol,
+        interval: resolvedInterval as any,
+        limit: this.klineStore.getMaxCandles()
+      });
+      this.updateWeight(response.headers);
+      klines = (await response.data()) as any[][];
+    } else {
+      const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
+      const response = await this.binanceClientFactory.genericRequest(
+        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        'klineCandlestickData'
+      );
+      if (response.ok) {
+        klines = (await response.json()) as any[][];
+      }
+    }
+
+    if (Array.isArray(klines) && klines.length > 0) {
+      await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
+    }
+
+    const candles = this.klineStore.getRawCandles(symbol, resolvedInterval);
+    const count = candles.length;
+    const isWarmupComplete = count >= requiredWarmup;
+
+    return {
+      success: true,
+      symbol,
+      interval: resolvedInterval,
+      count,
+      requiredWarmup,
+      isWarmupComplete,
+      message: isWarmupComplete
+        ? `Successfully synced ${count}/${requiredWarmup} candles for ${symbol} (${resolvedInterval}). Warmup complete.`
+        : `Synced ${count}/${requiredWarmup} candles for ${symbol} (${resolvedInterval}). ${requiredWarmup - count} candles remaining for full warmup.`
+    };
+  }
+
   private async backfillKlines(symbol: string, interval: string) {
     const resolvedInterval = this.resolveInterval(interval, this.sessionState.config);
     if (!resolvedInterval) {

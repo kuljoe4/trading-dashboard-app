@@ -84,6 +84,24 @@ export class AdoptPositionDto {
   currentSl?: number;
 }
 
+export class BackfillKlinesDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(20, { message: "Symbol cannot exceed 20 characters" })
+  @Matches(/^[A-Z0-9]{3,20}$/, {
+    message: "Symbol must be a valid uppercase alphanumeric string between 3 and 20 characters",
+  })
+  symbol: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(10, { message: "Interval cannot exceed 10 characters" })
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, {
+    message: "Interval must be a valid candlestick timeframe (e.g. 1m, 5m, 1h, 4h, 1d)",
+  })
+  interval: string;
+}
+
 export class UpdateTradeConfigDto {
   @IsOptional()
   @IsNumber()

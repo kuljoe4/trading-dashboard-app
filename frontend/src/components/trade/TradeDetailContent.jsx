@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { useTradingStore } from '../../store/trading'
+import { sessionAPI } from '../../api/client'
 import { price, formatDuration, calculateProximity } from '../../lib/formatters'
 import { StatCard, SectionLabel, cn, CopyButton, Tooltip, PulseDot, Btn } from '../ui/primitives'
 import { SignalGauge } from '../ui/SignalGauge'
@@ -973,6 +974,8 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
 const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
   if (!trade) return null;
 
+  const [isSyncingCandles, setIsSyncingCandles] = useState(false);
+
   const entryType = trade.entry_signal_type || trade.strategy_label || 'combo';
   const entryReason = trade.entry_reason || trade.entry_signal_reason || 'Signal conditions satisfied on entry evaluation pass';
   const strategyLabel = trade.strategy_label || activeSessionConfig?.strategy_label || 'Momentum Strategy';
@@ -1071,10 +1074,34 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
             const pct = required > 0 ? Math.min(100, Math.round((candles / required) * 100)) : 0;
             warmupInfo = {
               isWarmingUp: true,
+              tf,
               text: `In Progress (${candles}/${required} - ${tf})`,
               detail: `Exit indicator (${warmingItem.label || warmingItem.key}) warmup in progress: ${candles}/${required} candles (${pct}%) for ${tf}`,
             };
           }
+
+          const handleSyncCandles = async (tf) => {
+            if (isSyncingCandles || !trade?.symbol || !tf) return;
+            setIsSyncingCandles(true);
+            try {
+              const res = await sessionAPI.backfillKlines(trade.symbol, tf);
+              const data = res?.data;
+              useTradingStore.getState().addAlert({
+                level: data?.isWarmupComplete ? 'success' : 'info',
+                title: data?.isWarmupComplete ? 'Warmup Complete' : 'Candles Synced',
+                message: data?.message || `Synced ${tf} candles for ${trade.symbol}.`
+              });
+            } catch (err) {
+              const msg = err.response?.data?.message || err.message || 'Failed to sync candles.';
+              useTradingStore.getState().addAlert({
+                level: 'warn',
+                title: 'Sync Notice',
+                message: msg
+              });
+            } finally {
+              setIsSyncingCandles(false);
+            }
+          };
 
           return (
             <div className="bg-background/50 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5 md:col-span-2 lg:col-span-1">
@@ -1103,6 +1130,22 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
               )}>
                 {warmupInfo.isWarmingUp ? `⚠️ ${warmupInfo.detail}` : 'Chart execution timing synced with WebSocket price ticks'}
               </span>
+
+              {warmupInfo.isWarmingUp && (
+                <button
+                  type="button"
+                  disabled={isSyncingCandles}
+                  onClick={() => handleSyncCandles(warmupInfo.tf)}
+                  className={cn(
+                    "mt-1 px-2.5 py-1 bg-amber/10 hover:bg-amber/20 border border-amber/30 text-amber rounded-lg text-[9px] font-black uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-amber focus-visible:outline-none",
+                    isSyncingCandles && "opacity-70 cursor-wait"
+                  )}
+                  aria-label={`Manually sync ${warmupInfo.tf} candles for ${trade.symbol}`}
+                >
+                  <RefreshCw size={10} className={cn(isSyncingCandles && "animate-spin")} />
+                  {isSyncingCandles ? `Syncing ${warmupInfo.tf}...` : `Sync ${warmupInfo.tf} Candles`}
+                </button>
+              )}
             </div>
           );
         })()}

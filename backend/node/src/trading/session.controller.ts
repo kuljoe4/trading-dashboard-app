@@ -20,7 +20,7 @@ import { BacktestService, RunBacktestDto } from "../engine/backtest.service";
 import { SmartOptimizerService, RunOptimizationDto } from "../engine/smart-optimizer.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
 import { SessionConfig } from "../models/SessionConfig";
-import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto } from "./dto/session.dto";
+import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto, BackfillKlinesDto } from "./dto/session.dto";
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
 import { formatValidationErrors } from "../lib/logger";
@@ -33,6 +33,25 @@ export class SessionController {
     private readonly backtestService: BacktestService,
     private readonly smartOptimizerService: SmartOptimizerService,
   ) {}
+
+  @Post("backfill-klines")
+  async backfillKlines(@Body() body: BackfillKlinesDto) {
+    const dto = plainToInstance(BackfillKlinesDto, body || {});
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid backfill parameters",
+        detail: detailedErrors,
+      });
+    }
+
+    try {
+      return await this.sessionService.forceBackfillKlines(dto.symbol, dto.interval);
+    } catch (err: any) {
+      throw new BadRequestException(err.message || "Failed to backfill candles");
+    }
+  }
 
   @Post("smart-optimizer/run")
   async runSmartOptimization(@Body() body: RunOptimizationDto) {

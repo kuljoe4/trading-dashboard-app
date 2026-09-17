@@ -2284,6 +2284,10 @@ export class SessionService implements OnModuleInit {
 
   private updateSessionPromiseChains: Map<string, Promise<any>> = new Map();
 
+  async forceBackfillKlines(symbol: string, interval: string) {
+    return this.marketFeed.forceBackfillKlines(symbol, interval);
+  }
+
   async updateSession(
     id: string,
     partialConfig: Partial<SessionConfig>,

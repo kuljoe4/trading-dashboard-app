@@ -5,6 +5,7 @@ import { ShieldCheck, RefreshCw, Clock, Lock, Activity, AlertTriangle } from 'lu
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
+import { analyzeTradeDiagnostics } from '../utils/tradeDiagnostics'
 
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter, compact = false }) => {
   const now = useNow()
@@ -176,6 +177,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const netFee = safeNum(trade.realized_fee) + safeNum(trade.funding_fee)
 
+  const diag = React.useMemo(() => analyzeTradeDiagnostics(trade, config), [trade, config])
+
   const exitSignalProximity = React.useMemo(() => {
     if (!trade.exit_signals_status) return 0
     const statuses = Object.values(trade.exit_signals_status)
@@ -315,6 +318,22 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 </span>
               </Tooltip>
             )}
+
+            {diag.hasError ? (
+              <Tooltip content={`CRITICAL DISCREPANCY: ${diag.issues.filter(i => i.type === 'error').map(i => i.title).join(', ')}`}>
+                <span className="bg-red/15 border border-red/40 text-red text-[7.5px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-[0_0_8px_rgba(255,68,102,0.25)] font-mono animate-pulse">
+                  <AlertTriangle size={7} className="text-red shrink-0" />
+                  <span>E</span>
+                </span>
+              </Tooltip>
+            ) : diag.hasWarning ? (
+              <Tooltip content={`TRADE WARNING: ${diag.issues.filter(i => i.type === 'warning').map(i => i.title).join(', ')}`}>
+                <span className="bg-amber/15 border border-amber/35 text-amber text-[7.5px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 font-mono">
+                  <AlertTriangle size={7} className="text-amber shrink-0" />
+                  <span>W</span>
+                </span>
+              </Tooltip>
+            ) : null}
 
             {trade.is_knife && (
               <span className="text-[7.5px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase leading-none shrink-0">

@@ -20,7 +20,7 @@ import { BacktestService, RunBacktestDto } from "../engine/backtest.service";
 import { SmartOptimizerService, RunOptimizationDto } from "../engine/smart-optimizer.service";
 import { ApiKeyGuard } from "../lib/api-key.guard";
 import { SessionConfig } from "../models/SessionConfig";
-import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto } from "./dto/session.dto";
+import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionDto, BackfillKlinesDto } from "./dto/session.dto";
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
 import { formatValidationErrors } from "../lib/logger";
@@ -33,6 +33,25 @@ export class SessionController {
     private readonly backtestService: BacktestService,
     private readonly smartOptimizerService: SmartOptimizerService,
   ) {}
+
+  @Post("backfill-klines")
+  async backfillKlines(@Body() body: BackfillKlinesDto) {
+    const dto = plainToInstance(BackfillKlinesDto, body || {});
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+    if (errors.length > 0) {
+      const detailedErrors = formatValidationErrors(errors);
+      throw new BadRequestException({
+        message: "Invalid backfill parameters",
+        detail: detailedErrors,
+      });
+    }
+
+    try {
+      return await this.sessionService.forceBackfillKlines(dto.symbol, dto.interval);
+    } catch (err: any) {
+      throw new BadRequestException(err.message || "Failed to backfill candles");
+    }
+  }
 
   @Post("smart-optimizer/run")
   async runSmartOptimization(@Body() body: RunOptimizationDto) {
@@ -174,10 +193,21 @@ export class SessionController {
 
   @Post("pause")
   async pauseSession(@Body() body: PauseSessionDto, @Req() req: Request) {
+    // SEC-SENTINEL: Defense-in-depth validation of PauseSessionDto payload
+    const pauseDto = plainToInstance(PauseSessionDto, body || {});
+    const dtoErrors = await validate(pauseDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid pause session parameters",
+        detail: detailedErrors,
+      });
+    }
+
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
-    return this.sessionService.pauseSession(body.paused, body.strategyLabel, clientIp, userAgent);
+    return this.sessionService.pauseSession(pauseDto.paused, pauseDto.strategyLabel, clientIp, userAgent);
   }
 
   @Delete("trades/orphans")

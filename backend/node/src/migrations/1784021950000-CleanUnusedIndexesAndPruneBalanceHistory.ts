@@ -9,10 +9,15 @@ export class CleanUnusedIndexesAndPruneBalanceHistory1784021950000 implements Mi
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_balance_history_timestamp"`);
     await queryRunner.query(`DROP INDEX IF EXISTS "IDX_balance_history_trading_mode"`);
 
-    // 2. Prune stale balance_history rows older than 3 days to reclaim storage
+    // 2. Create composite index on trade_entity("sessionId", "status") for high-frequency SUM(pnl) aggregations
+    await queryRunner.query(
+      `CREATE INDEX IF NOT EXISTS "IDX_TRADE_ENTITY_SESSION_STATUS" ON "trade_entity" ("sessionId", "status")`,
+    );
+
+    // 3. Prune stale balance_history rows older than 3 days to reclaim storage
     await queryRunner.query(`DELETE FROM "balance_history" WHERE "timestamp" < NOW() - INTERVAL '3 days'`);
 
-    // 3. Attempt pg_stat_statements extension creation for database query statistics tracking
+    // 4. Attempt pg_stat_statements extension creation for database query statistics tracking
     try {
       await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS pg_stat_statements;`);
     } catch {
@@ -21,6 +26,6 @@ export class CleanUnusedIndexesAndPruneBalanceHistory1784021950000 implements Mi
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // No-op for deleted historical rows
+    await queryRunner.query(`DROP INDEX IF EXISTS "IDX_TRADE_ENTITY_SESSION_STATUS"`);
   }
 }

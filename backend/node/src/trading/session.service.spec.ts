@@ -579,7 +579,7 @@ describe('SessionService Validation', () => {
 
       await service.saveTradeAtomic(trade, 10000);
 
-      expect(mockQueryRunner.manager.save).toHaveBeenCalledWith(TradeEntity, expect.objectContaining({
+      expect(mockTradeRepository.save).toHaveBeenCalledWith(expect.objectContaining({
         entry_signal_type: 'breakout',
         entry_signal_confidence: 0.85,
         mark_price: 50100,

@@ -280,10 +280,21 @@ export const normalizeLog = (l = {}) => {
   const source = getObjectSource(l);
   const lv = (source.level ?? source.lv ?? 'info').toString().toLowerCase();
   const m = (source.msg ?? source.message ?? '').toString().trim();
+  const rawTs = source.ts || source.timestamp;
+  let ts_ms = source.ts_ms;
+  if (!ts_ms) {
+    if (rawTs) {
+      const parsed = typeof rawTs === 'number' ? rawTs : new Date(rawTs).getTime();
+      ts_ms = Number.isNaN(parsed) ? Date.now() : parsed;
+    } else {
+      ts_ms = Date.now();
+    }
+  }
   return {
     ...source,
     id: source.id || Math.random().toString(36).substring(2, 15),
-    ts: source.ts || source.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    ts: rawTs || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    ts_ms,
     level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info',
     msg: m
   };
@@ -571,7 +582,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             }
           });
           const mergedLogs = Array.from(existingMap.values())
-            .sort((a, b) => new Date(b.ts || 0).getTime() - new Date(a.ts || 0).getTime())
+            .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
             .slice(0, MAX_LOG_LINES);
           return { logs: mergedLogs };
         });
@@ -811,7 +822,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               }
             });
             nextLogs = Array.from(existingMap.values())
-              .sort((a, b) => new Date(b.ts || 0).getTime() - new Date(a.ts || 0).getTime())
+              .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
               .slice(0, MAX_LOG_LINES);
           }
 

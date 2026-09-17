@@ -56,4 +56,10 @@ test('DecisionLog UX & Keyboard Accessibility Standard', () => {
     content.includes('focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none'),
     'Scroll-to-top button must specify type="button", dynamic aria-label, and high-contrast focus-visible ring'
   )
+
+  // 7. Timezone-aware accessible <time> element formatting
+  assert.ok(
+    content.includes('formatLogTimestamp') && content.includes('<time') && content.includes('dateTime={timestampInfo.iso}') && content.includes('title={timestampInfo.fullLocal}'),
+    'LogEntry must render timestamps using timezone-aware accessible <time dateTime="..." title="..."> elements'
+  )
 })

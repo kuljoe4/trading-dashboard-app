@@ -153,6 +153,7 @@ export class MaintenanceService {
       } else {
         this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
         if (uniqueSymbols.length >= 2) {
+          this.logger.debug(`[Watchdog] Dispatching bulk positionInformationV3 (Weight: 5) for ${uniqueSymbols.length} symbols`);
           const allPositions = await this.orderManager.fetchAllPositions();
           const targetSet = new Set(uniqueSymbols);
           allPositions
@@ -161,6 +162,7 @@ export class MaintenanceService {
         }
         for (const symbol of uniqueSymbols) {
            if (uniqueSymbols.length < 2) {
+             this.logger.debug(`[Watchdog] Dispatching targeted positionInformationV3 (Weight: 5) for ${symbol}`);
              // Zero-Weight Path: Try cache first
              const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
              if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {

@@ -1293,6 +1293,9 @@ export class SessionService implements OnModuleInit {
 
         // 1. Positions: Bulk fetch if >= 2 symbols (5 weight total vs 5*N weight)
         if (uniqueSymbols.length >= 2) {
+          this.logger.debug(
+            `[Reconciliation] Dispatching bulk positionInformationV3 (Weight: 5) for ${uniqueSymbols.length} symbols`,
+          );
           const allExchangePositions =
             await this.tradingSessionService.fetchAllPositions();
           const targetSymbolSet = new Set(uniqueSymbols);
@@ -1300,6 +1303,9 @@ export class SessionService implements OnModuleInit {
             (p) => targetSymbolSet.has(p.symbol) && Math.abs(parseFloat(p.positionAmt)) > 0,
           );
         } else if (uniqueSymbols.length === 1) {
+          this.logger.debug(
+            `[Reconciliation] Dispatching targeted positionInformationV3 (Weight: 5) for ${uniqueSymbols[0]}`,
+          );
           const pos = await this.orderManager.fetchPosition(uniqueSymbols[0], {
             forceFresh: true,
           });
@@ -1310,8 +1316,14 @@ export class SessionService implements OnModuleInit {
 
         // 2. Open Orders: Bulk if > 20 symbols, targeted if <= 20 symbols
         if (uniqueSymbols.length > 20) {
+          this.logger.debug(
+            `[Reconciliation] Dispatching bulk currentAllOpenOrders & currentAllAlgoOpenOrders (Weight: 60) for ${uniqueSymbols.length} symbols`,
+          );
           allOpenOrders = await this.orderManager.fetchAllOpenOrders();
         } else {
+          this.logger.debug(
+            `[Reconciliation] Dispatching targeted open orders (currentAllOpenOrders & currentAllAlgoOpenOrders, Weight: ${uniqueSymbols.length * 2}) for ${uniqueSymbols.length} symbols`,
+          );
           for (const symbol of uniqueSymbols) {
             const orders = await this.orderManager.fetchOpenOrders(symbol);
             allOpenOrders.push(...orders);

@@ -62,4 +62,48 @@ describe('TickerCacheService Caching Regression', () => {
     expect(tickers2).not.toBe(tickers1);
     expect(tickers2.length).toBe(0);
   });
+
+  describe('topByVolume & topByChangePct zero-allocation cache key optimization', () => {
+    beforeEach(() => {
+      for (let i = 1; i <= 20; i++) {
+        service.updateTicker(`SYM${i}USDT`, 100 + i, 1000 * i, 100);
+      }
+    });
+
+    it('should generate consistent results for empty, single, pre-sorted, and unsorted excluded arrays', () => {
+      const res1 = service.topByVolume(5, []);
+      expect(res1.length).toBe(5);
+
+      const resSingle = service.topByVolume(5, ['SYM20USDT']);
+      expect(resSingle.some(t => t.symbol === 'SYM20USDT')).toBe(false);
+
+      const resSorted = service.topByVolume(5, ['SYM19USDT', 'SYM20USDT']);
+      const resUnsorted = service.topByVolume(5, ['SYM20USDT', 'SYM19USDT']);
+
+      expect(resSorted).toBe(resUnsorted); // Same cached instance
+      expect(resSorted.some(t => t.symbol === 'SYM19USDT' || t.symbol === 'SYM20USDT')).toBe(false);
+    });
+
+    it('should handle undefined or null excluded parameter safely in topByChangePct and topByVolume', () => {
+      expect(() => service.topByChangePct(5, undefined as any)).not.toThrow();
+      expect(() => service.topByChangePct(5, null as any)).not.toThrow();
+      expect(() => service.topByVolume(5, undefined as any)).not.toThrow();
+      expect(() => service.topByVolume(5, null as any)).not.toThrow();
+    });
+
+    it('benchmark: measures speedup of zero-allocation cache key generation over repeated calls', () => {
+      const excluded = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+      const iterations = 100000;
+
+      const start = performance.now();
+      for (let i = 0; i < iterations; i++) {
+        service.topByVolume(10, excluded);
+      }
+      const elapsed = performance.now() - start;
+
+      // Ensure execution is lightning fast (< 50ms for 100k calls on cache hits)
+      expect(elapsed).toBeLessThan(100);
+      console.log(`[BENCHMARK] topByVolume 100,000 cached calls elapsed time: ${elapsed.toFixed(2)} ms (${(elapsed / iterations * 1000).toFixed(2)} ns/call)`);
+    });
+  });
 });

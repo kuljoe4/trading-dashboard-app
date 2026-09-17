@@ -152,11 +152,20 @@ export class MaintenanceService {
         });
       } else {
         this.logger.log(`[Watchdog] Performing targeted audit for ${uniqueSymbols.length} symbols...`);
+        if (uniqueSymbols.length >= 2) {
+          const allPositions = await this.orderManager.fetchAllPositions();
+          const targetSet = new Set(uniqueSymbols);
+          allPositions
+            .filter(p => targetSet.has(p.symbol) && Math.abs(parseFloat(p.positionAmt)) > 0)
+            .forEach(p => activePositionsMap.set(p.symbol, p));
+        }
         for (const symbol of uniqueSymbols) {
-           // Zero-Weight Path: Try cache first
-           const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
-           if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
-             activePositionsMap.set(symbol, pos);
+           if (uniqueSymbols.length < 2) {
+             // Zero-Weight Path: Try cache first
+             const pos = await this.orderManager.fetchPosition(symbol, { forceFresh: false });
+             if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
+               activePositionsMap.set(symbol, pos);
+             }
            }
 
            const orders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: false });

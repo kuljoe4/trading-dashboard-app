@@ -39,6 +39,27 @@ test('analyzeTradeDiagnostics detects Guard Ladder discrepancy and generates war
   assert.ok(result.traceSnippet.includes('Guard Ladder Discrepancy'));
 });
 
+test('analyzeTradeDiagnostics detects unratcheted Guard Ladder discrepancy when max_rr_achieved crosses trigger while rr_sequence_index is -1', () => {
+  const trade = {
+    symbol: 'XLMUSDT',
+    direction: 'LONG',
+    entry_price: 0.18115,
+    initial_sl: 0.17219, // riskUnit = 0.00896
+    current_sl: 0.17299,
+    max_rr_achieved: 0.94, // > trigger 0.667R
+    rr_sequence_index: -1,
+    live_rr_sequence: [0.667, 1],
+    exit_rr_sequence: [0.1, 0.4], // expected target SL for 0.667R is 0.18115 + 0.00896*0.1 = 0.18205
+    qty: 75,
+    status: 'OPEN'
+  };
+
+  const result = analyzeTradeDiagnostics(trade, { paper_mode: true });
+  assert.strictEqual(result.hasWarning, true);
+  assert.ok(result.issues.some(i => i.code === 'SL_LADDER_DISCREPANCY'));
+  assert.ok(result.issues.some(i => i.message.includes('0.182046')));
+});
+
 test('analyzeTradeDiagnostics detects close blocked and exit warmup status', () => {
   const trade = {
     symbol: 'SOLUSDT',

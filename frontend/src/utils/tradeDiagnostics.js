@@ -46,9 +46,19 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
   const maxRR = Number(trade.max_rr ?? trade.max_rr_achieved ?? 0);
   const activeIdx = Number(trade.rr_sequence_index ?? -1);
 
+  // Find the highest milestone index crossed by peak R:R
+  let achievedMilestoneIdx = -1;
+  for (let i = 0; i < triggers.length; i++) {
+    if (maxRR >= Number(triggers[i])) {
+      achievedMilestoneIdx = i;
+    }
+  }
+
+  const evalIdx = activeIdx >= 0 ? activeIdx : achievedMilestoneIdx;
+
   let expectedSl = initialSl > 0 ? initialSl : sl;
-  if (activeIdx >= 0 && exits[activeIdx] !== undefined) {
-    const exitR = exits[activeIdx];
+  if (evalIdx >= 0 && exits[evalIdx] !== undefined) {
+    const exitR = exits[evalIdx];
     expectedSl = isLong ? entry + riskUnit * exitR : entry - riskUnit * exitR;
   }
 
@@ -67,7 +77,7 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
         type: 'warning',
         code: 'SL_LADDER_DISCREPANCY',
         title: 'Guard Ladder Discrepancy',
-        message: `Current SL (${formatPrice(sl)}) differs from the target milestone SL (${formatPrice(expectedSl)}) for active Guard R ${triggers[activeIdx] ?? 0}R.`
+        message: `Current SL (${formatPrice(sl)}) differs from the target milestone SL (${formatPrice(expectedSl)}) for active Guard R ${triggers[evalIdx] ?? 0}R.`
       });
     }
   }

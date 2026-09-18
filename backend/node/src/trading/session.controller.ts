@@ -236,14 +236,25 @@ export class SessionController {
 
   @Post("adopt-position")
   async adoptPosition(@Body() body: AdoptPositionDto, @Req() req: Request) {
+    // SEC-SENTINEL: Defense-in-depth validation of AdoptPositionDto payload
+    const adoptDto = plainToInstance(AdoptPositionDto, body || {});
+    const dtoErrors = await validate(adoptDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid adopt position parameters",
+        detail: detailedErrors,
+      });
+    }
+
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
     return this.sessionService.adoptPositionManually(
-      body.symbol,
-      body.strategyLabel,
-      body.initialSl,
-      body.currentSl,
+      adoptDto.symbol,
+      adoptDto.strategyLabel,
+      adoptDto.initialSl,
+      adoptDto.currentSl,
       clientIp,
       userAgent,
     );

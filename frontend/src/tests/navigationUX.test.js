@@ -20,4 +20,7 @@ test('Navigation buttons include explicit type="button", cursor-pointer, focus r
   // Verify dynamic ARIA labels for active trades context
   assert.match(fileContent, /active position/, 'Navigation should include dynamic active position context in ARIA labels');
   assert.match(fileContent, /aria-current=\{isActive\(item\.path\)\ \?\ 'page'\ \:\ undefined\}/, 'Navigation should set aria-current="page" on active route');
+
+  // Verify Sidebar brand header button is interactive and accessible
+  assert.match(fileContent, /aria-label="Momentum Cockpit Home"/, 'Sidebar brand header should specify aria-label="Momentum Cockpit Home"');
 });

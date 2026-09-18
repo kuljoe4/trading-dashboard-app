@@ -52,6 +52,14 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     expectedSl = isLong ? entry + riskUnit * exitR : entry - riskUnit * exitR;
   }
 
+  const formatPrice = (val) => {
+    const num = Number(val || 0);
+    if (num === 0) return '0';
+    if (Math.abs(num) < 0.01) return num.toFixed(7).replace(/\.?0+$/, '');
+    if (Math.abs(num) < 1) return num.toFixed(6).replace(/\.?0+$/, '');
+    return num.toFixed(5).replace(/\.?0+$/, '');
+  };
+
   if (sl > 0 && expectedSl > 0 && Math.abs(sl - expectedSl) > entry * 0.0001) {
     const isSlBetterThanExpected = isLong ? sl > expectedSl + entry * 0.0001 : sl < expectedSl - entry * 0.0001;
     if (!isSlBetterThanExpected) {
@@ -59,7 +67,7 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
         type: 'warning',
         code: 'SL_LADDER_DISCREPANCY',
         title: 'Guard Ladder Discrepancy',
-        message: `Current SL (${sl.toFixed(5)}) differs from the target milestone SL (${expectedSl.toFixed(5)}) for active Guard R ${triggers[activeIdx] ?? 0}R.`
+        message: `Current SL (${formatPrice(sl)}) differs from the target milestone SL (${formatPrice(expectedSl)}) for active Guard R ${triggers[activeIdx] ?? 0}R.`
       });
     }
   }
@@ -126,10 +134,10 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     `**Peak R:R Achieved:** ${maxRR.toFixed(2)}R (Current R: ${Number(trade.rr || 0).toFixed(2)}R)`,
     ``,
     `#### Stop Loss & Protection State:`,
-    `- **Current SL:** $${sl} (Initial SL: $${initialSl})`,
+    `- **Current SL:** $${formatPrice(sl)} (Initial SL: $${formatPrice(initialSl)})`,
     `- **Exchange Order ID:** ${trade.binance_stop_order_id || 'None'} (${trade.binance_stop_order_type || 'standard'})`,
     `- **Active Risk USDT:** $${trade.risk_usdt ?? '0.00'} (Initial Risk: $${trade.initial_risk_usdt ?? '0.00'})`,
-    `- **Milestone Index:** ${activeIdx} (Target Milestone SL: $${expectedSl.toFixed(5)})`,
+    `- **Milestone Index:** ${activeIdx} (Target Milestone SL: $${formatPrice(expectedSl)})`,
     ``,
     `#### Guard Ladder Configuration:`,
     `- **Triggers (R):** [${triggers.join(', ')}]`,

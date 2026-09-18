@@ -24,101 +24,97 @@ test('Dashboard active trades loop fusion benchmark', () => {
 
   const ITERATIONS = 100_000;
 
-  // Warmup JIT
-  for (let iter = 0; iter < 5_000; iter++) {
-    const maxRR = (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0);
-  }
+  const runOriginal = (iterations) => {
+    let lastRes;
+    for (let iter = 0; iter < iterations; iter++) {
+      const strategyLabel = currentStrategy.strategy_label;
+      const pnlMap = { [strategyLabel]: 0 };
+      const estPnlMap = { [strategyLabel]: 0 };
+      const countMap = { [strategyLabel]: 0 };
+
+      const variants = config.strategy_variants || [];
+      for (let i = 0; i < variants.length; i++) {
+        const label = variants[i].strategy_label || 'Variant';
+        pnlMap[label] = 0;
+        estPnlMap[label] = 0;
+        countMap[label] = 0;
+      }
+
+      const trades = activeTrades || [];
+      for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        if (t) {
+          const label = pnlMap[t.strategy_label] !== undefined ? t.strategy_label : strategyLabel;
+          const pnlVal = safeNum(t.pnl);
+          pnlMap[label] += pnlVal;
+          estPnlMap[label] += safeNum(t.est_pnl_to_realize);
+          countMap[label]++;
+        }
+      }
+
+      const pnlValues = Object.values(pnlMap);
+      let totPnl = 0;
+      for (let i = 0; i < pnlValues.length; i++) {
+        totPnl += pnlValues[i];
+      }
+
+      const maxRR = (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0);
+      lastRes = { pnlMap, estPnlMap, countMap, totPnl, maxRR };
+    }
+    return lastRes;
+  };
+
+  const runOptimized = (iterations) => {
+    let lastRes;
+    for (let iter = 0; iter < iterations; iter++) {
+      const strategyLabel = currentStrategy.strategy_label;
+      const pnlMap = { [strategyLabel]: 0 };
+      const estPnlMap = { [strategyLabel]: 0 };
+      const countMap = { [strategyLabel]: 0 };
+
+      const variants = config.strategy_variants || [];
+      for (let i = 0; i < variants.length; i++) {
+        const label = variants[i].strategy_label || 'Variant';
+        pnlMap[label] = 0;
+        estPnlMap[label] = 0;
+        countMap[label] = 0;
+      }
+
+      let maxRR = 0;
+      let totPnl = 0;
+      const trades = activeTrades || [];
+      for (let i = 0; i < trades.length; i++) {
+        const t = trades[i];
+        if (t) {
+          const label = pnlMap[t.strategy_label] !== undefined ? t.strategy_label : strategyLabel;
+          const pnlVal = safeNum(t.pnl);
+          pnlMap[label] += pnlVal;
+          totPnl += pnlVal;
+          estPnlMap[label] += safeNum(t.est_pnl_to_realize);
+          countMap[label]++;
+
+          const rrVal = Number(t.max_rr ?? t.max_rr_achieved ?? 0);
+          if (rrVal > maxRR) maxRR = rrVal;
+        }
+      }
+      lastRes = { pnlMap, estPnlMap, countMap, totPnl, maxRR };
+    }
+    return lastRes;
+  };
+
+  // Warmup JIT for both paths
+  runOriginal(10_000);
+  runOptimized(10_000);
 
   // Pattern 1: Separate useMemos (current approach)
   const startOriginal = performance.now();
-  for (let iter = 0; iter < ITERATIONS; iter++) {
-    // Memo 1
-    const strategyLabel = currentStrategy.strategy_label;
-    const pnlMap = { [strategyLabel]: 0 };
-    const estPnlMap = { [strategyLabel]: 0 };
-    const countMap = { [strategyLabel]: 0 };
-
-    const variants = config.strategy_variants || [];
-    for (let i = 0; i < variants.length; i++) {
-      const label = variants[i].strategy_label || 'Variant';
-      pnlMap[label] = 0;
-      estPnlMap[label] = 0;
-      countMap[label] = 0;
-    }
-
-    const trades = activeTrades || [];
-    for (let i = 0; i < trades.length; i++) {
-      const t = trades[i];
-      if (t) {
-        const label = pnlMap[t.strategy_label] !== undefined ? t.strategy_label : strategyLabel;
-        const pnlVal = safeNum(t.pnl);
-        pnlMap[label] += pnlVal;
-        estPnlMap[label] += safeNum(t.est_pnl_to_realize);
-        countMap[label]++;
-      }
-    }
-
-    const pnlValues = Object.values(pnlMap);
-    let totPnl = 0;
-    for (let i = 0; i < pnlValues.length; i++) {
-      totPnl += pnlValues[i];
-    }
-
-    const res1 = {
-      activePnlMap: pnlMap,
-      activeEstPnlToRealizeMap: estPnlMap,
-      activeTradeCountsMap: countMap,
-      totalActivePnl: totPnl
-    };
-
-    // Memo 2 (separate)
-    const maxRR = (activeTrades || []).reduce((max, trade) => Math.max(max, Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)), 0);
-  }
+  runOriginal(ITERATIONS);
   const endOriginal = performance.now();
   const durationOriginal = endOriginal - startOriginal;
 
   // Pattern 2: Fused single useMemo loop
   const startOptimized = performance.now();
-  for (let iter = 0; iter < ITERATIONS; iter++) {
-    const strategyLabel = currentStrategy.strategy_label;
-    const pnlMap = { [strategyLabel]: 0 };
-    const estPnlMap = { [strategyLabel]: 0 };
-    const countMap = { [strategyLabel]: 0 };
-
-    const variants = config.strategy_variants || [];
-    for (let i = 0; i < variants.length; i++) {
-      const label = variants[i].strategy_label || 'Variant';
-      pnlMap[label] = 0;
-      estPnlMap[label] = 0;
-      countMap[label] = 0;
-    }
-
-    let maxRR = 0;
-    let totPnl = 0;
-    const trades = activeTrades || [];
-    for (let i = 0; i < trades.length; i++) {
-      const t = trades[i];
-      if (t) {
-        const label = pnlMap[t.strategy_label] !== undefined ? t.strategy_label : strategyLabel;
-        const pnlVal = safeNum(t.pnl);
-        pnlMap[label] += pnlVal;
-        totPnl += pnlVal;
-        estPnlMap[label] += safeNum(t.est_pnl_to_realize);
-        countMap[label]++;
-
-        const rrVal = Number(t.max_rr ?? t.max_rr_achieved ?? 0);
-        if (rrVal > maxRR) maxRR = rrVal;
-      }
-    }
-
-    const res2 = {
-      activePnlMap: pnlMap,
-      activeEstPnlToRealizeMap: estPnlMap,
-      activeTradeCountsMap: countMap,
-      totalActivePnl: totPnl,
-      maxRR
-    };
-  }
+  runOptimized(ITERATIONS);
   const endOptimized = performance.now();
   const durationOptimized = endOptimized - startOptimized;
 

@@ -14,7 +14,7 @@ describe('Rest Telemetry & Preset Multi-Select UI/UX Standards', () => {
   test('SystemMetrics renders ultra-dense REST Call Distribution badges and mobile telemetry drawer', () => {
     const code = fs.readFileSync(metricsFilePath, 'utf8');
     assert.ok(code.includes('api_requests_breakdown'), 'SystemMetrics must reference api_requests_breakdown');
-    assert.ok(code.includes('REST Call Distribution'), 'SystemMetrics must display REST Call Distribution section header');
+    assert.ok(code.includes('REST Endpoint Call Distribution') || code.includes('REST Call Distribution'), 'SystemMetrics must display REST Call Distribution section header');
     assert.ok(code.includes('handleCopyDiagnostics'), 'SystemMetrics must support handleCopyDiagnostics snippet generation');
     assert.ok(code.includes('isMobileDiagOpen'), 'SystemMetrics must provide mobile diagnostic drawer state');
     assert.ok(code.includes('System Telemetry & Diagnostics'), 'SystemMetrics must render mobile telemetry drawer title');

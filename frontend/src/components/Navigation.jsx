@@ -43,17 +43,23 @@ export const Sidebar = ({ selected }) => {
       )}
     >
       <div className={cn("flex-1 flex flex-col p-6 overflow-hidden", !isExpanded && "px-4")}>
-        <div className={cn("flex items-center gap-3 mb-12", !isExpanded && "justify-center")}>
-        <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0">
-          <LayoutDashboard size={24} className="text-white" />
-        </div>
-        {isExpanded && <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap">Momentum</span>}
-        {isSyncing && (
-          <div className="absolute top-0 left-0 right-0 h-1 overflow-hidden">
-            <div className="h-full bg-accent animate-progress-fast shadow-[0_0_10px_var(--color-accent)]" />
+        <button
+          type="button"
+          onClick={() => { window.location.hash = '#/'; }}
+          onMouseEnter={() => preloadView('/')}
+          aria-label="Momentum Cockpit Home"
+          className={cn("flex items-center gap-3 mb-12 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl cursor-pointer transition-opacity hover:opacity-90 relative", !isExpanded && "justify-center")}
+        >
+          <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0 group-hover/brand:scale-105 transition-transform">
+            <LayoutDashboard size={24} className="text-white" />
           </div>
-        )}
-      </div>
+          {isExpanded && <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap">Momentum</span>}
+          {isSyncing && (
+            <div className="absolute top-0 left-0 right-0 h-1 overflow-hidden">
+              <div className="h-full bg-accent animate-progress-fast shadow-[0_0_10px_var(--color-accent)]" />
+            </div>
+          )}
+        </button>
 
       <nav className="flex-1 flex flex-col gap-2">
         {NAV_ITEMS.map(item => (

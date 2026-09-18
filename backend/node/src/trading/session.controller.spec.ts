@@ -22,6 +22,7 @@ describe("SessionController", () => {
           useValue: {
             startSession: jest.fn().mockResolvedValue({ id: 'test-session-id' }),
             pauseSession: jest.fn().mockResolvedValue({ success: true }),
+            adoptPositionManually: jest.fn().mockResolvedValue({ success: true }),
             getTrade: jest.fn(),
             getHistory: jest.fn(),
             getLifetimeAnalytics: jest.fn(),
@@ -271,6 +272,24 @@ describe("SessionController", () => {
       };
 
       await expect(controller.runBacktest(payload)).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe("adoptPosition DTO Whitelist Validation", () => {
+    it("should accept valid AdoptPositionDto payloads", async () => {
+      const mockReq = { ip: "127.0.0.1", headers: {} } as any;
+      const validPayload = { symbol: "BTCUSDT", strategyLabel: "Strategy_A", initialSl: 50000, currentSl: 51000 };
+
+      await controller.adoptPosition(validPayload as any, mockReq);
+
+      expect(sessionService.adoptPositionManually).toHaveBeenCalledWith("BTCUSDT", "Strategy_A", 50000, 51000, "127.0.0.1", undefined);
+    });
+
+    it("should throw BadRequestException when adoptPosition receives non-whitelisted properties", async () => {
+      const mockReq = { ip: "127.0.0.1", headers: {} } as any;
+      const invalidPayload = { symbol: "BTCUSDT", strategyLabel: "Strategy_A", injectedField: "malicious" };
+
+      await expect(controller.adoptPosition(invalidPayload as any, mockReq)).rejects.toThrow(BadRequestException);
     });
   });
 });

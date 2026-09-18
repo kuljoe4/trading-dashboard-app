@@ -140,7 +140,7 @@ describe('TickerCacheService', () => {
         for (let i = 0; i < 100; i++) {
           oldImplementation(10);
           // Clear cache so that the optimized version recomputes
-          (service as any)._topByChangeCache = {};
+          (service as any)._topByChangeCache.clear();
           service.topByChangePct(10);
         }
 
@@ -156,7 +156,7 @@ describe('TickerCacheService', () => {
         const startOpt = performance.now();
         for (let i = 0; i < iterations; i++) {
           // Force recomputation by clearing cache
-          (service as any)._topByChangeCache = {};
+          (service as any)._topByChangeCache.clear();
           service.topByChangePct(10);
         }
         const endOpt = performance.now();
@@ -173,7 +173,7 @@ describe('TickerCacheService', () => {
 
         // Verify they produce identical sorted results
         const resOld = oldImplementation(10);
-        (service as any)._topByChangeCache = {};
+        (service as any)._topByChangeCache.clear();
         const resOpt = service.topByChangePct(10);
 
         expect(resOpt.length).toBe(resOld.length);
@@ -250,7 +250,7 @@ describe('TickerCacheService', () => {
         // Warm up
         for (let i = 0; i < 100; i++) {
           oldImplementation(10);
-          (service as any)._topByVolumeCache = {};
+          (service as any)._topByVolumeCache.clear();
           service.topByVolume(10);
         }
 
@@ -265,7 +265,7 @@ describe('TickerCacheService', () => {
         // Benchmark Optimized
         const startOpt = performance.now();
         for (let i = 0; i < iterations; i++) {
-          (service as any)._topByVolumeCache = {};
+          (service as any)._topByVolumeCache.clear();
           service.topByVolume(10);
         }
         const endOpt = performance.now();
@@ -282,7 +282,7 @@ describe('TickerCacheService', () => {
 
         // Verify they produce identical sorted results
         const resOld = oldImplementation(10);
-        (service as any)._topByVolumeCache = {};
+        (service as any)._topByVolumeCache.clear();
         const resOpt = service.topByVolume(10);
 
         expect(resOpt.length).toBe(resOld.length);

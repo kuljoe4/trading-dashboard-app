@@ -923,7 +923,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         <div className="flex items-center gap-1.5 xs:gap-2 sm:gap-3 shrink-0 font-mono text-xs">
           {/* Active PnL Color-Coded Badge */}
           <Tooltip content={`Active Open P&L: ${fmtUSD(s.activePnl)} (${(() => {
-            const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+            const currentAccBal = storeBalance || startingBalance;
+            const activePct = currentAccBal > 0 ? (s.activePnl / currentAccBal) * 100 : 0;
             return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
           })()})`}>
             <div className={cn(
@@ -1129,7 +1130,8 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
             </span>
             <span className="text-[8px] font-bold font-mono uppercase tracking-wider mt-0.5 truncate" style={{ color: pnlColor(s.activePnl) }}>
               {(() => {
-                const activePct = startingBalance > 0 ? (s.activePnl / startingBalance) * 100 : 0;
+                const currentAccBal = storeBalance || startingBalance;
+                const activePct = currentAccBal > 0 ? (s.activePnl / currentAccBal) * 100 : 0;
                 return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
               })()}
             </span>
@@ -1850,6 +1852,18 @@ export function DashboardView({ initialStrategy }) {
     setCardViewMode(mode);
     localStorage.setItem('dashboard_card_view_mode', mode);
   };
+  const [globalMetricsExpanded, setGlobalMetricsExpanded] = useState(() => {
+    return localStorage.getItem('global_metrics_expanded') === 'true';
+  })
+
+  const toggleGlobalMetricsExpanded = () => {
+    const next = !globalMetricsExpanded;
+    setGlobalMetricsExpanded(next);
+    try {
+      localStorage.setItem('global_metrics_expanded', String(next));
+    } catch (e) {}
+  };
+
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterActive, setFilterActive] = useState(false)
@@ -2637,8 +2651,20 @@ export function DashboardView({ initialStrategy }) {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.2 }}
           >
-            <SectionLabel className="mb-4">
-              <Activity size={14} className="text-accent" /> Global Metrics
+            <SectionLabel className="mb-4 flex items-center justify-between w-full">
+              <div className="flex items-center gap-1.5">
+                <Activity size={14} className="text-accent" /> Global Metrics
+              </div>
+              <button
+                type="button"
+                onClick={toggleGlobalMetricsExpanded}
+                aria-expanded={globalMetricsExpanded}
+                aria-label={globalMetricsExpanded ? "Collapse secondary global metrics" : "Expand secondary global metrics"}
+                className="text-dim hover:text-text flex items-center gap-1 text-[9.5px] xs:text-[10px] font-mono font-bold uppercase transition-colors px-2 py-0.5 rounded-lg bg-surface border border-border/40 hover:border-accent/40 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              >
+                <span>{globalMetricsExpanded ? "Compact" : "Expand"}</span>
+                <ChevronDown size={11} className={cn("transition-transform duration-200", globalMetricsExpanded && "rotate-180")} />
+              </button>
             </SectionLabel>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4">
               <StatCard
@@ -2667,7 +2693,7 @@ export function DashboardView({ initialStrategy }) {
                   const tradeTimeAgo = tradeTs ? formatTimeAgo(tradeTs) : '';
                   return `Account Balance: $${balance.toLocaleString()}. Last trade closed ${tradeTimeAgo} with PnL ${Number(lastTrade.pnl || 0) >= 0 ? 'plus' : 'minus'} $${Math.abs(lastTrade.pnl || 0).toFixed(2)} (${Math.abs(balPctChange || 0).toFixed(2)}%).`;
                 })()}
-                subValue={(() => {
+                subValue={globalMetricsExpanded ? (() => {
                   const prevBalance = lastTrade ? balance - (lastTrade.pnl || 0) : balance;
                   const balPctChange = prevBalance > 0 && lastTrade ? ((lastTrade.pnl || 0) / prevBalance) * 100 : 0;
                   const fundPct = balance > 0 ? (Math.abs(netFunding) / balance) * 100 : 0;
@@ -2725,26 +2751,24 @@ export function DashboardView({ initialStrategy }) {
                       </div>
                     </div>
                   );
-                })()}
+                })() : null}
               />
               <StatCard
                 label="Active P&L"
                 value={`${fmtUSD(totalActivePnl)} (${(() => {
-                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl))) || 10000;
-                  const activePct = startBal > 0 ? (totalActivePnl / startBal) * 100 : 0;
+                  const activePct = balance > 0 ? (totalActivePnl / balance) * 100 : 0;
                   return `${activePct >= 0 ? '+' : ''}${activePct.toFixed(2)}%`;
                 })()})`}
                 color={pnlClass(totalActivePnl)}
-                subValue={(() => {
-                  const startBal = (config?.trading_mode === 'paper' ? config?.paper_starting_balance : (config?.live_starting_balance && config.live_starting_balance !== 10000 ? config.live_starting_balance : Math.max(1, balance - totalPnl))) || 10000;
+                subValue={globalMetricsExpanded ? (() => {
                   const modeLabel = config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live');
 
                   if (!activeTrades || activeTrades.length === 0) {
                     return `Total (${modeLabel}): ${fmtUSD(totalPnl)}`;
                   }
 
-                  const peakPct = startBal > 0 ? (peakActivePnl / startBal) * 100 : 0;
-                  const minPct = startBal > 0 ? (minActivePnl / startBal) * 100 : 0;
+                  const peakPct = balance > 0 ? (peakActivePnl / balance) * 100 : 0;
+                  const minPct = balance > 0 ? (minActivePnl / balance) * 100 : 0;
                   const openDurationStr = oldestActiveEntryTs ? formatTimeAgo(oldestActiveEntryTs) : null;
                   const updateAgoStr = latestActiveUpdateTs ? formatTimeAgo(latestActiveUpdateTs) : null;
 
@@ -2768,7 +2792,7 @@ export function DashboardView({ initialStrategy }) {
                       </div>
                     </div>
                   );
-                })()}
+                })() : null}
                 syncing={isResuming}
                 tooltipText="Current unrealized P&L, Peak P&L, Min P&L (MAE), and open trade durations across all active trades."
               />

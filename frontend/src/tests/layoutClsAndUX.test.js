@@ -22,13 +22,19 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     );
   });
 
-  test('InteractiveLimitCard enforces WCAG spinbutton role, valuenow, and lock/unlock ARIA labels', () => {
+  test('InteractiveLimitCard enforces WCAG spinbutton role, valuenow, lock/unlock ARIA labels, tooltips, and button semantics', () => {
     assert.ok(
       primitivesSource.includes('role="spinbutton"') &&
       primitivesSource.includes('aria-valuenow={value}') &&
       primitivesSource.includes('aria-valuemin={min}') &&
       primitivesSource.includes('aria-valuemax={max}'),
       'InteractiveLimitCard must apply spinbutton ARIA roles and value attributes for accessibility'
+    );
+    assert.ok(
+      primitivesSource.includes('<Tooltip content={tooltip}>') &&
+      primitivesSource.includes('type="button"') &&
+      primitivesSource.includes('cursor-pointer'),
+      'InteractiveLimitCard must wire tooltip prop to Radix Tooltip and enforce explicit type="button" and cursor-pointer on controls'
     );
   });
 

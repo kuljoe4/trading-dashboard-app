@@ -252,5 +252,30 @@ describe('Lookback SL Logic', () => {
       expect(result.rejected).toBe(false);
       expect(result.slPrice).toBe(98.5); // Should use MACD PBC SL instead of falling back to PCT SL
     });
+
+    it('should reject entry when lookback extremes are unavailable and sl_out_of_bounds_action is reject', () => {
+      const config = new SessionConfig();
+      config.sl_type = 'lookback_low/high';
+      config.sl_min_pct = 1.0;
+      config.sl_max_pct = 3.0;
+      config.sl_out_of_bounds_action = 'reject';
+
+      const entryPrice = 100;
+      const direction = 'LONG';
+
+      // minLow and maxHigh are undefined (extremes unavailable) and no macdPbcSlPrice
+      const result = riskEngine.computeSl(
+        entryPrice,
+        direction,
+        config,
+        undefined,
+        undefined,
+        'BTCUSDT'
+      );
+
+      expect(result.rejected).toBe(true);
+      expect(result.reason).toContain('Lookback extremes unavailable');
+      expect(result.reason).toContain("sl_out_of_bounds_action is 'reject'");
+    });
   });
 });

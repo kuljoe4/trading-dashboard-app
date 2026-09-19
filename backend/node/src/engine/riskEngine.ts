@@ -613,8 +613,15 @@ export class RiskEngineService {
           rawDistance = Math.abs(entryPrice - structuralSl);
           usingMacdPbcSl = true;
           this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable. Using MACD PBC SL price: ${macdPbcSlPrice} as structural SL.`);
+        } else if (action === 'reject') {
+          const reason = `Lookback extremes unavailable for ${symbol || 'Trade'} and sl_out_of_bounds_action is 'reject'. Rejecting entry.`;
+          this.logger.warn(`[RiskEngine] ${reason}`);
+          if (this.eventEmitter) {
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: reason, level: 'warn' });
+          }
+          return { slPrice: 0, rejected: true, reason };
         } else {
-          // Fallback to percentage if lookback data not available
+          // Fallback to percentage if lookback data not available and action is clamp
           const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
           this.logger.warn(`[RiskEngine] ${fallbackReason}`);
           if (this.eventEmitter) {

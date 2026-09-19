@@ -25,7 +25,7 @@ import {
     ConditionWidget, PulseDot, Sparkline, PnLBars, CopyButton, cn, Tooltip, VisuallyHidden, ViewHeader, MonitoredBadge, InPosBadge
   } from '../components/ui/primitives'
 import {
-  ChevronLeft, ChevronRight, Plus, Trash2, LayoutDashboard, History,
+  ChevronLeft, ChevronRight, ChevronDown, Plus, Trash2, LayoutDashboard, History,
   Settings as SettingsIcon, Activity, Zap, ShieldCheck, Search, Filter,
   BarChart3, XCircle, Pause, Play, Edit3, RefreshCw, Leaf, DollarSign, Users, Clock, ArrowUpRight, ArrowDownRight,
   Briefcase, TrendingUp, TrendingDown, ArrowRight, AlertCircle, CheckCircle2, Info, Loader2,

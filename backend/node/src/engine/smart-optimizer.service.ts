@@ -251,7 +251,7 @@ export class SmartOptimizerService {
     cfg.trailing_activation_rr = getRandomFloat(0.0, 2.0, 1);
 
     // Risk and Cooldown
-    cfg.risk_pct_per_trade = getRandomFloat(0.5, 2.0, 1);
+    cfg.risk_pct_per_trade = getRandomFloat(0.5, 4.0, 1);
     cfg.min_trade_interval_min = [0, 5, 10, 15, 20][getRandomInt(0, 4)];
     cfg.anti_whipsaw_candle_delay = getRandomInt(1, 3);
 

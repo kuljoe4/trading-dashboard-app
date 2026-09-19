@@ -26,10 +26,10 @@ describe('SystemMetrics & RiskSummary Micro-UX & Keyboard Accessibility Standard
   });
 
   test('RiskSummary aggressive profile badge includes Tooltip, tabIndex={0}, and aria-label', () => {
-    assert.ok(riskSource.includes('<Tooltip content="Risk per trade exceeds 2% or Stop Loss distance exceeds 5%">'), 'Aggressive profile badge must be wrapped with Tooltip');
+    assert.ok(riskSource.includes('<Tooltip content="Risk per trade exceeds 4% or Stop Loss distance exceeds 5%">'), 'Aggressive profile badge must be wrapped with Tooltip');
     assert.ok(riskSource.includes('tabIndex={0}'), 'Aggressive profile badge must specify tabIndex={0} for keyboard focus');
     assert.ok(riskSource.includes('role="region"'), 'Aggressive profile badge must specify role="region"');
-    assert.ok(riskSource.includes('aria-label="Aggressive Risk Profile: Risk per trade exceeds 2% or Stop Loss distance exceeds 5%"'), 'Aggressive profile badge must specify informative aria-label');
+    assert.ok(riskSource.includes('aria-label="Aggressive Risk Profile: Risk per trade exceeds 4% or Stop Loss distance exceeds 5%"'), 'Aggressive profile badge must specify informative aria-label');
     assert.ok(riskSource.includes('focus-visible:ring-2 focus-visible:ring-amber'), 'Aggressive profile badge must specify amber focus-visible ring');
   });
 });

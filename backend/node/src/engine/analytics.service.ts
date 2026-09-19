@@ -77,14 +77,17 @@ export class AnalyticsService {
     // exit_ts DESC, the array will be sorted descending. Reversing it in O(N) is much faster than sorting.
     let isSortedAsc = true;
     let isSortedDesc = true;
-    for (let i = 1; i < filteredTrades.length; i++) {
-      const current = filteredTrades[i].exit_ts!.getTime();
-      const prev = filteredTrades[i - 1].exit_ts!.getTime();
-      if (current < prev) {
-        isSortedAsc = false;
-      }
-      if (current > prev) {
-        isSortedDesc = false;
+    if (filteredTrades.length > 1) {
+      let prevTs = filteredTrades[0].exit_ts!.getTime();
+      for (let i = 1; i < filteredTrades.length; i++) {
+        const currentTs = filteredTrades[i].exit_ts!.getTime();
+        if (currentTs < prevTs) {
+          isSortedAsc = false;
+        }
+        if (currentTs > prevTs) {
+          isSortedDesc = false;
+        }
+        prevTs = currentTs;
       }
     }
 
@@ -145,9 +148,14 @@ export class AnalyticsService {
       : ((currentBalance && currentBalance > 0) ? Math.max(1, currentBalance - totalNetPnL) : 10000);
 
     let rollingBalance = effectiveStartingBalance;
-    const cumulativePnL: { ts: string; pnl: number }[] = new Array(totalTrades);
-    // Time of day analysis (0-23 hours) - Fixed size array for better performance
-    const todStats = Array.from({ length: 24 }, () => ({ pnl: 0, wins: 0, total: 0 }));
+    // BOLT OPTIMIZATION: Defer exitTs.toISOString() stringification to output curve construction
+    const rawCumulativePnL: { exitTs: Date; pnl: number }[] = new Array(totalTrades);
+
+    // Time of day analysis (0-23 hours) - Pre-allocated fixed size array without closure allocations
+    const todStats = new Array(24);
+    for (let h = 0; h < 24; h++) {
+      todStats[h] = { pnl: 0, wins: 0, total: 0 };
+    }
 
     // BOLT OPTIMIZATION: Single-pass calculation for ALL metrics including ROI trends
     for (let i = 0; i < totalTrades; i++) {
@@ -172,8 +180,8 @@ export class AnalyticsService {
       const ddPct = peakBalance > 0 ? (dd / peakBalance) * 100 : 0;
       if (ddPct > maxDDPct) maxDDPct = ddPct;
 
-      cumulativePnL[i] = {
-        ts: exitTs.toISOString(),
+      rawCumulativePnL[i] = {
+        exitTs,
         pnl: roundTo(currentPnL, 2),
       };
 
@@ -237,11 +245,18 @@ export class AnalyticsService {
       }
     }
 
-    const timeOfDay = todStats.map((stats, hour) => ({
-      hour,
-      ...stats,
-      winRate: stats.total > 0 ? (stats.wins / stats.total) * 100 : 0,
-    }));
+    // BOLT OPTIMIZATION: Loop-fused todStats finalization into pre-allocated array without closures or object spreading
+    const timeOfDay = new Array(24);
+    for (let hour = 0; hour < 24; hour++) {
+      const stats = todStats[hour];
+      timeOfDay[hour] = {
+        hour,
+        pnl: stats.pnl,
+        wins: stats.wins,
+        total: stats.total,
+        winRate: stats.total > 0 ? (stats.wins / stats.total) * 100 : 0,
+      };
+    }
 
     const avgWin = totalWins > 0 ? grossProfit / totalWins : 0;
     const avgLoss = totalLosses > 0 ? grossLoss / totalLosses : 0;
@@ -279,32 +294,58 @@ export class AnalyticsService {
       fourWeek: effectiveStartingBalance > 0 ? (fourWeekPnL / effectiveStartingBalance) * 100 : 0,
     };
 
-    const finalizedBuckets: RiskWidthBucket[] = riskWidthBuckets.map(b => ({
-      label: b.label,
-      minPct: b.minPct,
-      maxPct: b.maxPct,
-      tradesCount: b.count,
-      winRate: b.count > 0 ? roundTo((b.wins / b.count) * 100, 2) : 0,
-      profitFactor: b.grossLoss > 0 ? roundTo(b.grossProfit / b.grossLoss, 2) : (b.grossProfit > 0 ? 100 : 0),
-      avgDurationMs: b.count > 0 ? Math.round(b.totalDuration / b.count) : 0,
-      netPnl: roundTo(b.netPnl, 2)
-    }));
+    // BOLT OPTIMIZATION: Loop-fused risk width bucket finalization into pre-allocated array
+    const finalizedBuckets: RiskWidthBucket[] = new Array(riskWidthBuckets.length);
+    for (let k = 0; k < riskWidthBuckets.length; k++) {
+      const b = riskWidthBuckets[k];
+      finalizedBuckets[k] = {
+        label: b.label,
+        minPct: b.minPct,
+        maxPct: b.maxPct,
+        tradesCount: b.count,
+        winRate: b.count > 0 ? roundTo((b.wins / b.count) * 100, 2) : 0,
+        profitFactor: b.grossLoss > 0 ? roundTo(b.grossProfit / b.grossLoss, 2) : (b.grossProfit > 0 ? 100 : 0),
+        avgDurationMs: b.count > 0 ? Math.round(b.totalDuration / b.count) : 0,
+        netPnl: roundTo(b.netPnl, 2)
+      };
+    }
 
-    let finalizedCurve = cumulativePnL;
+    // BOLT OPTIMIZATION: Deferred timestamp stringification (ISO string conversion) executed only on downsampled points (max 200)
+    let finalizedCurve: { ts: string; pnl: number }[];
     const maxPoints = 200;
     if (totalTrades > maxPoints) {
-      finalizedCurve = [];
+      finalizedCurve = new Array(maxPoints);
       // Always include the first point to establish baseline
-      finalizedCurve.push(cumulativePnL[0]);
+      finalizedCurve[0] = {
+        ts: rawCumulativePnL[0].exitTs.toISOString(),
+        pnl: rawCumulativePnL[0].pnl,
+      };
 
       const step = (totalTrades - 1) / (maxPoints - 1);
       for (let j = 1; j < maxPoints - 1; j++) {
         const index = Math.round(j * step);
-        finalizedCurve.push(cumulativePnL[index]);
+        const item = rawCumulativePnL[index];
+        finalizedCurve[j] = {
+          ts: item.exitTs.toISOString(),
+          pnl: item.pnl,
+        };
       }
 
       // Always include the last point to show the absolute final state
-      finalizedCurve.push(cumulativePnL[totalTrades - 1]);
+      const lastItem = rawCumulativePnL[totalTrades - 1];
+      finalizedCurve[maxPoints - 1] = {
+        ts: lastItem.exitTs.toISOString(),
+        pnl: lastItem.pnl,
+      };
+    } else {
+      finalizedCurve = new Array(totalTrades);
+      for (let j = 0; j < totalTrades; j++) {
+        const item = rawCumulativePnL[j];
+        finalizedCurve[j] = {
+          ts: item.exitTs.toISOString(),
+          pnl: item.pnl,
+        };
+      }
     }
 
     return {

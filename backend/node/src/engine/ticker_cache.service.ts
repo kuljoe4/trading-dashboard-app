@@ -19,8 +19,8 @@ export class TickerCacheService {
     @Optional() @Inject(EventEmitter2) private readonly eventEmitter?: EventEmitter2,
   ) {}
   private hasReceivedFirstData = false;
-  private _topByVolumeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
-  private _topByChangeCache: { [key: string]: { data: Ticker[], timestamp: number } } = {};
+  private _topByVolumeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
+  private _topByChangeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private readonly TOP_VOLUME_CACHE_TTL_MS = 300000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
 
@@ -152,7 +152,7 @@ export class TickerCacheService {
   topByVolume(n: number, excluded: string[] = []): Ticker[] {
     // BOLT OPTIMIZATION: Use zero-allocation cache key generator
     const cacheKey = this.getCacheKey(n, excluded);
-    const cached = this._topByVolumeCache[cacheKey];
+    const cached = this._topByVolumeCache.get(cacheKey);
     const now = Date.now();
 
     if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
@@ -184,15 +184,20 @@ export class TickerCacheService {
       result[i] = filtered[i];
     }
 
-    const cacheKeys = Object.keys(this._topByVolumeCache);
-    if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByVolumeCache[cacheKey]) {
-      delete this._topByVolumeCache[cacheKeys[0]];
+    // BOLT OPTIMIZATION: Zero-allocation O(1) Map cache eviction.
+    // Map tracks insertion order; using size and keys().next().value allows O(1) eviction
+    // without array allocations or linear key scans on cache misses.
+    if (!this._topByVolumeCache.has(cacheKey) && this._topByVolumeCache.size >= this.TOP_VOLUME_CACHE_MAX_KEYS) {
+      const firstKey = this._topByVolumeCache.keys().next().value;
+      if (firstKey !== undefined) {
+        this._topByVolumeCache.delete(firstKey);
+      }
     }
 
-    this._topByVolumeCache[cacheKey] = {
+    this._topByVolumeCache.set(cacheKey, {
       data: result,
       timestamp: now
-    };
+    });
 
     return result;
   }
@@ -200,7 +205,7 @@ export class TickerCacheService {
   topByChangePct(n: number, excluded: string[] = []): Ticker[] {
     // BOLT OPTIMIZATION: Use zero-allocation cache key generator
     const cacheKey = this.getCacheKey(n, excluded);
-    const cached = this._topByChangeCache[cacheKey];
+    const cached = this._topByChangeCache.get(cacheKey);
     const now = Date.now();
 
     if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
@@ -233,15 +238,20 @@ export class TickerCacheService {
       result[i] = mapped[i].ticker;
     }
 
-    const cacheKeys = Object.keys(this._topByChangeCache);
-    if (cacheKeys.length >= this.TOP_VOLUME_CACHE_MAX_KEYS && !this._topByChangeCache[cacheKey]) {
-      delete this._topByChangeCache[cacheKeys[0]];
+    // BOLT OPTIMIZATION: Zero-allocation O(1) Map cache eviction.
+    // Map tracks insertion order; using size and keys().next().value allows O(1) eviction
+    // without array allocations or linear key scans on cache misses.
+    if (!this._topByChangeCache.has(cacheKey) && this._topByChangeCache.size >= this.TOP_VOLUME_CACHE_MAX_KEYS) {
+      const firstKey = this._topByChangeCache.keys().next().value;
+      if (firstKey !== undefined) {
+        this._topByChangeCache.delete(firstKey);
+      }
     }
 
-    this._topByChangeCache[cacheKey] = {
+    this._topByChangeCache.set(cacheKey, {
       data: result,
       timestamp: now
-    };
+    });
 
     return result;
   }
@@ -251,8 +261,8 @@ export class TickerCacheService {
    */
   clear() {
     this.tickers.clear();
-    this._topByVolumeCache = {};
-    this._topByChangeCache = {};
+    this._topByVolumeCache.clear();
+    this._topByChangeCache.clear();
     this.latestTickersCache = null; // Invalidate cache on clear
     this.logger.verbose('TickerCache cleared');
   }

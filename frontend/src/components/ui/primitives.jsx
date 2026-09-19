@@ -131,17 +131,26 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       <div className="flex flex-col gap-0.5 w-full relative z-10">
         <div className="flex items-start w-full min-h-[2rem] md:min-h-[2.25rem]">
           <div className="flex items-center gap-2 flex-grow overflow-hidden mr-1">
-            <div className={cn(
-              "text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors"
-            )}>{label}</div>
+            {tooltip ? (
+              <Tooltip content={tooltip}>
+                <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors cursor-help border-b border-dashed border-dim/30">
+                  {label}
+                </div>
+              </Tooltip>
+            ) : (
+              <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors">
+                {label}
+              </div>
+            )}
             {indicator === 'amber' && (
               <div className="w-1.5 h-1.5 rounded-full bg-amber animate-pulse shrink-0" />
             )}
           </div>
           <Tooltip content={isLocked ? "Unlock Controls" : "Lock Controls"}>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
-              className={cn("p-1 rounded-md transition-colors shrink-0 mt-0.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
+              className={cn("p-1 rounded-md transition-colors shrink-0 mt-0.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
               aria-label={isLocked ? "Unlock controls" : "Lock controls"}
             >
               {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
@@ -163,10 +172,11 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
           </div>
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
               disabled={!isLocked && value <= min}
               className={cn(
-                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
@@ -176,10 +186,11 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               <Minus size={22} />
             </button>
             <button
+              type="button"
               onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
               disabled={!isLocked && value >= max}
               className={cn(
-                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
                   : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"

@@ -2398,8 +2398,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       errs.sl_distance_pct = 'Must be > 0';
     }
 
-    if (c.risk_pct_per_trade > 2) {
-      errs.risk_pct_per_trade_warn = 'Aggressive (>2%)'
+    if (c.risk_pct_per_trade > 4) {
+      errs.risk_pct_per_trade_warn = 'Aggressive (>4%)'
     }
 
     if (c.sl_distance_pct > 5) {

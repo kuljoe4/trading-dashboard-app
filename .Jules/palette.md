@@ -97,3 +97,7 @@
 ## 2026-09-18 - Sidebar Brand Header Home Navigation Standard
 **Learning:** Static brand logos or application titles rendered as non-interactive `<div>` containers in sidebars frustrate users who expect clicking the brand identity to return home. Converting brand containers into semantic `<button type="button">` triggers with `aria-label="[App] Cockpit Home"`, route preloading on hover (`onMouseEnter`), and WCAG focus-visible rings (`focus-visible:ring-2 focus-visible:ring-accent`) delivers an intuitive, accessible Home shortcut.
 **Action:** Always ensure application sidebar brand headers are interactive `<button type="button">` triggers equipped with Home navigation handlers, view preloading, and WCAG focus indicators.
+
+## 2026-09-19 - Interactive Limit Card Unused Tooltip Prop Wiring & Control Button Semantics
+**Learning:** UI primitive components that accept a `tooltip` prop must consistently wrap their header labels with Radix `<Tooltip>` triggers and `cursor-help` styling to ensure hover/focus guidance is rendered. Additionally, interactive utility buttons (lock, increment, decrement) inside primitive cards require explicit `type="button"` and `cursor-pointer` attributes to avoid default form submit behavior and provide explicit affordances.
+**Action:** Always verify primitive components destructuring props like `tooltip` actually render `<Tooltip>` wrappers around their header elements and declare `type="button"` on all interactive buttons.

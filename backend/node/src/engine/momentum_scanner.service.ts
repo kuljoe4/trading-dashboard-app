@@ -121,39 +121,49 @@ export class MomentumScannerService {
             }
           }
         } else if (config.smart_watchlist_enabled) {
-          // BOLT: Smart Watchlist Discovery logic inside scanner to match MarketFeed
+          // BOLT OPTIMIZATION: Single-pass loop filtering & zero-allocation candidate accumulation.
+          // Replaces functional array allocation chains (.filter().sort().slice().forEach()) in high-frequency scanner passes.
           const sensitivity = config.smart_watchlist_sensitivity || 0.7;
           const threshold = (config.scan_pct_threshold || 2.0) * sensitivity;
 
           const tickers = this.tickerCache.getLatestTickers();
-          const smartCandidates = tickers
-            .filter(t => {
-              if (!t.symbol || !t.symbol.toUpperCase().endsWith('USDT')) return false;
-              if (activeExcluded.has(t.symbol)) return false;
-              if (!this.marketFeed.getSymbolFilters(t.symbol)) return false;
-              if (t.open_24h && t.open_24h > 0) {
-                const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
-                return momentum >= threshold;
-              }
-              return false;
-            })
-            .sort((a, b) => b.volume_24h - a.volume_24h)
-            .slice(0, watchlistSize);
+          const candidateTickers: typeof tickers = [];
+          const tickerLen = tickers.length;
 
-          smartCandidates.forEach(t => {
-            tasks.set(t.symbol, { config, is_smart: true });
-          });
+          for (let i = 0; i < tickerLen; i++) {
+            const t = tickers[i];
+            if (!t.symbol || !t.symbol.toUpperCase().endsWith('USDT')) continue;
+            if (activeExcluded.has(t.symbol)) continue;
+            if (!this.marketFeed.getSymbolFilters(t.symbol)) continue;
+            if (t.open_24h && t.open_24h > 0) {
+              const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
+              if (momentum >= threshold) {
+                candidateTickers.push(t);
+              }
+            }
+          }
+
+          if (candidateTickers.length > 1) {
+            candidateTickers.sort((a, b) => b.volume_24h - a.volume_24h);
+          }
+
+          const smartCount = Math.min(candidateTickers.length, watchlistSize);
+          for (let i = 0; i < smartCount; i++) {
+            tasks.set(candidateTickers[i].symbol, { config, is_smart: true });
+          }
 
           // Also include volume-based or change-pct-based leaders
           const discoveryMode = config.discovery_mode || 'volume';
           const topSymbols = discoveryMode === 'change_pct'
             ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
             : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
-          topSymbols.forEach((t, i) => {
-             if (t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !tasks.has(t.symbol) && !activeExcluded.has(t.symbol)) {
-                tasks.set(t.symbol, { config, volume_rank: i + 1 });
-             }
-          });
+          const topLen = topSymbols.length;
+          for (let i = 0; i < topLen; i++) {
+            const t = topSymbols[i];
+            if (t && t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !tasks.has(t.symbol) && !activeExcluded.has(t.symbol)) {
+              tasks.set(t.symbol, { config, volume_rank: i + 1 });
+            }
+          }
         } else {
           const discoveryMode = config.discovery_mode || 'volume';
           const topSymbols = discoveryMode === 'change_pct'

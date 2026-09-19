@@ -126,11 +126,22 @@ export class SessionController {
 
   @Post("start")
   async startSession(@Body() body: StartSessionDto, @Req() req: Request) {
+    // SEC-SENTINEL: Defense-in-depth validation of outer StartSessionDto payload
+    const startDto = plainToInstance(StartSessionDto, body || {});
+    const dtoErrors = await validate(startDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid start session parameters",
+        detail: detailedErrors,
+      });
+    }
+
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
 
-    const config = plainToInstance(SessionConfig, body.config || {});
+    const config = plainToInstance(SessionConfig, startDto.config || {});
     // SEC-SENTINEL: Defense-in-depth whitelist and type validation on strategy configuration instance
     const errors = await validate(config, { whitelist: true, forbidNonWhitelisted: true });
     if (errors.length > 0) {
@@ -142,8 +153,8 @@ export class SessionController {
     }
     return this.sessionService.startSession(
       config,
-      body.paper_mode ?? true,
-      body.sessionId,
+      startDto.paper_mode ?? true,
+      startDto.sessionId,
       clientIp,
       userAgent,
     );

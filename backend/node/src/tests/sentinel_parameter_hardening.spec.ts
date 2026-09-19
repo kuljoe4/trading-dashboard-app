@@ -269,6 +269,21 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       expect(mockSessionService.startSession).toHaveBeenCalled();
     });
 
+    it('should reject non-whitelisted top-level properties in startSession', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const invalidPayload = {
+        paper_mode: true,
+        unauthorized_top_level_param: 'malicious payload',
+        config: {
+          strategy_label: 'Live Strategy',
+        },
+      };
+      await expect(controller.startSession(invalidPayload as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockSessionService.startSession).not.toHaveBeenCalled();
+    });
+
     it('should reject non-whitelisted properties in startSession strategy configuration', async () => {
       const mockReq = { ip: '127.0.0.1', headers: {} } as any;
       const invalidPayload = {

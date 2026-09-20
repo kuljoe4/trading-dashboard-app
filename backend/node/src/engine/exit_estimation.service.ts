@@ -12,6 +12,83 @@ export class ExitEstimationService {
   constructor(private readonly klineStore: KlineStoreService) {}
 
   /**
+   * Calculates Average True Range (ATR) over N candles.
+   */
+  public calculateATR(candles: Candle[], period: number = 10): number {
+    if (candles.length < 2) return 0;
+    let trSum = 0;
+    const startIdx = Math.max(1, candles.length - period);
+    const count = candles.length - startIdx;
+    if (count <= 0) return 0;
+
+    for (let i = startIdx; i < candles.length; i++) {
+      const high = candles[i].high;
+      const low = candles[i].low;
+      const prevClose = candles[i - 1].close;
+      const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+      trSum += tr;
+    }
+
+    return trSum / count;
+  }
+
+  /**
+   * Calculates EMA series for a given array of close prices.
+   */
+  public calculateEMAValues(prices: number[], period: number): number[] {
+    if (prices.length < period) return [];
+    const k = 2 / (period + 1);
+    const emaValues: number[] = new Array(prices.length);
+
+    let sum = 0;
+    for (let i = 0; i < period; i++) {
+      sum += prices[i];
+    }
+    emaValues[period - 1] = sum / period;
+
+    for (let i = period; i < prices.length; i++) {
+      emaValues[i] = prices[i] * k + emaValues[i - 1] * (1 - k);
+    }
+
+    return emaValues;
+  }
+
+  /**
+   * Calculates MACD histogram series from candle closes.
+   */
+  public calculateMACDHistogramSeries(
+    candles: Candle[],
+    fastPeriod = 12,
+    slowPeriod = 26,
+    signalPeriod = 9
+  ): number[] {
+    if (candles.length < slowPeriod + signalPeriod) return [];
+    const closes = candles.map(c => c.close);
+
+    const fastEma = this.calculateEMAValues(closes, fastPeriod);
+    const slowEma = this.calculateEMAValues(closes, slowPeriod);
+
+    const macdLine: number[] = [];
+    const macdStartIdx = slowPeriod - 1;
+
+    for (let i = macdStartIdx; i < closes.length; i++) {
+      macdLine.push(fastEma[i] - slowEma[i]);
+    }
+
+    if (macdLine.length < signalPeriod) return [];
+
+    const signalEma = this.calculateEMAValues(macdLine, signalPeriod);
+    const histogram: number[] = [];
+    const signalStartIdx = signalPeriod - 1;
+
+    for (let i = signalStartIdx; i < macdLine.length; i++) {
+      histogram.push(macdLine[i] - signalEma[i]);
+    }
+
+    return histogram;
+  }
+
+  /**
    * Single-signal exit estimation logic based on exact technical indicator dynamics.
    */
   public estimateExitSignal(
@@ -222,21 +299,143 @@ export class ExitEstimationService {
       }
     }
 
-    // --- ESTIMATOR 2: SINGLE EMA / MA / INDICATOR CONVERGENCE ---
+    // Calculate True ATR over 10 candles for distance scaling
+    const atr = this.calculateATR(candles, 10) || (currentPrice * 0.01);
+
+    // Lookback for price velocity over 3 candles
+    const prevPriceIdx = Math.max(0, candles.length - 4);
+    const lookbackCount = (candles.length - 1) - prevPriceIdx;
+    const priceDelta = currentCandle.close - candles[prevPriceIdx].close;
+    const priceVelocity = lookbackCount > 0 ? priceDelta / lookbackCount : 0;
+
+    // --- ESTIMATOR 2: SUPERTREND TREND & CROSSOVER ---
+    if (baseType === 'supertrend') {
+      const thresh = Number(signalDetail?.threshold || 0);
+      if (thresh > 0) {
+        const dist = Math.abs(currentPrice - thresh);
+        const { estPnl, estR } = computePnLAndR(thresh);
+
+        // Directional velocity towards Supertrend threshold
+        const dirVelocity = isLong ? -priceVelocity : priceVelocity;
+        const effectiveSpeed = Math.max(dirVelocity, atr / 5);
+
+        const etaCandles = Math.max(1, Math.round((dist / effectiveSpeed) * 10) / 10);
+        const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+        const proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (3 * atr))) * 100)));
+
+        return {
+          signalType,
+          state: 'approaching',
+          proximity,
+          etaCandles,
+          etaSeconds,
+          confidence: 82,
+          estimatedExitPrice: thresh,
+          estimatedPnl: estPnl,
+          estimatedR: estR,
+          method: 'indicator_convergence',
+          description: `Supertrend band ${dist.toFixed(2)} away (ATR: ${atr.toFixed(2)})`,
+          components: { atr: roundTo(atr, 4), distance: roundTo(dist, 4) }
+        };
+      }
+    }
+
+    // --- ESTIMATOR 3: MACD IMPULSE / FADE / PBC ---
+    if (baseType === 'macd_impulse' || baseType === 'macd_fade' || baseType === 'macd_pbc') {
+      const sp = config.signal_params || {};
+      const fastPeriod = Number(sp.macd_fast || 12);
+      const slowPeriod = Number(sp.macd_slow || 26);
+      const signalPeriod = Number(sp.macd_signal || 9);
+
+      const histSeries = this.calculateMACDHistogramSeries(candles, fastPeriod, slowPeriod, signalPeriod);
+
+      if (histSeries.length >= 3) {
+        const currHist = histSeries[histSeries.length - 1];
+        const prevHist = histSeries[histSeries.length - 2];
+        const histVelocity = currHist - prevHist; // Velocity of histogram change per candle
+
+        // Long exit triggers when green histogram contracts (velocity < 0) or flips negative (currHist < 0)
+        // Short exit triggers when red histogram contracts (velocity > 0) or flips positive (currHist > 0)
+        const isFading = isLong ? (currHist < 0 || histVelocity < 0) : (currHist > 0 || histVelocity > 0);
+
+        if (isFading) {
+          // If already crossed 0 or flipped, it's ready/firing
+          const isCrossed = isLong ? currHist <= 0 : currHist >= 0;
+          if (isCrossed) {
+            const { estPnl, estR } = computePnLAndR(currentPrice);
+            return {
+              signalType,
+              state: 'ready',
+              proximity: 99,
+              etaCandles: 0,
+              etaSeconds: 0,
+              confidence: 90,
+              estimatedExitPrice: currentPrice,
+              estimatedPnl: estPnl,
+              estimatedR: estR,
+              method: 'momentum_projection',
+              description: 'MACD histogram reversal condition met',
+              components: { currHist: roundTo(currHist, 6), histVelocity: roundTo(histVelocity, 6) }
+            };
+          }
+
+          // Distance remaining to 0-level histogram reversal
+          const distToZero = Math.abs(currHist);
+          const contractionSpeed = Math.max(Math.abs(histVelocity), 1e-6);
+          const etaCandles = Math.max(1, Math.round((distToZero / contractionSpeed) * 10) / 10);
+          const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+
+          const estimatedExitPrice = roundTo(currentPrice + priceVelocity * etaCandles, 8);
+          const { estPnl, estR } = computePnLAndR(estimatedExitPrice);
+          const proximity = Math.min(99, Math.max(1, Math.round((1 - (distToZero / (distToZero + contractionSpeed * 5))) * 100)));
+
+          return {
+            signalType,
+            state: 'approaching',
+            proximity,
+            etaCandles,
+            etaSeconds,
+            confidence: 76,
+            estimatedExitPrice,
+            estimatedPnl: estPnl,
+            estimatedR: estR,
+            method: 'momentum_projection',
+            description: `MACD histogram fading towards reversal (~${etaCandles} candles)`,
+            components: { currHist: roundTo(currHist, 6), histVelocity: roundTo(histVelocity, 6), priceVelocity: roundTo(priceVelocity, 8) }
+          };
+        } else {
+          // Histogram expanding in favor of position
+          return {
+            signalType,
+            state: 'diverging',
+            proximity: 15,
+            etaCandles: null,
+            etaSeconds: null,
+            confidence: 60,
+            estimatedExitPrice: null,
+            estimatedPnl: null,
+            estimatedR: null,
+            method: 'momentum_projection',
+            description: 'MACD histogram expanding in trade direction',
+            components: { currHist: roundTo(currHist, 6), histVelocity: roundTo(histVelocity, 6) }
+          };
+        }
+      }
+    }
+
+    // --- ESTIMATOR 4: SINGLE EMA / MA / INDICATOR CONVERGENCE ---
     const thresh = Number(signalDetail?.threshold || 0);
     const val = Number(signalDetail?.value ?? currentPrice);
 
     if (thresh > 0) {
       const dist = Math.abs(val - thresh);
-      const prevPrice = candles[Math.max(0, candles.length - 4)].close;
-      const speed = Math.max(0.01, Math.abs(currentPrice - prevPrice) / 3);
+      const effectiveSpeed = Math.max(Math.abs(priceVelocity), atr / 4);
 
-      const etaCandles = Math.max(1, Math.round((dist / speed) * 10) / 10);
+      const etaCandles = Math.max(1, Math.round((dist / effectiveSpeed) * 10) / 10);
       const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
-      const targetPrice = signalDetail?.threshold_is_price ? thresh : currentPrice;
+      const targetPrice = signalDetail?.threshold_is_price ? thresh : roundTo(currentPrice + (isLong ? -dist : dist), 8);
       const { estPnl, estR } = computePnLAndR(targetPrice);
-      const refScale = signalDetail?.threshold_is_price ? currentPrice * 0.05 : thresh;
-      const proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / Math.max(refScale, 1e-8))) * 100)));
+      const proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (3 * atr))) * 100)));
 
       return {
         signalType,
@@ -244,57 +443,73 @@ export class ExitEstimationService {
         proximity,
         etaCandles,
         etaSeconds,
-        confidence: 85,
+        confidence: 80,
         estimatedExitPrice: targetPrice,
         estimatedPnl: estPnl,
         estimatedR: estR,
         method: 'indicator_convergence',
-        description: `Approaching target (${dist.toFixed(2)} away)`
+        description: `Approaching indicator threshold (${dist.toFixed(2)} away)`,
+        components: { atr: roundTo(atr, 4), distance: roundTo(dist, 4) }
       };
     }
 
-    // --- ESTIMATOR 3: SUPERTREND TREND & CROSSOVER ---
-    if (baseType === 'supertrend') {
-      const thresh = Number(signalDetail?.threshold || 0);
-      if (thresh > 0) {
-        const dist = Math.abs(currentPrice - thresh);
-        const atr = dist * 0.5; // Approximation if ATR not explicitly passed
-        const { estPnl, estR } = computePnLAndR(thresh);
-        const proximity = Math.min(99, Math.max(1, Math.round((1 - (dist / currentPrice)) * 100)));
+    // --- ESTIMATOR 5: MOMENTUM % / BREAKOUT H/L / ENGULFING ---
+    if (baseType === 'breakout_hl') {
+      const lookback = Number(config.signal_params?.scan_lookback || 3);
+      if (candles.length >= lookback + 1) {
+        const slice = candles.slice(-lookback - 1, -1);
+        const boundPrice = isLong
+          ? Math.min(...slice.map(c => c.low))
+          : Math.max(...slice.map(c => c.high));
+
+        const dist = Math.abs(currentPrice - boundPrice);
+        const { estPnl, estR } = computePnLAndR(boundPrice);
+        const effectiveSpeed = Math.max(Math.abs(priceVelocity), atr / 4);
+        const etaCandles = Math.max(1, Math.round((dist / effectiveSpeed) * 10) / 10);
+        const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+        const proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (2 * atr))) * 100)));
 
         return {
           signalType,
           state: 'approaching',
           proximity,
-          etaCandles: Math.max(1, Math.round(dist / Math.max(atr, 1e-8))),
-          etaSeconds: Math.round((dist / Math.max(atr, 1e-8)) * (intervalMs / 1000)),
-          confidence: 80,
-          estimatedExitPrice: thresh,
+          etaCandles,
+          etaSeconds,
+          confidence: 75,
+          estimatedExitPrice: boundPrice,
           estimatedPnl: estPnl,
           estimatedR: estR,
-          method: 'indicator_convergence',
-          description: `Supertrend band ${dist.toFixed(2)} away`,
-          components: { atr: roundTo(atr, 4) }
+          method: 'event_state',
+          description: `Approaching ${lookback}-period ${isLong ? 'low' : 'high'} boundary (${boundPrice.toFixed(2)})`,
+          components: { boundPrice: roundTo(boundPrice, 8), distance: roundTo(dist, 4) }
         };
       }
     }
 
-    // --- ESTIMATOR 4: MACD IMPULSE / FADE / PBC ---
-    if (baseType === 'macd_impulse' || baseType === 'macd_fade' || baseType === 'macd_pbc') {
-      const { estPnl, estR } = computePnLAndR(currentPrice);
-      return {
-        signalType,
-        state: 'approaching',
-        proximity: 50,
-        etaCandles: 2,
-        etaSeconds: Math.round((2 * intervalMs) / 1000),
-        confidence: 65,
-        estimatedExitPrice: currentPrice,
-        estimatedPnl: estPnl,
-        estimatedR: estR,
-        method: 'momentum_projection',
-        description: 'Monitoring MACD histogram momentum sequence'
-      };
+    if (baseType === 'momentum_pct') {
+      const thresholdPct = Number(config.signal_params?.scan_pct_threshold || 2.0);
+      const lookback = Number(config.signal_params?.scan_lookback || 3);
+      if (candles.length >= lookback + 1) {
+        const pastPrice = candles[candles.length - 1 - lookback].close;
+        const currentPct = Math.abs((currentPrice - pastPrice) / pastPrice) * 100;
+        const proximity = Math.min(99, Math.max(1, Math.round((currentPct / thresholdPct) * 100)));
+        const { estPnl, estR } = computePnLAndR(currentPrice);
+
+        return {
+          signalType,
+          state: 'approaching',
+          proximity,
+          etaCandles: 1,
+          etaSeconds: Math.round(intervalMs / 1000),
+          confidence: 70,
+          estimatedExitPrice: currentPrice,
+          estimatedPnl: estPnl,
+          estimatedR: estR,
+          method: 'momentum_projection',
+          description: `Momentum at ${currentPct.toFixed(2)}% / ${thresholdPct}% target`,
+          components: { currentPct: roundTo(currentPct, 2), thresholdPct }
+        };
+      }
     }
 
     // --- DEFAULT FALLBACK FOR PATTERN / EVENT SIGNALS (Engulfing, Knife Catch) ---

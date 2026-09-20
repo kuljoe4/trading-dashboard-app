@@ -174,6 +174,13 @@ export class EngineBroadcasterService {
       }
     }
 
+    // Unified Exit Estimation PnL Overrides if available
+    const exitEst = (trade as any).exit_estimation;
+    if (exitEst && typeof exitEst.estimatedPnl === 'number') {
+      maxEstPnlForTrade = exitEst.estimatedPnl;
+      estPnlSource = `exit_estimation:${exitEst.selectedSignalKey || 'composite'}`;
+    }
+
     if (minimal) {
       return {
         id: trade.id,
@@ -208,6 +215,7 @@ export class EngineBroadcasterService {
         rr_sequence_index: trade.rr_sequence_index ?? -1,
         close_attempts: trade.close_attempts,
         close_blocked: trade.close_blocked,
+        exit_estimation: exitEst,
         _delta: true,
       };
     }
@@ -236,6 +244,7 @@ export class EngineBroadcasterService {
       max_rr_achieved: roundTo(Number(trade.max_rr_achieved || 0), 4),
       est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
       est_pnl_source: estPnlSource,
+      exit_estimation: exitEst,
       exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
       min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
       strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
@@ -295,6 +304,13 @@ export class EngineBroadcasterService {
       }
     }
 
+    // Unified Exit Estimation PnL Overrides if available
+    const exitEst = (trade as any).exit_estimation;
+    if (exitEst && typeof exitEst.estimatedPnl === 'number') {
+      maxEstPnlForTrade = exitEst.estimatedPnl;
+      estPnlSource = `exit_estimation:${exitEst.selectedSignalKey || 'composite'}`;
+    }
+
     return {
       id: trade.id,
       symbol: trade.symbol,
@@ -331,6 +347,7 @@ export class EngineBroadcasterService {
       _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
       live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
       exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
+      exit_estimation: exitEst,
     };
   }
 

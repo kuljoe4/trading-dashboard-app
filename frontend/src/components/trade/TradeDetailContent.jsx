@@ -752,17 +752,23 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
           const isFired = s.fired && s.active
           const threshold = Number(s.threshold) || 0
 
-          // Estimated PnL at trigger (capped at current unrealized live PnL to align with backend realizable exit PnL)
-          const rawEstPnl = s.threshold_is_price
-            ? (threshold - entryPrice) * qty * (isLong ? 1 : -1)
-            : null;
+          // Unified Exit Estimation from backend (if present) or fallback calculation
+          const sigEst = trade.exit_estimation?.signalEstimations?.[key];
+
+          const rawEstPnl = sigEst?.estimatedPnl !== undefined && sigEst?.estimatedPnl !== null
+            ? sigEst.estimatedPnl
+            : (s.threshold_is_price
+                ? (threshold - entryPrice) * qty * (isLong ? 1 : -1)
+                : null);
           const livePnl = (mark && entryPrice && qty)
             ? (mark - entryPrice) * qty * (isLong ? 1 : -1)
             : null;
           const estPnl = (rawEstPnl !== null && livePnl !== null)
             ? Math.min(rawEstPnl, livePnl)
             : rawEstPnl;
-          const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null;
+          const estRr = sigEst?.estimatedR !== undefined && sigEst?.estimatedR !== null
+            ? sigEst.estimatedR
+            : ((estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null);
 
           const { timeframe, params } = getSignalInfo(key, trade.strategy_config);
 
@@ -784,6 +790,7 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
               markPrice={mark}
               qty={qty}
               riskUsdt={riskUsdt}
+              signalEstimation={sigEst}
               type="exit"
             >
               {/* Delay control overrides and inline editing */}

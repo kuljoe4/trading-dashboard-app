@@ -20,6 +20,7 @@ export const SignalGauge = React.memo(({
   markPrice,
   qty,
   riskUsdt,
+  signalEstimation,
   children,
   type = 'entry' // 'entry' or 'exit'
 }) => {
@@ -33,20 +34,24 @@ export const SignalGauge = React.memo(({
     label && (label.toLowerCase().includes('dual') || label.toLowerCase().includes('cross'))
   );
 
-  // Calculate progress/convergence using centralized direction-aware helper
-  const progress = calculateProximity({
-    value,
-    threshold,
-    fired,
-    active,
-    insufficientData,
-    threshold_is_price: thresholdIsPrice,
-    is_indicator_pair: isDualEma
-  }, markPrice, entryPrice, isLong, type === 'exit');
+  // Use authoritative backend exit estimation if present; fallback to calculateProximity
+  const progress = (signalEstimation && typeof signalEstimation.proximity === 'number')
+    ? signalEstimation.proximity
+    : calculateProximity({
+        value,
+        threshold,
+        fired,
+        active,
+        insufficientData,
+        threshold_is_price: thresholdIsPrice,
+        is_indicator_pair: isDualEma
+      }, markPrice, entryPrice, isLong, type === 'exit');
 
   const getStatus = () => {
     if (insufficientData) return { label: 'Collecting', color: 'text-dim bg-background/50 border-border/40' }
-    if (isFired) return { label: 'Triggered', color: 'text-white bg-red border-red/20 shadow-lg shadow-red/20' }
+    if (isFired || signalEstimation?.state === 'fired') return { label: 'Triggered', color: 'text-white bg-red border-red/20 shadow-lg shadow-red/20' }
+    if (signalEstimation?.state === 'blocked') return { label: 'Blocked', color: 'text-red bg-red/10 border-red/20' }
+    if (signalEstimation?.state === 'diverging') return { label: 'Diverging', color: 'text-dim bg-background/50 border-border/40' }
     if (isDelayed) return { label: 'Delayed', color: 'text-amber bg-amber/20 border-amber/30' }
     if (progress === 0 && (isDualEma || label?.toLowerCase().includes('cross'))) {
       if (value > 0 && threshold > 0) {
@@ -55,7 +60,7 @@ export const SignalGauge = React.memo(({
         }
       }
     }
-    if (fired) return { label: 'Met', color: 'text-amber bg-amber/20 border-amber/30' }
+    if (fired || signalEstimation?.state === 'ready') return { label: 'Met', color: 'text-amber bg-amber/20 border-amber/30' }
     if (progress > 80) return { label: 'Near', color: 'text-accent bg-accent/10 border-accent/20' }
     return { label: 'Watching', color: 'text-dim bg-background/50 border-border/40' }
   }

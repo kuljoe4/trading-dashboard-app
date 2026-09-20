@@ -44,6 +44,7 @@ export interface TradeSerializationDto {
   exit_rr?: number;
   min_rr_achieved?: number;
   rr_sequence_index?: number;
+  exit_estimation?: any;
   _delta?: boolean;
   _thin?: boolean;
   _sl_len?: number;
@@ -86,4 +87,5 @@ export interface TickTradeDto {
   _sig_json: string;
   live_rr_sequence?: number[];
   exit_rr_sequence?: number[];
+  exit_estimation?: any;
 }

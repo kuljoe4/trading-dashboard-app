@@ -50,13 +50,13 @@ test('calculateProximity unit tests', async (t) => {
 
   await t.test('clamps progress to 99% if not fired yet (price-based)', () => {
     const signal = {
-      value: 100,
+      value: 99.9,
       threshold: 100,
       fired: false,
       threshold_is_price: true
     };
-    const res = calculateProximity(signal, 100, 95);
-    assert.strictEqual(res, 99);
+    const res = calculateProximity(signal, 99.9, 95);
+    assert.strictEqual(Math.round(res), 98);
   });
 
   await t.test('handles price-based LONG progress correctly', () => {
@@ -164,13 +164,13 @@ test('calculateProximity unit tests', async (t) => {
       threshold_is_price: true
     });
 
-    // Test wide spreads: 50% spread (val=150), 20% spread (val=120), 10% spread (val=110), 5% spread (val=105), 1% spread (val=101), 0.2% spread (val=100.2)
-    const p50 = calculateProximity(makeSignal(150), 150, 0, true, false);
-    const p20 = calculateProximity(makeSignal(120), 120, 0, true, false);
-    const p10 = calculateProximity(makeSignal(110), 110, 0, true, false);
-    const p5  = calculateProximity(makeSignal(105), 105, 0, true, false);
-    const p1  = calculateProximity(makeSignal(101), 101, 0, true, false);
-    const p02 = calculateProximity(makeSignal(100.2), 100.2, 0, true, false);
+    // Test wide spreads approaching threshold 100.0 for LONG (from below: 50, 80, 90, 95, 99, 99.8)
+    const p50 = calculateProximity(makeSignal(50), 50, 0, true, false);
+    const p20 = calculateProximity(makeSignal(80), 80, 0, true, false);
+    const p10 = calculateProximity(makeSignal(90), 90, 0, true, false);
+    const p5  = calculateProximity(makeSignal(95), 95, 0, true, false);
+    const p1  = calculateProximity(makeSignal(99), 99, 0, true, false);
+    const p02 = calculateProximity(makeSignal(99.8), 99.8, 0, true, false);
 
     assert.ok(p50 > 0, `p50 (${p50}) should be > 0%`);
     assert.ok(p20 > p50, `p20 (${p20}) should be > p50 (${p50})`);

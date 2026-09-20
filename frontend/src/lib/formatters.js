@@ -93,11 +93,29 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
       (signal.description && signal.description.toLowerCase().includes('crossed'))
     );
 
-    // For dual EMA cross/close or indicator price thresholds, evaluate convergence between value and threshold using continuous smooth rational decay
+    // For dual EMA cross/close or indicator price thresholds, evaluate direction-aware state (satisfied vs approaching vs invalid)
     if (isIndicatorPair || (isExit && (entry === 0 || threshold === 0 || threshold === entry))) {
       if (value !== 0 && threshold !== 0) {
-        const spread = Math.abs(value - threshold);
-        const relSpread = spread / Math.max(Math.abs(value), Math.abs(threshold));
+        let isSatisfied = false;
+        let spread = 0;
+
+        if (isLong) {
+          // LONG: Trigger when value >= threshold (e.g. Fast EMA >= Slow EMA)
+          isSatisfied = value >= threshold;
+          spread = threshold - value;
+        } else {
+          // SHORT: Trigger when value <= threshold (e.g. Fast EMA <= Slow EMA)
+          isSatisfied = value <= threshold;
+          spread = value - threshold;
+        }
+
+        if (isSatisfied) {
+          return 100; // State: SATISFIED (100% proximity contribution)
+        }
+
+        if (spread <= 0) return 0; // State: INVALID/REVERSED
+
+        const relSpread = spread / Math.max(Math.abs(value), Math.abs(threshold), 1e-8);
         const progress = maxVal / (1 + 118.75 * relSpread);
         return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
       }
@@ -125,29 +143,77 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
       }
       return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
     } else {
-      // Entry signals
+      // Entry signals (when thresholdIsPrice is true)
       if (entry === 0 || threshold === 0 || threshold === entry) {
-        return 0;
+        const targetMark = currentMark || value;
+        if (targetMark === 0 || threshold === 0) return 0;
+
+        if (isLong) {
+          if (targetMark >= threshold) return 100;
+          const progress = (targetMark / threshold) * 100;
+          return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+        } else {
+          if (targetMark <= threshold) return 100;
+          const progress = (1 - (targetMark - threshold) / threshold) * 100;
+          return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+        }
       }
-      const totalDist = threshold - entry;
-      const currentDist = currentMark - entry;
-      const progress = (currentDist / totalDist) * 100;
-      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+
+      if (isLong) {
+        if (currentMark >= threshold) return 100;
+        const totalDist = threshold - entry;
+        if (totalDist <= 0) return 0;
+        const currentDist = currentMark - entry;
+        const progress = (currentDist / totalDist) * 100;
+        return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+      } else {
+        // SHORT
+        if (currentMark <= threshold) return 100;
+        const totalDist = entry - threshold;
+        if (totalDist <= 0) return 0;
+        const currentDist = entry - currentMark;
+        const progress = (currentDist / totalDist) * 100;
+        return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+      }
     }
   }
 
   // Handle indicator-based signals
   if (threshold === 0) {
-    return 0;
+    const absVal = Math.abs(value);
+    const progress = maxVal / (1 + 10 * absVal);
+    return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
   }
 
-  const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
-  if (hasOppositeSign) {
-    return 0;
+  // Direction-aware indicator threshold evaluation
+  if (isLong) {
+    if (threshold > 0) {
+      if (value >= threshold) return 100;
+      if (value <= 0) return 0;
+      const progress = (value / threshold) * 100;
+      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+    } else {
+      // Negative threshold for LONG (e.g. RSI oversold <= 30)
+      if (value <= threshold) return 100;
+      const progress = (threshold / Math.min(value, -1e-8)) * 100;
+      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+    }
+  } else {
+    // SHORT
+    if (threshold < 0) {
+      if (value <= threshold) return 100;
+      if (value >= 0) return 0;
+      const progress = (value / threshold) * 100;
+      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+    } else {
+      // Positive threshold magnitude for SHORT (e.g., momentum_pct threshold 2.0 for SHORT)
+      if (value >= 0) return 0; // Wrong direction for short
+      const magValue = Math.abs(value);
+      if (magValue >= threshold) return 100;
+      const progress = (magValue / threshold) * 100;
+      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+    }
   }
-
-  const progress = (Math.abs(value) / Math.abs(threshold)) * 100;
-  return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
 };
 
 /**

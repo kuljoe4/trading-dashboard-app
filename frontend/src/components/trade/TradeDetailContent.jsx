@@ -1661,7 +1661,10 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
 
     const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
       if (!activeExitSet || activeExitSet.has(key) || activeExitSet.has(getBaseSignalType(key))) {
-        const distPct = calculateProximity(s, mark, entry, isLong, true);
+        const sigEst = trade.exit_estimation?.signalEstimations?.[key];
+        const distPct = (sigEst && typeof sigEst.proximity === 'number')
+          ? sigEst.proximity
+          : calculateProximity(s, mark, entry, isLong, true);
 
         acc[key] = {
           ...s,

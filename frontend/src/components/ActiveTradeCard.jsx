@@ -639,7 +639,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 exitSignalProximity >= 50 ? "text-amber bg-amber/10 border-amber/20" :
                 "bg-surface text-accent border-accent/20"
               )}>
-                <Activity size={7} className="shrink-0" /> MONITORING {exitSignalProximity > 0 ? `· ${exitSignalProximity}%` : ''}
+                <Activity size={7} className="shrink-0" /> MONITORING · {exitSignalProximity}%
                 {exitEst?.etaCandles !== null && exitEst?.etaCandles !== undefined && (
                   <span className="text-dim opacity-80 font-normal">· ~{exitEst.etaCandles}c</span>
                 )}

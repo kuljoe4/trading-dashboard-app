@@ -892,9 +892,9 @@ export class SignalEngineService {
         const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_slow', '26')), 10);
         const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_signal', '9')), 10);
 
-        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
-        if (macdRes.histogram && macdRes.histogram.length > 0) {
-          macdHistValue = macdRes.histogram[macdRes.histogram.length - 1];
+        const macdRes = this.calculateMACDLast(candles, mFast, mSlow, mSig, symbol, interval, 0);
+        if (!macdRes.insufficientData) {
+          macdHistValue = macdRes.histogram;
           const isExit = purpose === 'exit';
           if (!isExit) {
             if (side === 'SHORT' && macdHistValue >= 0) {
@@ -1037,10 +1037,9 @@ export class SignalEngineService {
         const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_slow', '26')), 10);
         const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_signal', '9')), 10);
 
-        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
-        const completedIdx = candles.length - 2;
-        if (macdRes.histogram && macdRes.histogram.length > completedIdx) {
-          macdHistValue = macdRes.histogram[completedIdx];
+        const macdRes = this.calculateMACDLast(candles, mFast, mSlow, mSig, symbol, interval, 1);
+        if (!macdRes.insufficientData) {
+          macdHistValue = macdRes.histogram;
           const isExit = purpose === 'exit';
           if (!isExit) {
             if (side === 'SHORT' && macdHistValue >= 0) {
@@ -1427,6 +1426,32 @@ export class SignalEngineService {
   }
 
   /**
+   * BOLT OPTIMIZATION: Calculates scalar MACD Histogram value at a specific offset from the end (0 = latest, 1 = completed)
+   * by delegating to calculateMACD (utilizing O(1) cache lookups when available) to eliminate array allocations and redundant iterations.
+   */
+  public calculateMACDLast(
+    candles: Candle[],
+    fastPeriod: number,
+    slowPeriod: number,
+    signalPeriod: number,
+    symbol?: string,
+    interval?: string,
+    offsetFromEnd: number = 0,
+  ): { macdLine: number; signalLine: number; histogram: number; insufficientData: boolean } {
+    const res = this.calculateMACD(candles, fastPeriod, slowPeriod, signalPeriod, symbol, interval);
+    if (res.insufficientData || !res.histogram || res.histogram.length <= offsetFromEnd) {
+      return { macdLine: 0, signalLine: 0, histogram: 0, insufficientData: true };
+    }
+    const idx = res.histogram.length - 1 - offsetFromEnd;
+    return {
+      macdLine: res.macdLine[idx],
+      signalLine: res.signalLine[idx],
+      histogram: res.histogram[idx],
+      insufficientData: false,
+    };
+  }
+
+  /**
    * Calculates MACD values (MACD Line, Signal Line, and Histogram) matching standard mathematical definitions.
    * Designed with O(1) loop structures, no external library allocations, and stable O(1) caching.
    */
@@ -1442,20 +1467,15 @@ export class SignalEngineService {
     const minNeeded = Math.max(fastPeriod, slowPeriod) + signalPeriod;
     const insufficientData = len < minNeeded * 2;
 
-    // BOLT OPTIMIZATION: Avoid pre-filling arrays with .fill(0) since every single index is overwritten
-    const macdLine = new Array<number>(len);
-    const signalLine = new Array<number>(len);
-    const histogram = new Array<number>(len);
-
     if (len < minNeeded) {
-      // For short lengths, fill with 0 to prevent returning uninitialized array values
-      macdLine.fill(0);
-      signalLine.fill(0);
-      histogram.fill(0);
+      // For short lengths, return zero-filled arrays to prevent returning uninitialized values
+      const macdLine = new Array<number>(len).fill(0);
+      const signalLine = new Array<number>(len).fill(0);
+      const histogram = new Array<number>(len).fill(0);
       return { macdLine, signalLine, histogram, insufficientData: true };
     }
 
-    // BOLT OPTIMIZATION: Check stable cache using robust compound key to avoid collision across assets and timeframes
+    // BOLT OPTIMIZATION: Check stable cache BEFORE allocating output arrays
     const firstCandle = candles[0];
     const midCandle = candles[Math.floor(len / 2)];
     const lastCandle = candles[len - 1];
@@ -1465,6 +1485,11 @@ export class SignalEngineService {
 
     const cached = this.macdCache.get(cacheKey);
     if (cached) return cached;
+
+    // Allocate arrays ONLY on cache miss
+    const macdLine = new Array<number>(len);
+    const signalLine = new Array<number>(len);
+    const histogram = new Array<number>(len);
 
     const fastMult = 2 / (fastPeriod + 1);
     const slowMult = 2 / (slowPeriod + 1);

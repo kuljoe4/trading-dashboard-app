@@ -33,28 +33,35 @@ export class ExitEstimationService {
   }
 
   /**
-   * Calculates EMA series for a given array of close prices.
+   * Calculates EMA series for a given array of prices or candles.
+   * BOLT OPTIMIZATION: Supports operating directly on Candle[] or number[] to eliminate
+   * intermediate candles.map(c => c.close) array heap allocations.
    */
-  public calculateEMAValues(prices: number[], period: number): number[] {
-    if (prices.length < period) return [];
+  public calculateEMAValues(prices: (Candle | number)[], period: number): number[] {
+    const len = prices.length;
+    if (len < period) return [];
     const k = 2 / (period + 1);
-    const emaValues: number[] = new Array(prices.length);
+    const emaValues: number[] = new Array(len);
 
     let sum = 0;
     for (let i = 0; i < period; i++) {
-      sum += prices[i];
+      const p = typeof prices[i] === 'number' ? (prices[i] as number) : (prices[i] as Candle).close;
+      sum += p;
     }
     emaValues[period - 1] = sum / period;
 
-    for (let i = period; i < prices.length; i++) {
-      emaValues[i] = prices[i] * k + emaValues[i - 1] * (1 - k);
+    for (let i = period; i < len; i++) {
+      const p = typeof prices[i] === 'number' ? (prices[i] as number) : (prices[i] as Candle).close;
+      emaValues[i] = p * k + emaValues[i - 1] * (1 - k);
     }
 
     return emaValues;
   }
 
   /**
-   * Calculates MACD histogram series from candle closes.
+   * Calculates MACD histogram series from candles.
+   * BOLT OPTIMIZATION: Eliminates candles.map(c => c.close) and preallocates macdLine and histogram
+   * arrays with new Array(len) to eliminate dynamic array growth/resizes during MACD calculation.
    */
   public calculateMACDHistogramSeries(
     candles: Candle[],
@@ -62,27 +69,31 @@ export class ExitEstimationService {
     slowPeriod = 26,
     signalPeriod = 9
   ): number[] {
-    if (candles.length < slowPeriod + signalPeriod) return [];
-    const closes = candles.map(c => c.close);
+    const len = candles.length;
+    if (len < slowPeriod + signalPeriod) return [];
 
-    const fastEma = this.calculateEMAValues(closes, fastPeriod);
-    const slowEma = this.calculateEMAValues(closes, slowPeriod);
+    const fastEma = this.calculateEMAValues(candles, fastPeriod);
+    const slowEma = this.calculateEMAValues(candles, slowPeriod);
 
-    const macdLine: number[] = [];
     const macdStartIdx = slowPeriod - 1;
+    const macdLen = len - macdStartIdx;
+    const macdLine: number[] = new Array(macdLen);
 
-    for (let i = macdStartIdx; i < closes.length; i++) {
-      macdLine.push(fastEma[i] - slowEma[i]);
+    for (let i = 0; i < macdLen; i++) {
+      const idx = macdStartIdx + i;
+      macdLine[i] = fastEma[idx] - slowEma[idx];
     }
 
-    if (macdLine.length < signalPeriod) return [];
+    if (macdLen < signalPeriod) return [];
 
     const signalEma = this.calculateEMAValues(macdLine, signalPeriod);
-    const histogram: number[] = [];
     const signalStartIdx = signalPeriod - 1;
+    const histLen = macdLen - signalStartIdx;
+    const histogram: number[] = new Array(histLen);
 
-    for (let i = signalStartIdx; i < macdLine.length; i++) {
-      histogram.push(macdLine[i] - signalEma[i]);
+    for (let i = 0; i < histLen; i++) {
+      const idx = signalStartIdx + i;
+      histogram[i] = macdLine[idx] - signalEma[idx];
     }
 
     return histogram;
@@ -457,10 +468,17 @@ export class ExitEstimationService {
     if (baseType === 'breakout_hl') {
       const lookback = Number(config.signal_params?.scan_lookback || 3);
       if (candles.length >= lookback + 1) {
-        const slice = candles.slice(-lookback - 1, -1);
-        const boundPrice = isLong
-          ? Math.min(...slice.map(c => c.low))
-          : Math.max(...slice.map(c => c.high));
+        // BOLT OPTIMIZATION: Replaced candles.slice().map() and Math.min/Math.max spread
+        // with a zero-allocation single-pass scalar loop.
+        const startIdx = candles.length - 1 - lookback;
+        const endIdx = candles.length - 1;
+        let boundPrice = isLong ? Infinity : -Infinity;
+        for (let i = startIdx; i < endIdx; i++) {
+          const p = isLong ? candles[i].low : candles[i].high;
+          if (isLong ? p < boundPrice : p > boundPrice) {
+            boundPrice = p;
+          }
+        }
 
         const dist = Math.abs(currentPrice - boundPrice);
         const { estPnl, estR } = computePnLAndR(boundPrice);
@@ -633,9 +651,14 @@ export class ExitEstimationService {
       }
     } else if (logic === 'all') {
       // ALL logic: Bottlenecked by signal with lowest proximity
+      // BOLT OPTIMIZATION: Single-pass O(N) loop replaces [...list].sort() to avoid array allocations and N log N sorting
       if (estimationsList.length > 0) {
-        const sorted = [...estimationsList].sort((a, b) => a.proximity - b.proximity);
-        const sel = sorted[0];
+        let sel = estimationsList[0];
+        for (let i = 1; i < estimationsList.length; i++) {
+          if (estimationsList[i].proximity < sel.proximity) {
+            sel = estimationsList[i];
+          }
+        }
         return {
           selectedSignalKey: sel.signalType,
           state: sel.state,
@@ -656,8 +679,12 @@ export class ExitEstimationService {
       const reqEsts = estimationsList.filter(e => reqKeys.includes(e.signalType));
 
       if (reqEsts.length > 0) {
-        reqEsts.sort((a, b) => a.proximity - b.proximity);
-        const sel = reqEsts[0];
+        let sel = reqEsts[0];
+        for (let i = 1; i < reqEsts.length; i++) {
+          if (reqEsts[i].proximity < sel.proximity) {
+            sel = reqEsts[i];
+          }
+        }
         return {
           selectedSignalKey: sel.signalType,
           state: sel.state,
@@ -675,8 +702,13 @@ export class ExitEstimationService {
     }
 
     // Fallback: Pick highest proximity estimation
-    estimationsList.sort((a, b) => b.proximity - a.proximity);
-    const sel = estimationsList[0];
+    // BOLT OPTIMIZATION: Single-pass O(N) loop replaces array mutation sort()
+    let sel = estimationsList[0];
+    for (let i = 1; i < estimationsList.length; i++) {
+      if (estimationsList[i].proximity > sel.proximity) {
+        sel = estimationsList[i];
+      }
+    }
     return {
       selectedSignalKey: sel.signalType,
       state: sel.state,

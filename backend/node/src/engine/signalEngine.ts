@@ -270,27 +270,25 @@ export class SignalEngineService {
 
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
 
-    // Warm-up check for technical indicators
-    if (purpose === 'entry') {
-      const requiredWarmup = this.getRequiredWarmup(config);
-      if (candles.length < requiredWarmup) {
-        return {
-          allFired: false,
-          firedSignals: [],
-          reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
-          details: minimal ? undefined : {
-            warmup: {
-              fired: false,
-              value: candles.length,
-              threshold: requiredWarmup,
-              unit: 'candles',
-              metric: 'Warmup',
-              description: 'Waiting for mathematical convergence',
-              insufficientData: true,
-            }
+    // Warm-up check for technical indicators (applied to both entry and exit signal evaluations to ensure mathematical convergence)
+    const requiredWarmup = this.getRequiredWarmup(config);
+    if (candles.length < requiredWarmup) {
+      return {
+        allFired: false,
+        firedSignals: [],
+        reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
+        details: minimal ? undefined : {
+          warmup: {
+            fired: false,
+            value: candles.length,
+            threshold: requiredWarmup,
+            unit: 'candles',
+            metric: 'Warmup',
+            description: 'Waiting for mathematical convergence',
+            insufficientData: true,
           }
-        };
-      }
+        }
+      };
     }
 
     // BOLT OPTIMIZATION: Avoid array/object allocations when minimal mode is active

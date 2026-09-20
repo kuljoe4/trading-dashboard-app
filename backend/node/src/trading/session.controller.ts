@@ -179,11 +179,22 @@ export class SessionController {
     @Body() body: UpdateSessionDto,
     @Req() req: Request,
   ) {
+    // SEC-SENTINEL: Defense-in-depth validation of UpdateSessionDto outer payload
+    const sessionDto = plainToInstance(UpdateSessionDto, body || {});
+    const dtoErrors = await validate(sessionDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid update session parameters",
+        detail: detailedErrors,
+      });
+    }
+
     const clientIp =
       req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
     const userAgent = req.headers["user-agent"];
 
-    const configInstance = plainToInstance(SessionConfig, body.config || {});
+    const configInstance = plainToInstance(SessionConfig, sessionDto.config || {});
     // SEC-SENTINEL: Defense-in-depth whitelist and type validation on partial session configuration instance
     const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true });
     if (errors.length > 0) {
@@ -332,8 +343,19 @@ export class SessionController {
       throw new BadRequestException("Invalid trade ID or symbol format");
     }
 
-    if (body.strategy_config) {
-      const configInstance = plainToInstance(SessionConfig, body.strategy_config);
+    // SEC-SENTINEL: Defense-in-depth validation of UpdateTradeConfigDto outer payload
+    const tradeConfigDto = plainToInstance(UpdateTradeConfigDto, body || {});
+    const dtoErrors = await validate(tradeConfigDto, { whitelist: true, forbidNonWhitelisted: true });
+    if (dtoErrors.length > 0) {
+      const detailedErrors = formatValidationErrors(dtoErrors);
+      throw new BadRequestException({
+        message: "Invalid update trade config parameters",
+        detail: detailedErrors,
+      });
+    }
+
+    if (tradeConfigDto.strategy_config) {
+      const configInstance = plainToInstance(SessionConfig, tradeConfigDto.strategy_config);
       // SEC-SENTINEL: Defense-in-depth whitelist and type validation on trade strategy configuration overrides
       const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true, skipMissingProperties: true });
       if (errors.length > 0) {
@@ -351,7 +373,7 @@ export class SessionController {
 
     return this.sessionService.updateTradeConfig(
       id,
-      body,
+      tradeConfigDto,
       clientIp,
       userAgent,
     );

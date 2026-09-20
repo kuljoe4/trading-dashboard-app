@@ -450,7 +450,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
   };
 
   const status = getStatus();
-  const proximity = calculateOpportunityProximity(opp, strategyConfig);
+  const proximity = calculateOpportunityProximity(opp, config);
 
   // Focus expanded symbol to request live telemetry/candle charts on demand
   useEffect(() => {

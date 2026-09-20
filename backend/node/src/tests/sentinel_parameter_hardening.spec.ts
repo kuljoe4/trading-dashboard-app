@@ -158,6 +158,19 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       );
       expect(mockSessionService.updateTradeConfig).not.toHaveBeenCalled();
     });
+
+    it('should reject non-whitelisted top-level properties in updateTradeConfig payload', async () => {
+      const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const invalidBody = {
+        current_sl: 50000,
+        unauthorized_top_level_param: 'malicious payload',
+      };
+      await expect(controller.updateTradeConfig(validUuid, invalidBody as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockSessionService.updateTradeConfig).not.toHaveBeenCalled();
+    });
   });
 
   describe('getHistory Input Hardening', () => {
@@ -324,6 +337,22 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
           strategy_label: 'Updated Strategy Label',
           unauthorized_extra_param: '<script>alert("xss")</script>',
         },
+      };
+      await expect(controller.updateSession(validUuid, invalidPayload as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockSessionService.updateSession).not.toHaveBeenCalled();
+    });
+
+    it('should reject non-whitelisted top-level properties in updateSession payload', async () => {
+      const mockReq = { ip: '127.0.0.1', headers: {} } as any;
+      const validUuid = '123e4567-e89b-12d3-a456-426614174000';
+      mockSessionService.updateSession = jest.fn().mockResolvedValue({ status: 'updated' });
+      const invalidPayload = {
+        config: {
+          strategy_label: 'Updated Strategy Label',
+        },
+        unauthorized_top_level_param: 'malicious payload',
       };
       await expect(controller.updateSession(validUuid, invalidPayload as any, mockReq)).rejects.toThrow(
         BadRequestException

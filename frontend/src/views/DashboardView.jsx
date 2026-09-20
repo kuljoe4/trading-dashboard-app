@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
-import { formatDuration, calculateProximity } from '../lib/formatters'
+import { formatDuration, calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
 
 const formatTimeAgo = (ts) => {
@@ -1341,27 +1341,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
 
   const regimeInfo = getMarketRegimeInfo(scannerResults, config, { scannerPaused, hibernating });
 
-  const getOppProximity = (opp) => {
-    if (opp.signalResult?.allFired) return 100;
-    const isLong = opp.pct >= 0;
-    const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / threshold) * 100);
-
-    let sigSum = velocityProgress;
-    let count = 1;
-
-    if (opp.signalResult?.signals) {
-      for (const sigKey of enabledSigs) {
-        const s = opp.signalResult.signals[sigKey];
-        if (s) {
-          const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
-          sigSum += prox;
-          count++;
-        }
-      }
-    }
-
-    return Math.round(count > 0 ? sigSum / count : 0);
-  };
+  const getOppProximity = (opp) => calculateOpportunityProximity(opp, config);
 
   return (
     <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col text-left">

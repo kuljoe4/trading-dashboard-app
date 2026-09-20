@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react'
 import { fmtVol } from '../lib/theme'
-import { formatDuration, calculateSupertrend, calculateProximity } from '../lib/formatters'
+import { formatDuration, calculateSupertrend, calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
 import { PulseDot, Sparkline, cn, CopyButton, Tooltip, CandlestickChart, MonitoredBadge, InPosBadge, SmartCandidateBadge, ModalAlertTicker } from './ui/primitives'
 import { SignalGauge } from './ui/SignalGauge'
 import { useTradingStore } from '../store/trading'
@@ -450,7 +450,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
   };
 
   const status = getStatus();
-  const proximity = Number(Math.min(100, (Math.abs(opp.pct || 0) / (threshold || 1)) * 100)).toFixed(0);
+  const proximity = calculateOpportunityProximity(opp, strategyConfig);
 
   // Focus expanded symbol to request live telemetry/candle charts on demand
   useEffect(() => {
@@ -742,34 +742,9 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
         .slice(0, 24);
     }
 
-    const enabledSigs = strategyConfig?.enabled_signals || [];
-    const scanThresh = strategyConfig?.scan_pct_threshold || 2.0;
-
-    const calcOppProximity = (opp) => {
-      if (opp.signalResult?.allFired) return 100;
-      const isLong = opp.pct >= 0;
-      const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
-
-      let sigSum = velocityProgress;
-      let count = 1;
-
-      if (opp.signalResult?.signals) {
-        for (const sigKey of enabledSigs) {
-          const s = opp.signalResult.signals[sigKey];
-          if (s) {
-            const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
-            sigSum += prox;
-            count++;
-          }
-        }
-      }
-
-      return Math.round(count > 0 ? sigSum / count : 0);
-    };
-
     // 5. Apply sorting
     if (sortBy === 'proximity') {
-      results = [...results].sort((a, b) => calcOppProximity(b) - calcOppProximity(a));
+      results = [...results].sort((a, b) => calculateOpportunityProximity(b, strategyConfig) - calculateOpportunityProximity(a, strategyConfig));
     } else if (sortBy === 'score') {
       results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0))
     } else if (sortBy === 'pct_desc') {
@@ -872,17 +847,18 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               onChange={(e) => setSearch(e.target.value)}
               onFocus={handleInputFocus}
               onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-background border border-border rounded-lg pl-8 pr-10 py-1 text-[10px] font-bold focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none transition-all"
+              className="w-full bg-background border border-border rounded-lg pl-8 pr-10 py-1 text-[10px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
               aria-label="Filter scanner symbols"
             />
             {search ? (
               <Tooltip content="Clear Filter">
                 <button
+                  type="button"
                   onClick={() => {
                     setSearch('');
                     searchInputRef.current?.focus();
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors cursor-pointer"
                   aria-label="Clear Filter"
                 >
                   <XCircle size={14} />
@@ -895,7 +871,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             )}
           </div>
           <Tooltip content="Close Scanner">
-            <button onClick={onClose} className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-full transition-colors shrink-0" aria-label="Close scanner">
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full transition-colors shrink-0 cursor-pointer"
+              aria-label="Close scanner"
+            >
               <X size={18} className="text-dim" />
             </button>
           </Tooltip>

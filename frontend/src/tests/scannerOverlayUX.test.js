@@ -19,3 +19,26 @@ test('ScannerRow interactive element includes dynamic aria-label and high-contra
     'ScannerRow interactive row container must apply high-contrast inset focus-visible ring styles for keyboard navigation'
   )
 })
+
+test('ScannerOverlay search input and utility buttons include explicit focus-visible rings and button semantics', () => {
+  const filePath = path.join(process.cwd(), 'frontend/src/components/ScannerOverlay.jsx')
+  const content = fs.readFileSync(filePath, 'utf8')
+
+  // Verify search input applies theme-aligned focus-visible ring
+  assert.ok(
+    content.includes('focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none'),
+    'ScannerOverlay search input must apply theme-aligned focus-visible ring'
+  )
+
+  // Verify clear filter button includes explicit type="button" and cursor-pointer
+  assert.ok(
+    content.includes('aria-label="Clear Filter"') && content.includes('type="button"'),
+    'Clear Filter button must specify type="button"'
+  )
+
+  // Verify close scanner button includes explicit type="button" and cursor-pointer
+  assert.ok(
+    content.includes('aria-label="Close scanner"') && content.includes('type="button"'),
+    'Close scanner button must specify type="button"'
+  )
+})

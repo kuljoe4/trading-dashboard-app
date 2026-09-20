@@ -5,8 +5,12 @@ import { roundTo } from '../lib/math';
 
 interface SignalDetail {
   fired: boolean;
+  status?: 'approaching' | 'fired' | 'blocked' | 'stale';
+  rejected?: boolean;
   value: number;
   threshold: number;
+  prevFast?: number;
+  prevSlow?: number;
   unit: string;
   metric: string;
   description: string;
@@ -763,20 +767,37 @@ export class SignalEngineService {
       const currClose = candles[candles.length - 1].close;
 
       let fired = false;
+      let isOnSatisfiedSide = false;
+
       if (purpose === 'entry') {
-        if (side === 'LONG') fired = prevClose <= ema && currClose > ema;
-        else if (side === 'SHORT') fired = prevClose >= ema && currClose < ema;
-        else fired = (prevClose <= ema && currClose > ema) || (prevClose >= ema && currClose < ema);
+        if (side === 'LONG') {
+          fired = prevClose <= ema && currClose > ema;
+          isOnSatisfiedSide = currClose > ema;
+        } else if (side === 'SHORT') {
+          fired = prevClose >= ema && currClose < ema;
+          isOnSatisfiedSide = currClose < ema;
+        } else {
+          fired = (prevClose <= ema && currClose > ema) || (prevClose >= ema && currClose < ema);
+          isOnSatisfiedSide = true;
+        }
       } else {
-        if (side === 'LONG') fired = prevClose >= ema && currClose < ema;
-        else if (side === 'SHORT') fired = prevClose <= ema && currClose > ema;
-        else fired = false;
+        if (side === 'LONG') {
+          fired = prevClose >= ema && currClose < ema;
+          isOnSatisfiedSide = currClose < ema;
+        } else if (side === 'SHORT') {
+          fired = prevClose <= ema && currClose > ema;
+          isOnSatisfiedSide = currClose > ema;
+        } else {
+          fired = false;
+          isOnSatisfiedSide = false;
+        }
       }
 
       if (minimal) return fired;
 
       return {
         fired,
+        status: fired ? 'fired' : 'approaching',
         value: roundTo(currClose, 8),
         threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
@@ -834,15 +855,33 @@ export class SignalEngineService {
       const [prevSlow, currSlow] = slowRes.values;
 
       let fired = false;
+      let isOnSatisfiedSide = false;
+
       if (purpose === 'entry') {
-        if (side === 'LONG') fired = prevFast <= prevSlow && currFast > currSlow;
-        else if (side === 'SHORT') fired = prevFast >= prevSlow && currFast < currSlow;
-        else fired = (prevFast <= prevSlow && currFast > currSlow) || (prevFast >= prevSlow && currFast < currSlow);
+        if (side === 'LONG') {
+          fired = prevFast <= prevSlow && currFast > currSlow;
+          isOnSatisfiedSide = currFast > currSlow;
+        } else if (side === 'SHORT') {
+          fired = prevFast >= prevSlow && currFast < currSlow;
+          isOnSatisfiedSide = currFast < currSlow;
+        } else {
+          fired = (prevFast <= prevSlow && currFast > currSlow) || (prevFast >= prevSlow && currFast < currSlow);
+          isOnSatisfiedSide = true;
+        }
       } else {
-        if (side === 'LONG') fired = prevFast >= prevSlow && currFast < currSlow;
-        else if (side === 'SHORT') fired = prevFast <= prevSlow && currFast > currSlow;
-        else fired = false;
+        if (side === 'LONG') {
+          fired = prevFast >= prevSlow && currFast < currSlow;
+          isOnSatisfiedSide = currFast < currSlow;
+        } else if (side === 'SHORT') {
+          fired = prevFast <= prevSlow && currFast > currSlow;
+          isOnSatisfiedSide = currFast > currSlow;
+        } else {
+          fired = false;
+          isOnSatisfiedSide = false;
+        }
       }
+
+      const isCrossEvent = fired;
 
       const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'ema_dual_macd_filter', false);
       let macdRejected = false;
@@ -879,6 +918,17 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
+      let status: 'approaching' | 'fired' | 'blocked' | 'stale';
+      if (fired) {
+        status = 'fired';
+      } else if (macdRejected) {
+        status = 'blocked';
+      } else if (isOnSatisfiedSide && !isCrossEvent) {
+        status = 'stale';
+      } else {
+        status = 'approaching';
+      }
+
       let description = `EMA(${fastPeriod}) crossed EMA(${slowPeriod})`;
       if (macdRejected) {
         const expectedColor = purpose === 'exit'
@@ -889,8 +939,11 @@ export class SignalEngineService {
 
       return {
         fired,
+        status,
         value: roundTo(currFast, 8),
         threshold: roundTo(currSlow, 8),
+        prevFast: roundTo(prevFast, 8),
+        prevSlow: roundTo(prevSlow, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',

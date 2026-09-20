@@ -179,7 +179,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const diag = React.useMemo(() => analyzeTradeDiagnostics(trade, config), [trade, config])
 
+  // Rich Exit Estimation from backend (if present) or fallback calculation
+  const exitEst = trade.exit_estimation
+
   const exitSignalProximity = React.useMemo(() => {
+    if (exitEst && typeof exitEst.proximity === 'number') {
+      return exitEst.proximity
+    }
     if (!trade.exit_signals_status) return 0
     const statuses = Object.values(trade.exit_signals_status)
     if (statuses.length === 0) return 0
@@ -192,7 +198,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       }
     }
     return Math.round(maxProx)
-  }, [trade.exit_signals_status, mark, entry, isLong])
+  }, [exitEst, trade.exit_signals_status, mark, entry, isLong])
 
   // Track mark price movement for restrained motion trail
   const prevMarkRef = React.useRef(mark)
@@ -587,10 +593,22 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
         {/* Right: Strategy Engine State */}
         <div className="flex items-center gap-1 shrink-0">
-          {hasCrossedSignal ? (
+          {hasCrossedSignal || exitEst?.state === 'fired' ? (
             <Tooltip content="Strategy exit conditions triggered!">
               <span className="bg-red/15 text-red border border-red/30 px-1 py-0.2 rounded font-black flex items-center gap-0.5 animate-pulse">
                 ⚡ FIRED
+              </span>
+            </Tooltip>
+          ) : exitEst?.state === 'blocked' ? (
+            <Tooltip content={exitEst.description || "Exit signal blocked by MACD filter"}>
+              <span className="bg-red/10 text-red border border-red/20 px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help">
+                ⛔ BLOCKED
+              </span>
+            </Tooltip>
+          ) : exitEst?.state === 'diverging' ? (
+            <Tooltip content={exitEst.description || "Fast/Slow EMA moving apart"}>
+              <span className="bg-surface text-dim border border-white/10 px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help">
+                ↔ DIVERGING
               </span>
             </Tooltip>
           ) : hasDelayedSignal ? (
@@ -600,7 +618,21 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </span>
             </Tooltip>
           ) : (
-            <Tooltip content={`Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active, ${exitSignalProximity}% proximity)`}>
+            <Tooltip content={
+              exitEst ? (
+                <div className="flex flex-col gap-1 p-1 text-[10px]">
+                  <div className="font-bold border-b border-white/10 pb-0.5">
+                    Exit Monitor ({exitEst.selectedSignalKey || 'Composite'})
+                  </div>
+                  <div>State: <span className="font-bold text-accent">{exitEst.state?.toUpperCase()}</span></div>
+                  <div>Proximity: <span className="font-bold">{exitEst.proximity}%</span></div>
+                  {exitEst.etaCandles !== null && <div>ETA: <span className="font-bold">~{exitEst.etaCandles} candles ({exitEst.etaSeconds}s)</span></div>}
+                  {exitEst.estimatedExitPrice && <div>Est. Exit: <span className="font-bold">{fmtUSD(exitEst.estimatedExitPrice)}</span></div>}
+                  {exitEst.estimatedPnl !== null && <div>Est. P&L: <span className={cn("font-bold", exitEst.estimatedPnl >= 0 ? "text-green" : "text-red")}>{fmtUSD(exitEst.estimatedPnl)}</span></div>}
+                  {exitEst.confidence && <div>Confidence: <span className="font-bold text-text">{exitEst.confidence}%</span></div>}
+                </div>
+              ) : `Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active, ${exitSignalProximity}% proximity)`
+            }>
               <span className={cn(
                 "border px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help",
                 exitSignalProximity >= 80 ? "text-red bg-red/10 border-red/20" :
@@ -608,6 +640,9 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                 "bg-surface text-accent border-accent/20"
               )}>
                 <Activity size={7} className="shrink-0" /> MONITORING {exitSignalProximity > 0 ? `· ${exitSignalProximity}%` : ''}
+                {exitEst?.etaCandles !== null && exitEst?.etaCandles !== undefined && (
+                  <span className="text-dim opacity-80 font-normal">· ~{exitEst.etaCandles}c</span>
+                )}
               </span>
             </Tooltip>
           )}

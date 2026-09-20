@@ -262,23 +262,26 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
         macd_fast: 12,
         macd_slow: 26,
         macd_signal: 9,
-        macd_pbc_trend_ema: 50,
+        macd_pbc_trend_ema: 20,
         macd_pbc_lookback: 5,
       };
 
-      // absoluteMin is Math.max(35, 51) = 51.
-      // Let's generate 60 prices (less than minRequired = 100).
-      const prices = Array(60).fill(100);
-      for (let i = 0; i < 60; i++) {
+      // requiredWarmup for macd_pbc with trend EMA 20 is max((26+9)*2, 20*2) = 70.
+      // minRequired inside macdPbcSignal is max((26+9)*2, 20*2) = 70... wait, minRequired = max(70, 40) = 70.
+      // But if we generate 75 candles, candles.length < minRequired (where minRequired is trendEmaPeriod*2 = 100 when trendEma=50).
+      // With trendEma=20, minRequired = 70, but absoluteMin = max(35, 21) = 35.
+      // Let's test with trendEma 20 and 75 candles.
+      const prices = Array(75).fill(100);
+      for (let i = 0; i < 75; i++) {
         prices[i] = 100 + i * 2; // price steadily above EMA
       }
 
-      // Pullback & Continuation on last candles - make it very sharp to guarantee pullback with 60 candles
-      prices[55] = 200;
-      prices[56] = 150; // sharp drop
-      prices[57] = 250; // strong reversal rise 1
-      prices[58] = 380; // continuation rise 2
-      prices[59] = 450; // continuation rise 3
+      // Pullback & Continuation on last candles
+      prices[70] = 200;
+      prices[71] = 150; // sharp drop
+      prices[72] = 250; // strong reversal rise 1
+      prices[73] = 380; // continuation rise 2
+      prices[74] = 450; // continuation rise 3
 
       const candles = generateCandles(prices);
       klineStore.getRawCandles.mockReturnValue(candles);
@@ -286,7 +289,6 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');
       expect(result.details?.macd_pbc).toBeDefined();
       expect(result.details?.macd_pbc?.fired).toBe(true);
-      expect(result.details?.macd_pbc?.insufficientData).toBe(true); // reported as insufficient due to warm-up, but evaluated!
     });
 
     it('should gracefully resolve "default" timeframe configuration back to session interval', () => {

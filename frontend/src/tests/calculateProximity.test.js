@@ -37,6 +37,41 @@ test('calculateProximity unit tests', async (t) => {
     assert.strictEqual(firedReadiness, 100, 'Fired composite readiness should be strictly 100%');
   });
 
+  await t.test('calculateOpportunityProximity respects signal_logic ALL vs ANY vs COMBO', () => {
+    const opp = {
+      symbol: 'BTCUSDT',
+      pct: 2.0, // 100% velocity progress against scan_pct_threshold: 2.0
+      dir: 'long',
+      close: 65000,
+      signalResult: {
+        allFired: false,
+        signals: {
+          sig1: { fired: false, value: 99, threshold: 100, threshold_is_price: true }, // ~99% prox
+          sig2: { fired: false, value: 99, threshold: 100, threshold_is_price: true }, // ~99% prox
+          sig3: { fired: false, value: 10, threshold: 100, threshold_is_price: true }, // ~10% prox
+        }
+      }
+    };
+
+    const configAll = { enabled_signals: ['sig1', 'sig2', 'sig3'], signal_logic: 'all', scan_pct_threshold: 2.0 };
+    const proxAll = calculateOpportunityProximity(opp, configAll);
+    assert.ok(proxAll <= 15, `ALL logic should bottleneck at the lowest signal (~10%), got ${proxAll}%`);
+
+    const configAny = { enabled_signals: ['sig1', 'sig2', 'sig3'], signal_logic: 'any', scan_pct_threshold: 2.0 };
+    const proxAny = calculateOpportunityProximity(opp, configAny);
+    assert.ok(proxAny >= 90, `ANY logic should take the highest ready signal (~99%), got ${proxAny}%`);
+
+    const configCombo = {
+      enabled_signals: ['sig1', 'sig2', 'sig3'],
+      signal_logic: 'combo',
+      required_signals: ['sig1'],
+      scan_pct_threshold: 2.0
+    };
+    const proxCombo = calculateOpportunityProximity(opp, configCombo);
+    // Required sig1 is 99%, optional sig2 (99%) / sig3 (10%) max is 99% -> combo = 99%
+    assert.ok(proxCombo >= 90, `COMBO logic with req sig1 (99%) and opt sig2/3 max (99%) should be ~99%, got ${proxCombo}%`);
+  });
+
   await t.test('distinguishes unfired event-based signals from state satisfaction', () => {
     const unfiredEventSignal = {
       key: 'ema_dual_cross',

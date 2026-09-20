@@ -9,6 +9,8 @@ interface SignalDetail {
   rejected?: boolean;
   value: number;
   threshold: number;
+  prevFast?: number;
+  prevSlow?: number;
   unit: string;
   metric: string;
   description: string;
@@ -793,11 +795,9 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
-      const status: 'approaching' | 'fired' | 'stale' = fired ? 'fired' : (isOnSatisfiedSide ? 'stale' : 'approaching');
-
       return {
         fired,
-        status,
+        status: fired ? 'fired' : 'approaching',
         value: roundTo(currClose, 8),
         threshold: roundTo(ema, 8),
         insufficientData: emaRes.insufficientData,
@@ -942,6 +942,8 @@ export class SignalEngineService {
         status,
         value: roundTo(currFast, 8),
         threshold: roundTo(currSlow, 8),
+        prevFast: roundTo(prevFast, 8),
+        prevSlow: roundTo(prevSlow, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',

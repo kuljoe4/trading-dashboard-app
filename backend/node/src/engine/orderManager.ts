@@ -14,6 +14,7 @@ import { KlineStoreService } from './kline_store.service';
 import { MonitoringService } from './monitoring.service';
 import { PositionTrackerService } from './positionTracker';
 import { SessionStateService } from './session_state.service';
+import { ExitEstimationService } from './exit_estimation.service';
 import { BroadcastService } from './broadcast.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { v4 as uuid } from 'uuid';
@@ -133,6 +134,7 @@ export class OrderManagerService {
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
     private readonly orderFilterService: OrderFilterService,
+    @Optional() private readonly exitEstimationService?: ExitEstimationService,
     @Optional() private readonly klineStore?: KlineStoreService,
   ) {}
 
@@ -2109,6 +2111,24 @@ export class OrderManagerService {
 
     // Update trade status for frontend
     trade.exit_signals_status = statuses;
+
+    // Attach Exit Estimation telemetry if ExitEstimationService is available
+    if (this.exitEstimationService) {
+      try {
+        const rawCandles = this.klineStore ? this.klineStore.getRawCandles(symbol, interval) : [];
+        const exitEstimation = this.exitEstimationService.estimateExitMonitoring(
+          trade,
+          config,
+          interval,
+          rawCandles,
+          statuses
+        );
+        (trade as any).exit_estimation = exitEstimation;
+      } catch (estErr) {
+        this.logger.debug(`Exit estimation error for ${symbol}: ${estErr instanceof Error ? estErr.message : String(estErr)}`);
+      }
+    }
+
     // BOLT OPTIMIZATION: Pre-calculate JSON string for hot-loop change detection
     trade._sig_json = JSON.stringify(statuses);
 

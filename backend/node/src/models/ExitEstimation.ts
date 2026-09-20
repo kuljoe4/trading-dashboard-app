@@ -5,6 +5,12 @@ export interface ExitEstimationComponents {
   spreadVelocity?: number;
   priceVelocity?: number;
   atr?: number;
+  distance?: number;
+  currHist?: number;
+  histVelocity?: number;
+  boundPrice?: number;
+  currentPct?: number;
+  thresholdPct?: number;
 }
 
 export type ExitState = 'approaching' | 'diverging' | 'ready' | 'fired' | 'blocked' | 'stale';

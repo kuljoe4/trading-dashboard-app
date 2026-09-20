@@ -32,7 +32,6 @@ describe('ExitEstimationService', () => {
       low: price - 1,
       close: price,
       volume: 1000 + i,
-      isCompleted: true,
     }));
   };
 
@@ -126,6 +125,85 @@ describe('ExitEstimationService', () => {
       expect(est.state).toBe('blocked');
       expect(est.proximity).toBe(0);
       expect(est.etaCandles).toBeNull();
+    });
+  });
+
+  describe('estimateExitSignal - Non-Dual Signal Estimators (Supertrend, MACD, Momentum)', () => {
+    it('should estimate Supertrend using true ATR distance scaling', () => {
+      const trade = createTrade({ direction: 'LONG', entry_price: 100, qty: 10 });
+      const config = new SessionConfig();
+      config.exit_signals = ['supertrend'];
+
+      // Generate 15 candles with clear high/low spread for ATR
+      const candles: Candle[] = [];
+      for (let i = 0; i < 20; i++) {
+        candles.push({
+          time: i * 60000,
+          open: 100 + i * 0.2,
+          high: 102 + i * 0.2,
+          low: 99 + i * 0.2,
+          close: 101 + i * 0.2,
+          volume: 1000,
+        });
+      }
+
+      const signalDetail = {
+        fired: false,
+        threshold: 98.0, // Supertrend line
+        status: 'approaching'
+      };
+
+      const est = service.estimateExitSignal('supertrend', trade, config, '1m', candles, signalDetail);
+
+      expect(est.signalType).toBe('supertrend');
+      expect(est.state).toBe('approaching');
+      expect(est.method).toBe('indicator_convergence');
+      expect(est.etaCandles).toBeGreaterThan(0);
+      expect(est.estimatedExitPrice).toBe(98.0);
+      expect(est.components?.atr).toBeGreaterThan(0);
+      expect(est.components?.distance).toBeDefined();
+    });
+
+    it('should estimate MACD Impulse reversal using histogram velocity and zero-cross projection', () => {
+      const trade = createTrade({ direction: 'LONG', entry_price: 100, qty: 10 });
+      const config = new SessionConfig();
+      config.exit_signals = ['macd_impulse'];
+
+      const candles: Candle[] = [];
+      // Generate 50 candles with declining close price to trigger fading green histogram
+      for (let i = 0; i < 50; i++) {
+        const p = i < 35 ? 100 + i * 0.5 : 117.5 - (i - 35) * 0.4;
+        candles.push({
+          time: i * 60000,
+          open: p - 0.1,
+          high: p + 0.2,
+          low: p - 0.2,
+          close: p,
+          volume: 1000,
+        });
+      }
+
+      const est = service.estimateExitSignal('macd_impulse', trade, config, '1m', candles, {});
+
+      expect(est.signalType).toBe('macd_impulse');
+      expect(est.method).toBe('momentum_projection');
+      expect(est.components?.currHist).toBeDefined();
+      expect(est.components?.histVelocity).toBeDefined();
+    });
+
+    it('should estimate Breakout H/L using boundary price distance', () => {
+      const trade = createTrade({ direction: 'LONG', entry_price: 100, qty: 10 });
+      const config = new SessionConfig();
+      config.exit_signals = ['breakout_hl'];
+      config.signal_params = { scan_lookback: 3 };
+
+      const candles = generateCandles([100, 102, 101, 99.5, 98.0]);
+
+      const est = service.estimateExitSignal('breakout_hl', trade, config, '1m', candles, {});
+
+      expect(est.signalType).toBe('breakout_hl');
+      expect(est.state).toBe('approaching');
+      expect(est.components?.boundPrice).toBeDefined();
     });
   });
 

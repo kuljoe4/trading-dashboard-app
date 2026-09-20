@@ -93,27 +93,11 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
       (signal.description && signal.description.toLowerCase().includes('crossed'))
     );
 
-    // For dual EMA cross/close or indicator price thresholds, evaluate direction-aware convergence between value and threshold
+    // For dual EMA cross/close or indicator price thresholds, evaluate convergence between value and threshold using continuous smooth rational decay
     if (isIndicatorPair || (isExit && (entry === 0 || threshold === 0 || threshold === entry))) {
       if (value !== 0 && threshold !== 0) {
-        let hasCrossed = false;
-        let spread = 0;
-
-        if (isLong) {
-          // For LONG: Trigger occurs when value crosses ABOVE threshold (e.g. Fast EMA >= Slow EMA)
-          hasCrossed = value >= threshold;
-          spread = threshold - value;
-        } else {
-          // For SHORT: Trigger occurs when value crosses BELOW threshold (e.g. Fast EMA <= Slow EMA)
-          hasCrossed = value <= threshold;
-          spread = value - threshold;
-        }
-
-        if (hasCrossed) {
-          return 100;
-        }
-
-        const relSpread = spread / Math.max(Math.abs(value), Math.abs(threshold), 1e-8);
+        const spread = Math.abs(value - threshold);
+        const relSpread = spread / Math.max(Math.abs(value), Math.abs(threshold));
         const progress = maxVal / (1 + 118.75 * relSpread);
         return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
       }
@@ -141,38 +125,14 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
       }
       return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
     } else {
-      // Entry signals (when thresholdIsPrice is true)
+      // Entry signals
       if (entry === 0 || threshold === 0 || threshold === entry) {
-        const targetMark = currentMark || value;
-        if (targetMark === 0 || threshold === 0) return 0;
-
-        if (isLong) {
-          if (targetMark >= threshold) return 100;
-          const progress = (targetMark / threshold) * 99;
-          return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-        } else {
-          if (targetMark <= threshold) return 100;
-          const progress = (1 - (targetMark - threshold) / threshold) * 99;
-          return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-        }
+        return 0;
       }
-
-      if (isLong) {
-        if (currentMark >= threshold) return maxVal;
-        const totalDist = threshold - entry;
-        if (totalDist <= 0) return 0;
-        const currentDist = currentMark - entry;
-        const progress = (currentDist / totalDist) * 100;
-        return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-      } else {
-        // SHORT
-        if (currentMark <= threshold) return maxVal;
-        const totalDist = entry - threshold;
-        if (totalDist <= 0) return 0;
-        const currentDist = entry - currentMark;
-        const progress = (currentDist / totalDist) * 100;
-        return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-      }
+      const totalDist = threshold - entry;
+      const currentDist = currentMark - entry;
+      const progress = (currentDist / totalDist) * 100;
+      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
     }
   }
 
@@ -181,35 +141,48 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
     return 0;
   }
 
-  // Direction-aware indicator threshold evaluation
-  if (isLong) {
-    if (threshold > 0) {
-      if (value >= threshold) return maxVal;
-      if (value <= 0) return 0;
-      const progress = (value / threshold) * 100;
-      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-    } else {
-      // Negative threshold for LONG (e.g. RSI oversold <= 30)
-      if (value <= threshold) return maxVal;
-      const progress = (threshold / Math.min(value, -1e-8)) * 100;
-      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-    }
-  } else {
-    // SHORT
-    if (threshold < 0) {
-      if (value <= threshold) return maxVal;
-      if (value >= 0) return 0;
-      const progress = (value / threshold) * 100;
-      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
-    } else {
-      // Positive threshold magnitude for SHORT (e.g., momentum_pct threshold 2.0 for SHORT)
-      if (value >= 0) return 0; // Wrong direction for short
-      const magValue = Math.abs(value);
-      if (magValue >= threshold) return maxVal;
-      const progress = (magValue / threshold) * 100;
-      return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+  const hasOppositeSign = (value > 0 && threshold < 0) || (value < 0 && threshold > 0);
+  if (hasOppositeSign) {
+    return 0;
+  }
+
+  const progress = (Math.abs(value) / Math.abs(threshold)) * 100;
+  return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
+};
+
+/**
+ * Standardized Opportunity Composite Readiness Proximity Helper Standard:
+ * Computes composite trigger readiness across market velocity move progress and active technical signal proximities.
+ * Guarantees 100% strictly when `signalResult.allFired` is true, clamps non-fired readiness at 99%,
+ * and provides single-source-of-truth calculations across ScannerOverlay, DashboardView, and StrategyDetailView.
+ */
+export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
+  if (!opp) return 0;
+  if (opp.signalResult?.allFired && opp.signalResult?.signals) return 100;
+
+  const enabledSigs = strategyConfig.enabled_signals || [];
+  const scanThresh = strategyConfig.scan_pct_threshold || 2.0;
+  const isLong = opp.dir === 'long' || (opp.pct ?? 0) >= 0;
+
+  const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
+
+  let sigSum = velocityProgress;
+  let count = 1;
+
+  if (opp.signalResult?.signals) {
+    for (const sigKey of enabledSigs) {
+      const s = opp.signalResult.signals[sigKey];
+      if (s) {
+        const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+        sigSum += prox;
+        count++;
+      }
     }
   }
+
+  const avgProximity = count > 0 ? sigSum / count : 0;
+  const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
+  return isFired ? 100 : Math.min(99, Math.round(avgProximity));
 };
 
 // BOLT OPTIMIZATION: Bounded stable WeakMap cache for Supertrend calculations to avoid redundant O(N) passes on the same dataset.

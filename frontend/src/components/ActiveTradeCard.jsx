@@ -618,7 +618,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               <div className="flex flex-col gap-1 text-[10px] p-1">
                 <div className="font-bold border-b border-white/10 pb-0.5">Dual Indicator Convergence</div>
                 {dualIndicatorMarkers.map(m => {
-                  const prox = m.signal ? calculateProximity(m.signal, mark, entry, isLong, true) : (mark > 0 ? (1 - Math.abs(m.price - mark) / mark) * 100 : 0);
+                  const syntheticSignal = m.signal || {
+                    value: m.price,
+                    threshold: mark,
+                    threshold_is_price: true,
+                    is_indicator_pair: true
+                  };
+                  const prox = calculateProximity(syntheticSignal, mark, entry, isLong, true);
                   return (
                     <div key={m.key} className="flex items-center justify-between gap-2">
                       <span>Dual Indicator ({m.label}):</span>

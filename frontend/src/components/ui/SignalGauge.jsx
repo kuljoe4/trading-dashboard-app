@@ -48,6 +48,13 @@ export const SignalGauge = React.memo(({
     if (insufficientData) return { label: 'Collecting', color: 'text-dim bg-background/50 border-border/40' }
     if (isFired) return { label: 'Triggered', color: 'text-white bg-red border-red/20 shadow-lg shadow-red/20' }
     if (isDelayed) return { label: 'Delayed', color: 'text-amber bg-amber/20 border-amber/30' }
+    if (progress === 0 && (isDualEma || label?.toLowerCase().includes('cross'))) {
+      if (value > 0 && threshold > 0) {
+        if (isLong ? value >= threshold : value <= threshold) {
+          return { label: 'Passed', color: 'text-dim/60 bg-background/40 border-border/30' }
+        }
+      }
+    }
     if (fired) return { label: 'Met', color: 'text-amber bg-amber/20 border-amber/30' }
     if (progress > 80) return { label: 'Near', color: 'text-accent bg-accent/10 border-accent/20' }
     return { label: 'Watching', color: 'text-dim bg-background/50 border-border/40' }

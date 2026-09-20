@@ -116,15 +116,18 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
           spread = value - threshold;
         }
 
+        if (signal.status === 'blocked' || signal.rejected || (signal.description && signal.description.toLowerCase().includes('rejected'))) {
+          return 0; // State: BLOCKED
+        }
+        if (signal.status === 'stale') {
+          return 0; // State: STALE
+        }
+
         if (isSatisfied) {
-          // Check if signal explicitly carries a rejection flag from backend engine (e.g. MACD filter rejection)
-          if (signal.rejected || (signal.description && signal.description.toLowerCase().includes('rejected'))) {
-            return 0; // State: REJECTED/BLOCKED
-          }
           // For event-based signals (like _cross), being on the satisfied side without being fired (isFired === false)
-          // means the cross event occurred previously or is pending engine validation. Clamp to maxVal (99) unless explicitly fired.
+          // means the cross event occurred previously and is no longer actionable (or was blocked). Return 0 (STALE/PASSED).
           if (isEventBased && !isFired) {
-            return maxVal;
+            return 0; // State: STALE / PASSED
           }
           return 100; // State: SATISFIED
         }
@@ -235,6 +238,10 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
 /**
  * Standardized Opportunity Composite Readiness Proximity Helper Standard:
  * Computes composite trigger readiness across market velocity move progress and active technical signal proximities.
+ * Respects signal combination logic:
+ * - 'all' (default for entry): Bottleneck aggregation using Math.min across velocity and all required signals.
+ * - 'any': Maximum readiness using Math.max across signals (gated by velocity threshold).
+ * - 'combo': Required signals evaluated via Math.min (bottleneck), optional signals via Math.max.
  * Guarantees 100% strictly when `signalResult.allFired` is true, clamps non-fired readiness at 99%,
  * and provides single-source-of-truth calculations across ScannerOverlay, DashboardView, and StrategyDetailView.
  */
@@ -244,27 +251,60 @@ export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
 
   const enabledSigs = strategyConfig.enabled_signals || [];
   const scanThresh = strategyConfig.scan_pct_threshold || 2.0;
+  const signalLogic = strategyConfig.signal_logic || 'all';
+  const requiredSigs = strategyConfig.required_signals || [];
   const isLong = opp.dir === 'long' || (opp.pct ?? 0) >= 0;
 
   const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
 
-  let sigSum = velocityProgress;
-  let count = 1;
-
+  const signalProximities = [];
   if (opp.signalResult?.signals) {
     for (const sigKey of enabledSigs) {
       const s = opp.signalResult.signals[sigKey];
       if (s) {
         const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
-        sigSum += prox;
-        count++;
+        signalProximities.push({ key: sigKey, prox });
       }
     }
   }
 
-  const avgProximity = count > 0 ? sigSum / count : 0;
+  let compositeProximity = velocityProgress;
+
+  if (signalProximities.length > 0) {
+    if (signalLogic === 'all') {
+      // ALL logic: Proximity is bottlenecked by the least-ready signal / velocity
+      const minSigProx = Math.min(...signalProximities.map(p => p.prox));
+      compositeProximity = Math.min(velocityProgress, minSigProx);
+    } else if (signalLogic === 'any') {
+      // ANY logic: Proximity is driven by the most-ready signal (provided velocity is progressing)
+      const maxSigProx = Math.max(...signalProximities.map(p => p.prox));
+      compositeProximity = Math.min(velocityProgress, maxSigProx);
+    } else if (signalLogic === 'combo') {
+      // COMBO logic: Required signals bottleneck, optional signals pick max
+      let reqSigs = signalProximities;
+      let optSigs = [];
+      if (requiredSigs.length > 0) {
+        reqSigs = signalProximities.filter(p => requiredSigs.includes(p.key));
+        optSigs = signalProximities.filter(p => !requiredSigs.includes(p.key));
+      } else {
+        reqSigs = [signalProximities[0]];
+        optSigs = signalProximities.slice(1);
+      }
+
+      const minReqProx = reqSigs.length > 0 ? Math.min(...reqSigs.map(p => p.prox)) : 100;
+      const maxOptProx = optSigs.length > 0 ? Math.max(...optSigs.map(p => p.prox)) : 100;
+
+      compositeProximity = Math.min(velocityProgress, minReqProx, maxOptProx);
+    } else {
+      // Fallback: Average proximity
+      let sigSum = velocityProgress;
+      for (const p of signalProximities) sigSum += p.prox;
+      compositeProximity = sigSum / (signalProximities.length + 1);
+    }
+  }
+
   const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
-  return isFired ? 100 : Math.min(99, Math.round(avgProximity));
+  return isFired ? 100 : Math.min(99, Math.round(compositeProximity));
 };
 
 // BOLT OPTIMIZATION: Bounded stable WeakMap cache for Supertrend calculations to avoid redundant O(N) passes on the same dataset.

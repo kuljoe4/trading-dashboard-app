@@ -85,6 +85,27 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       console.log(`[BENCHMARK MACD] Non-cached: ${nonCachedTime} ns, Cached: ${cachedTime} ns. Speedup: ${((nonCachedTime - cachedTime) / nonCachedTime * 100).toFixed(2)}%`);
       expect(cachedTime).toBeLessThan(nonCachedTime);
     });
+
+    it('should verify calculateMACDLast matches calculateMACD scalar outputs exactly', () => {
+      const prices = Array(150).fill(100);
+      for (let i = 0; i < 150; i++) prices[i] = 100 + Math.sin(i / 5) * 20 + i * 0.5;
+      const candles = generateCandles(prices);
+
+      const fullRes = service.calculateMACD(candles, 12, 26, 9, 'TESTUSDT', '1m');
+
+      const last0 = service.calculateMACDLast(candles, 12, 26, 9, 'TESTUSDT', '1m', 0);
+      const last1 = service.calculateMACDLast(candles, 12, 26, 9, 'TESTUSDT', '1m', 1);
+
+      expect(last0.insufficientData).toBe(false);
+      expect(last0.histogram).toBe(fullRes.histogram[fullRes.histogram.length - 1]);
+      expect(last0.macdLine).toBe(fullRes.macdLine[fullRes.macdLine.length - 1]);
+      expect(last0.signalLine).toBe(fullRes.signalLine[fullRes.signalLine.length - 1]);
+
+      expect(last1.insufficientData).toBe(false);
+      expect(last1.histogram).toBe(fullRes.histogram[fullRes.histogram.length - 2]);
+      expect(last1.macdLine).toBe(fullRes.macdLine[fullRes.macdLine.length - 2]);
+      expect(last1.signalLine).toBe(fullRes.signalLine[fullRes.signalLine.length - 2]);
+    });
   });
 
   describe('MACD Impulse entry signal (Phase 4)', () => {

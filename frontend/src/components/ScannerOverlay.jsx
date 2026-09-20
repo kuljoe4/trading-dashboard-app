@@ -847,17 +847,18 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               onChange={(e) => setSearch(e.target.value)}
               onFocus={handleInputFocus}
               onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-background border border-border rounded-lg pl-8 pr-10 py-1 text-[10px] font-bold focus:border-accent focus:ring-1 focus:ring-accent/20 outline-none transition-all"
+              className="w-full bg-background border border-border rounded-lg pl-8 pr-10 py-1 text-[10px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
               aria-label="Filter scanner symbols"
             />
             {search ? (
               <Tooltip content="Clear Filter">
                 <button
+                  type="button"
                   onClick={() => {
                     setSearch('');
                     searchInputRef.current?.focus();
                   }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors cursor-pointer"
                   aria-label="Clear Filter"
                 >
                   <XCircle size={14} />
@@ -870,7 +871,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             )}
           </div>
           <Tooltip content="Close Scanner">
-            <button onClick={onClose} className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent outline-none rounded-full transition-colors shrink-0" aria-label="Close scanner">
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full transition-colors shrink-0 cursor-pointer"
+              aria-label="Close scanner"
+            >
               <X size={18} className="text-dim" />
             </button>
           </Tooltip>

@@ -117,6 +117,10 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
         }
 
         if (isSatisfied) {
+          // Check if signal explicitly carries a rejection flag from backend engine (e.g. MACD filter rejection)
+          if (signal.rejected || (signal.description && signal.description.toLowerCase().includes('rejected'))) {
+            return 0; // State: REJECTED/BLOCKED
+          }
           // For event-based signals (like _cross), being on the satisfied side without being fired (isFired === false)
           // means the cross event occurred previously or is pending engine validation. Clamp to maxVal (99) unless explicitly fired.
           if (isEventBased && !isFired) {

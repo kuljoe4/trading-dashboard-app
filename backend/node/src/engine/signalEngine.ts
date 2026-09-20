@@ -897,6 +897,7 @@ export class SignalEngineService {
         description,
         threshold_is_price: true,
         slPrice: roundTo(currSlow, 8),
+        rejected: macdRejected,
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -1028,6 +1029,7 @@ export class SignalEngineService {
         description,
         threshold_is_price: true,
         slPrice: roundTo(slowEma, 8),
+        rejected: macdRejected,
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);

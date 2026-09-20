@@ -36,6 +36,20 @@ test('calculateProximity unit tests', async (t) => {
     const firedReadiness = calculateOpportunityProximity(oppFired, config);
     assert.strictEqual(firedReadiness, 100, 'Fired composite readiness should be strictly 100%');
   });
+
+  await t.test('distinguishes unfired event-based signals from state satisfaction', () => {
+    const unfiredEventSignal = {
+      key: 'ema_dual_cross',
+      value: 99,
+      threshold: 100,
+      fired: false,
+      threshold_is_price: true
+    };
+    // For SHORT (isLong = false): value 99 < threshold 100 is satisfied side, but fired is false for an event signal.
+    // Must clamp to maxVal (99) instead of returning 100%.
+    const prox = calculateProximity(unfiredEventSignal, 99, 0, false, false);
+    assert.strictEqual(prox, 99, 'Unfired event signal must clamp to 99% instead of 100%');
+  });
   await t.test('returns 0 for null/undefined/missing signals', () => {
     assert.strictEqual(calculateProximity(null, 100, 100), 0);
   });

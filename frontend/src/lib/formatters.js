@@ -93,7 +93,14 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
       (signal.description && signal.description.toLowerCase().includes('crossed'))
     );
 
-    // For dual EMA cross/close or indicator price thresholds, evaluate direction-aware state (satisfied vs approaching vs invalid)
+    // Distinguish event-based signals (e.g. _cross) from state-based signals (e.g. _close)
+    const isEventBased = !!(
+      (signal.key && signal.key.includes('_cross')) ||
+      (signal.metric && signal.metric.includes('Cross')) ||
+      (signal.description && signal.description.toLowerCase().includes('crossed'))
+    );
+
+    // For indicator pair signals (dual EMA cross/close), evaluate direction-aware state
     if (isIndicatorPair || (isExit && (entry === 0 || threshold === 0 || threshold === entry))) {
       if (value !== 0 && threshold !== 0) {
         let isSatisfied = false;
@@ -110,7 +117,12 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
         }
 
         if (isSatisfied) {
-          return 100; // State: SATISFIED (100% proximity contribution)
+          // For event-based signals (like _cross), being on the satisfied side without being fired (isFired === false)
+          // means the cross event occurred previously or is pending engine validation. Clamp to maxVal (99) unless explicitly fired.
+          if (isEventBased && !isFired) {
+            return maxVal;
+          }
+          return 100; // State: SATISFIED
         }
 
         if (spread <= 0) return 0; // State: INVALID/REVERSED

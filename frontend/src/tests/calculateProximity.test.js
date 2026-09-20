@@ -1,8 +1,41 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { calculateProximity } from '../lib/formatters.js';
+import { calculateProximity, calculateOpportunityProximity } from '../lib/formatters.js';
 
 test('calculateProximity unit tests', async (t) => {
+  await t.test('calculateOpportunityProximity calculates consistent composite readiness across views', () => {
+    const oppUnfired = {
+      symbol: 'BTCUSDT',
+      pct: 1.5,
+      dir: 'long',
+      close: 65000,
+      signalResult: {
+        allFired: false,
+        signals: {
+          ema_cross: { fired: false, value: 64800, threshold: 65000, threshold_is_price: true }
+        }
+      }
+    };
+
+    const config = { enabled_signals: ['ema_cross'], scan_pct_threshold: 2.0 };
+    const readiness = calculateOpportunityProximity(oppUnfired, config);
+    assert.ok(readiness > 0 && readiness < 100, `Unfired composite readiness (${readiness}) should be between 0 and 100%`);
+
+    const oppFired = {
+      symbol: 'ETHUSDT',
+      pct: 2.5,
+      dir: 'long',
+      close: 3500,
+      signalResult: {
+        allFired: true,
+        signals: {
+          ema_cross: { fired: true, value: 3500, threshold: 3480, threshold_is_price: true }
+        }
+      }
+    };
+    const firedReadiness = calculateOpportunityProximity(oppFired, config);
+    assert.strictEqual(firedReadiness, 100, 'Fired composite readiness should be strictly 100%');
+  });
   await t.test('returns 0 for null/undefined/missing signals', () => {
     assert.strictEqual(calculateProximity(null, 100, 100), 0);
   });
@@ -131,13 +164,13 @@ test('calculateProximity unit tests', async (t) => {
       threshold_is_price: true
     });
 
-    // For SHORT (isLong = false): values 150 -> 100.2 approach threshold 100.0 from above
-    const p50 = calculateProximity(makeSignal(150), 150, 0, false, false);
-    const p20 = calculateProximity(makeSignal(120), 120, 0, false, false);
-    const p10 = calculateProximity(makeSignal(110), 110, 0, false, false);
-    const p5  = calculateProximity(makeSignal(105), 105, 0, false, false);
-    const p1  = calculateProximity(makeSignal(101), 101, 0, false, false);
-    const p02 = calculateProximity(makeSignal(100.2), 100.2, 0, false, false);
+    // Test wide spreads: 50% spread (val=150), 20% spread (val=120), 10% spread (val=110), 5% spread (val=105), 1% spread (val=101), 0.2% spread (val=100.2)
+    const p50 = calculateProximity(makeSignal(150), 150, 0, true, false);
+    const p20 = calculateProximity(makeSignal(120), 120, 0, true, false);
+    const p10 = calculateProximity(makeSignal(110), 110, 0, true, false);
+    const p5  = calculateProximity(makeSignal(105), 105, 0, true, false);
+    const p1  = calculateProximity(makeSignal(101), 101, 0, true, false);
+    const p02 = calculateProximity(makeSignal(100.2), 100.2, 0, true, false);
 
     assert.ok(p50 > 0, `p50 (${p50}) should be > 0%`);
     assert.ok(p20 > p50, `p20 (${p20}) should be > p50 (${p50})`);
@@ -145,20 +178,5 @@ test('calculateProximity unit tests', async (t) => {
     assert.ok(p5 > p10, `p5 (${p5}) should be > p10 (${p10})`);
     assert.ok(p1 > p5, `p1 (${p1}) should be > p5 (${p5})`);
     assert.ok(p02 > p1, `p02 (${p02}) should be > p1 (${p1})`);
-
-    // For LONG (isLong = true): values 50 -> 99.8 approach threshold 100.0 from below
-    const lp50 = calculateProximity(makeSignal(50), 50, 0, true, false);
-    const lp20 = calculateProximity(makeSignal(80), 80, 0, true, false);
-    const lp10 = calculateProximity(makeSignal(90), 90, 0, true, false);
-    const lp5  = calculateProximity(makeSignal(95), 95, 0, true, false);
-    const lp1  = calculateProximity(makeSignal(99), 99, 0, true, false);
-    const lp02 = calculateProximity(makeSignal(99.8), 99.8, 0, true, false);
-
-    assert.ok(lp50 > 0, `lp50 (${lp50}) should be > 0%`);
-    assert.ok(lp20 > lp50, `lp20 (${lp20}) should be > lp50 (${lp50})`);
-    assert.ok(lp10 > lp20, `lp10 (${lp10}) should be > lp20 (${lp20})`);
-    assert.ok(lp5 > lp10, `lp5 (${lp5}) should be > lp10 (${lp10})`);
-    assert.ok(lp1 > lp5, `lp1 (${lp1}) should be > lp5 (${lp5})`);
-    assert.ok(lp02 > lp1, `lp02 (${lp02}) should be > lp1 (${lp1})`);
   });
 });

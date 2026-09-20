@@ -8,7 +8,7 @@ import {
   ConditionWidget, PnLBars, CopyButton, cn, ViewHeader, Tooltip
 } from '../components/ui/primitives'
 import { SignalGauge } from '../components/ui/SignalGauge'
-import { calculateProximity } from '../lib/formatters'
+import { calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -141,44 +141,21 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   const proximityLeaderboard = useMemo(() => {
     const list = strategyScannerResults || [];
-    const enabledSigs = strategyConfig.enabled_signals || [];
-    const scanThresh = strategyConfig.scan_pct_threshold || 2.0;
 
     return list.map(opp => {
-      const isLong = opp.dir === 'long' || opp.pct >= 0;
-      const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
-
-      let sigSum = velocityProgress;
-      let count = 1;
-
-      if (opp.signalResult?.signals) {
-        for (const sigKey of enabledSigs) {
-          const s = opp.signalResult.signals[sigKey];
-          if (s) {
-            const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
-            sigSum += prox;
-            count++;
-          }
-        }
-      }
-
-      const avgProximity = count > 0 ? sigSum / count : 0;
-      // BOLT FIX: Prevent undefined/uninitialized target threshold signals from inflating proximity to 100%.
-      // 100% proximity is reserved strictly when all signals fired AND signal details are present.
-      const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
+      const proximity = calculateOpportunityProximity(opp, strategyConfig);
       return {
         ...opp,
-        proximity: isFired ? 100 : Math.min(99, Math.round(avgProximity))
+        proximity
       };
     })
     .filter(opp => {
-      // Direction-aware Watchlist Proximity Leaderboard filtering:
-      // Exclude opportunities that have crossed already (fired/triggered or >= 100% proximity) so that only opportunities yet to cross are shown.
+      // Exclude opportunities that have crossed already (fired/triggered or >= 100% proximity)
       const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
       return !isFired && opp.proximity < 100;
     })
     .sort((a, b) => b.proximity - a.proximity);
-  }, [strategyScannerResults, strategyConfig.enabled_signals, strategyConfig.scan_pct_threshold]);
+  }, [strategyScannerResults, strategyConfig]);
 
   const focusedOpp = useMemo(() => {
     if (selectedFocusSymbol) {

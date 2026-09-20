@@ -50,6 +50,20 @@ test('calculateProximity unit tests', async (t) => {
     const prox = calculateProximity(unfiredEventSignal, 99, 0, false, false);
     assert.strictEqual(prox, 99, 'Unfired event signal must clamp to 99% instead of 100%');
   });
+
+  await t.test('evaluates rejected MACD filter signals as 0% (blocked state)', () => {
+    const rejectedSignal = {
+      key: 'ema_dual_cross',
+      value: 99,
+      threshold: 100,
+      fired: false,
+      rejected: true,
+      description: 'EMA(9) crossed EMA(21), but rejected by MACD histogram',
+      threshold_is_price: true
+    };
+    const prox = calculateProximity(rejectedSignal, 99, 0, false, false);
+    assert.strictEqual(prox, 0, 'Rejected signal must evaluate to 0% blocked state');
+  });
   await t.test('returns 0 for null/undefined/missing signals', () => {
     assert.strictEqual(calculateProximity(null, 100, 100), 0);
   });

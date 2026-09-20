@@ -170,7 +170,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         ...opp,
         proximity: isFired ? 100 : Math.min(99, Math.round(avgProximity))
       };
-    }).sort((a, b) => b.proximity - a.proximity);
+    })
+    .filter(opp => {
+      // Direction-aware Watchlist Proximity Leaderboard filtering:
+      // Exclude opportunities that have crossed already (fired/triggered or >= 100% proximity) so that only opportunities yet to cross are shown.
+      const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
+      return !isFired && opp.proximity < 100;
+    })
+    .sort((a, b) => b.proximity - a.proximity);
   }, [strategyScannerResults, strategyConfig.enabled_signals, strategyConfig.scan_pct_threshold]);
 
   const focusedOpp = useMemo(() => {

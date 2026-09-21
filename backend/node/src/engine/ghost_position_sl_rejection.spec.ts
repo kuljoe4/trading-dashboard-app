@@ -80,7 +80,7 @@ describe('Ghost Position SL Rejection Fix', () => {
       symbol: 'BTCUSDT',
       exitPrice: 50000,
       reason: EXIT_REASONS.SL_HIT,
-      needsMarketClose: true // THE FIX: This should force localOnly = false
+      needsMarketClose: true // Note: This forces localOnly = false to simulate a market close order
     };
 
     await tradingSession.handleExchangeClose(payload);

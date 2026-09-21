@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install pnpm
+      run: npm install -g pnpm
+
+    - name: Install Frontend Dependencies
+      run: pnpm install
+      working-directory: ./frontend
+
+    - name: Build Frontend
+      run: pnpm build
+      working-directory: ./frontend
+
+    - name: Run Frontend Tests
+      run: pnpm test
+      working-directory: ./frontend
+
+    - name: Install Backend Dependencies
+      run: npm ci
+      working-directory: ./backend/node
+
+    - name: Run Backend Tests
+      run: npm run test --prefix backend/node

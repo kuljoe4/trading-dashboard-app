@@ -2308,7 +2308,6 @@ export function DashboardView({ initialStrategy }) {
           ? `Engine is now actively scanning for opportunities on ${label.toLowerCase()}.`
           : `Scanning and entry logic suspended for ${label.toLowerCase()}.`
       });
-      console.log(`[Strategy Engine] Successfully toggled pause state for strategy: ${key}`);
     } catch (e) {
       console.error('[Strategy Engine] Pause toggle failed:', e);
       addAlert({ level: 'error', title: 'Action Failed', message: 'Could not toggle pause state.' });

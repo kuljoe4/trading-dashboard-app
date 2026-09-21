@@ -22,6 +22,7 @@ test('TradesView filter toolbar features ultra-dense mobile-optimized chip group
   assert.match(fileContent, /focus-visible:ring-accent/, 'TradesView filter buttons should specify focus-visible rings');
   assert.match(fileContent, /cursor-pointer/, 'TradesView filter buttons should specify cursor-pointer');
 
-  // Verify reset filters button functionality
+  // Verify reset filters button functionality and Tooltip wrapper
   assert.match(fileContent, /resetAllFilters/, 'TradesView should feature a resetAllFilters handler for active filters');
+  assert.match(fileContent, /<Tooltip content="Reset position filters">/, 'TradesView reset filters button should be wrapped in Tooltip');
 });

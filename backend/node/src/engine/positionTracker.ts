@@ -545,9 +545,11 @@ export class PositionTrackerService {
       } else {
         // Check if current SL is ALREADY at or beyond target SL for this milestone (or at max exchange tick precision newSl)
         const targetDelta = trade.entry_price * 0.0001;
+        // Evaluate constraint using the original targetSl, not the buffer-constrained newSl.
+        // If current SL is already matching or better than targetSl (within epsilon), the milestone is satisfied.
         const isSlAtOrBeyondTarget = trade.direction === 'LONG'
-          ? (trade.current_sl >= newSl || trade.current_sl >= targetSl - Math.max(0.00000001, targetDelta))
-          : (trade.current_sl <= newSl || trade.current_sl <= targetSl + Math.max(0.00000001, targetDelta));
+          ? (trade.current_sl >= targetSl - Math.max(0.00000001, targetDelta) || trade.current_sl >= newSl)
+          : (trade.current_sl <= targetSl + Math.max(0.00000001, targetDelta) || trade.current_sl <= newSl);
 
         if (isSlAtOrBeyondTarget) {
           this.rrSequenceIndex.set(symbol, currentIndex);

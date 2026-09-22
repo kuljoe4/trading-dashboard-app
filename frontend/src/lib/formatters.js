@@ -263,6 +263,17 @@ export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
 
   const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
 
+  const signalProximities = [];
+  if (opp.signalResult?.signals) {
+    for (const sigKey of enabledSigs) {
+      const s = opp.signalResult.signals[sigKey];
+      if (s) {
+        const prox = calculateProximity(s, s.value !== undefined ? s.value : (opp.close || 0), 0, isLong, false);
+        signalProximities.push({ key: sigKey, prox });
+      }
+    }
+  }
+
   const signalsObj = opp.signalResult?.signals;
   let compositeProximity = velocityProgress;
 

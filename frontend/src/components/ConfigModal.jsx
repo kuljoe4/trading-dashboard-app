@@ -1797,25 +1797,38 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
                 <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
               </div>
               <div className="h-28 w-full flex items-end gap-1 pt-2 px-1">
-                {result.equityCurve.map((pt, idx) => {
-                  const minBal = Math.min(...result.equityCurve.map(p => p.equity));
-                  const maxBal = Math.max(...result.equityCurve.map(p => p.equity));
+                {(() => {
+                  // BOLT OPTIMIZATION: Single-pass pre-computation of equity bounds min/max/range.
+                  // Calculating Math.min/Math.max via array spreading inside every .map() iteration causes O(N^2) quadratic execution
+                  // and heavy transient array heap allocations. Pre-calculating bounds once in O(N) reduces render complexity to O(N).
+                  let minBal = Infinity;
+                  let maxBal = -Infinity;
+                  for (let i = 0; i < result.equityCurve.length; i++) {
+                    const eq = result.equityCurve[i].equity;
+                    if (eq < minBal) minBal = eq;
+                    if (eq > maxBal) maxBal = eq;
+                  }
+                  if (minBal === Infinity) minBal = 0;
+                  if (maxBal === -Infinity) maxBal = 0;
                   const range = Math.max(1, maxBal - minBal);
-                  const heightPct = Math.max(8, ((pt.equity - minBal) / range) * 100);
-                  const isUp = pt.equity >= result.startingBalance;
 
-                  return (
-                    <Tooltip key={idx} content={`$${pt.equity} (${pt.drawdownPct}% DD)`}>
-                      <div
-                        className={cn(
-                          "flex-1 rounded-t-sm transition-all hover:opacity-100 opacity-70",
-                          isUp ? "bg-accent" : "bg-red"
-                        )}
-                        style={{ height: `${heightPct}%` }}
-                      />
-                    </Tooltip>
-                  );
-                })}
+                  return result.equityCurve.map((pt, idx) => {
+                    const heightPct = Math.max(8, ((pt.equity - minBal) / range) * 100);
+                    const isUp = pt.equity >= result.startingBalance;
+
+                    return (
+                      <Tooltip key={idx} content={`$${pt.equity} (${pt.drawdownPct}% DD)`}>
+                        <div
+                          className={cn(
+                            "flex-1 rounded-t-sm transition-all hover:opacity-100 opacity-70",
+                            isUp ? "bg-accent" : "bg-red"
+                          )}
+                          style={{ height: `${heightPct}%` }}
+                        />
+                      </Tooltip>
+                    );
+                  });
+                })()}
               </div>
             </div>
           )}

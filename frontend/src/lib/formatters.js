@@ -262,7 +262,7 @@ export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
     for (const sigKey of enabledSigs) {
       const s = opp.signalResult.signals[sigKey];
       if (s) {
-        const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+        const prox = calculateProximity(s, s.value !== undefined ? s.value : (opp.close || 0), 0, isLong, false);
         signalProximities.push({ key: sigKey, prox });
       }
     }

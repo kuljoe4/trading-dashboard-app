@@ -95,6 +95,12 @@ describe('BacktestService', () => {
     expect(result.winRate).toBeGreaterThanOrEqual(0);
     expect(result.totalFees).toBeGreaterThanOrEqual(0);
     expect(result.executionTimeMs).toBeGreaterThanOrEqual(0);
+
+    // Verify fetch call URL parameter encoding
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('symbol=BTCUSDT&interval=5m'),
+      expect.any(Object)
+    );
   });
 
   it('should filter out non-USDT symbols safely', async () => {

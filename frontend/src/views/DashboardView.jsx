@@ -2065,8 +2065,8 @@ export function DashboardView({ initialStrategy }) {
         const peakRr = Number(t.max_rr ?? t.max_rr_achieved ?? t.rr ?? 0);
         const minRr = Number(t.min_rr_achieved ?? t.min_rr ?? t.rr ?? 0);
 
-        const tradePeakPnl = riskUsdt > 0 && peakRr > 0 ? Math.max(pnlVal, peakRr * riskUsdt) : Math.max(pnlVal, 0);
-        const tradeMinPnl = riskUsdt > 0 && minRr < 0 ? Math.min(pnlVal, minRr * riskUsdt) : Math.min(pnlVal, 0);
+        const tradePeakPnl = riskUsdt > 0 ? Math.max(pnlVal, peakRr * riskUsdt) : pnlVal;
+        const tradeMinPnl = riskUsdt > 0 ? Math.min(pnlVal, minRr * riskUsdt) : pnlVal;
 
         peakActivePnlSum += tradePeakPnl;
         minActivePnlSum += tradeMinPnl;
@@ -2691,41 +2691,51 @@ export function DashboardView({ initialStrategy }) {
                             {fmtUSD(lastTrade.pnl)} ({balPctChange >= 0 ? '+' : ''}{Number(balPctChange).toFixed(2)}%)
                           </span>
                           {tradeTimeAgo && (
-                            <span className="text-dim text-[9px] font-medium" title="Time since last closed trade">
-                              · Trade {tradeTimeAgo}
-                            </span>
+                            <Tooltip content="Time since last closed trade">
+                              <span tabIndex={0} className="text-dim text-[9px] font-medium cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-sm">
+                                · Trade {tradeTimeAgo}
+                              </span>
+                            </Tooltip>
                           )}
                         </div>
                       )}
                       {!lastTrade && udsTimeAgo && (
-                        <div className="flex items-center gap-1 flex-wrap text-dim text-[9px] font-medium" title="Time since last UDS balance update">
-                          <span>UDS Sync {udsTimeAgo}</span>
-                        </div>
+                        <Tooltip content="Time since last UDS balance update">
+                          <div tabIndex={0} className="flex items-center gap-1 flex-wrap text-dim text-[9px] font-medium cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-sm">
+                            <span>UDS Sync {udsTimeAgo}</span>
+                          </div>
+                        </Tooltip>
                       )}
                       <div className="flex items-center gap-1.5 flex-wrap text-[9px] font-mono text-dim/70">
-                        <span title={lastFundingFee !== null ? `Latest funding fee entry: ${fmtUSD(-lastFundingFee)}` : 'Accumulated Net Funding Fee'}>
-                          Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} <span className="opacity-80">({fundPct.toFixed(2)}%)</span></span>
-                          {lastFundingFee !== null && lastFundingFee !== 0 && (
-                            <span className={cn("ml-1 px-1 py-0.2 rounded text-[7.5px] font-mono font-bold", lastFundingFee < 0 ? "bg-green/15 text-green" : "bg-red/15 text-red")}>
-                              {lastFundingFee < 0 ? '+' : ''}{fmtUSD(-lastFundingFee)}
-                            </span>
-                          )}
-                        </span>
+                        <Tooltip content={lastFundingFee !== null ? `Latest funding fee entry: ${fmtUSD(-lastFundingFee)}` : 'Accumulated Net Funding Fee'}>
+                          <span tabIndex={0} className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-sm">
+                            Fund: <span className={netFunding > 0 ? "text-red/80" : "text-green/80"}>{fmtUSD(-netFunding)} <span className="opacity-80">({fundPct.toFixed(2)}%)</span></span>
+                            {lastFundingFee !== null && lastFundingFee !== 0 && (
+                              <span className={cn("ml-1 px-1 py-0.2 rounded text-[7.5px] font-mono font-bold", lastFundingFee < 0 ? "bg-green/15 text-green" : "bg-red/15 text-red")}>
+                                {lastFundingFee < 0 ? '+' : ''}{fmtUSD(-lastFundingFee)}
+                              </span>
+                            )}
+                          </span>
+                        </Tooltip>
                         <span>•</span>
-                        <span title={lastRealizedFee !== null ? `Latest trade commission entry: ${fmtUSD(-lastRealizedFee)}` : 'Accumulated Commission'}>
-                          Fee: <span className="text-red/80">{fmtUSD(-netComm)} <span className="opacity-80">({commPct.toFixed(2)}%)</span></span>
-                          {lastRealizedFee !== null && lastRealizedFee !== 0 && (
-                            <span className="ml-1 px-1 py-0.2 rounded text-[7.5px] font-mono font-bold bg-red/15 text-red">
-                              {fmtUSD(-lastRealizedFee)}
-                            </span>
-                          )}
-                        </span>
+                        <Tooltip content={lastRealizedFee !== null ? `Latest trade commission entry: ${fmtUSD(-lastRealizedFee)}` : 'Accumulated Commission'}>
+                          <span tabIndex={0} className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-sm">
+                            Fee: <span className="text-red/80">{fmtUSD(-netComm)} <span className="opacity-80">({commPct.toFixed(2)}%)</span></span>
+                            {lastRealizedFee !== null && lastRealizedFee !== 0 && (
+                              <span className="ml-1 px-1 py-0.2 rounded text-[7.5px] font-mono font-bold bg-red/15 text-red">
+                                {fmtUSD(-lastRealizedFee)}
+                              </span>
+                            )}
+                          </span>
+                        </Tooltip>
                         {lastUdsBalanceReason && (
                           <>
                             <span>•</span>
-                            <span className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase" title={udsTimeAgo ? `Balance event ${udsTimeAgo}` : 'Latest balance event'}>
-                              ⚡ {lastUdsBalanceReason} {udsTimeAgo && <span className="text-dim font-normal font-sans ml-0.5">({udsTimeAgo})</span>}
-                            </span>
+                            <Tooltip content={udsTimeAgo ? `Balance event ${udsTimeAgo}` : 'Latest balance event'}>
+                              <span tabIndex={0} className="text-accent font-black bg-accent/10 px-1 py-0.2 rounded text-[8px] uppercase cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none">
+                                ⚡ {lastUdsBalanceReason} {udsTimeAgo && <span className="text-dim font-normal font-sans ml-0.5">({udsTimeAgo})</span>}
+                              </span>
+                            </Tooltip>
                           </>
                         )}
                       </div>
@@ -2755,13 +2765,17 @@ export function DashboardView({ initialStrategy }) {
                   return (
                     <div className="flex flex-col gap-0.5 text-[8px] md:text-[8.5px] leading-tight font-mono">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span title={`Peak Active P&L reached during open trades: ${fmtUSD(peakActivePnl)}`}>
-                          Peak: <span className="text-green font-bold">{fmtUSD(peakActivePnl)} <span className="opacity-80">({peakPct >= 0 ? '+' : ''}{peakPct.toFixed(2)}%)</span></span>
-                        </span>
+                        <Tooltip content={`Peak Active P&L reached during open trades: ${peakActivePnl > 0 ? '+' : ''}${fmtUSD(peakActivePnl)}`}>
+                          <span tabIndex={0} className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-sm">
+                            Peak: <span className={cn(peakActivePnl < 0 ? "text-red font-bold" : "text-green font-bold")}>{peakActivePnl >= 0 ? (peakActivePnl > 0 ? '+' : '') : '-'}${Math.abs(peakActivePnl).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="opacity-80">({peakPct > 0 ? '+' : ''}{peakPct.toFixed(2)}%)</span></span>
+                          </span>
+                        </Tooltip>
                         <span>•</span>
-                        <span title={`Min Active P&L (Max Drawdown/MAE) during open trades: ${fmtUSD(minActivePnl)}`}>
-                          Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} <span className="opacity-80">({minPct >= 0 ? '+' : ''}{minPct.toFixed(2)}%)</span></span>
-                        </span>
+                        <Tooltip content={`Min Active P&L (Max Drawdown/MAE) during open trades: ${fmtUSD(minActivePnl)}`}>
+                          <span tabIndex={0} className="cursor-help focus-visible:ring-1 focus-visible:ring-accent outline-none rounded-sm">
+                            Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} <span className="opacity-80">({minPct > 0 ? '+' : ''}{minPct.toFixed(2)}%)</span></span>
+                          </span>
+                        </Tooltip>
                       </div>
                       <div className="flex items-center gap-1.5 text-dim/70 font-sans font-medium text-[8px]">
                         {openDurationStr && <span>Open {openDurationStr}</span>}

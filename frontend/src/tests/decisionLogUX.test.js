@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 test('DecisionLog UX & Keyboard Accessibility Standard', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/DecisionLog.jsx')
+  const filePath = path.join(process.cwd(), 'src/components/DecisionLog.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // 1. VariantGatingSummary button specifies aria-expanded and dynamic aria-label

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('SettingsView Hibernation Mode buttons enforce aria-pressed, aria-label, and cursor-pointer', () => {
-  const filePath = path.resolve('frontend/src/views/SettingsView.jsx');
+  const filePath = path.resolve('src/views/SettingsView.jsx');
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
   // Verify isActive evaluation

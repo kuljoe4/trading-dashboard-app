@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('Active Trade Runway Card Dual Indicators & Global 24h Market Range Verification', () => {
-  const cardPath = path.resolve('frontend/src/components/ActiveTradeCard.jsx');
-  const overlayPath = path.resolve('frontend/src/components/ScannerOverlay.jsx');
-  const regimePath = path.resolve('frontend/src/utils/marketRegime.js');
+  const cardPath = path.resolve('src/components/ActiveTradeCard.jsx');
+  const overlayPath = path.resolve('src/components/ScannerOverlay.jsx');
+  const regimePath = path.resolve('src/utils/marketRegime.js');
 
   const cardCode = fs.readFileSync(cardPath, 'utf8');
   const overlayCode = fs.readFileSync(overlayPath, 'utf8');

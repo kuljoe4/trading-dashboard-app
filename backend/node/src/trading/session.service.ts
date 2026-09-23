@@ -1354,6 +1354,7 @@ export class SessionService implements OnModuleInit {
         }
 
         // 1. Verify and Process Potential Orphans
+        const orphanUpdates: { id: string, updates: any }[] = [];
         for (const trade of potentialOrphans) {
           const position = activeExMap.get(trade.symbol);
           const posAmt = position ? parseFloat(position.positionAmt) : 0;
@@ -1383,12 +1384,18 @@ export class SessionService implements OnModuleInit {
             const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
             const context = await this.orderManager.recoverClosingContext(trade.symbol, trade as any, tickerPrice);
             const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
-            await this.tradeRepository.update(trade.id, updates);
+            orphanUpdates.push({ id: trade.id, updates });
             recalculationNeeded = true;
           }
         }
+        if (orphanUpdates.length > 0) {
+          await Promise.all(
+            orphanUpdates.map((u) => this.tradeRepository.update(u.id, u.updates))
+          );
+        }
 
         // 2. Reconcile Active Session Trades
+        const activeTradeUpdates: { id: string, updates: any }[] = [];
         for (const trade of sessionOpenTrades) {
           try {
             // SRE: Critical Check - Does the position actually exist on exchange?
@@ -1407,7 +1414,7 @@ export class SessionService implements OnModuleInit {
               const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
               const context = await this.orderManager.recoverClosingContext(trade.symbol, trade as any, tickerPrice);
               const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
-              await this.tradeRepository.update(trade.id, updates);
+              activeTradeUpdates.push({ id: trade.id, updates });
               (trade as any).reconciled_out = true;
               recalculationNeeded = true;
               continue;
@@ -1461,6 +1468,12 @@ export class SessionService implements OnModuleInit {
               `Failed to reconcile ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`,
             );
           }
+        }
+
+        if (activeTradeUpdates.length > 0) {
+          await Promise.all(
+            activeTradeUpdates.map((u) => this.tradeRepository.update(u.id, u.updates))
+          );
         }
 
         // INVERSE RECONCILIATION: Check for exchange positions with NO local record
@@ -1517,17 +1530,23 @@ export class SessionService implements OnModuleInit {
 
     // Paper mode orphan handling (Simplified verification as there is no exchange)
     if (mode === "paper") {
+      const paperOrphanUpdates: { id: string, updates: any }[] = [];
       for (const trade of potentialOrphans) {
         this.logger.warn(
           `[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${(trade as any).orphanReason}. Marking as closed.`,
         );
         const updates = await this.finalizeOrphanedTrade(trade, mode);
-        await this.tradeRepository.update(trade.id, updates);
+        paperOrphanUpdates.push({ id: trade.id, updates });
         await this.logMessage(
           `Trade ${trade.symbol} was orphaned (${(trade as any).orphanReason}) and marked closed.`,
           "warn",
         );
         recalculationNeeded = true;
+      }
+      if (paperOrphanUpdates.length > 0) {
+        await Promise.all(
+          paperOrphanUpdates.map((u) => this.tradeRepository.update(u.id, u.updates))
+        );
       }
     }
 

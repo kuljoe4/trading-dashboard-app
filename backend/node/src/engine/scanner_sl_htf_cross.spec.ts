@@ -58,14 +58,22 @@ describe('MomentumScannerService - Configurable Boost Points & R:R Performance S
     const candles4h: Candle[] = [];
     let price = 100;
     for (let i = 0; i < 40; i++) {
+      // Create distinct alternating trends (LONG/SHORT) with large non-wicking moves
       const cycle = Math.sin(i * 0.5);
-      price += cycle * 3;
+      const isUp = cycle > 0;
+      price += cycle * 20;
+
+      // Strict end-to-end means no wicking past the open/close bounds of the trend direction.
+      const high = isUp ? price + 5 : price;
+      const low = isUp ? price - 5 : price - 25; // if down, drop heavily
+      const close = isUp ? high : low;
+
       candles4h.push({
         time: (i + 1) * 14400000,
-        open: price,
-        high: price + 4,
-        low: Math.max(10, price - 2),
-        close: price + 1,
+        open: isUp ? low : high,
+        high: Math.max(high, low + 1),
+        low: Math.min(low, high - 1),
+        close: close,
         volume: 50000,
       });
     }

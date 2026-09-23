@@ -26,7 +26,7 @@ export interface Opportunity {
   };
   htf_ema_cross_perf?: {
     avg_profit_pct: number;
-    avg_peak_rr: number;
+    avg_exit_rr: number;
     win_rate: number;
     cross_count: number;
     last_cross_direction?: 'LONG' | 'SHORT';
@@ -45,7 +45,7 @@ export class MomentumScannerService {
     key: string;
     perf: {
       avg_profit_pct: number;
-      avg_peak_rr: number;
+      avg_exit_rr: number;
       win_rate: number;
       cross_count: number;
       last_cross_direction?: 'LONG' | 'SHORT';
@@ -579,7 +579,7 @@ export class MomentumScannerService {
 
     const perf = {
       avg_profit_pct: Number(avgProfitPct.toFixed(2)),
-      avg_peak_rr: Number(avgPeakRr.toFixed(2)),
+      avg_exit_rr: Number(avgPeakRr.toFixed(2)),
       win_rate: Number(winRate.toFixed(1)),
       cross_count: crossProfits.length,
       last_cross_direction: lastCrossDirection,

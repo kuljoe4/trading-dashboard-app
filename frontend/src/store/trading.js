@@ -58,7 +58,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
     } : undefined,
     htf_ema_cross_perf: source.htf_ema_cross_perf && typeof source.htf_ema_cross_perf === 'object' ? {
       avg_profit_pct: toNumber(source.htf_ema_cross_perf.avg_profit_pct),
-      avg_peak_rr: toNumber(source.htf_ema_cross_perf.avg_peak_rr),
+      avg_exit_rr: toNumber(source.htf_ema_cross_perf.avg_exit_rr),
       win_rate: toNumber(source.htf_ema_cross_perf.win_rate),
       cross_count: toNumber(source.htf_ema_cross_perf.cross_count),
       last_cross_direction: source.htf_ema_cross_perf.last_cross_direction

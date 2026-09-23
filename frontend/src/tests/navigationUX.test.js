@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('Navigation buttons include explicit type="button", cursor-pointer, focus rings, and dynamic ARIA labels', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/Navigation.jsx');
+  const filePath = path.join(process.cwd(), 'src/components/Navigation.jsx');
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
   // Verify type="button" presence on interactive controls

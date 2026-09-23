@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('Config Modal Default Collapsed State & Fast Market Indications Verification', () => {
-  const configModalPath = path.resolve('frontend/src/components/ConfigModal.jsx');
-  const dashboardPath = path.resolve('frontend/src/views/DashboardView.jsx');
-  const scannerOverlayPath = path.resolve('frontend/src/components/ScannerOverlay.jsx');
+  const configModalPath = path.resolve('src/components/ConfigModal.jsx');
+  const dashboardPath = path.resolve('src/views/DashboardView.jsx');
+  const scannerOverlayPath = path.resolve('src/components/ScannerOverlay.jsx');
 
   const configModalCode = fs.readFileSync(configModalPath, 'utf8');
   const dashboardCode = fs.readFileSync(dashboardPath, 'utf8');

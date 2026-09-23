@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('ConfigModal HTF EMA Cross Ranking & SL Exceeds Max Form Wiring Verification', () => {
-  const configModalPath = path.resolve(process.cwd(), 'frontend/src/components/ConfigModal.jsx');
+  const configModalPath = path.resolve(process.cwd(), 'src/components/ConfigModal.jsx');
   const modalCode = fs.readFileSync(configModalPath, 'utf8');
 
   // Verify HTF EMA Cross fields are wired in ConfigModal

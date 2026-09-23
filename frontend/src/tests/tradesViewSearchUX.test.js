@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('TradesView filter toolbar features ultra-dense mobile-optimized chip groups, aria-pressed attributes, and reset button', () => {
-  const p1 = path.join(process.cwd(), 'frontend/src/views/TradesView.jsx');
+  const p1 = path.join(process.cwd(), 'src/views/TradesView.jsx');
   const p2 = path.join(process.cwd(), 'src/views/TradesView.jsx');
   const filePath = fs.existsSync(p1) ? p1 : p2;
   const fileContent = fs.readFileSync(filePath, 'utf8');

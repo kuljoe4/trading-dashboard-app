@@ -398,6 +398,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     set({ uiEcoMode: !!eco });
   },
 
+  recentTradeEvents: {}, // strategy_label -> array of events
   addAlert: (alert) => {
      const now = Date.now();
      const id = Math.random().toString(36).substring(2, 11);
@@ -994,6 +995,25 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const t = d.trade ? normalizeTrade(d.trade) : null;
         set(st => {
           let nextActive = st.activeTrades;
+          let nextRecentEvents = st.recentTradeEvents || {};
+
+          if (d.event === 'opened' || d.event === 'entry_rejected') {
+            const strategyLabel = d.strategy_label || t?.strategy_label || 'Momentum Strategy';
+            const currentEvents = nextRecentEvents[strategyLabel] || [];
+            const newEvent = {
+              id: `${d.symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+              symbol: d.symbol,
+              event: d.event,
+              status: d.event === 'opened' ? 'passed' : 'rejected',
+              reason: d.reason || (d.event === 'opened' ? 'Entry conditions met' : 'Rejected'),
+              ts: Date.now()
+            };
+            nextRecentEvents = {
+              ...nextRecentEvents,
+              [strategyLabel]: [newEvent, ...currentEvents].slice(0, 2)
+            };
+          }
+
           if (d.event === 'closed') {
             nextActive = st.activeTrades.filter(x => x.symbol !== d.symbol && x.id !== d.id);
           } else if (t) {
@@ -1025,6 +1045,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             lastAuthoritativeUpdateTs: nowTs,
             activeTrades: nextActive,
             tradeHistory: updatedHistory,
+            recentTradeEvents: nextRecentEvents,
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount
           };

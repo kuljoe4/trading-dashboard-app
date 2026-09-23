@@ -13,7 +13,7 @@ import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame
+  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame, CheckCircle2, XCircle, Clock
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
@@ -44,7 +44,7 @@ const SIGNAL_LABELS = {
 };
 
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
-  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades, tradeHistory } = useTradingStore()
+  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades, tradeHistory, recentTradeEvents } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
   const [showPnl, setShowPnl] = useState(true)
@@ -202,6 +202,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       useTradingStore.getState().addAlert({ level: 'error', title: 'Closure Failed', message: e?.response?.data?.message || e.message || 'Could not close position.' });
     }
   }
+
+  const strategyRecentEvents = recentTradeEvents?.[s.strategy_label] || [];
 
   return (
     <div
@@ -491,6 +493,48 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           <ConditionWidget label={`Scanner: % Move (${strategyConfig.scan_interval})`} value={bestOpp.pct} threshold={strategyConfig.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
           <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={bestOpp.symbol !== '---' ? `[${bestOpp.symbol}] ${signalResult.reason || "Awaiting signals"}` : (signalResult.reason || "Waiting for structural signal")} />
         </div>
+
+        {/* Recent Trade Events */}
+        {strategyRecentEvents.length > 0 && (
+          <div className="mb-5 bg-surface/40 border border-border/40 p-3.5 rounded-2xl text-left">
+            <div className="flex justify-between items-center mb-2.5">
+              <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
+                <Clock size={12} className="text-accent" /> Recent Events
+              </span>
+            </div>
+            <div className="flex flex-col gap-2">
+              {strategyRecentEvents.map((ev) => {
+                const isPassed = ev.status === 'passed';
+                const Icon = isPassed ? CheckCircle2 : XCircle;
+
+                // Format relative time
+                const seconds = Math.floor((Date.now() - ev.ts) / 1000);
+                let timeAgo = '';
+                if (seconds < 60) timeAgo = `${seconds}s ago`;
+                else if (seconds < 3600) timeAgo = `${Math.floor(seconds / 60)}m ago`;
+                else timeAgo = `${Math.floor(seconds / 3600)}h ago`;
+
+                return (
+                  <div key={ev.id} className={cn(
+                    "p-2 rounded-xl border flex items-center justify-between text-left",
+                    isPassed ? "bg-green/5 border-green/20" : "bg-red/5 border-red/20"
+                  )}>
+                    <div className="flex items-center gap-2">
+                      <Icon size={14} className={isPassed ? "text-green" : "text-red"} />
+                      <div className="flex flex-col">
+                        <span className="text-xs font-black font-mono">
+                          {ev.symbol} <span className={cn("text-[9px] uppercase tracking-wider ml-1", isPassed ? "text-green" : "text-red")}>({ev.status})</span>
+                        </span>
+                        <span className="text-[9px] text-dim/80 max-w-[200px] truncate" title={ev.reason}>{ev.reason}</span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-dim mr-1">{timeAgo}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
       {/* Watchlist Proximity Leaderboard */}
       {proximityLeaderboard.length > 0 && (

@@ -480,7 +480,7 @@ export class MomentumScannerService {
 
     // 2. Identify cross points and measure post-cross profit percentages & peak R:R
     const crossProfits: number[] = [];
-    const peakRrs: number[] = [];
+    const exitRrs: number[] = [];
     let wins = 0;
     let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
 
@@ -546,7 +546,7 @@ export class MomentumScannerService {
         const crossRr = slDistPct > 0 ? exitProfitPct / slDistPct : exitProfitPct;
 
         crossProfits.push(exitProfitPct);
-        peakRrs.push(crossRr);
+        exitRrs.push(crossRr);
 
         if (crossProfits.length >= targetCrossCount) {
           break;
@@ -562,10 +562,10 @@ export class MomentumScannerService {
     let rrSum = 0;
     for (let i = 0; i < crossProfits.length; i++) {
       profitSum += crossProfits[i];
-      rrSum += peakRrs[i]; // peakRrs now stores actual exit RR
+      rrSum += exitRrs[i]; // exitRrs now stores actual exit RR
     }
     const avgProfitPct = profitSum / crossProfits.length;
-    const avgPeakRr = rrSum / crossProfits.length; // renamed to maintain DTO compatibility but represents exit RR
+    const avgExitRr = rrSum / crossProfits.length; // renamed to maintain DTO compatibility but represents exit RR
     const winRate = (wins / crossProfits.length) * 100;
 
     const maxBoost = config.htf_ema_cross_max_boost ?? 25.0;
@@ -573,13 +573,13 @@ export class MomentumScannerService {
 
     // Score boost up to maxBoost points based on average profit %, avg peak RR, and win rate
     const profitScore = Math.max(0, Math.min(maxBoost * 0.3, avgProfitPct * 2.0));
-    const rrScore = Math.max(0, Math.min(maxBoost * 0.5, avgPeakRr * rrWeight));
+    const rrScore = Math.max(0, Math.min(maxBoost * 0.5, avgExitRr * rrWeight));
     const winRateScore = Math.max(0, Math.min(maxBoost * 0.2, (winRate / 100) * (maxBoost * 0.2)));
     const scoreBoost = Math.min(maxBoost, profitScore + rrScore + winRateScore);
 
     const perf = {
       avg_profit_pct: Number(avgProfitPct.toFixed(2)),
-      avg_exit_rr: Number(avgPeakRr.toFixed(2)),
+      avg_exit_rr: Number(avgExitRr.toFixed(2)),
       win_rate: Number(winRate.toFixed(1)),
       cross_count: crossProfits.length,
       last_cross_direction: lastCrossDirection,

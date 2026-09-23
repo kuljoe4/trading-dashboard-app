@@ -26,7 +26,7 @@ export interface Opportunity {
   };
   htf_ema_cross_perf?: {
     avg_profit_pct: number;
-    avg_peak_rr: number;
+    avg_exit_rr: number;
     win_rate: number;
     cross_count: number;
     last_cross_direction?: 'LONG' | 'SHORT';
@@ -45,7 +45,7 @@ export class MomentumScannerService {
     key: string;
     perf: {
       avg_profit_pct: number;
-      avg_peak_rr: number;
+      avg_exit_rr: number;
       win_rate: number;
       cross_count: number;
       last_cross_direction?: 'LONG' | 'SHORT';
@@ -480,7 +480,7 @@ export class MomentumScannerService {
 
     // 2. Identify cross points and measure post-cross profit percentages & peak R:R
     const crossProfits: number[] = [];
-    const peakRrs: number[] = [];
+    const exitRrs: number[] = [];
     let wins = 0;
     let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
 
@@ -503,25 +503,50 @@ export class MomentumScannerService {
         const entryPrice = candles[i].close;
         let peakPrice = entryPrice;
 
-        // Peak price reached over the next 6 candles (~24 hours on 4H) or until next candle
-        const forwardWindow = Math.min(candles.length - 1, i + 6);
-        for (let j = i + 1; j <= forwardWindow; j++) {
+        // Scan forward to find the exact exit point and check for End-to-End Strict losses
+        let exitIndex = candles.length - 1; // Default to latest candle
+        let endToEndLoss = false;
+
+        for (let j = i + 1; j < candles.length; j++) {
           if (crossDir === 'LONG') {
-            if (candles[j].high > peakPrice) peakPrice = candles[j].high;
+            if (candles[j].low < entryPrice) endToEndLoss = true;
+            // Check for bearish cross to exit the LONG
+            if (fastEma[j - 1] >= slowEma[j - 1] && fastEma[j] < slowEma[j]) {
+              exitIndex = j;
+              break;
+            }
           } else {
-            if (candles[j].low < peakPrice) peakPrice = candles[j].low;
+            if (candles[j].high > entryPrice) endToEndLoss = true;
+            // Check for bullish cross to exit the SHORT
+            if (fastEma[j - 1] <= slowEma[j - 1] && fastEma[j] > slowEma[j]) {
+              exitIndex = j;
+              break;
+            }
           }
         }
 
-        const profitPct = crossDir === 'LONG'
-          ? ((peakPrice - entryPrice) / entryPrice) * 100
-          : ((entryPrice - peakPrice) / entryPrice) * 100;
+        const minProfitPct = config.htf_ema_cross_min_profit_pct ?? 0.0;
+        let exitProfitPct = 0;
 
-        const peakRr = slDistPct > 0 ? profitPct / slDistPct : profitPct;
+        if (endToEndLoss) {
+          // If the price wicked below the entry price, it's a loss.
+          // We capture the negative outcome by checking the worst case excursion (or just marking it as 0 profit)
+          // To be strict, an end-to-end loss yields 0 profit for the score boost.
+          exitProfitPct = 0;
+        } else {
+          // Compare entry to the wick of the exit candle
+          const exitPoint = crossDir === 'LONG' ? candles[exitIndex].high : candles[exitIndex].low;
+          exitProfitPct = crossDir === 'LONG'
+            ? ((exitPoint - entryPrice) / entryPrice) * 100
+            : ((entryPrice - exitPoint) / entryPrice) * 100;
 
-        crossProfits.push(profitPct);
-        peakRrs.push(peakRr);
-        if (profitPct > 0) wins++;
+          if (exitProfitPct > minProfitPct) wins++;
+        }
+
+        const crossRr = slDistPct > 0 ? exitProfitPct / slDistPct : exitProfitPct;
+
+        crossProfits.push(exitProfitPct);
+        exitRrs.push(crossRr);
 
         if (crossProfits.length >= targetCrossCount) {
           break;
@@ -537,24 +562,24 @@ export class MomentumScannerService {
     let rrSum = 0;
     for (let i = 0; i < crossProfits.length; i++) {
       profitSum += crossProfits[i];
-      rrSum += peakRrs[i];
+      rrSum += exitRrs[i]; // exitRrs now stores actual exit RR
     }
     const avgProfitPct = profitSum / crossProfits.length;
-    const avgPeakRr = rrSum / crossProfits.length;
+    const avgExitRr = rrSum / crossProfits.length; // renamed to maintain DTO compatibility but represents exit RR
     const winRate = (wins / crossProfits.length) * 100;
 
     const maxBoost = config.htf_ema_cross_max_boost ?? 25.0;
     const rrWeight = config.htf_ema_cross_rr_weight ?? 1.5;
 
     // Score boost up to maxBoost points based on average profit %, avg peak RR, and win rate
-    const profitScore = Math.max(0, Math.min(maxBoost * 0.5, avgProfitPct * 2.0));
-    const rrScore = Math.max(0, Math.min(maxBoost * 0.3, avgPeakRr * rrWeight));
+    const profitScore = Math.max(0, Math.min(maxBoost * 0.3, avgProfitPct * 2.0));
+    const rrScore = Math.max(0, Math.min(maxBoost * 0.5, avgExitRr * rrWeight));
     const winRateScore = Math.max(0, Math.min(maxBoost * 0.2, (winRate / 100) * (maxBoost * 0.2)));
     const scoreBoost = Math.min(maxBoost, profitScore + rrScore + winRateScore);
 
     const perf = {
       avg_profit_pct: Number(avgProfitPct.toFixed(2)),
-      avg_peak_rr: Number(avgPeakRr.toFixed(2)),
+      avg_exit_rr: Number(avgExitRr.toFixed(2)),
       win_rate: Number(winRate.toFixed(1)),
       cross_count: crossProfits.length,
       last_cross_direction: lastCrossDirection,

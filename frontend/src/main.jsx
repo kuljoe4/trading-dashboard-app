@@ -120,7 +120,6 @@ const App = () => {
         );
 
         if (attempt < maxAttempts) {
-          console.log(`[Auth] Retrying in ${delay}ms...`);
           setTimeout(() => {
             initAuthWithRetry(attempt + 1, maxAttempts, delay * 2);
           }, delay);

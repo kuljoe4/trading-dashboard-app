@@ -51,6 +51,14 @@ describe('checkOrigin', () => {
     expect(checkOrigin('http://localhost:5173', quotedPatterns)).toBe(true);
   });
 
+  it('should handle unbalanced and split quoted strings', () => {
+    const unbalancedPatterns = ['"https://*.up.railway.app\'', "'http://localhost:5173", "http://example.com'\"", "\"'http://example.org'\""];
+    expect(checkOrigin('https://frontend-staging.up.railway.app', unbalancedPatterns)).toBe(true);
+    expect(checkOrigin('http://localhost:5173', unbalancedPatterns)).toBe(true);
+    expect(checkOrigin('http://example.com', unbalancedPatterns)).toBe(true);
+    expect(checkOrigin('http://example.org', unbalancedPatterns)).toBe(true);
+  });
+
   it('should handle whitespace in patterns', () => {
     const messyPatterns = ['  https://example.com  ', ' https://*.example.org '];
     expect(checkOrigin('https://example.com', messyPatterns)).toBe(true);

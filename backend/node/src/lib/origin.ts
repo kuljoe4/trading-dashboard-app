@@ -12,8 +12,8 @@ export const checkOrigin = (origin: any, allowedOrigins: string[]): boolean => {
     // Audit Item: Handle potential quotes from environment variables (e.g., '"http://..."')
     // Sentinel fix: strip quotes even if unbalanced (e.g. from split quoted strings)
     normalizedPattern = normalizedPattern
-      .replace(/^['"]/, "")
-      .replace(/['"]$/, "");
+      .replace(/^['"]+/, "")
+      .replace(/['"]+$/, "");
 
     if (normalizedPattern.includes("*")) {
       const regexPattern = normalizedPattern

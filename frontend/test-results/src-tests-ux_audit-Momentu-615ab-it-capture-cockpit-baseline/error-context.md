@@ -12,11 +12,10 @@
 # Error details
 
 ```
-Test timeout of 120000ms exceeded.
-```
+Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/
+Call log:
+  - navigating to "http://localhost:5173/", waiting until "load"
 
-```
-Error: page.setViewportSize: Test timeout of 120000ms exceeded.
 ```
 
 # Test source
@@ -38,14 +37,14 @@ Error: page.setViewportSize: Test timeout of 120000ms exceeded.
   14 |
   15 |   test('capture cockpit baseline', async ({ page }) => {
   16 |     // Navigate to the cockpit
-  17 |     await page.goto('http://localhost:5173', { waitUntil: 'load' });
+> 17 |     await page.goto('http://localhost:5173', { waitUntil: 'load' });
+     |                ^ Error: page.goto: net::ERR_CONNECTION_REFUSED at http://localhost:5173/
   18 |
   19 |     // Allow for hydration and WS connection attempt
   20 |     await page.waitForTimeout(5000);
   21 |
   22 |     // Desktop Screenshot
-> 23 |     await page.setViewportSize({ width: 1440, height: 900 });
-     |                ^ Error: page.setViewportSize: Test timeout of 120000ms exceeded.
+  23 |     await page.setViewportSize({ width: 1440, height: 900 });
   24 |     await page.screenshot({ path: 'ux_audit_desktop.png' });
   25 |
   26 |     // Mobile Screenshot

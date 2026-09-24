@@ -562,6 +562,19 @@ export class SessionLifecycleService {
     }
     // Real-time Position Tracking (Zero Weight)
     if (data.a.P) {
+      // Pre-compute O(1) lookups for the activeTrades loop
+      const activeTradesBySymbol = new Map<string, Trade>();
+      const activeTradesById = new Set<string>();
+
+      if (this.sessionState.activeTrades) {
+        for (const t of this.sessionState.activeTrades) {
+          activeTradesBySymbol.set(t.symbol, t);
+          if (t.id) {
+            activeTradesById.add(t.id);
+          }
+        }
+      }
+
       for (const pos of data.a.P) {
         const symbol = pos.s;
         const amount = parseFloat(pos.pa);
@@ -574,9 +587,7 @@ export class SessionLifecycleService {
           `[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`,
         );
 
-        let trade = this.sessionState.activeTrades.find(
-          (t) => t.symbol === symbol,
-        );
+        let trade = activeTradesBySymbol.get(symbol);
 
         // SRE: Race condition guard - check in-flight entries if not in active list
         if (!trade && amount !== 0) {
@@ -595,11 +606,14 @@ export class SessionLifecycleService {
 
           // CHRONOS: If this was an in-flight entry, promote it to active status immediately
           // now that we have exchange-confirmed position data.
-          if (!this.sessionState.activeTrades.find((t) => t.id === trade!.id)) {
+          if (!activeTradesById.has(trade!.id)) {
             this.logger.log(
               `[${tradeIdShort8}] [Sync] Promoting in-flight entry for ${symbol} to active list via ACCOUNT_UPDATE.`,
             );
             this.positionTracker.addTrade(trade);
+            // Keep O(1) lookups in sync
+            activeTradesBySymbol.set(symbol, trade!);
+            activeTradesById.add(trade!.id);
           }
 
           // Authoritative Entry Price Sync
@@ -631,13 +645,9 @@ export class SessionLifecycleService {
 
         // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
         // it means it was closed on exchange (SL, TP, or manual).
-        const hasActiveTrade = this.sessionState.activeTrades?.some(
-          (t) => t.symbol === symbol,
-        );
+        const hasActiveTrade = activeTradesBySymbol.has(symbol);
         if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade)) {
-          let tEntity = this.sessionState.activeTrades?.find(
-            (t) => t.symbol === symbol,
-          );
+          let tEntity = activeTradesBySymbol.get(symbol);
           if (!tEntity && this.sessionState.closedTrades) {
             tEntity = this.sessionState.closedTrades.find(
               (t) => t.symbol === symbol && t.status !== "OPEN",
@@ -662,9 +672,7 @@ export class SessionLifecycleService {
             continue;
           }
 
-          const trade = this.sessionState.activeTrades.find(
-            (t) => t.symbol === symbol,
-          );
+          const trade = activeTradesBySymbol.get(symbol);
           if (trade) {
             const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
 

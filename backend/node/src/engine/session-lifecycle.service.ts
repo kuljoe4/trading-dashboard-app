@@ -332,7 +332,7 @@ export class SessionLifecycleService {
     }
 
     try {
-      // P0 FIX: Multi-collateral support - fetch ALL balances, not just USDT
+      // Multi-collateral support - fetch ALL balances, not just USDT
       // Live accounts commonly use Multi-Asset mode (USDC, FDUSD, etc.)
       const res = await bc.restAPI.futuresAccountBalanceV3();
       if (!res) return 0;
@@ -470,7 +470,7 @@ export class SessionLifecycleService {
     const reason = data.a.m;
 
     // Real-time Balance Tracking (Zero Weight)
-    // P0 FIX: Multi-collateral support - sum ALL assets in B array (USDT, USDC, FDUSD, etc.)
+    // Multi-collateral support - sum ALL assets in B array (USDT, USDC, FDUSD, etc.)
     if (data.a.B && data.a.B.length > 0) {
       let totalBalanceChange = 0;
       const allowedAssets = ['USDT', 'USDC', 'FDUSD'];

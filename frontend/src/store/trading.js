@@ -704,7 +704,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   },
 
   updateConfig: (c) => {
-    console.log('[Config Trace] updateConfig called with:', c);
     if (c.trading_mode) {
       localStorage.setItem('global_trading_mode', c.trading_mode);
     }
@@ -716,7 +715,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
   patchConfig: async (patch) => {
     const st = get();
-    console.log('[Config Trace] patchConfig initiating:', patch);
     if (patch.debug_mode !== undefined && typeof localStorage !== 'undefined') {
       localStorage.setItem('global_debug_mode', String(patch.debug_mode));
     }
@@ -734,9 +732,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // Sync to backend if session is active
     if (st.sessionActive && st.strategyId) {
       try {
-        console.log('[Config Trace] Syncing patch to backend...');
-        const res = await sessionAPI.update(st.strategyId, patch);
-        console.log('[Config Trace] Sync successful:', res.data);
+        await sessionAPI.update(st.strategyId, patch);
       } catch (e) {
         console.error("[Store] Failed to patch config on backend", e);
       } finally {
@@ -894,7 +890,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           let nextConfig = st.config;
           if (d.config) {
             if (st.configSyncing) {
-              console.log('[Config Trace] Ignoring incoming config tick (sync in progress)');
               nextConfig = st.config;
             } else {
               nextConfig = deepMerge(st.config, d.config);

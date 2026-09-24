@@ -562,6 +562,22 @@ export class SessionLifecycleService {
     }
     // Real-time Position Tracking (Zero Weight)
     if (data.a.P) {
+      const activeMap = new Map<string, Trade>();
+      if (this.sessionState.activeTrades) {
+        for (const t of this.sessionState.activeTrades) {
+          activeMap.set(t.symbol, t);
+        }
+      }
+      const closedMap = new Map<string, Trade>();
+      if (this.sessionState.closedTrades) {
+        for (let i = this.sessionState.closedTrades.length - 1; i >= 0; i--) {
+          const t = this.sessionState.closedTrades[i];
+          if (t.status !== "OPEN") {
+            closedMap.set(t.symbol, t);
+          }
+        }
+      }
+
       for (const pos of data.a.P) {
         const symbol = pos.s;
         const amount = parseFloat(pos.pa);
@@ -574,9 +590,7 @@ export class SessionLifecycleService {
           `[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`,
         );
 
-        let trade = this.sessionState.activeTrades.find(
-          (t) => t.symbol === symbol,
-        );
+        let trade = activeMap.get(symbol);
 
         // SRE: Race condition guard - check in-flight entries if not in active list
         if (!trade && amount !== 0) {
@@ -595,11 +609,12 @@ export class SessionLifecycleService {
 
           // CHRONOS: If this was an in-flight entry, promote it to active status immediately
           // now that we have exchange-confirmed position data.
-          if (!this.sessionState.activeTrades.find((t) => t.id === trade!.id)) {
+          if (!activeMap.has(symbol)) {
             this.logger.log(
               `[${tradeIdShort8}] [Sync] Promoting in-flight entry for ${symbol} to active list via ACCOUNT_UPDATE.`,
             );
             this.positionTracker.addTrade(trade);
+            activeMap.set(symbol, trade);
           }
 
           // Authoritative Entry Price Sync
@@ -631,17 +646,11 @@ export class SessionLifecycleService {
 
         // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
         // it means it was closed on exchange (SL, TP, or manual).
-        const hasActiveTrade = this.sessionState.activeTrades?.some(
-          (t) => t.symbol === symbol,
-        );
+        const hasActiveTrade = activeMap.has(symbol);
         if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade)) {
-          let tEntity = this.sessionState.activeTrades?.find(
-            (t) => t.symbol === symbol,
-          );
+          let tEntity = activeMap.get(symbol);
           if (!tEntity && this.sessionState.closedTrades) {
-            tEntity = this.sessionState.closedTrades.find(
-              (t) => t.symbol === symbol && t.status !== "OPEN",
-            );
+            tEntity = closedMap.get(symbol);
           }
           if (tEntity) {
             this.sessionState.udsConfirmedClosedTrades.add(tEntity.id);
@@ -662,11 +671,9 @@ export class SessionLifecycleService {
             continue;
           }
 
-          const trade = this.sessionState.activeTrades.find(
-            (t) => t.symbol === symbol,
-          );
-          if (trade) {
-            const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
+          const activeTradeToClose = activeMap.get(symbol);
+          if (activeTradeToClose) {
+            const tradeIdShort8 = (activeTradeToClose.id || "N/A").substring(0, 8);
 
             // CHRONOS/Race: When a position hits zero on exchange, an SL hit (with an attached
             // stop order) usually arrives its ORDER_TRADE_UPDATE slightly AFTER the

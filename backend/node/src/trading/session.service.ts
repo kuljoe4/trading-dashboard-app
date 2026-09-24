@@ -1631,17 +1631,23 @@ export class SessionService implements OnModuleInit {
           const symOrders = ordersBySymbol.get(p.symbol) || [];
           const discovery = await this.discoverPositionStrategy(p.symbol, symOrders);
 
-          const isSl = (o: any) => {
-            const type = ((o as any).type || (o as any).algoType || "").toUpperCase();
-            return type.includes("STOP");
-          };
-          const isReduce = (o: any) =>
-            o.reduceOnly === true ||
-            o.reduceOnly === "true" ||
-            o.closePosition === true ||
-            o.closePosition === "true";
+          let slOrder = undefined;
+          for (let i = 0; i < symOrders.length; i++) {
+            const o = symOrders[i];
+            if (
+              o.reduceOnly === true ||
+              o.reduceOnly === "true" ||
+              o.closePosition === true ||
+              o.closePosition === "true"
+            ) {
+              const type = ((o as any).type || (o as any).algoType || "").toUpperCase();
+              if (type.includes("STOP")) {
+                slOrder = o;
+                break;
+              }
+            }
+          }
 
-          const slOrder = symOrders.find((o) => isSl(o) && isReduce(o));
           const currentSl = slOrder ? parseFloat(slOrder.stopPrice || slOrder.triggerPrice || "0") : null;
 
           untracked.push({
@@ -2089,22 +2095,27 @@ export class SessionService implements OnModuleInit {
 
         try {
           // COMPLIANCE: Recognize more SL/TP order types during adoption
-          const isSl = (o: any) => {
-            const type = (o.type || o.algoType || "").toUpperCase();
-            return type.includes("STOP");
-          };
-          const isTp = (o: any) => {
-            const type = (o.type || o.algoType || "").toUpperCase();
-            return type.includes("TAKE_PROFIT");
-          };
-          const isReduce = (o: any) =>
-            o.reduceOnly === true ||
-            o.reduceOnly === "true" ||
-            o.closePosition === true ||
-            o.closePosition === "true";
+          let slOrder = undefined;
+          let tpOrder = undefined;
 
-          const slOrder = exOrders.find((o) => isSl(o) && isReduce(o));
-          const tpOrder = exOrders.find((o) => isTp(o) && isReduce(o));
+          for (let i = 0; i < exOrders.length; i++) {
+            const o = exOrders[i];
+            if (
+              o.reduceOnly === true ||
+              o.reduceOnly === "true" ||
+              o.closePosition === true ||
+              o.closePosition === "true"
+            ) {
+              const type = (o.type || o.algoType || "").toUpperCase();
+              if (!slOrder && type.includes("STOP")) {
+                slOrder = o;
+              }
+              if (!tpOrder && type.includes("TAKE_PROFIT")) {
+                tpOrder = o;
+              }
+              if (slOrder && tpOrder) break;
+            }
+          }
 
           if (slOrder) {
             slPrice = parseFloat(
@@ -2138,9 +2149,23 @@ export class SessionService implements OnModuleInit {
                 await this.orderManager.fetchOpenAlgoOrders(exPos.symbol, {
                   forceFresh: true,
                 });
-              const freshSlOrder = freshAlgoOrders.find(
-                (o) => isSl(o) && isReduce(o),
-              );
+
+              let freshSlOrder = undefined;
+              for (let i = 0; i < freshAlgoOrders.length; i++) {
+                const o = freshAlgoOrders[i] as any;
+                if (
+                  o.reduceOnly === true ||
+                  o.reduceOnly === "true" ||
+                  o.closePosition === true ||
+                  o.closePosition === "true"
+                ) {
+                  const type = (o.type || o.algoType || "").toUpperCase();
+                  if (type.includes("STOP")) {
+                    freshSlOrder = o;
+                    break;
+                  }
+                }
+              }
 
               if (freshSlOrder) {
                 slPrice = parseFloat(

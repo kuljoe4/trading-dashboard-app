@@ -94,7 +94,7 @@ describe('Chronos: Rate Limit Protection Gap Regression', () => {
     // ASSERT:
     expect(result.success).toBe(false);
 
-    // THE FIX: The trade.binance_stop_order_id is still preserved because we deferred the ratchet
+    // Verify that the trade.binance_stop_order_id is still preserved because we deferred the ratchet
     expect(trade.binance_stop_order_id).toBe('12345678');
 
     // Verify that no exchange mutation was attempted

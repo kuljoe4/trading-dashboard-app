@@ -2855,7 +2855,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     };
 
     const name = resolvePresetName().trim();
-    console.log(`[ConfigModal] Attempting to save preset: "${name}"`);
 
     try {
       if (!validate(cfg)) {

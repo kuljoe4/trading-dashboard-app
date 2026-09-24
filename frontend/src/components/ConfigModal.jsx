@@ -2458,11 +2458,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const fetchPresets = React.useCallback(async () => {
     try {
-      console.log('[ConfigModal] Loading presets...');
       const res = await presetsAPI.list();
       if (res && res.data) {
         setPresets(res.data);
-        console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
       } else {
         console.warn('[ConfigModal] No presets data returned from API.');
       }
@@ -2488,7 +2486,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         setTestnetConfigured(tn)
         setLiveConfigured(ln)
       } catch (e) {
-        console.log('[ConfigModal] Error checking keys:', e.message)
         setTestnetConfigured(false)
         setLiveConfigured(false)
       }
@@ -2855,7 +2852,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     };
 
     const name = resolvePresetName().trim();
-    console.log(`[ConfigModal] Attempting to save preset: "${name}"`);
 
     try {
       if (!validate(cfg)) {
@@ -2884,8 +2880,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         return;
       }
 
-      console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
-
       // Strip strategy_variants when persisting a library preset so presets remain single-strategy definitions
       const presetPayload = {
         ...pc,
@@ -2896,7 +2890,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       const res = await presetsAPI.save(name, presetPayload);
 
       if (res && res.data) {
-        console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
         setPresets(prev => {
           const nextPresets = [...prev.filter(p => p.name !== name), res.data];
           return nextPresets.sort((a, b) => a.name.localeCompare(b.name));

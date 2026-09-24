@@ -123,8 +123,7 @@ describe('Chronos: PnL and Balance Integrity', () => {
       trade.pnl = 10;
       await tradingSessionService.handleTradeUpdate({ trade });
 
-      // BUG: If it applies the delta (+10) to balanceLive (1010), it becomes 1020.
-      // RED-TEST: We expect it to be 1010.
+      // Verify that it does not apply the delta (+10) to balanceLive (1010), which would cause double-counting.
       expect(sessionState.balanceLive).toBe(1010);
     });
   });
@@ -178,8 +177,7 @@ describe('Chronos: PnL and Balance Integrity', () => {
       // 1. Balance should be updated
       expect(sessionState.balanceLive).toBe(1095);
 
-      // 2. Trade funding_fee should be updated (Real-time attribution)
-      // RED-TEST: Currently it doesn't do this.
+      // 2. Verify trade funding_fee and PnL are correctly updated with real-time attribution.
       expect(trade.funding_fee).toBe(5);
       expect(trade.pnl).toBe(95); // 100 - 5
 

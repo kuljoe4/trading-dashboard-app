@@ -1615,10 +1615,25 @@ export class SessionService implements OnModuleInit {
       const untracked = [];
       const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
       const ordersBySymbol = new Map<string, any[]>();
+      const slOrdersBySymbol = new Map<string, any>();
+
+      const isSl = (o: any) => {
+        const type = ((o as any).type || (o as any).algoType || "").toUpperCase();
+        return type.includes("STOP");
+      };
+      const isReduce = (o: any) =>
+        o.reduceOnly === true ||
+        o.reduceOnly === "true" ||
+        o.closePosition === true ||
+        o.closePosition === "true";
+
       for (const o of allOpenOrders) {
         const list = ordersBySymbol.get(o.symbol) || [];
         list.push(o);
         ordersBySymbol.set(o.symbol, list);
+        if (!slOrdersBySymbol.has(o.symbol) && isSl(o) && isReduce(o)) {
+          slOrdersBySymbol.set(o.symbol, o);
+        }
       }
 
       for (const p of activeExPositions) {
@@ -1631,17 +1646,7 @@ export class SessionService implements OnModuleInit {
           const symOrders = ordersBySymbol.get(p.symbol) || [];
           const discovery = await this.discoverPositionStrategy(p.symbol, symOrders);
 
-          const isSl = (o: any) => {
-            const type = ((o as any).type || (o as any).algoType || "").toUpperCase();
-            return type.includes("STOP");
-          };
-          const isReduce = (o: any) =>
-            o.reduceOnly === true ||
-            o.reduceOnly === "true" ||
-            o.closePosition === true ||
-            o.closePosition === "true";
-
-          const slOrder = symOrders.find((o) => isSl(o) && isReduce(o));
+          const slOrder = slOrdersBySymbol.get(p.symbol);
           const currentSl = slOrder ? parseFloat(slOrder.stopPrice || slOrder.triggerPrice || "0") : null;
 
           untracked.push({
@@ -2004,14 +2009,39 @@ export class SessionService implements OnModuleInit {
     // If few ghosts, fetch orders individually (Weight 1 per sym).
     // If many, fetch bulk (Weight 40).
     let allOrdersMap = new Map<string, any[]>();
+    let slOrdersMap = new Map<string, any>();
+    let tpOrdersMap = new Map<string, any>();
     const useBulkAudit = ghostPositions.length > 5 && !preFetchedOrders;
+
+    const isSl = (o: any) => {
+      const type = (o.type || o.algoType || "").toUpperCase();
+      return type.includes("STOP");
+    };
+    const isTp = (o: any) => {
+      const type = (o.type || o.algoType || "").toUpperCase();
+      return type.includes("TAKE_PROFIT");
+    };
+    const isReduce = (o: any) =>
+      o.reduceOnly === true ||
+      o.reduceOnly === "true" ||
+      o.closePosition === true ||
+      o.closePosition === "true";
+
+    const populateMaps = (o: any) => {
+      const list = allOrdersMap.get(o.symbol) || [];
+      list.push(o);
+      allOrdersMap.set(o.symbol, list);
+
+      if (isReduce(o)) {
+        if (!slOrdersMap.has(o.symbol) && isSl(o)) slOrdersMap.set(o.symbol, o);
+        else if (!tpOrdersMap.has(o.symbol) && isTp(o)) tpOrdersMap.set(o.symbol, o);
+      }
+    };
 
     try {
       if (preFetchedOrders) {
         for (const o of preFetchedOrders) {
-          const list = allOrdersMap.get(o.symbol) || [];
-          list.push(o);
-          allOrdersMap.set(o.symbol, list);
+          populateMaps(o);
         }
       } else if (useBulkAudit) {
         this.logger.log(
@@ -2019,9 +2049,7 @@ export class SessionService implements OnModuleInit {
         );
         const allExOrders = await this.orderManager.fetchAllOpenOrders();
         for (const o of allExOrders) {
-          const list = allOrdersMap.get(o.symbol) || [];
-          list.push(o);
-          allOrdersMap.set(o.symbol, list);
+          populateMaps(o);
         }
       }
       // If not bulk and not prefetched, we fetch per symbol in the loop below
@@ -2066,12 +2094,14 @@ export class SessionService implements OnModuleInit {
           );
           try {
             exOrders = await this.orderManager.fetchOpenOrders(exPos.symbol);
-            allOrdersMap.set(exPos.symbol, exOrders);
+            for (const o of exOrders) {
+              populateMaps(o);
+            }
           } catch (err) {
             this.logger.warn(`[Reconciliation] Failed to fetch orders for ${exPos.symbol} during safety check: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
-        exOrders = exOrders || [];
+        exOrders = allOrdersMap.get(exPos.symbol) || [];
 
         const startedByUs = bypassStartedByUsCheck || await this.isPositionStartedByUs(exPos.symbol, exOrders);
         if (!startedByUs) {
@@ -2088,23 +2118,8 @@ export class SessionService implements OnModuleInit {
         let tpPrice = 0;
 
         try {
-          // COMPLIANCE: Recognize more SL/TP order types during adoption
-          const isSl = (o: any) => {
-            const type = (o.type || o.algoType || "").toUpperCase();
-            return type.includes("STOP");
-          };
-          const isTp = (o: any) => {
-            const type = (o.type || o.algoType || "").toUpperCase();
-            return type.includes("TAKE_PROFIT");
-          };
-          const isReduce = (o: any) =>
-            o.reduceOnly === true ||
-            o.reduceOnly === "true" ||
-            o.closePosition === true ||
-            o.closePosition === "true";
-
-          const slOrder = exOrders.find((o) => isSl(o) && isReduce(o));
-          const tpOrder = exOrders.find((o) => isTp(o) && isReduce(o));
+          const slOrder = slOrdersMap.get(exPos.symbol);
+          const tpOrder = tpOrdersMap.get(exPos.symbol);
 
           if (slOrder) {
             slPrice = parseFloat(

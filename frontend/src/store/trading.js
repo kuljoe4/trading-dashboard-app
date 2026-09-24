@@ -735,8 +735,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     if (st.sessionActive && st.strategyId) {
       try {
         console.log('[Config Trace] Syncing patch to backend...');
-        const res = await sessionAPI.update(st.strategyId, patch);
-        console.log('[Config Trace] Sync successful:', res.data);
+        await sessionAPI.update(st.strategyId, patch);
       } catch (e) {
         console.error("[Store] Failed to patch config on backend", e);
       } finally {

@@ -80,6 +80,72 @@ test('Market Regime Analytics Unit Tests - getMarketRegimeInfo', async (t) => {
     assert.equal(hibernatingRegime.label, 'Engine Hibernating');
   });
 
+  await t.test('returns fast-fail static eco payload when extraState.uiEcoMode is true', () => {
+    const mockScannerResults = Array.from({ length: 50 }, (_, i) => ({
+      symbol: `SYM${i}USDT`, momentum: 10, pct: 10
+    }));
+    const mockConfig = { scan_pct_threshold: 3.5, scan_interval: '5m' };
+
+    const regime = getMarketRegimeInfo(mockScannerResults, mockConfig, { uiEcoMode: true });
+
+    assert.equal(regime.regime, 'eco');
+    assert.equal(regime.label, 'Eco Mode Active');
+    assert.equal(regime.speedPct, 50);
+    assert.equal(regime.scanInterval, '5m');
+    assert.equal(regime.threshold, 3.5);
+
+    // Ensure all heavy calculations are bypassed
+    assert.equal(regime.avgMomentum, 0);
+    assert.equal(regime.passingCount, 0);
+    assert.equal(regime.totalCount, 50); // Total count is still preserved
+    assert.equal(regime.advanceRatioPct, 50);
+    assert.equal(regime.maxPct, 0);
+    assert.equal(regime.btcRangePct, 50);
+  });
+
+  await t.test('returns fast-fail static eco payload when global.localStorage ui_eco_mode is true', () => {
+    const mockScannerResults = Array.from({ length: 10 }, (_, i) => ({
+      symbol: `SYM${i}USDT`, momentum: 5, pct: 5
+    }));
+    const mockConfig = { scan_pct_threshold: 1.5 };
+
+    // Mock global.localStorage
+    global.localStorage = {
+      getItem: (key) => key === 'ui_eco_mode' ? 'true' : null,
+    };
+
+    const regime = getMarketRegimeInfo(mockScannerResults, mockConfig, {});
+
+    assert.equal(regime.regime, 'eco');
+    assert.equal(regime.label, 'Eco Mode Active');
+    assert.equal(regime.speedPct, 50);
+    assert.equal(regime.totalCount, 10);
+    assert.equal(regime.avgMomentum, 0);
+
+    // Clean up
+    delete global.localStorage;
+  });
+
+  await t.test('does not return eco payload when global.localStorage ui_eco_mode is false or null', () => {
+    const mockScannerResults = [
+      { symbol: 'BTCUSDT', momentum: 3.52, pct: 3.52, score: 82, score_breakdown: { volatility: 75 } }
+    ];
+    const mockConfig = { scan_pct_threshold: 2.0, scan_interval: '1m' };
+
+    // Mock global.localStorage
+    global.localStorage = {
+      getItem: (key) => key === 'ui_eco_mode' ? 'false' : null,
+    };
+
+    const regime = getMarketRegimeInfo(mockScannerResults, mockConfig, {});
+
+    assert.notEqual(regime.regime, 'eco');
+    assert.equal(regime.regime, 'active');
+
+    // Clean up
+    delete global.localStorage;
+  });
+
   await t.test('calculates 24h market range extremes correctly using ohlc_history fallback without explicit 24h ticker properties', () => {
     const mockScannerResults = [
       {
@@ -141,8 +207,12 @@ test('Market Regime Analytics Unit Tests - getMarketRegimeInfo', async (t) => {
 });
 
 test('Market Regime UI & Accessibility Standard Verification', () => {
-  const dashboardPath = path.resolve(process.cwd(), 'frontend/src/views/DashboardView.jsx');
-  const scannerOverlayPath = path.resolve(process.cwd(), 'frontend/src/components/ScannerOverlay.jsx');
+  // Accommodate running from root or frontend directory
+  const cwd = process.cwd();
+  const basePath = cwd.endsWith('frontend') ? cwd : path.resolve(cwd, 'frontend');
+
+  const dashboardPath = path.resolve(basePath, 'src/views/DashboardView.jsx');
+  const scannerOverlayPath = path.resolve(basePath, 'src/components/ScannerOverlay.jsx');
 
   const dashboardCode = fs.readFileSync(dashboardPath, 'utf8');
   const overlayCode = fs.readFileSync(scannerOverlayPath, 'utf8');

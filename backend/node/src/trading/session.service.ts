@@ -1516,8 +1516,8 @@ export class SessionService implements OnModuleInit {
       .slice(0, 500);
 
     // Paper mode orphan handling (Simplified verification as there is no exchange)
-    if (mode === "paper") {
-      for (const trade of potentialOrphans) {
+    if (mode === "paper" && potentialOrphans.length > 0) {
+      const updatePromises = potentialOrphans.map(async (trade) => {
         this.logger.warn(
           `[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${(trade as any).orphanReason}. Marking as closed.`,
         );
@@ -1527,8 +1527,10 @@ export class SessionService implements OnModuleInit {
           `Trade ${trade.symbol} was orphaned (${(trade as any).orphanReason}) and marked closed.`,
           "warn",
         );
-        recalculationNeeded = true;
-      }
+      });
+
+      await Promise.all(updatePromises);
+      recalculationNeeded = true;
     }
 
     if (recalculationNeeded) {

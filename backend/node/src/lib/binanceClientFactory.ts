@@ -131,8 +131,6 @@ export class BinanceClientFactory implements OnModuleInit {
       }
     });
 
-    // ARCHITECTURAL FIX: Override SDK's internal URL building to support dedicated gateways
-    // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
     const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
     client.websocketStreams.connect = (async (params: any): Promise<any> => {
       // SRE: Gate all WebSocket connection attempts through the centralized queue

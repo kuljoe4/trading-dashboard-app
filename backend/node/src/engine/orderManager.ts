@@ -2896,8 +2896,10 @@ export class OrderManagerService {
         if (context.price > 0 && Math.abs(context.price - exitPrice) > 0.00000001) {
            this.logger.debug(`[${symbol}] [Sync] Updated exit price from exchange context: ${exitPrice} -> ${context.price}`);
            exitPrice = context.price;
-           options.alreadyRealized = false;
-           options.feesAlreadyAccounted = false;
+           // options.alreadyRealized = false; // CHRONOS BUG FIX: Keep true if passed by UDS reconciliation
+           if (!options.alreadyRealized) options.alreadyRealized = false;
+           // options.feesAlreadyAccounted = false;
+           if (!options.feesAlreadyAccounted) options.feesAlreadyAccounted = false;
 
            // BOLT: Field Synchronization. Update tooltip reason to match the new authoritative price.
            // Handles multiple patterns: "reached SL X", "at X", "confirmed by exchange at X"
@@ -3372,7 +3374,7 @@ export class OrderManagerService {
                             exitReason === EXIT_REASONS.EXCHANGE_SL_OR_MANUAL ||
                             exitReason === EXIT_REASONS.EXCHANGE_SYNC_RECOVERY;
 
-         if ((options.alreadyRealized || options.feesAlreadyAccounted) && !isAnySlHit) {
+         if ((options.alreadyRealized || options.feesAlreadyAccounted || trade.qty === 0) && !isAnySlHit) {
             const divergence = Math.abs((trade.pnl || 0) - absoluteNetPnl);
             if (divergence > 0.01) {
                this.logger.warn(`[PnL Divergence Alert] Trade ${trade.id} (${symbol}): Accumulated PnL (${trade.pnl}) and Absolute Recomputed PnL (${absoluteNetPnl}) diverge by ${divergence.toFixed(4)}. Force-correcting trade PnL to Absolute Recomputed PnL to prevent state-bleeding or double-count. Qty=${initialQty}, Entry=${trade.entry_price}, Exit=${exitPrice}, Fees=${trade.realized_fee}, Funding=${trade.funding_fee}`);

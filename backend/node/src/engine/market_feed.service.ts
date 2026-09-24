@@ -193,6 +193,12 @@ export class MarketFeedService {
   }
 
   public async fetchExchangeInfo(restBase: string = ENGINE_CONSTANTS.BINANCE_REST_BASE) {
+    // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
+    if (this.sessionState.isBanned()) {
+      this.logger.warn(`[MarketFeed] Exchange info fetch skipped: IP is currently banned.`);
+      return;
+    }
+
     const now = Date.now();
     // BOLT: Static caching of exchange info for 1 hour to prevent redundant heavy calls (Weight 40) across session restarts
     // RESEARCH-02: Increase TTL to 12 hours for metadata that rarely changes, further reducing weight usage.

@@ -1354,6 +1354,7 @@ export class SessionService implements OnModuleInit {
         }
 
         // 1. Verify and Process Potential Orphans
+        const orphanUpdatesToApply: { id: string, updates: Partial<TradeEntity> }[] = [];
         for (const trade of potentialOrphans) {
           const position = activeExMap.get(trade.symbol);
           const posAmt = position ? parseFloat(position.positionAmt) : 0;
@@ -1383,12 +1384,18 @@ export class SessionService implements OnModuleInit {
             const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
             const context = await this.orderManager.recoverClosingContext(trade.symbol, trade as any, tickerPrice);
             const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
-            await this.tradeRepository.update(trade.id, updates);
+            orphanUpdatesToApply.push({ id: trade.id, updates });
             recalculationNeeded = true;
           }
         }
+        if (orphanUpdatesToApply.length > 0) {
+          await Promise.allSettled(
+            orphanUpdatesToApply.map(task => this.tradeRepository.update(task.id, task.updates))
+          );
+        }
 
         // 2. Reconcile Active Session Trades
+        const activeTradeUpdatesToApply: { id: string, updates: Partial<TradeEntity> }[] = [];
         for (const trade of sessionOpenTrades) {
           try {
             // SRE: Critical Check - Does the position actually exist on exchange?
@@ -1407,7 +1414,7 @@ export class SessionService implements OnModuleInit {
               const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
               const context = await this.orderManager.recoverClosingContext(trade.symbol, trade as any, tickerPrice);
               const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
-              await this.tradeRepository.update(trade.id, updates);
+              activeTradeUpdatesToApply.push({ id: trade.id, updates });
               (trade as any).reconciled_out = true;
               recalculationNeeded = true;
               continue;
@@ -1473,6 +1480,12 @@ export class SessionService implements OnModuleInit {
           (p) => !localSymbols.has(p.symbol),
         );
 
+        if (activeTradeUpdatesToApply.length > 0) {
+          await Promise.allSettled(
+            activeTradeUpdatesToApply.map(task => this.tradeRepository.update(task.id, task.updates))
+          );
+        }
+
         if (ghostPositions.length > 0) {
           const imported = await this.adoptExchangePositions(
             ghostPositions,
@@ -1517,17 +1530,25 @@ export class SessionService implements OnModuleInit {
 
     // Paper mode orphan handling (Simplified verification as there is no exchange)
     if (mode === "paper") {
+      const paperOrphanUpdatesToApply: { id: string, symbol: string, updates: Partial<TradeEntity>, orphanReason: string }[] = [];
       for (const trade of potentialOrphans) {
         this.logger.warn(
           `[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${(trade as any).orphanReason}. Marking as closed.`,
         );
         const updates = await this.finalizeOrphanedTrade(trade, mode);
-        await this.tradeRepository.update(trade.id, updates);
-        await this.logMessage(
-          `Trade ${trade.symbol} was orphaned (${(trade as any).orphanReason}) and marked closed.`,
-          "warn",
-        );
+        paperOrphanUpdatesToApply.push({ id: trade.id, symbol: trade.symbol, updates, orphanReason: (trade as any).orphanReason });
         recalculationNeeded = true;
+      }
+      if (paperOrphanUpdatesToApply.length > 0) {
+        await Promise.allSettled(
+          paperOrphanUpdatesToApply.map(async (task) => {
+            await this.tradeRepository.update(task.id, task.updates);
+            await this.logMessage(
+              `Trade ${task.symbol} was orphaned (${task.orphanReason}) and marked closed.`,
+              "warn",
+            );
+          })
+        );
       }
     }
 

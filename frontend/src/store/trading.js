@@ -506,7 +506,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   setThrottled: (t) => {
     const wasThrottled = get().isThrottled;
     const isSyncingOnResume = wasThrottled && !t && get().sessionActive;
-    console.log(`[Store] setThrottled: ${wasThrottled} -> ${t}. isSyncingOnResume will be: ${isSyncingOnResume}`);
     set({
       isThrottled: t,
       isSyncingOnResume

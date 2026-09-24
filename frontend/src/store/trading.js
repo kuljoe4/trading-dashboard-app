@@ -704,7 +704,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   },
 
   updateConfig: (c) => {
-    console.log('[Config Trace] updateConfig called with:', c);
     if (c.trading_mode) {
       localStorage.setItem('global_trading_mode', c.trading_mode);
     }

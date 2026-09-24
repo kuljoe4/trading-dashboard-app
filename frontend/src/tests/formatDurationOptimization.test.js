@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatDuration } from '../lib/formatters.js';
+import { formatDuration, durationFromTimestamp } from '../lib/formatters.js';
 
 test('formatDuration correctness & parity tests', async (t) => {
   await t.test('handles null, undefined, and negative values gracefully', () => {
@@ -33,6 +33,27 @@ test('formatDuration correctness & parity tests', async (t) => {
     assert.strictEqual(formatDuration(90000000), '1d 1h 0m');
     assert.strictEqual(formatDuration(90060000), '1d 1h 1m');
     assert.strictEqual(formatDuration(180000000), '2d 2h 0m');
+  });
+});
+
+test('durationFromTimestamp correctness & parity tests', async (t) => {
+  await t.test('handles null and undefined gracefully', () => {
+    assert.strictEqual(durationFromTimestamp(null), '0m');
+    assert.strictEqual(durationFromTimestamp(undefined), '0m');
+  });
+
+  await t.test('formats recent timestamp correctly', () => {
+    const now = Date.now();
+    assert.strictEqual(durationFromTimestamp(now), '0m');
+    assert.strictEqual(durationFromTimestamp(now - 60000), '1m');
+    assert.strictEqual(durationFromTimestamp(now - 3660000), '1h 1m');
+    assert.strictEqual(durationFromTimestamp(now - 90060000), '1d 1h 1m');
+  });
+
+  await t.test('formats ISO string timestamp correctly', () => {
+    const now = Date.now();
+    const entryDateStr = new Date(now - 3660000).toISOString();
+    assert.strictEqual(durationFromTimestamp(entryDateStr), '1h 1m');
   });
 });
 

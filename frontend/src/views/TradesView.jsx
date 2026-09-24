@@ -99,18 +99,15 @@ const TradesView = () => {
 
   const handleCloseTrade = async (symbol) => {
     if (closingMap[symbol]) {
-      console.log(`[Trades Engine] Close trade request already in flight for ${symbol}, ignoring.`);
       return;
     }
 
     setClosingMap(prev => ({ ...prev, [symbol]: true }));
-    console.log(`[Trades Engine] Dispatching manual position closure for ${symbol}`);
 
     try {
       await sessionAPI.closeTrade(symbol)
       setSelectedTradeId(null)
       addAlert({ level: 'success', title: 'Liquidation Started', message: `Manual closure request for ${symbol} sent to exchange.` });
-      console.log(`[Trades Engine] Close request successful for ${symbol}`);
     } catch (e) {
       console.error(`[Trades Engine] Close trade failed for ${symbol}:`, e);
       addAlert({ level: 'error', title: 'Closure Failed', message: e?.response?.data?.message || e.message || 'Could not close position.' });

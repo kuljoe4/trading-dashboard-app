@@ -2896,7 +2896,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       const res = await presetsAPI.save(name, presetPayload);
 
       if (res && res.data) {
-        console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
         setPresets(prev => {
           const nextPresets = [...prev.filter(p => p.name !== name), res.data];
           return nextPresets.sort((a, b) => a.name.localeCompare(b.name));

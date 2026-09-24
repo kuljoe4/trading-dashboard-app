@@ -102,7 +102,6 @@ const App = () => {
         const res = await api.get('/auth/config', { timeout: 5000 });
         if (!active) return;
 
-        console.log(`[Auth] Auth config fetched successfully on attempt ${attempt}`);
         if (res.data.adminApiKey) {
           setAdminApiKey(res.data.adminApiKey);
         } else {

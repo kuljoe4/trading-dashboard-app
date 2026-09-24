@@ -1117,14 +1117,24 @@ export class SessionService implements OnModuleInit {
     let potentialOrphans: TradeEntity[] = [];
     let recalculationNeeded = false;
 
+    // OPTIMIZATION: Pre-fetch all referenced sessions to eliminate N+1 queries.
+    const sessionIdsToFetch = Array.from(
+      new Set(openTrades.map((t) => t.sessionId).filter((id) => id)),
+    );
+    const prefetchedSessions =
+      sessionIdsToFetch.length > 0
+        ? await this.sessionRepository.find({
+            where: { id: In(sessionIdsToFetch) },
+          })
+        : [];
+    const sessionMap = new Map(prefetchedSessions.map((s) => [s.id, s]));
+
     for (const trade of openTrades) {
       let isOrphaned = false;
       let orphanReason = "";
 
       if (trade.sessionId) {
-        const tSession = await this.sessionRepository.findOne({
-          where: { id: trade.sessionId },
-        });
+        const tSession = sessionMap.get(trade.sessionId);
         if (!tSession) {
           isOrphaned = true;
           orphanReason = `Session ${trade.sessionId} not found`;

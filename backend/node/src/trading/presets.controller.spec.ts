@@ -148,7 +148,8 @@ describe("PresetsController", () => {
         "preset{invalid}",
         "preset#1",
         "preset$test",
-        "preset@admin"
+        "preset@admin",
+        "test' OR 1=1 --"
       ];
       for (const name of maliciousNames) {
         await expect(controller.deletePreset(name, req)).rejects.toThrow(

@@ -123,7 +123,11 @@ export class PresetsController {
       name.includes('\\') ||
       name.includes('..') ||
       name.includes(';') ||
-      name.includes('\0')
+      name.includes('\0') ||
+      name.includes("'") ||
+      name.includes('"') ||
+      name.includes('--') ||
+      name.includes('/*')
     ) {
       throw new BadRequestException("Invalid characters or path traversal attempt in preset name");
     }

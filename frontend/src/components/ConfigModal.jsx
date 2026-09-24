@@ -2884,8 +2884,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         return;
       }
 
-      console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
-
       // Strip strategy_variants when persisting a library preset so presets remain single-strategy definitions
       const presetPayload = {
         ...pc,

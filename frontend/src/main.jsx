@@ -47,7 +47,6 @@ const App = () => {
 
     // BOLT: Critical hydration guard to prevent 0-data flicker on cold starts
     const unsub = useTradingStore.persist.onFinishHydration(() => {
-      console.log("[App] Hydration finished");
       setHydrated(true);
     });
 

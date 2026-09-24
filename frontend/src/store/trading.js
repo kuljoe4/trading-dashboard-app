@@ -716,7 +716,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
   patchConfig: async (patch) => {
     const st = get();
-    console.log('[Config Trace] patchConfig initiating:', patch);
     if (patch.debug_mode !== undefined && typeof localStorage !== 'undefined') {
       localStorage.setItem('global_debug_mode', String(patch.debug_mode));
     }

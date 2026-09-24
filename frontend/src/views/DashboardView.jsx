@@ -2291,7 +2291,6 @@ export function DashboardView({ initialStrategy }) {
     }
 
     setPausingMap(prev => ({ ...prev, [key]: true }));
-    console.log(`[Strategy Engine] Dispatching pause toggle request for strategy: ${key}`);
 
     try {
       const isTargetPaused = strategyLabel

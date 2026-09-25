@@ -98,6 +98,16 @@ describe("PresetsController", () => {
         BadRequestException,
       );
     });
+
+    it("should throw BadRequestException if config contains non-whitelisted properties", async () => {
+      const dto = { name: "non_whitelisted", config: { scan_pct_threshold: 2.0, maliciousExtraProp: "hacked" } };
+      repo.findOne.mockResolvedValue(null);
+
+      const req = { ip: "127.0.0.1", headers: {} } as any;
+      await expect(controller.savePreset(dto as any, req)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
   });
 
   describe("deletePreset", () => {

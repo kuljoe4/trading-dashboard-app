@@ -2305,7 +2305,12 @@ export class SessionService implements OnModuleInit {
 
   private updateSessionPromiseChains: Map<string, Promise<any>> = new Map();
 
-  async forceBackfillKlines(symbol: string, interval: string) {
+  async forceBackfillKlines(
+    symbol: string,
+    interval: string,
+    clientIp?: string,
+    userAgent?: string,
+  ) {
     const result = await this.marketFeed.forceBackfillKlines(symbol, interval);
 
     const activeTrades = this.tradingSessionService?.sessionState?.activeTrades || [];
@@ -2317,6 +2322,14 @@ export class SessionService implements OnModuleInit {
       const config = (this.tradingSessionService?.sessionState?.config || activeTrade.strategy_config || {}) as SessionConfig;
       this.orderManager.checkExitSignals(symbol, activeTrade, config, config.scan_interval || "1m");
     }
+
+    await this.auditLog.log({
+      action: "FORCE_BACKFILL_KLINES",
+      actor: clientIp,
+      ip: clientIp,
+      userAgent,
+      details: { symbol, interval, count: result.count, isWarmupComplete: result.isWarmupComplete },
+    });
 
     return {
       ...result,

@@ -2,6 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 describe('Active P&L Overview Percentage Fix', () => {
   it('should verify peak and min pnl percentages use starting balance when totalPnl is available', () => {

@@ -298,6 +298,8 @@ describe('sanitizeSessionConfig', () => {
       htf_ema_slow_period: 26,
       htf_ema_cross_max_boost: 30.0,
       htf_ema_cross_rr_weight: 2.0,
+      htf_ema_cross_weights: { '1d': 15.0, '1w': 5.0 },
+      htf_ema_cross_prioritize_recent: true,
       force_risk_release: false
     }
     const sanitized = sanitizeSessionConfig(config)
@@ -309,6 +311,8 @@ describe('sanitizeSessionConfig', () => {
     assert.strictEqual(sanitized.htf_ema_slow_period, 26)
     assert.strictEqual(sanitized.htf_ema_cross_max_boost, 30.0)
     assert.strictEqual(sanitized.htf_ema_cross_rr_weight, 2.0)
+    assert.deepStrictEqual(sanitized.htf_ema_cross_weights, { '1d': 15.0, '1w': 5.0 })
+    assert.strictEqual(sanitized.htf_ema_cross_prioritize_recent, true)
     assert.strictEqual(sanitized.force_risk_release, false)
   })
 })

@@ -24,13 +24,15 @@ export interface Opportunity {
     trend: number;
     htf_ema_cross?: number;
   };
-  htf_ema_cross_perf?: {
+  htf_ema_cross_perf?: Array<{
+    interval: string;
     avg_profit_pct: number;
     avg_exit_rr: number;
     win_rate: number;
     cross_count: number;
     last_cross_direction?: 'LONG' | 'SHORT';
-  };
+    bars_since_cross?: number;
+  }>;
 }
 
 @Injectable()
@@ -44,11 +46,13 @@ export class MomentumScannerService {
   private readonly htfCrossPerfCache = new Map<string, {
     key: string;
     perf: {
+      interval: string;
       avg_profit_pct: number;
       avg_exit_rr: number;
       win_rate: number;
       cross_count: number;
       last_cross_direction?: 'LONG' | 'SHORT';
+      bars_since_cross?: number;
     };
     scoreBoost: number;
   }>();
@@ -326,16 +330,18 @@ export class MomentumScannerService {
       return null;
     }
 
-    // 2. Calculate HTF (4H default) EMA Dual Cross historical performance ranking score using prospective candidate SL distance
-    const htfPerfResult = this.calculateHtfEmaCrossPerf(symbol, config, slCheck.slDistPct);
+    // 2. Calculate HTF EMA Dual Cross historical performance ranking score using prospective candidate SL distance
+    const htfPerfResults = this.calculateAllHtfEmaCrossPerf(symbol, config, slCheck.slDistPct);
+    const totalHtfBoost = htfPerfResults.reduce((sum, res) => sum + res.scoreBoost, 0);
+    const htfPerfArray = htfPerfResults.length > 0 ? htfPerfResults.map(r => r.perf) : undefined;
 
     // Calculate opportunity score (0-100)
-    // Based on: momentum magnitude, volume, volatility, plus HTF 4H EMA cross historical performance ranking
+    // Based on: momentum magnitude, volume, volatility, plus HTF EMA cross historical performance ranking
     const { score, breakdown } = this.calculateScore(
       candles,
       momentumPct,
       config,
-      htfPerfResult?.scoreBoost || 0
+      totalHtfBoost
     );
 
     const tpRatio = config.tp_ratio || 2.0;
@@ -353,9 +359,9 @@ export class MomentumScannerService {
         prospect_rr: prospectRr,
         score_breakdown: {
           ...breakdown,
-          htf_ema_cross: htfPerfResult?.scoreBoost || 0,
+          htf_ema_cross: totalHtfBoost,
         },
-        htf_ema_cross_perf: htfPerfResult?.perf,
+        htf_ema_cross_perf: htfPerfArray,
       },
       candles,
     };
@@ -432,22 +438,52 @@ export class MomentumScannerService {
     return { slDistPct: calculatedDistPct, rejected: false };
   }
 
-  /**
-   * Calculates HTF (4H default) EMA Dual Cross historical performance metrics over the last N crosses.
-   * Evaluates fast vs slow EMA crossovers, measures average profit percentage and win rate per cross,
-   * and computes a score boost (0 to 15 points) for scanner ranking.
-   * Uses O(1) timestamp-keyed cache to avoid redundant technical analysis.
-   */
-  private calculateHtfEmaCrossPerf(
+  private calculateAllHtfEmaCrossPerf(
     symbol: string,
     config: SessionConfig,
     candidateSlDistPct?: number,
-  ): { perf: Opportunity['htf_ema_cross_perf']; scoreBoost: number } | null {
+  ): Array<{ perf: NonNullable<Opportunity['htf_ema_cross_perf']>[0]; scoreBoost: number }> {
     if (config.htf_ema_cross_boost_enabled === false) {
-      return null;
+      return [];
     }
 
-    const interval = config.htf_ema_cross_interval || '4h';
+    const results: Array<{ perf: NonNullable<Opportunity['htf_ema_cross_perf']>[0]; scoreBoost: number }> = [];
+
+    const htfWeights = config.htf_ema_cross_weights;
+    if (htfWeights && Object.keys(htfWeights).length > 0) {
+      for (const interval in htfWeights) {
+        if (Object.prototype.hasOwnProperty.call(htfWeights, interval)) {
+          const maxBoost = htfWeights[interval];
+          if (maxBoost > 0) {
+             const res = this.calculateSingleHtfEmaCrossPerf(symbol, interval, maxBoost, config, candidateSlDistPct);
+             if (res) results.push(res);
+          }
+        }
+      }
+    } else {
+      // Fallback to legacy single-interval configuration
+      const interval = config.htf_ema_cross_interval || '4h';
+      const maxBoost = config.htf_ema_cross_max_boost ?? 25.0;
+      const res = this.calculateSingleHtfEmaCrossPerf(symbol, interval, maxBoost, config, candidateSlDistPct);
+      if (res) results.push(res);
+    }
+
+    return results;
+  }
+
+  /**
+   * Calculates HTF EMA Dual Cross historical performance metrics over the last N crosses for a specific interval.
+   * Evaluates fast vs slow EMA crossovers, measures average profit percentage and win rate per cross,
+   * and computes a score boost for scanner ranking.
+   * Uses O(1) timestamp-keyed cache to avoid redundant technical analysis.
+   */
+  private calculateSingleHtfEmaCrossPerf(
+    symbol: string,
+    interval: string,
+    maxBoost: number,
+    config: SessionConfig,
+    candidateSlDistPct?: number,
+  ): { perf: NonNullable<Opportunity['htf_ema_cross_perf']>[0]; scoreBoost: number } | null {
     const targetCrossCount = Math.min(20, Math.max(1, config.htf_ema_cross_count ?? 4));
     const fastPeriod = config.htf_ema_fast_period || 9;
     const slowPeriod = config.htf_ema_slow_period || 21;
@@ -462,9 +498,11 @@ export class MomentumScannerService {
       : (config.sl_distance_pct ?? 0.8);
 
     const latestTs = candles[candles.length - 1].time;
-    const cacheKey = `${symbol}_${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${slDistPct.toFixed(2)}_${latestTs}`;
+    const prioritizeRecent = config.htf_ema_cross_prioritize_recent === true;
+    const cacheKey = `${symbol}_${interval}_${fastPeriod}_${slowPeriod}_${targetCrossCount}_${slDistPct.toFixed(2)}_${prioritizeRecent}_${latestTs}`;
 
-    const cached = this.htfCrossPerfCache.get(symbol);
+    const cacheMapKey = `${symbol}_${interval}`;
+    const cached = this.htfCrossPerfCache.get(cacheMapKey);
     if (cached && cached.key === cacheKey) {
       return { perf: cached.perf, scoreBoost: cached.scoreBoost };
     }
@@ -483,6 +521,7 @@ export class MomentumScannerService {
     const exitRrs: number[] = [];
     let wins = 0;
     let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
+    let firstCrossIndex = -1;
 
     // Scan backwards from second-to-last candle to find crossovers
     for (let i = candles.length - 2; i >= slowPeriod; i--) {
@@ -495,6 +534,10 @@ export class MomentumScannerService {
       const isBearCross = prevFast >= prevSlow && currFast < currSlow;
 
       if (isBullCross || isBearCross) {
+        if (firstCrossIndex === -1) {
+          firstCrossIndex = i;
+        }
+
         const crossDir = isBullCross ? 'LONG' : 'SHORT';
         if (!lastCrossDirection) {
           lastCrossDirection = crossDir;
@@ -568,24 +611,37 @@ export class MomentumScannerService {
     const avgExitRr = rrSum / crossProfits.length; // renamed to maintain DTO compatibility but represents exit RR
     const winRate = (wins / crossProfits.length) * 100;
 
-    const maxBoost = config.htf_ema_cross_max_boost ?? 25.0;
     const rrWeight = config.htf_ema_cross_rr_weight ?? 1.5;
 
     // Score boost up to maxBoost points based on average profit %, avg peak RR, and win rate
     const profitScore = Math.max(0, Math.min(maxBoost * 0.3, avgProfitPct * 2.0));
     const rrScore = Math.max(0, Math.min(maxBoost * 0.5, avgExitRr * rrWeight));
     const winRateScore = Math.max(0, Math.min(maxBoost * 0.2, (winRate / 100) * (maxBoost * 0.2)));
-    const scoreBoost = Math.min(maxBoost, profitScore + rrScore + winRateScore);
+    let scoreBoost = Math.min(maxBoost, profitScore + rrScore + winRateScore);
+
+    const barsSinceCross = firstCrossIndex !== -1 ? (candles.length - 1) - firstCrossIndex : undefined;
+
+    // Scale the boost based on recency if enabled
+    if (prioritizeRecent && barsSinceCross !== undefined) {
+      // Daily, Weekly, Monthly timeframes decay much slower relative to bar count
+      const isDailyOrAbove = interval.endsWith('d') || interval.endsWith('w') || interval.endsWith('M');
+      // Max boost at 0-2 bars, linearly scales down to 0% at decayThreshold
+      const decayThreshold = isDailyOrAbove ? 50 : 20;
+      const recencyFactor = Math.max(0, Math.min(1, 1 - (Math.max(0, barsSinceCross - 2) / decayThreshold)));
+      scoreBoost = scoreBoost * recencyFactor;
+    }
 
     const perf = {
+      interval,
       avg_profit_pct: Number(avgProfitPct.toFixed(2)),
       avg_exit_rr: Number(avgExitRr.toFixed(2)),
       win_rate: Number(winRate.toFixed(1)),
       cross_count: crossProfits.length,
       last_cross_direction: lastCrossDirection,
+      bars_since_cross: barsSinceCross,
     };
 
-    this.htfCrossPerfCache.set(symbol, { key: cacheKey, perf, scoreBoost });
+    this.htfCrossPerfCache.set(cacheMapKey, { key: cacheKey, perf, scoreBoost });
 
     return { perf, scoreBoost };
   }

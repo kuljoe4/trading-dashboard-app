@@ -761,8 +761,19 @@ export class MarketFeedService {
       const mtfIntervals = new Set<string>();
       for (const sc of strategyConfigs) {
         if (sc.htf_ema_cross_boost_enabled) {
-          const resolvedHtf = this.resolveInterval(sc.htf_ema_cross_interval || '4h', sc);
-          if (resolvedHtf) mtfIntervals.add(resolvedHtf);
+          if (sc.htf_ema_cross_weights && Object.keys(sc.htf_ema_cross_weights).length > 0) {
+            for (const interval in sc.htf_ema_cross_weights) {
+              if (Object.prototype.hasOwnProperty.call(sc.htf_ema_cross_weights, interval)) {
+                if (sc.htf_ema_cross_weights[interval] > 0) {
+                  const resolvedHtf = this.resolveInterval(interval, sc);
+                  if (resolvedHtf) mtfIntervals.add(resolvedHtf);
+                }
+              }
+            }
+          } else {
+            const resolvedHtf = this.resolveInterval(sc.htf_ema_cross_interval || '4h', sc);
+            if (resolvedHtf) mtfIntervals.add(resolvedHtf);
+          }
         }
         if (sc.signal_timeframes) {
           const activeSignals = [

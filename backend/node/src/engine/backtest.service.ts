@@ -710,7 +710,10 @@ export class BacktestService {
   private async fetchHistoricalCandles(symbol: string, interval: string, totalCount: number): Promise<Candle[]> {
     try {
       const limit = Math.min(totalCount, 1000);
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      // SEC-SENTINEL: Sanitize and URL-encode query parameters to prevent HTTP Parameter Pollution / SSRF / URL Injection
+      const safeSymbol = encodeURIComponent(symbol);
+      const safeInterval = encodeURIComponent(interval);
+      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${safeSymbol}&interval=${safeInterval}&limit=${limit}`;
       const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
       if (!response.ok) return [];
 

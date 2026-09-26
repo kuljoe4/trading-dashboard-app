@@ -101,3 +101,7 @@
 ## 2026-09-19 - Interactive Limit Card Unused Tooltip Prop Wiring & Control Button Semantics
 **Learning:** UI primitive components that accept a `tooltip` prop must consistently wrap their header labels with Radix `<Tooltip>` triggers and `cursor-help` styling to ensure hover/focus guidance is rendered. Additionally, interactive utility buttons (lock, increment, decrement) inside primitive cards require explicit `type="button"` and `cursor-pointer` attributes to avoid default form submit behavior and provide explicit affordances.
 **Action:** Always verify primitive components destructuring props like `tooltip` actually render `<Tooltip>` wrappers around their header elements and declare `type="button"` on all interactive buttons.
+
+## 2026-09-21 - Mobile Responsive Action Button Tooltip Standard
+**Learning:** Filter toolbars on mobile viewports often hide text labels on action buttons (e.g., hiding "Reset" text with `hidden sm:inline`), turning them into icon-only buttons on small screens. Wrapping these buttons in Radix `<Tooltip>` triggers guarantees that mobile/touch and keyboard navigators receive immediate visual and auditory guidance on focus or hover when text labels are hidden.
+**Action:** Always wrap responsive action buttons that hide text labels on mobile screens with Radix `<Tooltip>` triggers to preserve visual guidance across viewports.

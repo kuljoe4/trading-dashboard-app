@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('TradesView filter toolbar features ultra-dense mobile-optimized chip groups, aria-pressed attributes, and reset button', () => {
-  const p1 = path.join(process.cwd(), 'frontend/src/views/TradesView.jsx');
+  const p1 = path.join(process.cwd(), 'src/views/TradesView.jsx');
   const p2 = path.join(process.cwd(), 'src/views/TradesView.jsx');
   const filePath = fs.existsSync(p1) ? p1 : p2;
   const fileContent = fs.readFileSync(filePath, 'utf8');
@@ -22,6 +22,7 @@ test('TradesView filter toolbar features ultra-dense mobile-optimized chip group
   assert.match(fileContent, /focus-visible:ring-accent/, 'TradesView filter buttons should specify focus-visible rings');
   assert.match(fileContent, /cursor-pointer/, 'TradesView filter buttons should specify cursor-pointer');
 
-  // Verify reset filters button functionality
+  // Verify reset filters button functionality and Tooltip wrapper
   assert.match(fileContent, /resetAllFilters/, 'TradesView should feature a resetAllFilters handler for active filters');
+  assert.match(fileContent, /<Tooltip content="Reset position filters">/, 'TradesView reset filters button should be wrapped in Tooltip');
 });

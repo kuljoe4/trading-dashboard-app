@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 test('TradeDetailContent inline editing triggers use semantic buttons with aria-labels and focus-visible rings', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/trade/TradeDetailContent.jsx')
+  const filePath = path.join(process.cwd(), 'src/components/trade/TradeDetailContent.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Check Guard Ladder trigger button
@@ -33,7 +33,7 @@ test('TradeDetailContent inline editing triggers use semantic buttons with aria-
 })
 
 test('TradeDetailContent defines and renders EntrySignalContext component without ReferenceError', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/trade/TradeDetailContent.jsx')
+  const filePath = path.join(process.cwd(), 'src/components/trade/TradeDetailContent.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Check EntrySignalContext definition
@@ -60,7 +60,7 @@ test('TradeDetailContent defines and renders EntrySignalContext component withou
 })
 
 test('TradeDetailContent includes copy and paste actions for Active Exit Guard Config and Milestones', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/trade/TradeDetailContent.jsx')
+  const filePath = path.join(process.cwd(), 'src/components/trade/TradeDetailContent.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Check Active Config Copy/Paste handlers

@@ -2129,6 +2129,7 @@ const flattenConfig = (config) => {
       htf_ema_slow_period: config.htf_ema_slow_period || 21,
       htf_ema_cross_max_boost: config.htf_ema_cross_max_boost !== undefined ? config.htf_ema_cross_max_boost : 25.0,
       htf_ema_cross_rr_weight: config.htf_ema_cross_rr_weight !== undefined ? config.htf_ema_cross_rr_weight : 1.5,
+      htf_ema_cross_min_profit_pct: config.htf_ema_cross_min_profit_pct !== undefined ? config.htf_ema_cross_min_profit_pct : 0.0,
     };
 
     // Dynamically map all params (including suffixes) directly to flattened keys
@@ -2188,7 +2189,7 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
-      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight', 'htf_ema_cross_min_profit_pct'
     ];
 
     numericFields.forEach(f => {
@@ -2809,7 +2810,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
-      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight', 'htf_ema_cross_min_profit_pct'
     ];
 
     numericFields.forEach(f => {
@@ -3471,6 +3472,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {renderField('Slow EMA Period', 'htf_ema_slow_period', 'number', null, { min: 2, max: 200 })}
                   {renderField('Max Score Boost', 'htf_ema_cross_max_boost', 'number', null, { min: 0, max: 50, step: 1 })}
                   {renderField('R:R Score Weight', 'htf_ema_cross_rr_weight', 'number', null, { min: 0, max: 10, step: 0.1 })}
+                  {renderField('Min Profit %', 'htf_ema_cross_min_profit_pct', 'number', null, { min: 0, max: 20, step: 0.1 })}
                 </div>
               </div>
             </CollapsibleSection>

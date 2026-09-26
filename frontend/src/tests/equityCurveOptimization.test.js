@@ -154,7 +154,7 @@ function optimizedEquityCurveLogic(data = []) {
 
 describe('EquityCurve Single-Pass Optimization Tests', () => {
   test('Analytics.jsx file contains single-pass fused EquityCurve optimization and no redundant declarations', () => {
-    const analyticsPath = path.resolve(process.cwd(), 'frontend/src/components/Analytics.jsx');
+    const analyticsPath = path.resolve(process.cwd(), 'src/components/Analytics.jsx');
     const content = fs.readFileSync(analyticsPath, 'utf8');
 
     // Verify single-pass optimization comment and destructured useMemo signature

@@ -442,6 +442,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           <button
             type="button"
             onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+            aria-expanded={isCalendarOpen}
+            aria-label={isCalendarOpen ? "Collapse daily calendar breakdown" : "Expand daily calendar breakdown"}
             className="w-full py-2.5 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             <div className="flex items-center gap-2">
@@ -606,6 +608,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             <button
               type="button"
               onClick={() => setIsChecklistOpen(!isChecklistOpen)}
+              aria-expanded={isChecklistOpen}
+              aria-label={isChecklistOpen ? `Collapse technical signal checklist for ${bestOpp.symbol}` : `Expand technical signal checklist for ${bestOpp.symbol}`}
               className="w-full p-4 flex items-center justify-between hover:bg-surface/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
               <div className="flex items-center gap-2.5">

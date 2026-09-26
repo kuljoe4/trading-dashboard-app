@@ -34,7 +34,7 @@ describe('Bolt BacktestService Performance Benchmark & Parity', () => {
         {
           provide: BinanceClientFactory,
           useValue: {
-            genericRequest: jest.fn(),
+            genericRequest: jest.fn().mockImplementation((fn: () => Promise<any>) => fn()),
           },
         },
       ],

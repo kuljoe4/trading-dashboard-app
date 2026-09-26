@@ -181,8 +181,20 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const firedCount = signalResult.firedSignals?.length || 0
   const signalLogic = strategyConfig.signal_logic || 'all'
   const requiredSignals = strategyConfig.required_signals || []
-  const reqLabels = (strategyConfig.enabled_signals || []).filter(s => requiredSignals.includes(s)).map(s => SIGNAL_LABELS[s] || s)
-  const optLabels = (strategyConfig.enabled_signals || []).filter(s => !requiredSignals.includes(s)).map(s => SIGNAL_LABELS[s] || s)
+  // BOLT OPTIMIZATION: Loop-fused single-pass signal label classification to eliminate intermediate array allocations (.filter().map())
+  const { reqLabels, optLabels } = useMemo(() => {
+    const enabled = strategyConfig.enabled_signals || [];
+    const req = [];
+    const opt = [];
+    const len = enabled.length;
+    for (let i = 0; i < len; i++) {
+      const sig = enabled[i];
+      const lbl = SIGNAL_LABELS[sig] || sig;
+      if (requiredSignals.includes(sig)) req.push(lbl);
+      else opt.push(lbl);
+    }
+    return { reqLabels: req, optLabels: opt };
+  }, [strategyConfig.enabled_signals, requiredSignals]);
 
   const conditionFormula = signalLogic === 'combo'
     ? `${reqLabels.length > 0 ? `[Req: ${reqLabels.join(' AND ')}]` : '[Req: Base]'} AND ${optLabels.length > 0 ? `[Any: ${optLabels.join(' | ')}]` : '[Any]'}`

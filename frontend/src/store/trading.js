@@ -58,7 +58,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
     } : undefined,
     htf_ema_cross_perf: source.htf_ema_cross_perf && typeof source.htf_ema_cross_perf === 'object' ? {
       avg_profit_pct: toNumber(source.htf_ema_cross_perf.avg_profit_pct),
-      avg_peak_rr: toNumber(source.htf_ema_cross_perf.avg_peak_rr),
+      avg_exit_rr: toNumber(source.htf_ema_cross_perf.avg_exit_rr),
       win_rate: toNumber(source.htf_ema_cross_perf.win_rate),
       cross_count: toNumber(source.htf_ema_cross_perf.cross_count),
       last_cross_direction: source.htf_ema_cross_perf.last_cross_direction
@@ -398,6 +398,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     set({ uiEcoMode: !!eco });
   },
 
+  recentTradeEvents: {}, // strategy_label -> array of events
   addAlert: (alert) => {
      const now = Date.now();
      const id = Math.random().toString(36).substring(2, 11);
@@ -629,9 +630,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        }
 
        // 2. Collection Persistence: hold trades/scanner results until non-empty data arrives
+       // BOLT OPTIMIZATION: Pre-indexed Map lookups convert O(N*M) linear .find() searches into O(N+M) O(1) lookups
+       // and pass prev references to normalizeOpportunity for fingerprint-gated object reference reuse.
+       const activeTradesMap = new Map((currentActiveTrades || []).map(x => [x.symbol, x]));
+       const scannerMap = new Map((currentScannerResults || []).map(x => [x.symbol, x]));
+
        if (Array.isArray(updates.activeTrades)) {
          if (updates.activeTrades.length > 0 || currentActiveTrades.length === 0) {
-           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), isResuming)).filter(Boolean);
+           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, activeTradesMap.get(t.symbol), isResuming)).filter(Boolean);
          } else {
            merged.activeTrades = currentActiveTrades;
          }
@@ -641,7 +647,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
        if (Array.isArray(updates.scannerResults)) {
          if (updates.scannerResults.length > 0 || currentScannerResults.length === 0) {
-           merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+           merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o, scannerMap.get(o.symbol))).filter(Boolean);
          } else {
            merged.scannerResults = currentScannerResults;
          }
@@ -659,8 +665,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        }
     } else {
        // Normal merge with normalization when NOT in resumption window
-       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), false)).filter(Boolean);
-       if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+       // BOLT OPTIMIZATION: Pre-indexed Map lookups convert O(N*M) linear .find() searches into O(N+M) O(1) lookups
+       // and pass prev references to normalizeOpportunity for fingerprint-gated object reference reuse.
+       const activeTradesMap = new Map((currentActiveTrades || []).map(x => [x.symbol, x]));
+       const scannerMap = new Map((currentScannerResults || []).map(x => [x.symbol, x]));
+
+       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, activeTradesMap.get(t.symbol), false)).filter(Boolean);
+       if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o, scannerMap.get(o.symbol))).filter(Boolean);
        if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, false)).filter(Boolean);
     }
 
@@ -788,6 +799,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const isResuming = st.isSyncingOnResume;
           const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
           const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
+          const currentScannerMap = new Map((st.scannerResults || []).map(o => [o.symbol, o]));
 
           let nt = currentActiveTrades;
           if (stop) nt = [];
@@ -848,7 +860,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
             logs: nextLogs,
-            scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(normalizeOpportunity) : st.scannerResults || []).filter(Boolean),
+            scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(o => normalizeOpportunity(o, currentScannerMap.get(o.symbol))) : st.scannerResults || []).filter(Boolean),
             activeWindows: Array.isArray(d.activeWindows) ? d.activeWindows.map(w => ({...w})) : (Array.isArray(st.activeWindows) ? st.activeWindows : []),
             tradeHistory: nextHistory,
             gateState: d.gateState ?? st.gateState,
@@ -994,6 +1006,25 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const t = d.trade ? normalizeTrade(d.trade) : null;
         set(st => {
           let nextActive = st.activeTrades;
+          let nextRecentEvents = st.recentTradeEvents || {};
+
+          if (d.event === 'opened' || d.event === 'entry_rejected') {
+            const strategyLabel = d.strategy_label || t?.strategy_label || 'Momentum Strategy';
+            const currentEvents = nextRecentEvents[strategyLabel] || [];
+            const newEvent = {
+              id: `${d.symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+              symbol: d.symbol,
+              event: d.event,
+              status: d.event === 'opened' ? 'passed' : 'rejected',
+              reason: d.reason || (d.event === 'opened' ? 'Entry conditions met' : 'Rejected'),
+              ts: Date.now()
+            };
+            nextRecentEvents = {
+              ...nextRecentEvents,
+              [strategyLabel]: [newEvent, ...currentEvents].slice(0, 2)
+            };
+          }
+
           if (d.event === 'closed') {
             nextActive = st.activeTrades.filter(x => x.symbol !== d.symbol && x.id !== d.id);
           } else if (t) {
@@ -1025,6 +1056,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             lastAuthoritativeUpdateTs: nowTs,
             activeTrades: nextActive,
             tradeHistory: updatedHistory,
+            recentTradeEvents: nextRecentEvents,
             entryCount: d.stats?.entryCount ?? st.entryCount,
             hitCount: d.stats?.hitCount ?? st.hitCount
           };

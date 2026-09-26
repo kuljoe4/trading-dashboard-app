@@ -84,13 +84,13 @@ export class PresetsController {
 
     const action = preset ? "UPDATE_PRESET" : "CREATE_PRESET";
     if (preset) {
-      preset.config = presetDto.config;
+      preset.config = configInstance;
       await this.presetRepository.save(preset);
       this.logger.log(`Preset updated: ${presetDto.name} by ${clientIp}`);
     } else {
       preset = this.presetRepository.create({
         name: presetDto.name,
-        config: presetDto.config,
+        config: configInstance,
       });
       await this.presetRepository.save(preset);
       this.logger.log(`New preset created: ${presetDto.name} by ${clientIp}`);

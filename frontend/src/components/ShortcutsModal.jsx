@@ -51,10 +51,10 @@ export const ShortcutsModal = ({ isOpen, onClose }) => {
           className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 w-full rounded-t-3xl rounded-b-none max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-full md:max-w-md md:rounded-2xl bg-surface/95 border border-border/50 p-5 md:p-6 shadow-2xl backdrop-blur-xl z-[10110] animate-in fade-in zoom-in-95 duration-300 focus:outline-none"
         >
           <Dialog.Title asChild>
-            <VisuallyHidden>Keyboard Shortcuts Cheatsheet</VisuallyHidden>
+            <VisuallyHidden id="shortcuts-title">Keyboard Shortcuts Cheatsheet</VisuallyHidden>
           </Dialog.Title>
           <Dialog.Description asChild>
-            <VisuallyHidden>List of keyboard shortcuts to navigate and control the Momentum Engine dashboard.</VisuallyHidden>
+            <VisuallyHidden id="shortcuts-description">List of keyboard shortcuts to navigate and control the Momentum Engine dashboard.</VisuallyHidden>
           </Dialog.Description>
 
           <div className="flex justify-between items-center mb-6">

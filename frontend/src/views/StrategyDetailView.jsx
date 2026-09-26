@@ -139,22 +139,30 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     ? `${stratPerformance.hitRateRatio.toFixed(2)}x (Contracting)`
     : `${stratPerformance.hitRateRatio.toFixed(2)}x (Stable)`;
 
+  // BOLT OPTIMIZATION: Single-pass loop with early rejection for fired signals.
+  // Replaces multi-pass .map().filter().sort() array chaining to eliminate intermediate array allocations
+  // and avoid proximity calculation on fired/triggered opportunities.
   const proximityLeaderboard = useMemo(() => {
     const list = strategyScannerResults || [];
+    const len = list.length;
+    const candidates = [];
 
-    return list.map(opp => {
-      const proximity = calculateOpportunityProximity(opp, strategyConfig);
-      return {
-        ...opp,
-        proximity
-      };
-    })
-    .filter(opp => {
-      // Exclude opportunities that have crossed already (fired/triggered or >= 100% proximity)
+    for (let i = 0; i < len; i++) {
+      const opp = list[i];
+      if (!opp) continue;
+
+      // Fast-fail: Exclude opportunities that have crossed already (fired/triggered) before computing proximity
       const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
-      return !isFired && opp.proximity < 100;
-    })
-    .sort((a, b) => b.proximity - a.proximity);
+      if (isFired) continue;
+
+      const proximity = calculateOpportunityProximity(opp, strategyConfig);
+      if (proximity < 100) {
+        candidates.push({ ...opp, proximity });
+      }
+    }
+
+    candidates.sort((a, b) => b.proximity - a.proximity);
+    return candidates;
   }, [strategyScannerResults, strategyConfig]);
 
   const focusedOpp = useMemo(() => {
@@ -442,6 +450,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           <button
             type="button"
             onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+            aria-expanded={isCalendarOpen}
+            aria-label={isCalendarOpen ? "Collapse daily calendar breakdown" : "Expand daily calendar breakdown"}
             className="w-full py-2.5 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             <div className="flex items-center gap-2">
@@ -606,6 +616,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             <button
               type="button"
               onClick={() => setIsChecklistOpen(!isChecklistOpen)}
+              aria-expanded={isChecklistOpen}
+              aria-label={isChecklistOpen ? `Collapse technical signal checklist for ${bestOpp.symbol}` : `Expand technical signal checklist for ${bestOpp.symbol}`}
               className="w-full p-4 flex items-center justify-between hover:bg-surface/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
               <div className="flex items-center gap-2.5">

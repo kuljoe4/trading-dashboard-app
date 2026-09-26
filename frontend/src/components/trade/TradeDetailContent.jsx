@@ -2561,12 +2561,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                       setFormDelays(prev => ({ ...prev, [key]: 0 }));
                                     }}
                                     className={cn(
-                                      "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                      "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                                       !isCandleType
                                         ? "bg-accent/10 text-accent"
                                         : "text-dim hover:text-text"
                                     )}
                                     aria-pressed={!isCandleType}
+                                    aria-label={`Switch delay mode for ${label} to time-based`}
                                   >
                                     Time
                                   </button>
@@ -2576,12 +2577,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                                       setFormDelays(prev => ({ ...prev, [key]: "1c" }));
                                     }}
                                     className={cn(
-                                      "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                                      "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                                       isCandleType
                                         ? "bg-accent/10 text-accent"
                                         : "text-dim hover:text-text"
                                     )}
                                     aria-pressed={isCandleType}
+                                    aria-label={`Switch delay mode for ${label} to candle-based`}
                                   >
                                     Candle
                                   </button>

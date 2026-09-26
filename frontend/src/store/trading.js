@@ -613,6 +613,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];
     const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
 
+    // BOLT OPTIMIZATION: Pre-index existing collections into Maps for O(1) lookups during normalization.
+    // This replaces O(N*M) linear .find() calls with O(N+M) Map lookups, and passes previous scanner
+    // opportunities to normalizeOpportunity to enable fingerprint reference reuse and skip React re-renders.
+    const activeTradesMap = new Map(currentActiveTrades.map(t => [t.symbol, t]));
+    const scannerMap = new Map(currentScannerResults.map(o => [o.symbol, o]));
+
     // BOLT: Anti-Flicker & Metric Retention Guard across all updates.
     // Prevent metrics (P&L, balance, risk, SL used) from dropping to 0 or resetting
     // when backend emits transient zero/null/uninitialized state during reconnection or tab un-throttling.
@@ -630,9 +636,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        }
 
        // 2. Collection Persistence: hold trades/scanner results until non-empty data arrives
+       // BOLT OPTIMIZATION: Pre-indexed Map lookups convert O(N*M) linear .find() searches into O(N+M) O(1) lookups
+       // and pass prev references to normalizeOpportunity for fingerprint-gated object reference reuse.
+       const activeTradesMap = new Map((currentActiveTrades || []).map(x => [x.symbol, x]));
+       const scannerMap = new Map((currentScannerResults || []).map(x => [x.symbol, x]));
+
        if (Array.isArray(updates.activeTrades)) {
          if (updates.activeTrades.length > 0 || currentActiveTrades.length === 0) {
-           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), isResuming)).filter(Boolean);
+           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, activeTradesMap.get(t.symbol), isResuming)).filter(Boolean);
          } else {
            merged.activeTrades = currentActiveTrades;
          }
@@ -642,7 +653,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
        if (Array.isArray(updates.scannerResults)) {
          if (updates.scannerResults.length > 0 || currentScannerResults.length === 0) {
-           merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+           merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o, scannerMap.get(o.symbol))).filter(Boolean);
          } else {
            merged.scannerResults = currentScannerResults;
          }
@@ -660,8 +671,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        }
     } else {
        // Normal merge with normalization when NOT in resumption window
-       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), false)).filter(Boolean);
-       if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, activeTradesMap.get(t.symbol), false)).filter(Boolean);
+       if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o, scannerMap.get(o.symbol))).filter(Boolean);
        if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, false)).filter(Boolean);
     }
 
@@ -789,6 +800,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const isResuming = st.isSyncingOnResume;
           const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
           const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
+          const currentScannerMap = new Map((st.scannerResults || []).map(o => [o.symbol, o]));
 
           let nt = currentActiveTrades;
           if (stop) nt = [];
@@ -849,7 +861,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
             logs: nextLogs,
-            scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(normalizeOpportunity) : st.scannerResults || []).filter(Boolean),
+            scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(o => normalizeOpportunity(o, currentScannerMap.get(o.symbol))) : st.scannerResults || []).filter(Boolean),
             activeWindows: Array.isArray(d.activeWindows) ? d.activeWindows.map(w => ({...w})) : (Array.isArray(st.activeWindows) ? st.activeWindows : []),
             tradeHistory: nextHistory,
             gateState: d.gateState ?? st.gateState,

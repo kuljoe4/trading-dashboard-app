@@ -60,6 +60,7 @@ export class MarketFeedService {
   private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
   private currentIsTestnet = false;
   private restSeedInFlight = false;
+  private lastRestSeedTs = 0;
 
   private lastMiniTickerMsgTs = 0;
   private lastMarkTickerMsgTs = 0;
@@ -371,14 +372,20 @@ export class MarketFeedService {
       return;
     }
     if (this.restSeedInFlight) return;
+    const now = Date.now();
+    // CITADEL PROTOCOL: Enforce strict 5m cooldown on REST seed (GET /fapi/v1/ticker/24hr)
+    // Weight Saved: 40 weight units per prevented REST call (up to 2400 weight/hr).
+    if (now - this.lastRestSeedTs < 5 * 60 * 1000) {
+      this.logger.debug(`[MarketFeed] REST seed skipped: 5-minute cooldown active.`);
+      return;
+    }
     const cacheSize = this.tickerCache.getCacheSize();
-    // CITADEL PROTOCOL: Skip REST seed if TickerCache is already populated via WS or previous seed.
-    // Weight Saved: 40 weight units per prevented REST call (GET /fapi/v1/ticker/24hr).
     if (cacheSize > 0) {
       this.logger.debug(`[MarketFeed] REST seed skipped: TickerCache already populated (${cacheSize} symbols).`);
       return;
     }
 
+    this.lastRestSeedTs = now;
     this.restSeedInFlight = true;
     try {
       const restBase = this.currentRestBase;

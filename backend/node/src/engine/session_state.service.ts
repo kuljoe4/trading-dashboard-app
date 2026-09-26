@@ -151,7 +151,7 @@ export class SessionStateService {
         this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
       }
 
-      const pnl = trade.pnl || 0;
+      const pnl = Number(trade.pnl || 0);
       totalPnlAcc += pnl;
       totalRealizedFeeAcc += Number(trade.realized_fee) || 0;
       totalFundingFeeAcc += Number(trade.funding_fee) || 0;
@@ -562,19 +562,20 @@ export class SessionStateService {
       this.cachedClosedTradesStats[label] = { pnl: 0, count: 0, hits: 0 };
     }
 
+    const tradePnlNum = Number(trade.pnl || 0);
     const stats = this.cachedClosedTradesStats[label];
     const applied = this.appliedStrategyPnL.get(trade.id) || 0;
-    const delta = roundEight((trade.pnl || 0) - applied);
+    const delta = roundEight(tradePnlNum - applied);
 
     stats.pnl = roundEight(stats.pnl + delta);
-    this.appliedStrategyPnL.set(trade.id, trade.pnl || 0);
+    this.appliedStrategyPnL.set(trade.id, tradePnlNum);
 
     if (!trade.is_reconciliation) {
       if (!this.countedStrategyEntries.has(trade.id)) {
         stats.count++;
         this.countedStrategyEntries.add(trade.id);
       }
-      if ((trade.pnl || 0) > 0 && !this.countedStrategyHits.has(trade.id)) {
+      if (tradePnlNum > 0 && !this.countedStrategyHits.has(trade.id)) {
         stats.hits++;
         this.countedStrategyHits.add(trade.id);
       }

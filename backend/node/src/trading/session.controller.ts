@@ -35,7 +35,7 @@ export class SessionController {
   ) {}
 
   @Post("backfill-klines")
-  async backfillKlines(@Body() body: BackfillKlinesDto) {
+  async backfillKlines(@Body() body: BackfillKlinesDto, @Req() req: Request) {
     const dto = plainToInstance(BackfillKlinesDto, body || {});
     const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
     if (errors.length > 0) {
@@ -46,8 +46,12 @@ export class SessionController {
       });
     }
 
+    const clientIp =
+      req.ip || extractIp(req.headers, req.socket?.remoteAddress || "unknown");
+    const userAgent = req.headers["user-agent"];
+
     try {
-      return await this.sessionService.forceBackfillKlines(dto.symbol, dto.interval);
+      return await this.sessionService.forceBackfillKlines(dto.symbol, dto.interval, clientIp, userAgent);
     } catch (err: any) {
       throw new BadRequestException(err.message || "Failed to backfill candles");
     }

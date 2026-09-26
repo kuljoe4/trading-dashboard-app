@@ -51,12 +51,7 @@ export class SessionController {
     const userAgent = req.headers["user-agent"];
 
     try {
-      return await this.sessionService.forceBackfillKlines(
-        dto.symbol,
-        dto.interval,
-        clientIp,
-        userAgent,
-      );
+      return await this.sessionService.forceBackfillKlines(dto.symbol, dto.interval, clientIp, userAgent);
     } catch (err: any) {
       throw new BadRequestException(err.message || "Failed to backfill candles");
     }

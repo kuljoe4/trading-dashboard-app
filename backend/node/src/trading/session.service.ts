@@ -2308,7 +2308,7 @@ export class SessionService implements OnModuleInit {
   async forceBackfillKlines(
     symbol: string,
     interval: string,
-    ip?: string,
+    clientIp?: string,
     userAgent?: string,
   ) {
     const result = await this.marketFeed.forceBackfillKlines(symbol, interval);
@@ -2323,16 +2323,13 @@ export class SessionService implements OnModuleInit {
       this.orderManager.checkExitSignals(symbol, activeTrade, config, config.scan_interval || "1m");
     }
 
-    // SEC-SENTINEL: Log FORCE_BACKFILL_KLINES to preserve forensic auditability for external exchange REST sync requests
-    if (ip) {
-      await this.auditLog.log({
-        action: "FORCE_BACKFILL_KLINES",
-        actor: ip,
-        ip,
-        userAgent,
-        details: { symbol, interval, count: result.count },
-      });
-    }
+    await this.auditLog.log({
+      action: "FORCE_BACKFILL_KLINES",
+      actor: clientIp,
+      ip: clientIp,
+      userAgent,
+      details: { symbol, interval, count: result.count, isWarmupComplete: result.isWarmupComplete },
+    });
 
     return {
       ...result,

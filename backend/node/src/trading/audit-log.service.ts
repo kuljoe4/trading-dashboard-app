@@ -98,11 +98,18 @@ export class AuditLogService {
 
   /**
    * SENTINEL: Remove old audit logs to prevent storage exhaustion.
-   * Defaults to 90 days of retention.
+   * Defaults to 90 days of retention. Input is validated to prevent negative or invalid retention days from purging current audit logs.
    */
   async cleanup(days = 90) {
     try {
-      const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      // SENTINEL: Validate and clamp retention days (1..3650) to prevent negative or invalid values from calculating a future cutoff that purges all audit logs.
+      const parsedDays = typeof days === 'number' ? days : Number(days);
+      const sanitizedDays =
+        !isNaN(parsedDays) && isFinite(parsedDays) && parsedDays >= 1
+          ? Math.min(Math.floor(parsedDays), 3650)
+          : 90;
+
+      const cutoff = new Date(Date.now() - sanitizedDays * 24 * 60 * 60 * 1000);
       const result = await this.auditLogRepository
         .createQueryBuilder()
         .delete()
@@ -110,7 +117,7 @@ export class AuditLogService {
         .execute();
 
       if (result.affected && result.affected > 0) {
-        this.logger.log(`Audit log cleanup: removed ${result.affected} entries older than ${days} days.`);
+        this.logger.log(`Audit log cleanup: removed ${result.affected} entries older than ${sanitizedDays} days.`);
       }
       return result.affected || 0;
     } catch (err) {

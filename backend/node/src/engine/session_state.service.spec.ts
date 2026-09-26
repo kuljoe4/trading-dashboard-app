@@ -40,6 +40,41 @@ describe('SessionStateService PnL Restart Consistency', () => {
     expect(service.stats.totalPnl).toBe(8.5);
   });
 
+  it('should handle string-typed pnl values gracefully without string concatenation', () => {
+    const config = new SessionConfig();
+    config.strategy_label = 'Momentum Strategy';
+
+    const stringPnlTrade1 = {
+      id: 't-str-1',
+      pnl: '10.5',
+      status: 'CLOSED',
+      strategy_label: 'Momentum Strategy'
+    } as any;
+
+    const stringPnlTrade2 = {
+      id: 't-str-2',
+      pnl: '-2.5',
+      status: 'CLOSED',
+      strategy_label: 'Momentum Strategy'
+    } as any;
+
+    service.reset(config, [stringPnlTrade1, stringPnlTrade2]);
+
+    expect(service.stats.totalPnl).toBe(8.0);
+    expect(service.cachedClosedTradesStats['Momentum Strategy'].pnl).toBe(8.0);
+
+    // Also verify addClosedTrade
+    const stringPnlTrade3 = {
+      id: 't-str-3',
+      pnl: '12.0',
+      status: 'CLOSED',
+      strategy_label: 'Momentum Strategy'
+    } as any;
+
+    service.addClosedTrade(stringPnlTrade3);
+    expect(service.cachedClosedTradesStats['Momentum Strategy'].pnl).toBe(20.0);
+  });
+
   describe('API Limit and Ban Protection', () => {
     it('should correctly process centralized BAN limit reached events', () => {
       const banTime = Date.now() + 10000;

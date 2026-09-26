@@ -2,9 +2,13 @@ import test from 'node:test'
 import assert from 'node:assert'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 test('TradeDetailContent inline editing triggers use semantic buttons with aria-labels and focus-visible rings', () => {
-  const filePath = path.join(process.cwd(), 'src/components/trade/TradeDetailContent.jsx')
+  const filePath = path.resolve(__dirname, '../components/trade/TradeDetailContent.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Check Guard Ladder trigger button
@@ -33,7 +37,7 @@ test('TradeDetailContent inline editing triggers use semantic buttons with aria-
 })
 
 test('TradeDetailContent defines and renders EntrySignalContext component without ReferenceError', () => {
-  const filePath = path.join(process.cwd(), 'src/components/trade/TradeDetailContent.jsx')
+  const filePath = path.resolve(__dirname, '../components/trade/TradeDetailContent.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Check EntrySignalContext definition
@@ -60,7 +64,7 @@ test('TradeDetailContent defines and renders EntrySignalContext component withou
 })
 
 test('TradeDetailContent includes copy and paste actions for Active Exit Guard Config and Milestones', () => {
-  const filePath = path.join(process.cwd(), 'src/components/trade/TradeDetailContent.jsx')
+  const filePath = path.resolve(__dirname, '../components/trade/TradeDetailContent.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Check Active Config Copy/Paste handlers
@@ -101,5 +105,33 @@ test('TradeDetailContent includes copy and paste actions for Active Exit Guard C
   assert.ok(
     content.includes('aria-label="Paste Guard Ladder Milestones from Clipboard"'),
     'Paste Guard Ladder Milestones button should specify aria-label'
+  )
+})
+
+test('TradeDetailView and TradeDetailContent include accessible navigation and delay mode buttons', () => {
+  const viewPath = path.resolve(__dirname, '../views/TradeDetailView.jsx')
+  const contentPath = path.resolve(__dirname, '../components/trade/TradeDetailContent.jsx')
+
+  const viewContent = fs.readFileSync(viewPath, 'utf8')
+  const detailContent = fs.readFileSync(contentPath, 'utf8')
+
+  // Check Trade Not Found back button accessibility in TradeDetailView
+  assert.ok(
+    viewContent.includes('aria-label="Back to Active Trades"'),
+    'TradeDetailView fallback button must specify descriptive aria-label'
+  )
+  assert.ok(
+    viewContent.includes('focus-visible:ring-2 focus-visible:ring-accent'),
+    'TradeDetailView fallback button must include high-contrast focus-visible ring'
+  )
+
+  // Check Delay mode buttons accessibility in TradeDetailContent
+  assert.ok(
+    detailContent.includes('aria-label={`Switch delay mode for ${label} to time-based`}'),
+    'Time-based delay button must specify descriptive aria-label'
+  )
+  assert.ok(
+    detailContent.includes('aria-label={`Switch delay mode for ${label} to candle-based`}'),
+    'Candle-based delay button must specify descriptive aria-label'
   )
 })

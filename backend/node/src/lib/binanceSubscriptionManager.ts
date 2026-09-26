@@ -26,7 +26,7 @@ export class BinanceSubscriptionManager {
   private pingInterval: NodeJS.Timeout | null = null;
   private statsInterval: NodeJS.Timeout | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
-  private ackTimeoutMs = 5000;
+  private ackTimeoutMs = 15000;
   private lastMsgTs = 0;
   private msgCount = 0;
   private stallWatchdogInterval: NodeJS.Timeout | null = null;

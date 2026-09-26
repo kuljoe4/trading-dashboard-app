@@ -1,4 +1,4 @@
-last_review: 2026-08-24
+last_review: 2026-09-24
 system: Momentum Engine
 version: 1.0.0
 
@@ -191,6 +191,16 @@ review_history:
     notes: "Jest worker teardown open handles warning during full test suite run due to active timers in integration tests."
     recommendation: "Add explicit unref() or afterAll teardown in integration test suites."
 
+  - id: TEST-002
+    status: resolved
+    severity: low
+    category: testing
+    discovered: 2026-09-24
+    resolved: 2026-09-24
+    files:
+      - frontend/src/tests/activePnlOverviewPercentageFix.test.js
+    notes: "Relative path resolution in activePnlOverviewPercentageFix.test.js failed when executed with cwd set to frontend directory. Updated to use fileURLToPath(import.meta.url) relative path resolution."
+
 architecture_decisions:
   - ADR-001: "Pro-Loop Execution Architecture - Separate high-frequency position monitoring (1s) from lower-frequency scanning (15s)."
   - ADR-002: "Tiered Bandwidth WS Broadcaster - Broadcast full updates only to focused tabs; stream thinned deltas to background/unfocused views."
@@ -199,9 +209,12 @@ architecture_decisions:
   - ADR-005: "Strict DTO & NestJS Validation Pipe - Mandate Class-Validator constraints with XSS lookaheads and strict query type assertions."
 
 metrics:
-  test_count_backend: 608
-  test_suites_backend: 131
+  test_count_backend: 798
+  test_suites_backend: 161
   backend_test_pass_rate: 100.0
+  test_count_frontend: 221
+  test_suites_frontend: 25
+  frontend_test_pass_rate: 100.0
   frontend_bundle_size_kb: 538.30
   heap_memory_usage_mb: 185
   hot_loop_latency_avg_ms: 0.85

@@ -613,6 +613,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];
     const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
 
+    // BOLT OPTIMIZATION: Pre-index existing collections into Maps for O(1) lookups during normalization.
+    // This replaces O(N*M) linear .find() calls with O(N+M) Map lookups, and passes previous scanner
+    // opportunities to normalizeOpportunity to enable fingerprint reference reuse and skip React re-renders.
+    const activeTradesMap = new Map(currentActiveTrades.map(t => [t.symbol, t]));
+    const scannerMap = new Map(currentScannerResults.map(o => [o.symbol, o]));
+
     // BOLT: Anti-Flicker & Metric Retention Guard across all updates.
     // Prevent metrics (P&L, balance, risk, SL used) from dropping to 0 or resetting
     // when backend emits transient zero/null/uninitialized state during reconnection or tab un-throttling.
@@ -665,11 +671,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        }
     } else {
        // Normal merge with normalization when NOT in resumption window
-       // BOLT OPTIMIZATION: Pre-indexed Map lookups convert O(N*M) linear .find() searches into O(N+M) O(1) lookups
-       // and pass prev references to normalizeOpportunity for fingerprint-gated object reference reuse.
-       const activeTradesMap = new Map((currentActiveTrades || []).map(x => [x.symbol, x]));
-       const scannerMap = new Map((currentScannerResults || []).map(x => [x.symbol, x]));
-
        if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, activeTradesMap.get(t.symbol), false)).filter(Boolean);
        if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o, scannerMap.get(o.symbol))).filter(Boolean);
        if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, false)).filter(Boolean);

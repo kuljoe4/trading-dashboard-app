@@ -1863,41 +1863,99 @@ export class OrderManagerService {
   async cancelBinanceOrder(symbol: string, orderId: string, orderType: 'standard' | 'algo' = 'standard'): Promise<boolean> {
     if (this.paperMode || !this.binanceClient) return true;
 
-    try {
-      const response = orderType === 'algo'
-        ? await this.binanceClient.restAPI.cancelAlgoOrder({ symbol, algoId: orderId } as any)
-        : await this.binanceClient.restAPI.cancelOrder({ symbol, orderId: BigInt(orderId) });
+    const isNumeric = /^\d+$/.test(orderId);
+    const primaryType = orderType === 'algo' ? 'algo' : 'standard';
+    const secondaryType = primaryType === 'algo' ? 'standard' : 'algo';
 
+    const executeCancel = async (type: 'standard' | 'algo') => {
+      if (type === 'algo') {
+        const params = isNumeric ? { symbol, algoId: orderId } : { symbol, clientAlgoId: orderId };
+        return await (this.binanceClient!.restAPI as any).cancelAlgoOrder(params);
+      } else {
+        const params = isNumeric ? { symbol, orderId: BigInt(orderId) } : { symbol, origClientOrderId: orderId };
+        return await this.binanceClient!.restAPI.cancelOrder(params);
+      }
+    };
+
+    const isUnknownOrderError = (errMsg: string) => {
+      const upper = errMsg.toUpperCase();
+      return (
+        upper.includes('-2011') ||
+        upper.includes('-2013') ||
+        upper.includes('UNKNOWN_ORDER') ||
+        upper.includes('UNKNOWN ORDER') ||
+        upper.includes('DOES NOT EXIST')
+      );
+    };
+
+    const isAlreadyClosedError = (errMsg: string) => {
+      const upper = errMsg.toUpperCase();
+      return upper.includes('ORDER HAS BEEN FILLED') || upper.includes('FILLED');
+    };
+
+    try {
+      const response = await executeCancel(primaryType);
       this.updateWeight(response?.headers);
       const data = typeof response.data === 'function' ? await response.data() : response.data;
-      this.logger.log(`Binance ${orderType} order canceled: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(data)}`);
+      this.logger.log(`Binance ${primaryType} order canceled: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(data)}`);
 
-      // SRE: Proactively remove from real-time cache and mark as executed to prevent
-      // the Watchdog from seeing it as an "orphan" during the UDS propagation delay.
       let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
-      const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId);
+      const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId && o.clientOrderId !== orderId);
       this.sessionState.realTimeOrders.set(symbol, updatedOrders);
       this.markAsExecuted(symbol, orderId, 'CANCELED');
 
       return true;
     } catch (err) {
-      // If order is already filled or canceled, we can ignore the error
       const errMsg = err instanceof Error ? err.message : String(err);
-      const upperMsg = errMsg.toUpperCase();
-      if (upperMsg.includes('ORDER HAS BEEN FILLED') || upperMsg.includes('UNKNOWN_ORDER') || upperMsg.includes('UNKNOWN ORDER')) {
-        this.logger.debug(`Order ${orderId} already closed: ${errMsg}`);
 
-        // SRE: Even if it failed with UNKNOWN_ORDER, we must purge it from local cache
-        // to prevent infinite retry loops in the Watchdog.
+      if (isUnknownOrderError(errMsg)) {
+        this.logger.debug(`[cancelBinanceOrder] ${primaryType} cancel returned UNKNOWN_ORDER for ${orderId}. Attempting fallback to ${secondaryType}...`);
+        try {
+          const fallbackRes = await executeCancel(secondaryType);
+          this.updateWeight(fallbackRes?.headers);
+          const fallbackData = typeof fallbackRes.data === 'function' ? await fallbackRes.data() : fallbackRes.data;
+          this.logger.log(`Binance ${secondaryType} order canceled via fallback: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(fallbackData)}`);
+
+          let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+          const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId && o.clientOrderId !== orderId);
+          this.sessionState.realTimeOrders.set(symbol, updatedOrders);
+          this.markAsExecuted(symbol, orderId, 'CANCELED');
+
+          return true;
+        } catch (fallbackErr) {
+          const fallbackErrMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+          if (isUnknownOrderError(fallbackErrMsg) || isAlreadyClosedError(fallbackErrMsg)) {
+            this.logger.debug(`Order ${orderId} confirmed non-existent on both endpoints: ${fallbackErrMsg}`);
+
+            let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+            const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId && o.clientOrderId !== orderId);
+            this.sessionState.realTimeOrders.set(symbol, updatedOrders);
+            this.markAsExecuted(symbol, orderId, 'CANCELED');
+
+            return true;
+          }
+
+          this.logger.warn(`Failed to cancel Binance order ${orderId} on fallback endpoint (${secondaryType}): ${fallbackErrMsg}`);
+          const isSystemic = fallbackErrMsg.includes('Invalid API-key') ||
+                             fallbackErrMsg.includes('Too many requests') ||
+                             fallbackErrMsg.includes('-1015') ||
+                             fallbackErrMsg.includes('-1003') ||
+                             fallbackErrMsg.includes('-2015');
+          if (isSystemic) this.recordFailure(true);
+          return false;
+        }
+      }
+
+      if (isAlreadyClosedError(errMsg)) {
+        this.logger.debug(`Order ${orderId} already filled: ${errMsg}`);
         let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
-        const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId);
+        const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId && o.clientOrderId !== orderId);
         this.sessionState.realTimeOrders.set(symbol, updatedOrders);
         this.markAsExecuted(symbol, orderId, 'CANCELED');
-
         return true;
       }
-      this.logger.warn(`Failed to cancel Binance order ${orderId}: ${errMsg}`);
 
+      this.logger.warn(`Failed to cancel Binance order ${orderId}: ${errMsg}`);
       const isSystemic = errMsg.includes('Invalid API-key') ||
                          errMsg.includes('Too many requests') ||
                          errMsg.includes('-1015') ||

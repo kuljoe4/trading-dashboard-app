@@ -1276,13 +1276,25 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const activeSignalKeys = useMemo(() => {
     const keys = new Set();
     if (trade?.exit_signals_status) {
-      Object.keys(trade.exit_signals_status).forEach(k => keys.add(k));
+      // BOLT OPTIMIZATION: Direct for...in loop over trade.exit_signals_status
+      // Eliminates transient Object.keys() array heap allocations on high-frequency UI tick cycles
+      for (const k in trade.exit_signals_status) {
+        if (Object.prototype.hasOwnProperty.call(trade.exit_signals_status, k)) {
+          keys.add(k);
+        }
+      }
     }
-    if (trade?.strategy_config?.exit_signals) {
-      trade.strategy_config.exit_signals.forEach(k => keys.add(k));
+    const tradeExitSignals = trade?.strategy_config?.exit_signals;
+    if (tradeExitSignals) {
+      for (let i = 0; i < tradeExitSignals.length; i++) {
+        keys.add(tradeExitSignals[i]);
+      }
     }
-    if (activeSessionConfig?.exit_signals) {
-      activeSessionConfig.exit_signals.forEach(k => keys.add(k));
+    const sessionExitSignals = activeSessionConfig?.exit_signals;
+    if (sessionExitSignals) {
+      for (let i = 0; i < sessionExitSignals.length; i++) {
+        keys.add(sessionExitSignals[i]);
+      }
     }
     return Array.from(keys);
   }, [trade, activeSessionConfig]);

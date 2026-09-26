@@ -101,3 +101,7 @@
 ## 2026-09-19 - Interactive Limit Card Unused Tooltip Prop Wiring & Control Button Semantics
 **Learning:** UI primitive components that accept a `tooltip` prop must consistently wrap their header labels with Radix `<Tooltip>` triggers and `cursor-help` styling to ensure hover/focus guidance is rendered. Additionally, interactive utility buttons (lock, increment, decrement) inside primitive cards require explicit `type="button"` and `cursor-pointer` attributes to avoid default form submit behavior and provide explicit affordances.
 **Action:** Always verify primitive components destructuring props like `tooltip` actually render `<Tooltip>` wrappers around their header elements and declare `type="button"` on all interactive buttons.
+
+## 2026-09-20 - Shortcuts Modal WCAG Dialog Title & Description Linking Standard
+**Learning:** Screen readers and accessibility tools require explicit linking between dialog containers and their visually hidden title and description tags. Supplying `id="shortcuts-title"` and `id="shortcuts-description"` attributes on `VisuallyHidden` elements matching `aria-labelledby` and `aria-describedby` attributes on `Dialog.Content` ensures immediate auditory feedback and full WCAG 2.1 AAA compliance when opening modals.
+**Action:** Always supply matching explicit `id` attributes on visually hidden modal title/description tags to pair with `aria-labelledby` and `aria-describedby` on dialog content.

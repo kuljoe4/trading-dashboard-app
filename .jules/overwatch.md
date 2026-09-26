@@ -27,3 +27,8 @@
 **Vulnerability:** `BinanceClientFactory.genericRequest` passed `fetch` calls to `BinanceRequestQueue`, but `fetch` resolves (does not throw) on HTTP error status codes like 418 or 429. Because no error was thrown, `BinanceRequestQueue`'s `catch` block never executed, completely bypassing terminal lock, cooldown timers, and ban status persistence.
 **Learning:** A request queue wrapper cannot assume native HTTP clients (like `fetch`) throw on status codes >= 400. Non-2xx responses must be explicitly checked and converted to thrown exceptions inside the queue worker to trigger rate-limit and ban circuit breakers.
 **Prevention:** Inspect `result.ok` and `result.status` for `Response` objects in `genericRequest`. Throw an explicit error for status 418/429 (and other non-ok codes) so the queue's error handler intercepts ban statuses and engages terminal lock immediately.
+
+## 2026-09-24 - Backtest Engine Unthrottled REST Fetch Vulnerability
+**Vulnerability:** `BacktestService.fetchHistoricalCandles` used direct `fetch` calls to hardcoded `https://fapi.binance.com`, bypassing `BinanceClientFactory.genericRequest` and `BinanceRequestQueue`.
+**Learning:** Naked REST calls in auxiliary simulation tools (like backtest historical kline fetches) bypass global request queues, weight tracking headers, and IP ban circuit breakers, exposing the application egress IP to rate limit bans during multi-symbol backtests.
+**Prevention:** Route all external exchange REST requests through `BinanceClientFactory.genericRequest` using `ENGINE_CONSTANTS.BINANCE_REST_BASE` to ensure process-wide serialization, weight tracking, and immediate terminal lock engagement on HTTP 418/429 response codes.

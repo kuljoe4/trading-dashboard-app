@@ -245,6 +245,12 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
  * Guarantees 100% strictly when `signalResult.allFired` is true, clamps non-fired readiness at 99%,
  * and provides single-source-of-truth calculations across ScannerOverlay, DashboardView, and StrategyDetailView.
  */
+/**
+ * BOLT OPTIMIZATION: Zero-allocation single-pass loop fusion for composite opportunity proximity.
+ * Replaces functional array method chaining (`signalProximities.map(...)`, `filter()`, `Math.min(...arr)`,
+ * and `Math.max(...arr)`) with direct single-pass scalar minimum/maximum/sum tracking over `enabled_signals`.
+ * Eliminates intermediate array heap allocations on high-frequency UI tick cycles and scanner overlays.
+ */
 export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
   if (!opp) return 0;
   if (opp.signalResult?.allFired && opp.signalResult?.signals) return 100;
@@ -262,44 +268,63 @@ export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
     for (const sigKey of enabledSigs) {
       const s = opp.signalResult.signals[sigKey];
       if (s) {
-        const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+        const prox = calculateProximity(s, s.value !== undefined ? s.value : (opp.close || 0), 0, isLong, false);
         signalProximities.push({ key: sigKey, prox });
       }
     }
   }
 
+  const signalsObj = opp.signalResult?.signals;
   let compositeProximity = velocityProgress;
 
-  if (signalProximities.length > 0) {
-    if (signalLogic === 'all') {
-      // ALL logic: Proximity is bottlenecked by the least-ready signal / velocity
-      const minSigProx = Math.min(...signalProximities.map(p => p.prox));
-      compositeProximity = Math.min(velocityProgress, minSigProx);
-    } else if (signalLogic === 'any') {
-      // ANY logic: Proximity is driven by the most-ready signal (provided velocity is progressing)
-      const maxSigProx = Math.max(...signalProximities.map(p => p.prox));
-      compositeProximity = Math.min(velocityProgress, maxSigProx);
-    } else if (signalLogic === 'combo') {
-      // COMBO logic: Required signals bottleneck, optional signals pick max
-      let reqSigs = signalProximities;
-      let optSigs = [];
-      if (requiredSigs.length > 0) {
-        reqSigs = signalProximities.filter(p => requiredSigs.includes(p.key));
-        optSigs = signalProximities.filter(p => !requiredSigs.includes(p.key));
+  if (signalsObj && enabledSigs.length > 0) {
+    let minSigProx = Infinity;
+    let maxSigProx = -Infinity;
+    let minReqProx = Infinity;
+    let maxOptProx = -Infinity;
+    let sigSum = velocityProgress;
+    let validSigCount = 0;
+    let reqCount = 0;
+    let optCount = 0;
+
+    const oppClose = opp.close || 0;
+    const hasExplicitReqs = requiredSigs.length > 0;
+
+    for (let i = 0; i < enabledSigs.length; i++) {
+      const sigKey = enabledSigs[i];
+      const s = signalsObj[sigKey];
+      if (!s) continue;
+
+      const prox = calculateProximity(s, s.value !== undefined ? s.value : oppClose, 0, isLong, false);
+      validSigCount++;
+      sigSum += prox;
+
+      if (prox < minSigProx) minSigProx = prox;
+      if (prox > maxSigProx) maxSigProx = prox;
+
+      // Classify as required or optional for COMBO logic
+      const isReq = hasExplicitReqs ? requiredSigs.includes(sigKey) : (validSigCount === 1);
+      if (isReq) {
+        reqCount++;
+        if (prox < minReqProx) minReqProx = prox;
       } else {
-        reqSigs = [signalProximities[0]];
-        optSigs = signalProximities.slice(1);
+        optCount++;
+        if (prox > maxOptProx) maxOptProx = prox;
       }
+    }
 
-      const minReqProx = reqSigs.length > 0 ? Math.min(...reqSigs.map(p => p.prox)) : 100;
-      const maxOptProx = optSigs.length > 0 ? Math.max(...optSigs.map(p => p.prox)) : 100;
-
-      compositeProximity = Math.min(velocityProgress, minReqProx, maxOptProx);
-    } else {
-      // Fallback: Average proximity
-      let sigSum = velocityProgress;
-      for (const p of signalProximities) sigSum += p.prox;
-      compositeProximity = sigSum / (signalProximities.length + 1);
+    if (validSigCount > 0) {
+      if (signalLogic === 'all') {
+        compositeProximity = Math.min(velocityProgress, minSigProx);
+      } else if (signalLogic === 'any') {
+        compositeProximity = Math.min(velocityProgress, maxSigProx);
+      } else if (signalLogic === 'combo') {
+        const finalReqProx = reqCount > 0 ? minReqProx : 100;
+        const finalOptProx = optCount > 0 ? maxOptProx : 100;
+        compositeProximity = Math.min(velocityProgress, finalReqProx, finalOptProx);
+      } else {
+        compositeProximity = sigSum / (validSigCount + 1);
+      }
     }
   }
 

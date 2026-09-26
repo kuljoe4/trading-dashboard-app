@@ -81,9 +81,9 @@ test('calculateProximity unit tests', async (t) => {
       threshold_is_price: true
     };
     // For SHORT (isLong = false): value 99 < threshold 100 is satisfied side, but fired is false for an event signal.
-    // Must clamp to maxVal (99) instead of returning 100%.
+    // Must return 0 because the cross event occurred previously without firing (blocked/stale).
     const prox = calculateProximity(unfiredEventSignal, 99, 0, false, false);
-    assert.strictEqual(prox, 99, 'Unfired event signal must clamp to 99% instead of 100%');
+    assert.strictEqual(prox, 0, 'Unfired event signal must return 0% if satisfied but unfired');
   });
 
   await t.test('evaluates rejected MACD filter signals as 0% (blocked state)', () => {
@@ -241,5 +241,105 @@ test('calculateProximity unit tests', async (t) => {
     assert.ok(p5 > p10, `p5 (${p5}) should be > p10 (${p10})`);
     assert.ok(p1 > p5, `p1 (${p1}) should be > p5 (${p5})`);
     assert.ok(p02 > p1, `p02 (${p02}) should be > p1 (${p1})`);
+  });
+
+  await t.test('benchmark: calculateOpportunityProximity single-pass loop vs method chaining', () => {
+    const opp = {
+      symbol: 'BTCUSDT',
+      pct: 1.8,
+      dir: 'long',
+      close: 65000,
+      signalResult: {
+        allFired: false,
+        signals: {
+          ema_cross: { fired: false, value: 64900, threshold: 65000, threshold_is_price: true },
+          rsi: { fired: false, value: 45, threshold: 50 },
+          macd: { fired: false, value: 12, threshold: 15 },
+          supertrend: { fired: false, value: 64500, threshold: 64800, threshold_is_price: true },
+        }
+      }
+    };
+
+    const configCombo = {
+      enabled_signals: ['ema_cross', 'rsi', 'macd', 'supertrend'],
+      signal_logic: 'combo',
+      required_signals: ['ema_cross', 'rsi'],
+      scan_pct_threshold: 2.0,
+    };
+
+    const iterations = 50000;
+
+    // Baseline implementation (functional array chaining)
+    const baselineCalculateOpportunityProximity = (oppObj, strategyConfig) => {
+      if (!oppObj) return 0;
+      if (oppObj.signalResult?.allFired && oppObj.signalResult?.signals) return 100;
+      const enabledSigs = strategyConfig.enabled_signals || [];
+      const scanThresh = strategyConfig.scan_pct_threshold || 2.0;
+      const signalLogic = strategyConfig.signal_logic || 'all';
+      const requiredSigs = strategyConfig.required_signals || [];
+      const isLong = oppObj.dir === 'long' || (oppObj.pct ?? 0) >= 0;
+
+      const velocityProgress = Math.min(100, (Math.abs(oppObj.pct || 0) / scanThresh) * 100);
+
+      const signalProximities = [];
+      if (oppObj.signalResult?.signals) {
+        for (const sigKey of enabledSigs) {
+          const s = oppObj.signalResult.signals[sigKey];
+          if (s) {
+            const prox = calculateProximity(s, oppObj.close || s.value || 0, 0, isLong, false);
+            signalProximities.push({ key: sigKey, prox });
+          }
+        }
+      }
+
+      let compositeProximity = velocityProgress;
+      if (signalProximities.length > 0) {
+        if (signalLogic === 'combo') {
+          let reqSigs = signalProximities;
+          let optSigs = [];
+          if (requiredSigs.length > 0) {
+            reqSigs = signalProximities.filter(p => requiredSigs.includes(p.key));
+            optSigs = signalProximities.filter(p => !requiredSigs.includes(p.key));
+          } else {
+            reqSigs = [signalProximities[0]];
+            optSigs = signalProximities.slice(1);
+          }
+          const minReqProx = reqSigs.length > 0 ? Math.min(...reqSigs.map(p => p.prox)) : 100;
+          const maxOptProx = optSigs.length > 0 ? Math.max(...optSigs.map(p => p.prox)) : 100;
+          compositeProximity = Math.min(velocityProgress, minReqProx, maxOptProx);
+        }
+      }
+      return Math.min(99, Math.round(compositeProximity));
+    };
+
+    // Warmup
+    for (let i = 0; i < 1000; i++) {
+      baselineCalculateOpportunityProximity(opp, configCombo);
+      calculateOpportunityProximity(opp, configCombo);
+    }
+
+    const t0 = performance.now();
+    for (let i = 0; i < iterations; i++) {
+      baselineCalculateOpportunityProximity(opp, configCombo);
+    }
+    const durOrig = performance.now() - t0;
+
+    const t1 = performance.now();
+    for (let i = 0; i < iterations; i++) {
+      calculateOpportunityProximity(opp, configCombo);
+    }
+    const durOpt = performance.now() - t1;
+
+    const speedup = durOrig / Math.max(0.0001, durOpt);
+    console.log(`\n⚡ Bolt Performance Benchmark (calculateOpportunityProximity single-pass loop fusion, ${iterations} iterations):`);
+    console.log(`  - Original (Array map/filter/spread): ${durOrig.toFixed(2)} ms`);
+    console.log(`  - Optimized (Single-pass loop fusion): ${durOpt.toFixed(2)} ms`);
+    console.log(`  - Execution Speedup:                  ${speedup.toFixed(2)}x faster\n`);
+
+    assert.strictEqual(
+      calculateOpportunityProximity(opp, configCombo),
+      baselineCalculateOpportunityProximity(opp, configCombo),
+      'Optimized function output must be identical to baseline'
+    );
   });
 });

@@ -211,15 +211,17 @@ const TradesView = () => {
 
                 <div className="flex items-center gap-1.5">
                   {hasActiveFilters && (
-                    <button
-                      type="button"
-                      onClick={resetAllFilters}
-                      className="px-2 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
-                      aria-label="Reset position filters"
-                    >
-                      <RotateCcw size={10} />
-                      <span className="hidden sm:inline">Reset</span>
-                    </button>
+                    <Tooltip content="Reset position filters">
+                      <button
+                        type="button"
+                        onClick={resetAllFilters}
+                        className="px-2 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
+                        aria-label="Reset position filters"
+                      >
+                        <RotateCcw size={10} />
+                        <span className="hidden sm:inline">Reset</span>
+                      </button>
+                    </Tooltip>
                   )}
                   <button
                     type="button"

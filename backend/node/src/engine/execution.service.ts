@@ -584,6 +584,7 @@ export class ExecutionService {
              this.broadcastService.broadcast('trade_event', {
                 event: 'entry_rejected',
                 symbol: opp.symbol,
+                strategy_label: currentStrategyLabel,
                 reason: sizeResult.reason,
                 details: { balance, price, sl: slPrice }
              });
@@ -703,6 +704,7 @@ export class ExecutionService {
             this.broadcastService.broadcast('trade_event', {
               event: 'opened',
               symbol: opp.symbol,
+              strategy_label: currentStrategyLabel,
               trade: this.engineBroadcaster.serializeTrade(trade, config, price),
               stats: this.sessionState.stats
             });
@@ -713,6 +715,14 @@ export class ExecutionService {
             // BOLT: Only apply symbol-specific cooldown if it wasn't a global circuit breaker trip (e.g. ban/weight)
             const isCircuitOpen = result.status === ExecutionStatus.CIRCUIT_OPEN;
             const cooldownMinutes = isCircuitOpen ? 0 : 5;
+
+            this.broadcastService.broadcast('trade_event', {
+              event: 'entry_rejected',
+              symbol: opp.symbol,
+              strategy_label: currentStrategyLabel,
+              reason: result.error || 'Order rejected by exchange',
+              details: { balance, price, status: result.status }
+            });
 
             if (cooldownMinutes > 0) {
               this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);

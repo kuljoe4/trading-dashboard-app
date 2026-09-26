@@ -2046,6 +2046,10 @@ export function DashboardView({ initialStrategy }) {
     let latestUpdateTs = 0;
     // BOLT OPTIMIZATION: Accumulate totalActivePnl in-loop to eliminate Object.values(pnlMap) array allocation and second pass
     let totPnl = 0;
+    let activeLongCount = 0;
+    let activeShortCount = 0;
+    let activeLongPnl = 0;
+    let activeShortPnl = 0;
 
     const trades = activeTrades || [];
     for (let i = 0; i < trades.length; i++) {
@@ -2057,6 +2061,15 @@ export function DashboardView({ initialStrategy }) {
         estPnlMap[label] += safeNum(t.est_pnl_to_realize);
         countMap[label]++;
         totPnl += pnlVal;
+
+        const isLong = (t.direction ?? t.side ?? 'LONG').toString().toUpperCase() === 'LONG';
+        if (isLong) {
+          activeLongCount++;
+          activeLongPnl += pnlVal;
+        } else {
+          activeShortCount++;
+          activeShortPnl += pnlVal;
+        }
 
         // Calculate risk in USDT to convert R multiples to dollar amounts if max_pnl is not directly present
         const riskUsdt = safeNum(t.risk_usdt || t.initial_risk_usdt) ||
@@ -2096,7 +2109,11 @@ export function DashboardView({ initialStrategy }) {
       minActivePnl: minActivePnlSum,
       oldestActiveEntryTs: oldestEntryTs !== Infinity ? oldestEntryTs : null,
       latestActiveUpdateTs: latestUpdateTs > 0 ? latestUpdateTs : null,
-      maxRR: maxRrAchieved
+      maxRR: maxRrAchieved,
+      activeLongCount,
+      activeShortCount,
+      activeLongPnl,
+      activeShortPnl
     };
   }, [activeTrades, currentStrategy.strategy_label, config.strategy_variants]);
 
@@ -2776,6 +2793,23 @@ export function DashboardView({ initialStrategy }) {
                             Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} <span className="opacity-80">({minPct > 0 ? '+' : ''}{minPct.toFixed(2)}%)</span></span>
                           </span>
                         </Tooltip>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-dim">
+                          <span className={cn("font-bold", activeLongPnl < 0 ? "text-red" : "text-green")}>L {activeLongCount}</span>
+                          <span className="opacity-70 ml-0.5">({fmtUSD(activeLongPnl)})</span>
+                        </span>
+                        <span className="text-dim/40">•</span>
+                        <span className="text-dim">
+                          <span className={cn("font-bold", activeShortPnl < 0 ? "text-red" : "text-green")}>S {activeShortCount}</span>
+                          <span className="opacity-70 ml-0.5">({fmtUSD(activeShortPnl)})</span>
+                        </span>
+                        {(activeLongCount > 0 || activeShortCount > 0) && (
+                          <>
+                            <span className="text-dim/40">•</span>
+                            <span className="text-accent/80 font-bold">Ldr: {activeLongPnl > activeShortPnl ? 'Longs' : (activeShortPnl > activeLongPnl ? 'Shorts' : 'Tie')}</span>
+                          </>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 text-dim/70 font-sans font-medium text-[8px]">
                         {openDurationStr && <span>Open {openDurationStr}</span>}

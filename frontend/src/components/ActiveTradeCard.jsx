@@ -29,12 +29,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const tp = Number(trade.tp_price || 0)
   const isLong = trade.direction === 'LONG'
 
-  // Check exit signal triggers & delays
+  // BOLT OPTIMIZATION: Zero-allocation for...in loop on high-frequency UI price ticks
   let hasCrossedSignal = false
   let hasDelayedSignal = false
   let activeSignalCount = 0
   if (trade.exit_signals_status) {
-    for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
+    for (const key in trade.exit_signals_status) {
+      if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue
+      const sig = trade.exit_signals_status[key]
       if (!sig) continue
       activeSignalCount++
       if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
@@ -118,12 +120,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit)
   const peakPos = pos(peakPrice)
 
-  // Dual Indicator Markers calculation (retained for telemetry & compatibility)
+  // BOLT OPTIMIZATION: Direct for...in loop eliminates key-value tuple array allocations
   const { dualIndicatorMarkers } = React.useMemo(() => {
     if (!trade.exit_signals_status) return { dualIndicatorMarkers: [] }
     const list = []
 
-    for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
+    for (const key in trade.exit_signals_status) {
+      if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue
+      const sig = trade.exit_signals_status[key]
       if (!sig) continue
 
       if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
@@ -182,21 +186,25 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   // Rich Exit Estimation from backend (if present) or fallback calculation
   const exitEst = trade.exit_estimation
 
+  // BOLT OPTIMIZATION: Direct for...in loop eliminates intermediate status array heap allocations
   const exitSignalProximity = React.useMemo(() => {
     if (exitEst && typeof exitEst.proximity === 'number') {
       return exitEst.proximity
     }
     if (!trade.exit_signals_status) return 0
-    const statuses = Object.values(trade.exit_signals_status)
-    if (statuses.length === 0) return 0
 
     let maxProx = 0
-    for (const sig of statuses) {
+    let hasSignal = false
+    for (const key in trade.exit_signals_status) {
+      if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue
+      const sig = trade.exit_signals_status[key]
       if (sig) {
+        hasSignal = true
         const prox = calculateProximity(sig, mark, entry, isLong, true)
         if (prox > maxProx) maxProx = prox
       }
     }
+    if (!hasSignal) return 0
     return Math.round(maxProx)
   }, [exitEst, trade.exit_signals_status, mark, entry, isLong])
 

@@ -101,13 +101,17 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
 
   // 4. Exit Signal Warmup Starvation
   if (trade.exit_signals_status) {
-    const warmingSigs = [];
-    for (const [sigKey, sig] of Object.entries(trade.exit_signals_status)) {
-      if (sig && sig.is_warming_up) {
-        warmingSigs.push(`${sigKey} (${sig.warmup_candles || 0}/${sig.required_warmup || 0} candles)`);
+    let warmingSigs = null;
+    for (const sigKey in trade.exit_signals_status) {
+      if (Object.prototype.hasOwnProperty.call(trade.exit_signals_status, sigKey)) {
+        const sig = trade.exit_signals_status[sigKey];
+        if (sig && sig.is_warming_up) {
+          if (!warmingSigs) warmingSigs = [];
+          warmingSigs.push(`${sigKey} (${sig.warmup_candles || 0}/${sig.required_warmup || 0} candles)`);
+        }
       }
     }
-    if (warmingSigs.length > 0) {
+    if (warmingSigs && warmingSigs.length > 0) {
       issues.push({
         type: 'warning',
         code: 'EXIT_WARMUP_INCOMPLETE',
@@ -127,54 +131,78 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     });
   }
 
-  const hasError = issues.some(i => i.type === 'error');
-  const hasWarning = issues.some(i => i.type === 'warning');
+  // BOLT OPTIMIZATION: In-place boolean tracking avoids .some() array traversals over issues
+  let hasError = false;
+  let hasWarning = false;
+  for (let i = 0; i < issues.length; i++) {
+    if (issues[i].type === 'error') hasError = true;
+    else if (issues[i].type === 'warning') hasWarning = true;
+  }
 
-  // Generate complete, formatted markdown diagnostic trace snippet
-  const traceSnippet = [
-    `### Active Trade Diagnostic Trace: ${trade.symbol} (${trade.direction})`,
-    `**Timestamp:** ${new Date().toISOString()}`,
-    `**Trade ID:** ${trade.id || 'N/A'}`,
-    `**Session ID:** ${trade.sessionId || 'N/A'}`,
-    `**Strategy Label:** ${trade.strategy_label || config?.strategy_label || 'Default Strategy'}`,
-    `**Direction:** ${trade.direction} | **Quantity:** ${qty}`,
-    `**Entry Price:** $${entry}`,
-    `**Mark Price:** $${mark}`,
-    `**Unrealized PnL:** ${fmtUSD(trade.pnl)} (${Number(trade.pnl_pct || 0).toFixed(2)}%)`,
-    `**Peak R:R Achieved:** ${maxRR.toFixed(2)}R (Current R: ${Number(trade.rr || 0).toFixed(2)}R)`,
-    ``,
-    `#### Stop Loss & Protection State:`,
-    `- **Current SL:** $${formatPrice(sl)} (Initial SL: $${formatPrice(initialSl)})`,
-    `- **Exchange Order ID:** ${trade.binance_stop_order_id || 'None'} (${trade.binance_stop_order_type || 'standard'})`,
-    `- **Active Risk USDT:** $${trade.risk_usdt ?? '0.00'} (Initial Risk: $${trade.initial_risk_usdt ?? '0.00'})`,
-    `- **Milestone Index:** ${activeIdx} (Target Milestone SL: $${formatPrice(expectedSl)})`,
-    ``,
-    `#### Guard Ladder Configuration:`,
-    `- **Triggers (R):** [${triggers.join(', ')}]`,
-    `- **Secured Exit (R):** [${exits.join(', ')}]`,
-    ``,
-    `#### Exit Signal Telemetry:`,
-    trade.exit_signals_status && Object.keys(trade.exit_signals_status).length > 0
-      ? Object.entries(trade.exit_signals_status).map(([k, s]) => `- \`${k}\`: Fired=${!!s?.fired}, Active=${!!s?.active}, Progress=${(s?.progress ?? s?.distPct ?? 0).toFixed(1)}%${s?.is_warming_up ? ` (Warming: ${s.warmup_candles}/${s.required_warmup} - ${s.warmup_tf})` : ''}`).join('\n')
-      : '- None active',
-    ``,
-    `#### Execution & Recovery Flags:`,
-    `- **App Restart Reconciliation:** ${trade.is_reconciliation ? 'YES' : 'NO'}`,
-    `- **Close Blocked:** ${trade.close_blocked ? 'YES' : 'NO'}`,
-    `- **Illiquid Blocked:** ${trade.illiquid_blocked ? 'YES' : 'NO'}`,
-    `- **Close Attempts:** ${trade.close_attempts || 0} (Last: ${trade.last_close_attempt_ts ? new Date(trade.last_close_attempt_ts).toISOString() : 'N/A'})`,
-    ``,
-    `#### Detected Discrepancies & Warnings:`,
-    issues.length > 0
-      ? issues.map(i => `- [${i.type.toUpperCase()}] **${i.title}:** ${i.message}`).join('\n')
-      : '- No discrepancies or errors detected'
-  ].join('\n');
-
-  return {
+  const result = {
     hasError,
     hasWarning,
     issues,
-    expectedSl,
-    traceSnippet
+    expectedSl
   };
+
+  // BOLT OPTIMIZATION: Defer expensive Markdown trace snippet string formatting until accessed on demand
+  Object.defineProperty(result, 'traceSnippet', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      let exitSigLines = '- None active';
+      if (trade.exit_signals_status) {
+        const lines = [];
+        for (const k in trade.exit_signals_status) {
+          if (Object.prototype.hasOwnProperty.call(trade.exit_signals_status, k)) {
+            const s = trade.exit_signals_status[k];
+            lines.push(`- \`${k}\`: Fired=${!!s?.fired}, Active=${!!s?.active}, Progress=${(s?.progress ?? s?.distPct ?? 0).toFixed(1)}%${s?.is_warming_up ? ` (Warming: ${s.warmup_candles}/${s.required_warmup} - ${s.warmup_tf})` : ''}`);
+          }
+        }
+        if (lines.length > 0) {
+          exitSigLines = lines.join('\n');
+        }
+      }
+
+      return [
+        `### Active Trade Diagnostic Trace: ${trade.symbol} (${trade.direction})`,
+        `**Timestamp:** ${new Date().toISOString()}`,
+        `**Trade ID:** ${trade.id || 'N/A'}`,
+        `**Session ID:** ${trade.sessionId || 'N/A'}`,
+        `**Strategy Label:** ${trade.strategy_label || config?.strategy_label || 'Default Strategy'}`,
+        `**Direction:** ${trade.direction} | **Quantity:** ${qty}`,
+        `**Entry Price:** $${entry}`,
+        `**Mark Price:** $${mark}`,
+        `**Unrealized PnL:** ${fmtUSD(trade.pnl)} (${Number(trade.pnl_pct || 0).toFixed(2)}%)`,
+        `**Peak R:R Achieved:** ${maxRR.toFixed(2)}R (Current R: ${Number(trade.rr || 0).toFixed(2)}R)`,
+        ``,
+        `#### Stop Loss & Protection State:`,
+        `- **Current SL:** $${formatPrice(sl)} (Initial SL: $${formatPrice(initialSl)})`,
+        `- **Exchange Order ID:** ${trade.binance_stop_order_id || 'None'} (${trade.binance_stop_order_type || 'standard'})`,
+        `- **Active Risk USDT:** $${trade.risk_usdt ?? '0.00'} (Initial Risk: $${trade.initial_risk_usdt ?? '0.00'})`,
+        `- **Milestone Index:** ${activeIdx} (Target Milestone SL: $${formatPrice(expectedSl)})`,
+        ``,
+        `#### Guard Ladder Configuration:`,
+        `- **Triggers (R):** [${triggers.join(', ')}]`,
+        `- **Secured Exit (R):** [${exits.join(', ')}]`,
+        ``,
+        `#### Exit Signal Telemetry:`,
+        exitSigLines,
+        ``,
+        `#### Execution & Recovery Flags:`,
+        `- **App Restart Reconciliation:** ${trade.is_reconciliation ? 'YES' : 'NO'}`,
+        `- **Close Blocked:** ${trade.close_blocked ? 'YES' : 'NO'}`,
+        `- **Illiquid Blocked:** ${trade.illiquid_blocked ? 'YES' : 'NO'}`,
+        `- **Close Attempts:** ${trade.close_attempts || 0} (Last: ${trade.last_close_attempt_ts ? new Date(trade.last_close_attempt_ts).toISOString() : 'N/A'})`,
+        ``,
+        `#### Detected Discrepancies & Warnings:`,
+        issues.length > 0
+          ? issues.map(i => `- [${i.type.toUpperCase()}] **${i.title}:** ${i.message}`).join('\n')
+          : '- No discrepancies or errors detected'
+      ].join('\n');
+    }
+  });
+
+  return result;
 }

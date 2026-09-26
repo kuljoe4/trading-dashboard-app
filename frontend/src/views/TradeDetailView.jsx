@@ -56,8 +56,10 @@ const TradeDetailView = ({ tradeId }) => {
         <h2 className="text-xl font-bold mb-2">Trade Not Found</h2>
         <p className="text-dim text-sm max-w-xs mb-8">This position may have been closed or is being synchronized from the backend.</p>
         <button
+          type="button"
           onClick={() => window.location.hash = '#/trades'}
-          className="flex items-center gap-2 text-accent font-bold uppercase text-[11px] tracking-widest hover:underline"
+          aria-label="Back to Active Trades"
+          className="flex items-center gap-2 text-accent font-bold uppercase text-[11px] tracking-widest hover:underline cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg p-1"
         >
           <ArrowLeft size={14} /> Back to Active Trades
         </button>

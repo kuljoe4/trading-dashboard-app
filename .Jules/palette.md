@@ -105,3 +105,7 @@
 ## 2026-09-22 - ConfirmationModal WCAG Dialog Title and Description Linking Standard
 **Learning:** Reusable alert dialog components (such as `ConfirmationModal.jsx`) must explicitly connect `role="alertdialog"` to `Dialog.Title` and `Dialog.Description` using `aria-labelledby` and `aria-describedby` matching target element `id` attributes. This ensures screen readers immediately announce both the title and descriptive message upon dialog opening for WCAG 2.1 compliance.
 **Action:** Always ensure alert dialogs explicitly link `aria-labelledby` and `aria-describedby` attributes to matching `id` values on Title and Description elements.
+
+## 2026-09-23 - TradeDetailModal WCAG Drawer Title and Description Linking Standard
+**Learning:** Drawer/modal dialog containers (such as `TradeDetailModal.jsx`) that render `Drawer.Title` and `Drawer.Description` inside `VisuallyHidden` wrappers require explicit `aria-labelledby` and `aria-describedby` attributes on `Drawer.Content` matching `id` attributes on `Drawer.Title` and `Drawer.Description`. This guarantees screen readers instantly announce the modal title and description upon opening.
+**Action:** Always explicitly connect `Drawer.Content` / `Dialog.Content` with `aria-labelledby` and `aria-describedby` attributes matching target `id` values on `Drawer.Title` and `Drawer.Description`.

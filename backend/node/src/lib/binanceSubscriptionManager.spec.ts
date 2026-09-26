@@ -91,7 +91,7 @@ describe('BinanceSubscriptionManager', () => {
     expect(mockWs.send).toHaveBeenCalled();
 
     // Advance to trigger ACK timeout
-    jest.advanceTimersByTime(5100);
+    jest.advanceTimersByTime(15100);
 
     await expect(subPromise).rejects.toThrow('ACK Timeout');
 

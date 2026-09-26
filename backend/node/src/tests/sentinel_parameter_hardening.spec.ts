@@ -27,6 +27,7 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       getHistory: jest.fn().mockResolvedValue([]),
       closeTradeManually: jest.fn().mockResolvedValue({ success: true }),
       startSession: jest.fn().mockResolvedValue({ strategyId: 'session-123', status: 'started' }),
+      forceBackfillKlines: jest.fn().mockResolvedValue({ success: true, count: 50 }),
     };
 
     mockBacktestService = {
@@ -62,6 +63,45 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
     }).compile();
 
     controller = module.get<SessionController>(SessionController);
+  });
+
+  describe('backfillKlines Input Hardening & Audit Metadata Propagation', () => {
+    it('should accept valid symbol and interval, and propagate client IP and user agent metadata', async () => {
+      const mockReq = {
+        ip: '192.168.1.100',
+        headers: { 'user-agent': 'Mozilla/5.0 (Test; Sentinel)' },
+      } as any;
+      const validPayload = {
+        symbol: 'BTCUSDT',
+        interval: '1h',
+      };
+
+      await expect(controller.backfillKlines(validPayload as any, mockReq)).resolves.toEqual({
+        success: true,
+        count: 50,
+      });
+
+      expect(mockSessionService.forceBackfillKlines).toHaveBeenCalledWith(
+        'BTCUSDT',
+        '1h',
+        '192.168.1.100',
+        'Mozilla/5.0 (Test; Sentinel)'
+      );
+    });
+
+    it('should reject non-whitelisted or invalid properties in backfillKlines payload', async () => {
+      const mockReq = { ip: '192.168.1.100', headers: {} } as any;
+      const invalidPayload = {
+        symbol: 'BTCUSDT',
+        interval: '1h',
+        unauthorized_param: 'malicious payload',
+      };
+
+      await expect(controller.backfillKlines(invalidPayload as any, mockReq)).rejects.toThrow(
+        BadRequestException
+      );
+      expect(mockSessionService.forceBackfillKlines).not.toHaveBeenCalled();
+    });
   });
 
   describe('getTrade Input Hardening', () => {

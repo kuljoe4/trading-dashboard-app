@@ -101,3 +101,7 @@
 ## 2026-09-19 - Interactive Limit Card Unused Tooltip Prop Wiring & Control Button Semantics
 **Learning:** UI primitive components that accept a `tooltip` prop must consistently wrap their header labels with Radix `<Tooltip>` triggers and `cursor-help` styling to ensure hover/focus guidance is rendered. Additionally, interactive utility buttons (lock, increment, decrement) inside primitive cards require explicit `type="button"` and `cursor-pointer` attributes to avoid default form submit behavior and provide explicit affordances.
 **Action:** Always verify primitive components destructuring props like `tooltip` actually render `<Tooltip>` wrappers around their header elements and declare `type="button"` on all interactive buttons.
+
+## 2026-09-22 - ConfirmationModal WCAG Dialog Title and Description Linking Standard
+**Learning:** Reusable alert dialog components (such as `ConfirmationModal.jsx`) must explicitly connect `role="alertdialog"` to `Dialog.Title` and `Dialog.Description` using `aria-labelledby` and `aria-describedby` matching target element `id` attributes. This ensures screen readers immediately announce both the title and descriptive message upon dialog opening for WCAG 2.1 compliance.
+**Action:** Always ensure alert dialogs explicitly link `aria-labelledby` and `aria-describedby` attributes to matching `id` values on Title and Description elements.

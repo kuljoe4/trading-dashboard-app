@@ -812,17 +812,31 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
 
   if (safeData.length < 5) return null;
 
-  const maxPF = Math.max(1, ...safeData.map(d => d.profitFactor));
-  const minPF = 0;
-  const rangePF = maxPF - minPF;
+  // ⚡ Bolt Optimization: Single-pass useMemo loop fusion for maxPF, defaultStats, and pointsPF.
+  // Avoids transient .map() array allocations, Math.max(...arr) stack spreads, and linear safeData.find(...) searches on every hover re-render frame (~60fps).
+  const { pointsPF, defaultStats } = useMemo(() => {
+    const len = safeData.length;
+    let maxPF = 1;
+    let recStats = null;
 
-  const pointsPF = useMemo(() => {
-    return safeData.map((d, i) => {
-      const x = (i / (safeData.length - 1)) * 100;
-      const y = 100 - ((d.profitFactor - minPF) / (rangePF || 1)) * 100;
-      return { x, y, ...d };
-    });
-  }, [safeData, rangePF]);
+    for (let i = 0; i < len; i++) {
+      const d = safeData[i];
+      if (d.profitFactor > maxPF) maxPF = d.profitFactor;
+      if (!recStats && d.threshold === recommendedRr) recStats = d;
+    }
+    if (!recStats) recStats = safeData[Math.floor(len / 2)];
+
+    const rangePF = maxPF;
+    const pts = new Array(len);
+    for (let i = 0; i < len; i++) {
+      const d = safeData[i];
+      const x = (i / (len - 1)) * 100;
+      const y = 100 - (d.profitFactor / (rangePF || 1)) * 100;
+      pts[i] = { x, y, ...d };
+    }
+
+    return { pointsPF: pts, defaultStats: recStats };
+  }, [safeData, recommendedRr]);
 
   const pathPF = useMemo(() => solveSmoothing(pointsPF), [pointsPF]);
 
@@ -846,7 +860,7 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
     setHoverDataPos({ x: closest.x, y: closest.y });
   };
 
-  const currentStats = hoverData || safeData.find(d => d.threshold === recommendedRr) || safeData[Math.floor(safeData.length / 2)];
+  const currentStats = hoverData || defaultStats;
 
   return (
     <div className="flex flex-col gap-6">

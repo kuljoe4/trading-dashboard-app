@@ -27,6 +27,7 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       getHistory: jest.fn().mockResolvedValue([]),
       closeTradeManually: jest.fn().mockResolvedValue({ success: true }),
       startSession: jest.fn().mockResolvedValue({ strategyId: 'session-123', status: 'started' }),
+      forceBackfillKlines: jest.fn().mockResolvedValue({ success: true, count: 50 }),
     };
 
     mockBacktestService = {
@@ -580,6 +581,27 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
 
       expect(bErr?.constraints?.matches).toBeDefined();
       expect(oErr?.constraints?.matches).toBeDefined();
+    });
+  });
+
+  describe('backfillKlines Audit Log Metadata Propagation', () => {
+    it('should extract client IP and User-Agent and propagate them to forceBackfillKlines', async () => {
+      const mockReq = {
+        ip: '192.168.1.100',
+        headers: { 'user-agent': 'Mozilla/5.0 TestBrowser' },
+        socket: { remoteAddress: '192.168.1.100' },
+      } as any;
+
+      const payload = { symbol: 'BTCUSDT', interval: '5m' };
+      const res = await controller.backfillKlines(payload, mockReq);
+
+      expect(res).toEqual({ success: true, count: 50 });
+      expect(mockSessionService.forceBackfillKlines).toHaveBeenCalledWith(
+        'BTCUSDT',
+        '5m',
+        '192.168.1.100',
+        'Mozilla/5.0 TestBrowser',
+      );
     });
   });
 });

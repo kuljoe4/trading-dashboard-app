@@ -1790,35 +1790,48 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
             <StatCard label="Sharpe Ratio" value={`${result.sharpeRatio}`} subValue={`Fees: $${result.totalFees}`} color="text-text" />
           </div>
 
-          {result.equityCurve && result.equityCurve.length > 0 && (
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Equity Curve ($)</span>
-                <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
-              </div>
-              <div className="h-28 w-full flex items-end gap-1 pt-2 px-1">
-                {result.equityCurve.map((pt, idx) => {
-                  const minBal = Math.min(...result.equityCurve.map(p => p.equity));
-                  const maxBal = Math.max(...result.equityCurve.map(p => p.equity));
-                  const range = Math.max(1, maxBal - minBal);
-                  const heightPct = Math.max(8, ((pt.equity - minBal) / range) * 100);
-                  const isUp = pt.equity >= result.startingBalance;
+          {result.equityCurve && result.equityCurve.length > 0 && (() => {
+            // BOLT OPTIMIZATION: Calculate minBal and maxBal in a single $O(N)$ pass outside the render loop.
+            // Eliminates $O(N^2)$ array allocations (`result.equityCurve.map(...)`) and spread iterations
+            // (`Math.min(...)`/`Math.max(...)`) inside every bar iteration of the equity curve rendering.
+            let minBal = Infinity;
+            let maxBal = -Infinity;
+            for (let i = 0; i < result.equityCurve.length; i++) {
+              const eq = result.equityCurve[i].equity;
+              if (eq < minBal) minBal = eq;
+              if (eq > maxBal) maxBal = eq;
+            }
+            if (!isFinite(minBal)) minBal = 0;
+            if (!isFinite(maxBal)) maxBal = 1;
+            const range = Math.max(1, maxBal - minBal);
 
-                  return (
-                    <Tooltip key={idx} content={`$${pt.equity} (${pt.drawdownPct}% DD)`}>
-                      <div
-                        className={cn(
-                          "flex-1 rounded-t-sm transition-all hover:opacity-100 opacity-70",
-                          isUp ? "bg-accent" : "bg-red"
-                        )}
-                        style={{ height: `${heightPct}%` }}
-                      />
-                    </Tooltip>
-                  );
-                })}
+            return (
+              <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Equity Curve ($)</span>
+                  <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
+                </div>
+                <div className="h-28 w-full flex items-end gap-1 pt-2 px-1">
+                  {result.equityCurve.map((pt, idx) => {
+                    const heightPct = Math.max(8, ((pt.equity - minBal) / range) * 100);
+                    const isUp = pt.equity >= result.startingBalance;
+
+                    return (
+                      <Tooltip key={idx} content={`$${pt.equity} (${pt.drawdownPct}% DD)`}>
+                        <div
+                          className={cn(
+                            "flex-1 rounded-t-sm transition-all hover:opacity-100 opacity-70",
+                            isUp ? "bg-accent" : "bg-red"
+                          )}
+                          style={{ height: `${heightPct}%` }}
+                        />
+                      </Tooltip>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Symbol Performance Breakdown & Auto/Manual Injection Leaderboard */}
           {result.symbolPerformance && result.symbolPerformance.length > 0 && (

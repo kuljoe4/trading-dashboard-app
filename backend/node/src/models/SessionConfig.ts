@@ -310,6 +310,12 @@ export class SessionConfig {
   @IsOptional()
   htf_ema_cross_rr_weight?: number = 1.5;
 
+  @IsNumber()
+  @Min(0)
+  @Max(20)
+  @IsOptional()
+  htf_ema_cross_min_profit_pct?: number = 0.0;
+
   @IsEnum(['fixed', 'exp_rr_seq'])
   @IsOptional()
   tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';

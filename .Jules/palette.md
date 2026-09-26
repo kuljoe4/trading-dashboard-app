@@ -105,3 +105,6 @@
 ## 2026-09-20 - Shortcuts Modal WCAG Dialog Title & Description Linking Standard
 **Learning:** Screen readers and accessibility tools require explicit linking between dialog containers and their visually hidden title and description tags. Supplying `id="shortcuts-title"` and `id="shortcuts-description"` attributes on `VisuallyHidden` elements matching `aria-labelledby` and `aria-describedby` attributes on `Dialog.Content` ensures immediate auditory feedback and full WCAG 2.1 AAA compliance when opening modals.
 **Action:** Always supply matching explicit `id` attributes on visually hidden modal title/description tags to pair with `aria-labelledby` and `aria-describedby` on dialog content.
+## 2026-09-22 - ConfirmationModal WCAG Dialog Title and Description Linking Standard
+**Learning:** Reusable alert dialog components (such as `ConfirmationModal.jsx`) must explicitly connect `role="alertdialog"` to `Dialog.Title` and `Dialog.Description` using `aria-labelledby` and `aria-describedby` matching target element `id` attributes. This ensures screen readers immediately announce both the title and descriptive message upon dialog opening for WCAG 2.1 compliance.
+**Action:** Always ensure alert dialogs explicitly link `aria-labelledby` and `aria-describedby` attributes to matching `id` values on Title and Description elements.

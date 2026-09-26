@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 
 describe('Active P&L Overview Percentage Fix', () => {
   it('should verify peak and min pnl percentages use starting balance when totalPnl is available', () => {
-    const filePath = path.join(__dirname, '../views/DashboardView.jsx');
+    const filePath = path.resolve(__dirname, '../views/DashboardView.jsx');
     const content = fs.readFileSync(filePath, 'utf-8');
 
     const subValueIndex = content.indexOf('label="Active P&L"');

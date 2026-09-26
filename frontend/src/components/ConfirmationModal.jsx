@@ -36,6 +36,8 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
             >
               <motion.div
                 role="alertdialog"
+                aria-labelledby="confirmation-dialog-title"
+                aria-describedby="confirmation-dialog-description"
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.9 }}
@@ -63,8 +65,8 @@ export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message, 
                     </Tooltip>
                   </div>
 
-                  <Dialog.Title className="text-sm font-bold mb-1">{title}</Dialog.Title>
-                  <Dialog.Description className="text-[11px] text-dim leading-relaxed mb-3">
+                  <Dialog.Title id="confirmation-dialog-title" className="text-sm font-bold mb-1">{title}</Dialog.Title>
+                  <Dialog.Description id="confirmation-dialog-description" className="text-[11px] text-dim leading-relaxed mb-3">
                     {message}
                   </Dialog.Description>
 

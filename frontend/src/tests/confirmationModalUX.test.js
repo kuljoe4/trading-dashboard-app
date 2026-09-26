@@ -26,6 +26,13 @@ describe('ConfirmationModal Safe-by-Default Micro-UX & Accessibility Standard', 
     assert.ok(sourceCode.includes('aria-label={`${confirmText} action`}'), 'Confirm button must include explicit aria-label');
   });
 
+  test('includes dialog ARIA attributes role="alertdialog", aria-labelledby, and aria-describedby', () => {
+    assert.ok(sourceCode.includes('aria-labelledby="confirmation-dialog-title"'), 'Must link dialog title via aria-labelledby');
+    assert.ok(sourceCode.includes('aria-describedby="confirmation-dialog-description"'), 'Must link dialog description via aria-describedby');
+    assert.ok(sourceCode.includes('id="confirmation-dialog-title"'), 'Must specify title ID matching aria-labelledby');
+    assert.ok(sourceCode.includes('id="confirmation-dialog-description"'), 'Must specify description ID matching aria-describedby');
+  });
+
   test('disables cancel, close, and confirm controls during loading state', () => {
     assert.ok(sourceCode.includes('disabled={loading}'), 'Action controls must apply disabled prop when loading');
     assert.ok(sourceCode.includes('if (!loading) onConfirm()'), 'Confirm click handler must check !loading condition');

@@ -4,6 +4,7 @@ import { SignalEngineService } from './signalEngine';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { roundTo } from '../lib/math';
+import { ENGINE_CONSTANTS } from '../models/constants';
 import { IsOptional, IsObject, ValidateNested, IsArray, IsString, IsNumber, Min, Max, IsBoolean, ArrayMaxSize, MaxLength, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -713,8 +714,11 @@ export class BacktestService {
       // SEC-SENTINEL: Sanitize and URL-encode query parameters to prevent HTTP Parameter Pollution / SSRF / URL Injection
       const safeSymbol = encodeURIComponent(symbol);
       const safeInterval = encodeURIComponent(interval);
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${safeSymbol}&interval=${safeInterval}&limit=${limit}`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+      const url = `${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/klines?symbol=${safeSymbol}&interval=${safeInterval}&limit=${limit}`;
+      const response = await this.binanceClientFactory.genericRequest(
+        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        'klineCandlestickData'
+      );
       if (!response.ok) return [];
 
       const raw = (await response.json()) as any[][];

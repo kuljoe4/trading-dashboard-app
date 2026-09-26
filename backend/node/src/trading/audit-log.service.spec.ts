@@ -76,6 +76,47 @@ describe('AuditLogService', () => {
     expect(queryBuilder.execute).toHaveBeenCalled();
   });
 
+  it('validates and clamps retention days parameter to prevent future cutoff calculation or purging all logs', async () => {
+    const queryBuilder: any = {
+      delete: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 5 }),
+    };
+
+    mockRepository.createQueryBuilder = jest.fn().mockReturnValue(queryBuilder);
+
+    const now = Date.now();
+
+    // Test negative days parameter (-10)
+    await service.cleanup(-10);
+    expect(queryBuilder.where).toHaveBeenLastCalledWith(
+      'timestamp < :cutoff',
+      expect.objectContaining({
+        cutoff: expect.any(Date),
+      }),
+    );
+    const negativeCallCutoff = queryBuilder.where.mock.calls[queryBuilder.where.mock.calls.length - 1][1].cutoff;
+    // Verify that cutoff is in the PAST (around 90 days ago) and not in the FUTURE
+    expect(negativeCallCutoff.getTime()).toBeLessThan(now);
+
+    // Test zero days parameter (0)
+    await service.cleanup(0);
+    const zeroCallCutoff = queryBuilder.where.mock.calls[queryBuilder.where.mock.calls.length - 1][1].cutoff;
+    expect(zeroCallCutoff.getTime()).toBeLessThan(now);
+
+    // Test NaN / non-numeric input
+    await service.cleanup(NaN);
+    const nanCallCutoff = queryBuilder.where.mock.calls[queryBuilder.where.mock.calls.length - 1][1].cutoff;
+    expect(nanCallCutoff.getTime()).toBeLessThan(now);
+
+    // Test valid positive parameter (30)
+    await service.cleanup(30);
+    const validCallCutoff = queryBuilder.where.mock.calls[queryBuilder.where.mock.calls.length - 1][1].cutoff;
+    expect(validCallCutoff.getTime()).toBeLessThan(now);
+    // 30 days ago should be later than 90 days ago
+    expect(validCallCutoff.getTime()).toBeGreaterThan(negativeCallCutoff.getTime());
+  });
+
   it('handles array inputs for metadata fields gracefully', async () => {
     mockRepository.save.mockResolvedValue({});
 

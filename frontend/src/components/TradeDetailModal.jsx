@@ -52,14 +52,16 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
         <Drawer.Content
+          aria-labelledby="trade-detail-title"
+          aria-describedby="trade-detail-description"
           className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto h-auto">
 
           {/* Drawer Handle */}
           <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
             <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
             <VisuallyHidden>
-              <Drawer.Title>Trade Details for {trade.symbol}</Drawer.Title>
-              <Drawer.Description id="modal-description">
+              <Drawer.Title id="trade-detail-title">Trade Details for {trade.symbol}</Drawer.Title>
+              <Drawer.Description id="trade-detail-description">
                 Detailed view of the active trade for {trade.symbol}, including P&L and exit signals.
               </Drawer.Description>
             </VisuallyHidden>

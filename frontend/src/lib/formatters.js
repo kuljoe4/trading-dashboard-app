@@ -295,7 +295,7 @@ export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
       const s = signalsObj[sigKey];
       if (!s) continue;
 
-      const prox = calculateProximity(s, oppClose || s.value || 0, 0, isLong, false);
+      const prox = calculateProximity(s, s.value !== undefined ? s.value : (oppClose || 0), 0, isLong, false);
       validSigCount++;
       sigSum += prox;
 

@@ -1790,29 +1790,29 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
             <StatCard label="Sharpe Ratio" value={`${result.sharpeRatio}`} subValue={`Fees: $${result.totalFees}`} color="text-text" />
           </div>
 
-          {result.equityCurve && result.equityCurve.length > 0 && (
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Equity Curve ($)</span>
-                <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
-              </div>
-              <div className="h-28 w-full flex items-end gap-1 pt-2 px-1">
-                {(() => {
-                  // BOLT OPTIMIZATION: Single-pass pre-computation of equity bounds min/max/range.
-                  // Calculating Math.min/Math.max via array spreading inside every .map() iteration causes O(N^2) quadratic execution
-                  // and heavy transient array heap allocations. Pre-calculating bounds once in O(N) reduces render complexity to O(N).
-                  let minBal = Infinity;
-                  let maxBal = -Infinity;
-                  for (let i = 0; i < result.equityCurve.length; i++) {
-                    const eq = result.equityCurve[i].equity;
-                    if (eq < minBal) minBal = eq;
-                    if (eq > maxBal) maxBal = eq;
-                  }
-                  if (minBal === Infinity) minBal = 0;
-                  if (maxBal === -Infinity) maxBal = 0;
-                  const range = Math.max(1, maxBal - minBal);
+          {result.equityCurve && result.equityCurve.length > 0 && (() => {
+            // BOLT OPTIMIZATION: Calculate minBal and maxBal in a single $O(N)$ pass outside the render loop.
+            // Eliminates $O(N^2)$ array allocations (`result.equityCurve.map(...)`) and spread iterations
+            // (`Math.min(...)`/`Math.max(...)`) inside every bar iteration of the equity curve rendering.
+            let minBal = Infinity;
+            let maxBal = -Infinity;
+            for (let i = 0; i < result.equityCurve.length; i++) {
+              const eq = result.equityCurve[i].equity;
+              if (eq < minBal) minBal = eq;
+              if (eq > maxBal) maxBal = eq;
+            }
+            if (!isFinite(minBal)) minBal = 0;
+            if (!isFinite(maxBal)) maxBal = 1;
+            const range = Math.max(1, maxBal - minBal);
 
-                  return result.equityCurve.map((pt, idx) => {
+            return (
+              <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-dim">Simulated Equity Curve ($)</span>
+                  <span className="text-[10px] font-mono text-accent font-bold">End Balance: {fmtUSD(result.endingBalance)}</span>
+                </div>
+                <div className="h-28 w-full flex items-end gap-1 pt-2 px-1">
+                  {result.equityCurve.map((pt, idx) => {
                     const heightPct = Math.max(8, ((pt.equity - minBal) / range) * 100);
                     const isUp = pt.equity >= result.startingBalance;
 
@@ -1827,11 +1827,11 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
                         />
                       </Tooltip>
                     );
-                  });
-                })()}
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Symbol Performance Breakdown & Auto/Manual Injection Leaderboard */}
           {result.symbolPerformance && result.symbolPerformance.length > 0 && (
@@ -2129,6 +2129,7 @@ const flattenConfig = (config) => {
       htf_ema_slow_period: config.htf_ema_slow_period || 21,
       htf_ema_cross_max_boost: config.htf_ema_cross_max_boost !== undefined ? config.htf_ema_cross_max_boost : 25.0,
       htf_ema_cross_rr_weight: config.htf_ema_cross_rr_weight !== undefined ? config.htf_ema_cross_rr_weight : 1.5,
+      htf_ema_cross_min_profit_pct: config.htf_ema_cross_min_profit_pct !== undefined ? config.htf_ema_cross_min_profit_pct : 0.0,
     };
 
     // Dynamically map all params (including suffixes) directly to flattened keys
@@ -2188,7 +2189,7 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
-      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight', 'htf_ema_cross_min_profit_pct'
     ];
 
     numericFields.forEach(f => {
@@ -2809,7 +2810,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
-      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight', 'htf_ema_cross_min_profit_pct'
     ];
 
     numericFields.forEach(f => {
@@ -3471,6 +3472,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {renderField('Slow EMA Period', 'htf_ema_slow_period', 'number', null, { min: 2, max: 200 })}
                   {renderField('Max Score Boost', 'htf_ema_cross_max_boost', 'number', null, { min: 0, max: 50, step: 1 })}
                   {renderField('R:R Score Weight', 'htf_ema_cross_rr_weight', 'number', null, { min: 0, max: 10, step: 0.1 })}
+                  {renderField('Min Profit %', 'htf_ema_cross_min_profit_pct', 'number', null, { min: 0, max: 20, step: 0.1 })}
                 </div>
               </div>
             </CollapsibleSection>

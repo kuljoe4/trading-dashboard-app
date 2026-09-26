@@ -1146,11 +1146,23 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
     const maxTs = displayItems[dCount - 1].exitTs;
     const timeSpanMs = Math.max(1, maxTs - minTs);
 
+    // BOLT OPTIMIZATION: Loop-Fused Scalar Bounds Tracking
+    // Tracks scalar extremes directly during series iteration, eliminating transient array heap allocations
+    // (pnlValues, hrValues, ratioValues) and array-spread Math.min(...)/Math.max(...) stack operations.
+    let rawPnlMin = 0;
+    let rawPnlMax = 0.1;
+    let minHrVal = Infinity;
+    let maxHrVal = -Infinity;
+    let peakRatioVal = -Infinity;
+
     for (let idx = 0; idx < dCount; idx++) {
       const item = displayItems[idx];
       const t = item.trade;
       const pnl = Number(t?.pnl || 0);
       cumPnl += pnl;
+
+      if (cumPnl < rawPnlMin) rawPnlMin = cumPnl;
+      if (cumPnl > rawPnlMax) rawPnlMax = cumPnl;
 
       const retPct = rollingBal > 0 ? (pnl / rollingBal) * 100 : 0;
       rollingBal = Math.max(1, rollingBal + pnl);
@@ -1174,6 +1186,10 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       const tradeNum = idx + 1;
       const rawHitRate = (totalWins / Math.max(1, cumulativeTradeCount)) * 100;
       const hitRate = Math.min(100, Math.max(0, rawHitRate));
+
+      if (hitRate < minHrVal) minHrVal = hitRate;
+      if (hitRate > maxHrVal) maxHrVal = hitRate;
+
       const pf = grossLoss > 0 ? (grossWin / grossLoss) : (grossWin > 0 ? 10 : 0);
 
       let sharpe = 0;
@@ -1188,6 +1204,10 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
         if (stdDev > 0) sharpe = meanReturn / stdDev;
         if (downsideStdDev > 0) sortino = meanReturn / downsideStdDev;
       }
+
+      if (pf > 0 && pf < 50 && pf > peakRatioVal) peakRatioVal = pf;
+      if (sharpe > 0 && sharpe > peakRatioVal) peakRatioVal = sharpe;
+      if (sortino > 0 && sortino > peakRatioVal) peakRatioVal = sortino;
 
       const durMs = Math.max(0, item.exitTs - item.entryTs);
 
@@ -1214,27 +1234,17 @@ export const StrategyPerformanceOverlayChart = ({ trades = [], height = 280, sho
       };
     }
 
-    const pnlValues = series.map(s => s.cumPnl);
-    const rawPnlMin = Math.min(0, ...pnlValues);
-    const rawPnlMax = Math.max(0.1, ...pnlValues);
     const rawPnlRange = rawPnlMax - rawPnlMin;
     const pnlPad = rawPnlRange * 0.15;
     const minPnl = rawPnlMin - pnlPad;
     const maxPnl = rawPnlMax + pnlPad;
     const rangePnl = maxPnl - minPnl;
 
-    const hrValues = series.map(s => s.hitRate);
-    const rawHrMin = Math.max(0, Math.min(...hrValues) - 5);
-    const rawHrMax = Math.min(100, Math.max(...hrValues) + 5);
+    const rawHrMin = Math.max(0, minHrVal - 5);
+    const rawHrMax = Math.min(100, maxHrVal + 5);
     const rangeHr = Math.max(10, rawHrMax - rawHrMin);
 
-    const ratioValues = [];
-    series.forEach(s => {
-      if (s.pf > 0 && s.pf < 50) ratioValues.push(s.pf);
-      if (s.sharpe > 0) ratioValues.push(s.sharpe);
-      if (s.sortino > 0) ratioValues.push(s.sortino);
-    });
-    const peakRatio = ratioValues.length > 0 ? Math.max(...ratioValues) : 2.5;
+    const peakRatio = peakRatioVal !== -Infinity ? peakRatioVal : 2.5;
     const ratioScaleMax = Math.max(3.0, peakRatio * 1.15);
 
     const pts = series.map((d, i) => {

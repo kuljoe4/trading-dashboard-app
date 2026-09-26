@@ -72,6 +72,7 @@ export class SessionStateService {
   public config: SessionConfig | null = null;
   public closedTrades: Trade[] = [];
   public activeTrades: Trade[] = []; // BOLT: Track active trades here for circular dependency removal
+  public activeTradesMap: Map<string, Trade> = new Map(); // O(1) symbol lookup
   public cachedClosedTradesStats: Record<string, { pnl: number, count: number, hits: number }> = {};
   private appliedStatsPnL: Map<string, number> = new Map(); // trade.id -> pnl portion already in stats.totalPnl
 
@@ -643,6 +644,12 @@ export class SessionStateService {
   }
 
   setActiveTrades(trades: Trade[]) {
+    this.activeTradesMap.clear();
+    for (const t of trades) {
+      if (t.symbol) {
+        this.activeTradesMap.set(t.symbol, t);
+      }
+    }
     this.activeTrades = trades;
   }
 

@@ -574,9 +574,7 @@ export class SessionLifecycleService {
           `[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`,
         );
 
-        let trade = this.sessionState.activeTrades.find(
-          (t) => t.symbol === symbol,
-        );
+        let trade = this.sessionState.activeTradesMap?.get(symbol) || this.sessionState.activeTrades?.find(t => t.symbol === symbol);
 
         // SRE: Race condition guard - check in-flight entries if not in active list
         if (!trade && amount !== 0) {
@@ -595,7 +593,8 @@ export class SessionLifecycleService {
 
           // CHRONOS: If this was an in-flight entry, promote it to active status immediately
           // now that we have exchange-confirmed position data.
-          if (!this.sessionState.activeTrades.find((t) => t.id === trade!.id)) {
+          // Since we might have promoted an in-flight entry, check the map
+          if (!(this.sessionState.activeTradesMap?.has(symbol) || this.sessionState.activeTrades?.find(t => t.id === trade!.id))) {
             this.logger.log(
               `[${tradeIdShort8}] [Sync] Promoting in-flight entry for ${symbol} to active list via ACCOUNT_UPDATE.`,
             );
@@ -631,13 +630,9 @@ export class SessionLifecycleService {
 
         // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
         // it means it was closed on exchange (SL, TP, or manual).
-        const hasActiveTrade = this.sessionState.activeTrades?.some(
-          (t) => t.symbol === symbol,
-        );
+        const hasActiveTrade = this.sessionState.activeTradesMap?.has(symbol) || this.sessionState.activeTrades?.some(t => t.symbol === symbol);
         if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade)) {
-          let tEntity = this.sessionState.activeTrades?.find(
-            (t) => t.symbol === symbol,
-          );
+          let tEntity = this.sessionState.activeTradesMap?.get(symbol) || this.sessionState.activeTrades?.find(t => t.symbol === symbol);
           if (!tEntity && this.sessionState.closedTrades) {
             tEntity = this.sessionState.closedTrades.find(
               (t) => t.symbol === symbol && t.status !== "OPEN",
@@ -662,9 +657,7 @@ export class SessionLifecycleService {
             continue;
           }
 
-          const trade = this.sessionState.activeTrades.find(
-            (t) => t.symbol === symbol,
-          );
+          const trade = this.sessionState.activeTradesMap?.get(symbol) || this.sessionState.activeTrades?.find(t => t.symbol === symbol);
           if (trade) {
             const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
 
@@ -680,7 +673,7 @@ export class SessionLifecycleService {
             const executeSyncClose = () => {
               if (!this.running) return;
 
-              const currentTrade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+              const currentTrade = this.sessionState.activeTradesMap?.get(symbol) || this.sessionState.activeTrades?.find(t => t.symbol === symbol);
               if (!currentTrade) {
                 this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} already removed. Skipping zero-weight closure.`);
                 return;

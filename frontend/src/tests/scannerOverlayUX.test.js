@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 test('ScannerRow interactive element includes dynamic aria-label and high-contrast focus-visible ring', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/ScannerOverlay.jsx')
+  const filePath = path.join(process.cwd(), 'src/components/ScannerOverlay.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Verify ScannerRow includes dynamic aria-label
@@ -21,7 +21,7 @@ test('ScannerRow interactive element includes dynamic aria-label and high-contra
 })
 
 test('ScannerOverlay search input and utility buttons include explicit focus-visible rings and button semantics', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/ScannerOverlay.jsx')
+  const filePath = path.join(process.cwd(), 'src/components/ScannerOverlay.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   // Verify search input applies theme-aligned focus-visible ring

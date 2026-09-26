@@ -102,7 +102,9 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
   // 4. Exit Signal Warmup Starvation
   if (trade.exit_signals_status) {
     const warmingSigs = [];
-    for (const [sigKey, sig] of Object.entries(trade.exit_signals_status)) {
+    for (const sigKey in trade.exit_signals_status) {
+      if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, sigKey)) continue;
+      const sig = trade.exit_signals_status[sigKey];
       if (sig && sig.is_warming_up) {
         warmingSigs.push(`${sigKey} (${sig.warmup_candles || 0}/${sig.required_warmup || 0} candles)`);
       }
@@ -154,9 +156,16 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     `- **Secured Exit (R):** [${exits.join(', ')}]`,
     ``,
     `#### Exit Signal Telemetry:`,
-    trade.exit_signals_status && Object.keys(trade.exit_signals_status).length > 0
-      ? Object.entries(trade.exit_signals_status).map(([k, s]) => `- \`${k}\`: Fired=${!!s?.fired}, Active=${!!s?.active}, Progress=${(s?.progress ?? s?.distPct ?? 0).toFixed(1)}%${s?.is_warming_up ? ` (Warming: ${s.warmup_candles}/${s.required_warmup} - ${s.warmup_tf})` : ''}`).join('\n')
-      : '- None active',
+    (() => {
+      if (!trade.exit_signals_status) return '- None active';
+      const lines = [];
+      for (const k in trade.exit_signals_status) {
+        if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, k)) continue;
+        const s = trade.exit_signals_status[k];
+        lines.push(`- \`${k}\`: Fired=${!!s?.fired}, Active=${!!s?.active}, Progress=${(s?.progress ?? s?.distPct ?? 0).toFixed(1)}%${s?.is_warming_up ? ` (Warming: ${s.warmup_candles}/${s.required_warmup} - ${s.warmup_tf})` : ''}`);
+      }
+      return lines.length > 0 ? lines.join('\n') : '- None active';
+    })(),
     ``,
     `#### Execution & Recovery Flags:`,
     `- **App Restart Reconciliation:** ${trade.is_reconciliation ? 'YES' : 'NO'}`,

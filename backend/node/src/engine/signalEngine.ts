@@ -216,6 +216,13 @@ export class SignalEngineService {
       }
     }
 
+    // Include HTF EMA Cross requirements if enabled
+    if (config.htf_ema_cross_boost_enabled !== false) {
+      const slowPeriod = config.htf_ema_slow_period || 21;
+      // HTF calculations require slowPeriod + 10 candles
+      maxReq = Math.max(maxReq, slowPeriod + 10);
+    }
+
     this.warmupCache.set(config, maxReq);
     return maxReq;
   }

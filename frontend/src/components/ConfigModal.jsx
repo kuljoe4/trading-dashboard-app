@@ -2141,6 +2141,68 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 
+const HtfEmaCrossWeightsEditor = ({ weights, onChange, disabled }) => {
+  const intervals = ['1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h', '1d', '3d', '1w', '1M'];
+  const safeWeights = weights || {};
+
+  const handleToggle = (interval, isEnabled) => {
+    const next = { ...safeWeights };
+    if (isEnabled) {
+      next[interval] = 10.0; // Default weight
+    } else {
+      delete next[interval];
+    }
+    onChange(next);
+  };
+
+  const handleChangeWeight = (interval, value) => {
+    const next = { ...safeWeights };
+    next[interval] = Math.min(50, Math.max(0, Number(value) || 0));
+    onChange(next);
+  };
+
+  return (
+    <div className={cn("col-span-full border border-border/40 bg-surface/50 rounded-xl p-4 flex flex-col gap-3", disabled && "opacity-40 pointer-events-none")}>
+      <div className="flex justify-between items-center">
+        <label className="text-[10px] uppercase font-bold tracking-wider text-dim">Multi-Timeframe Combination</label>
+        <div className="text-[9px] font-mono font-medium text-dim">
+          Total Boost: {Object.values(safeWeights).reduce((a, b) => a + (Number(b) || 0), 0).toFixed(1)}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        {intervals.map(tf => {
+          const isActive = Object.prototype.hasOwnProperty.call(safeWeights, tf);
+          return (
+            <div key={tf} className={cn("flex items-center justify-between border rounded-lg p-2 transition-colors", isActive ? "border-accent/40 bg-accent/5" : "border-border/30 bg-background/30")}>
+              <div className="flex items-center gap-2">
+                <Switch.Root
+                  checked={isActive}
+                  onCheckedChange={(v) => handleToggle(tf, v)}
+                  className="w-7 h-4 bg-white/10 rounded-full relative data-[state=checked]:bg-accent transition-colors"
+                >
+                  <Switch.Thumb className="block w-3 h-3 bg-white rounded-full transition-transform translate-x-[2px] data-[state=checked]:translate-x-[14px]" />
+                </Switch.Root>
+                <span className={cn("text-[10px] font-bold uppercase", isActive ? "text-accent" : "text-dim")}>{tf}</span>
+              </div>
+              {isActive && (
+                <input
+                  type="number"
+                  min="0"
+                  max="50"
+                  step="1"
+                  value={safeWeights[tf]}
+                  onChange={(e) => handleChangeWeight(tf, e.target.value)}
+                  className="w-10 bg-transparent text-right font-mono text-[10px] font-bold text-text focus:outline-none"
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const coerceAndSanitizeConfig = (rawConfig) => {
   if (!rawConfig) return {};
   try {
@@ -2820,6 +2882,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     });
 
     c.htf_ema_cross_boost_enabled = c.htf_ema_cross_boost_enabled !== false;
+    if (!c.htf_ema_cross_weights || Object.keys(c.htf_ema_cross_weights).length === 0) {
+      c.htf_ema_cross_weights = { [c.htf_ema_cross_interval || '4h']: c.htf_ema_cross_max_boost !== undefined ? c.htf_ema_cross_max_boost : 25.0 };
+    }
     c.htf_ema_cross_interval = c.htf_ema_cross_interval || '4h';
 
     c.scanner_weights = {
@@ -3466,11 +3531,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-6", cfg.htf_ema_cross_boost_enabled === false && "opacity-40 pointer-events-none")}>
-                  {renderField('HTF Interval', 'htf_ema_cross_interval', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
+                  <HtfEmaCrossWeightsEditor
+                    weights={cfg.htf_ema_cross_weights}
+                    onChange={(w) => setField('htf_ema_cross_weights', w)}
+                    disabled={cfg.htf_ema_cross_boost_enabled === false}
+                  />
+                  <div className="col-span-full flex items-center justify-between border border-border/40 bg-surface/50 rounded-xl p-3 px-4">
+                    <div>
+                      <div className="text-[11px] font-bold">Prioritize Recent Crosses</div>
+                      <div className="text-[9px] text-dim font-medium uppercase mt-0.5">Scale boost based on how recent the cross occurred</div>
+                    </div>
+                    <Switch.Root
+                      checked={cfg.htf_ema_cross_prioritize_recent === true}
+                      onCheckedChange={(v) => setField('htf_ema_cross_prioritize_recent', v)}
+                      className="w-9 h-5 bg-white/10 rounded-full relative data-[state=checked]:bg-accent transition-colors"
+                    >
+                      <Switch.Thumb className="block w-4 h-4 bg-white rounded-full transition-transform translate-x-[2px] data-[state=checked]:translate-x-[18px]" />
+                    </Switch.Root>
+                  </div>
                   {renderField('Cross Count', 'htf_ema_cross_count', 'number', null, { min: 1, max: 20 })}
                   {renderField('Fast EMA Period', 'htf_ema_fast_period', 'number', null, { min: 2, max: 200 })}
                   {renderField('Slow EMA Period', 'htf_ema_slow_period', 'number', null, { min: 2, max: 200 })}
-                  {renderField('Max Score Boost', 'htf_ema_cross_max_boost', 'number', null, { min: 0, max: 50, step: 1 })}
                   {renderField('R:R Score Weight', 'htf_ema_cross_rr_weight', 'number', null, { min: 0, max: 10, step: 0.1 })}
                   {renderField('Min Profit %', 'htf_ema_cross_min_profit_pct', 'number', null, { min: 0, max: 20, step: 0.1 })}
                 </div>

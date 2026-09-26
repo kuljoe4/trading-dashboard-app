@@ -189,6 +189,8 @@ const sessionConfigAllowedKeys = [
   'htf_ema_cross_max_boost',
   'htf_ema_cross_rr_weight',
   'htf_ema_cross_min_profit_pct',
+  'htf_ema_cross_weights',
+  'htf_ema_cross_prioritize_recent',
   'force_risk_release',
   'ui_eco_mode',
 ]

@@ -675,14 +675,14 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: (closeOnlyMode || softMode) ? curr.close : (fired ? 1 : 0),
-        threshold: (closeOnlyMode || softMode) ? threshold : 1,
-        unit: (closeOnlyMode || softMode) ? 'price' : 'bool',
+        value: curr.close,
+        threshold: threshold,
+        unit: 'price',
         metric: (closeOnlyMode || softMode) ? 'Close Engulf' : 'Engulfing',
         description: fired
           ? (softMode ? `Live candle broke through ${streakReq}-candle cluster` : closeOnlyMode ? `Closed candle close-engulfed ${streakReq}-candle streak` : `Engulfing pattern (${mode}) detected`)
           : (reason || 'No engulfing pattern'),
-        threshold_is_price: closeOnlyMode || softMode,
+        threshold_is_price: true,
         pattern_low: aggregateLow !== Infinity ? aggregateLow : undefined,
         pattern_high: aggregateHigh !== -Infinity ? aggregateHigh : undefined,
         body_low: aggregateBodyLow !== Infinity ? aggregateBodyLow : undefined,

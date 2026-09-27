@@ -127,7 +127,7 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
           // For event-based signals (like _cross), being on the satisfied side without being fired (isFired === false)
           // means the cross event occurred previously and is no longer actionable (or was blocked). Return 0 (STALE/PASSED).
           if (isEventBased && !isFired) {
-            return 0; // State: STALE / PASSED
+            return maxVal; // State: STALE / PASSED
           }
           return 100; // State: SATISFIED
         }
@@ -262,7 +262,7 @@ export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
     for (const sigKey of enabledSigs) {
       const s = opp.signalResult.signals[sigKey];
       if (s) {
-        const prox = calculateProximity(s, opp.close || s.value || 0, 0, isLong, false);
+        const prox = calculateProximity(s, s.value || opp.close || 0, 0, isLong, false);
         signalProximities.push({ key: sigKey, prox });
       }
     }

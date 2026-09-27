@@ -6,7 +6,6 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
   beforeAll(() => {
     Object.defineProperty(SignalEngineService.prototype, "getRequiredWarmup", { value: () => 1, configurable: true });
   });
-  beforeEach(() => { if(service) jest.spyOn(service as any, "getRequiredWarmup").mockReturnValue(1); });
   const mockKlineStore = {
     getRawCandles: jest.fn(),
   };

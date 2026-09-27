@@ -8,8 +8,7 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
   beforeAll(() => {
     Object.defineProperty(SignalEngineService.prototype, "getRequiredWarmup", { value: () => 1, configurable: true });
   });
-  beforeEach(() => { if(service) jest.spyOn(service as any, "getRequiredWarmup").mockReturnValue(1); });
-  let klineStore: jest.Mocked<KlineStoreService>;
+    let klineStore: jest.Mocked<KlineStoreService>;
 
   beforeEach(async () => {
     klineStore = {

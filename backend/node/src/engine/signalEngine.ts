@@ -163,20 +163,20 @@ export class SignalEngineService {
         const entryPeriodVal = resolveParam(signalType, baseType, 'entry_ema_period', null);
         const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
         const period = parseInt(String(exitPeriodVal || entryPeriodVal || basePeriodVal), 10);
-        maxReq = Math.max(maxReq, period * 2);
+        maxReq = Math.max(maxReq, period * 5);
       } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close') {
         const fastVal = resolveParam(signalType, baseType, 'entry_ema_fast', resolveParam(signalType, baseType, 'exit_ema_fast', '9'));
         const slowVal = resolveParam(signalType, baseType, 'entry_ema_slow', resolveParam(signalType, baseType, 'exit_ema_slow', '21'));
         const fast = parseInt(String(fastVal), 10);
         const slow = parseInt(String(slowVal), 10);
-        maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
+        maxReq = Math.max(maxReq, Math.max(fast, slow) * 5);
 
         const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);
         if (macdFilter === true || macdFilter === 'true') {
           const mFast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
           const mSlow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
           const mSig = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
-          maxReq = Math.max(maxReq, (Math.max(mFast, mSlow) + mSig) * 2);
+          maxReq = Math.max(maxReq, (Math.max(mFast, mSlow) + mSig) * 5);
         }
       } else if (baseType === 'engulfing') {
         const lookbackVal = resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1');
@@ -192,7 +192,7 @@ export class SignalEngineService {
         const slow = parseInt(String(slowVal), 10);
         const signal = parseInt(String(sigVal), 10);
         const emaPeriod = parseInt(String(emaVal), 10);
-        maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2, emaPeriod * 2);
+        maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 5, emaPeriod * 5);
       } else if (baseType === 'supertrend') {
         const periodVal = resolveParam(signalType, baseType, 'supertrend_period', '10');
         const period = parseInt(String(periodVal), 10);

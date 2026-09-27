@@ -30,8 +30,8 @@ export class KlineStoreService {
   ) {}
 
   private readMaxCandles(): number {
-    const parsed = Number(process.env.KLINE_MAX_CANDLES || 200);
-    return Number.isFinite(parsed) ? Math.min(Math.max(Math.floor(parsed), 50), 500) : 200;
+    const parsed = Number(process.env.KLINE_MAX_CANDLES || 1000);
+    return Number.isFinite(parsed) ? Math.min(Math.max(Math.floor(parsed), 50), 1500) : 1000;
   }
 
   getMaxCandles(): number {

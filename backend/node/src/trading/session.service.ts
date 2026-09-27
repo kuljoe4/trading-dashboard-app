@@ -764,7 +764,7 @@ export class SessionService implements OnModuleInit {
     }
 
     // DATA-02: Indicator Convergence validation
-    const maxCandles = parseInt(process.env.KLINE_MAX_CANDLES || "200", 10);
+    const maxCandles = parseInt(process.env.KLINE_MAX_CANDLES || "1000", 10);
 
     // Proactively scan all keys in signalParams for any indicator periods to protect against convergence failures
     const indicatorPeriods: number[] = [];
@@ -789,9 +789,9 @@ export class SessionService implements OnModuleInit {
     }
 
     for (const p of indicatorPeriods) {
-      if (p >= maxCandles * 0.5) {
+      if (p >= maxCandles * 0.2) {
         throw new BadRequestException(
-          `Indicator period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). Values may not converge for reliable signals. Use a period < ${Math.floor(maxCandles * 0.5)} or increase KLINE_MAX_CANDLES.`,
+          `Indicator period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). Values may not converge for reliable signals (requires 5x warmup). Use a period < ${Math.floor(maxCandles * 0.2)} or increase KLINE_MAX_CANDLES.`,
         );
       }
     }

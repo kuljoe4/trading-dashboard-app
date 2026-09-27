@@ -42,7 +42,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     // 30 candles where price is 100 (fast EMA = 100, slow EMA = 100)
     // Then a sudden surge on the current live candle to 110
     // Fast EMA(5) will rise faster to ~101.66 than Slow EMA(10) ~100.90
-    const prices = [...Array(30).fill(100), 110];
+    const prices = [...Array(120).fill(100), 110];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -62,7 +62,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     // Candle 1: 100 (flat)
     // Candle 31 (closed): 110 (crossover occurred here)
     // Candle 32 (live): 110 (fast EMA is still above slow EMA, but NO NEW CROSSOVER occurred)
-    const prices = [...Array(30).fill(100), 110, 110];
+    const prices = [...Array(120).fill(100), 110, 110];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -82,7 +82,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     // Crossover 1 at candle 31 (110)
     // Pullback at candle 32 (90) -> Fast EMA dips below Slow EMA
     // Re-crossover at candle 33 (120) -> Fast EMA crosses Slow EMA again!
-    const prices = [...Array(30).fill(100), 110, 90, 120];
+    const prices = [...Array(120).fill(100), 110, 90, 120];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -101,7 +101,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
   it('should fire SHORT entry on the exact live candle where fast EMA crosses below slow EMA', () => {
     // 30 candles where price is 100
     // Drop on current live candle to 90
-    const prices = [...Array(30).fill(100), 90];
+    const prices = [...Array(120).fill(100), 90];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 

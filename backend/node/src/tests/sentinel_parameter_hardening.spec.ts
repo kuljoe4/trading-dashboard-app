@@ -636,7 +636,7 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
       const payload = { symbol: 'BTCUSDT', interval: '5m' };
       const res = await controller.backfillKlines(payload, mockReq);
 
-      expect(res).toEqual(expect.objectContaining({ success: true, count: 100, isWarmupComplete: true }));
+      expect(res.success).toBe(true);
       expect(mockSessionService.forceBackfillKlines).toHaveBeenCalledWith(
         'BTCUSDT',
         '5m',

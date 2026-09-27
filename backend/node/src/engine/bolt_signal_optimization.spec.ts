@@ -223,6 +223,8 @@ describe('SignalEngineService Optimization Benchmark', () => {
     // 5m interval - even if candles are identical, cache should not collide
     // We'll manually inject a different value for 5m to see if it's actually recomputed or correctly separated
     // Since it's O(N) calculation, if we change the input slightly, the output must change.
+    const candles2 = [...candles1];
+    candles2[0] = { ...candles1[0] };
     candles2[0].close = 105;
     jest.spyOn(klineStore, 'getRawCandles').mockReturnValue(candles2 as any);
     const res5m = signalEngine.checkEntry(symbol, config, '5m', 'LONG');

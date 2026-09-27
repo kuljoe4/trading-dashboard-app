@@ -764,14 +764,31 @@ export class SessionService implements OnModuleInit {
     }
 
     // DATA-02: Indicator Convergence validation
-    const maxCandles = parseInt(process.env.KLINE_MAX_CANDLES || "1000", 10);
+    // Align KLINE_MAX_CANDLES with KlineStoreService clamping limits (min 50, max 1500)
+    const rawMaxCandles = Number(process.env.KLINE_MAX_CANDLES || 1000);
+    const maxCandles = Number.isFinite(rawMaxCandles) ? Math.min(Math.max(Math.floor(rawMaxCandles), 50), 1500) : 1000;
 
-    // Proactively scan all keys in signalParams for any indicator periods to protect against convergence failures
+    // Proactively scan all keys in signalParams for IIR indicator periods to protect against convergence failures.
+    // IIR indicators (EMA, MACD, Supertrend, RSI) require a 5x warmup period.
     const indicatorPeriods: number[] = [];
     for (const [key, val] of Object.entries(signalParams)) {
       const lowerKey = key.toLowerCase();
-      const isPeriodKey = lowerKey.includes("period") || lowerKey.includes("slow") || lowerKey.includes("fast") || lowerKey.includes("_ema");
-      if (isPeriodKey) {
+
+      // Explicit whitelist for IIR indicator parameters to avoid flagging non-IIR values
+      // (like `sl_lookback_period` or `fast_stochastic_threshold`)
+      const isIIR = (
+        lowerKey.includes("ema") ||
+        lowerKey.includes("macd") ||
+        lowerKey.includes("supertrend") ||
+        lowerKey.includes("rsi")
+      ) && (
+        lowerKey.includes("period") ||
+        lowerKey.includes("fast") ||
+        lowerKey.includes("slow") ||
+        lowerKey.includes("signal")
+      ) && !lowerKey.includes("lookback");
+
+      if (isIIR) {
         const parsed = parseInt(String(val), 10);
         if (!isNaN(parsed)) {
           indicatorPeriods.push(parsed);

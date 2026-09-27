@@ -3751,10 +3751,34 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="flex flex-col gap-2 mb-4">
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-black text-dim uppercase tracking-widest">Entry Signal Logic</span>
-                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
-                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
-                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL (AND)</button>
-                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'combo' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'combo')}>COMBO</button>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner" role="group" aria-label="Entry signal logic selection">
+                    <button
+                      type="button"
+                      aria-pressed={(cfg.signal_logic || 'all') === 'any'}
+                      aria-label="Set entry signal logic to ANY"
+                      className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")}
+                      onClick={() => setField('signal_logic', 'any')}
+                    >
+                      ANY
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={(cfg.signal_logic || 'all') === 'all'}
+                      aria-label="Set entry signal logic to ALL (AND)"
+                      className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")}
+                      onClick={() => setField('signal_logic', 'all')}
+                    >
+                      ALL (AND)
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={(cfg.signal_logic || 'all') === 'combo'}
+                      aria-label="Set entry signal logic to COMBO"
+                      className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none", (cfg.signal_logic || 'all') === 'combo' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")}
+                      onClick={() => setField('signal_logic', 'combo')}
+                    >
+                      COMBO
+                    </button>
                   </div>
                 </div>
                 {cfg.signal_logic === 'combo' && (
@@ -4104,10 +4128,34 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="flex flex-col gap-2 mb-4">
                 <div className="flex justify-between items-center">
                   <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Signal Logic</span>
-                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
-                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
-                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL (AND)</button>
-                    <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'combo' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'combo')}>COMBO</button>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner" role="group" aria-label="Exit signal logic selection">
+                    <button
+                      type="button"
+                      aria-pressed={(cfg.exit_signal_logic || 'any') === 'any'}
+                      aria-label="Set exit signal logic to ANY"
+                      className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")}
+                      onClick={() => setField('exit_signal_logic', 'any')}
+                    >
+                      ANY
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={cfg.exit_signal_logic === 'all'}
+                      aria-label="Set exit signal logic to ALL (AND)"
+                      className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")}
+                      onClick={() => setField('exit_signal_logic', 'all')}
+                    >
+                      ALL (AND)
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={cfg.exit_signal_logic === 'combo'}
+                      aria-label="Set exit signal logic to COMBO"
+                      className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none", cfg.exit_signal_logic === 'combo' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")}
+                      onClick={() => setField('exit_signal_logic', 'combo')}
+                    >
+                      COMBO
+                    </button>
                   </div>
                 </div>
                 {cfg.exit_signal_logic === 'combo' && (

@@ -47,7 +47,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Not a bullish candle');
+      expect(result.details?.engulfing?.description).toBe('Not a bullish candle');
     });
   });
 
@@ -74,7 +74,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Body did not engulf');
+      expect(result.details?.engulfing?.description).toBe('Body did not engulf');
     });
   });
 
@@ -101,7 +101,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Insufficient volume confirmation');
+      expect(result.details?.engulfing?.description).toBe('Insufficient volume confirmation');
     });
   });
 
@@ -128,7 +128,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Strict engulfing failed');
+      expect(result.details?.engulfing?.description).toBe('Strict engulfing failed');
     });
   });
 
@@ -157,7 +157,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Previous 2 candles not bearish');
+      expect(result.details?.engulfing?.description).toBe('Previous 2 candles not bearish');
     });
 
     it('should fire SHORT when one bearish candle engulfs 2 previous bullish candles', () => {
@@ -188,9 +188,9 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(true);
-      expect(result.details?.engulfing.metric).toBe('Close Engulf');
-      expect(result.details?.engulfing.value).toBe(106.5);
-      expect(result.details?.engulfing.threshold).toBe(106);
+      expect(result.details?.engulfing?.metric).toBe('Close Engulf');
+      expect(result.details?.engulfing?.value).toBe(106.5);
+      expect(result.details?.engulfing?.threshold).toBe(106);
     });
 
     it('should not fire LONG when the closed confirmation candle only wicks above the prior highs', () => {
@@ -205,7 +205,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Close did not clear prior 2-candle high');
+      expect(result.details?.engulfing?.description).toBe('Close did not clear prior 2-candle high');
     });
 
     it('should fire SHORT on the next/live candle after a bearish closed candle closes below 2 bullish candle lows', () => {
@@ -220,8 +220,8 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'SHORT');
       expect(result.allFired).toBe(true);
-      expect(result.details?.engulfing.value).toBe(98.5);
-      expect(result.details?.engulfing.threshold).toBe(99);
+      expect(result.details?.engulfing?.value).toBe(98.5);
+      expect(result.details?.engulfing?.threshold).toBe(99);
     });
   });
 
@@ -238,7 +238,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Previous 2 candles not bearish');
+      expect(result.details?.engulfing?.description).toBe('Previous 2 candles not bearish');
     });
 
     it('should return correct pattern_low and pattern_high for the engulfed sequence', () => {
@@ -252,8 +252,8 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(true);
-      expect(result.details?.engulfing.pattern_low).toBe(100);
-      expect(result.details?.engulfing.pattern_high).toBe(108);
+      expect(result.details?.engulfing?.pattern_low).toBe(100);
+      expect(result.details?.engulfing?.pattern_high).toBe(108);
     });
   });
 
@@ -270,8 +270,8 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(true);
-      expect(result.details?.engulfing.value).toBe(105.5);
-      expect(result.details?.engulfing.threshold).toBe(105);
+      expect(result.details?.engulfing?.value).toBe(105.5);
+      expect(result.details?.engulfing?.threshold).toBe(105);
     });
 
     it('should REJECT LONG if closed candle closes below prior body high even if it clears wicks', () => {
@@ -286,7 +286,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
-      expect(result.details?.engulfing.description).toBe('Close did not clear prior 2-candle body high');
+      expect(result.details?.engulfing?.description).toBe('Close did not clear prior 2-candle body high');
     });
   });
 

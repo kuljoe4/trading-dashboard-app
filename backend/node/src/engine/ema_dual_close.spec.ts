@@ -37,7 +37,7 @@ describe('SignalEngineService - ema_dual_close', () => {
 
   it('should fire LONG entry if price is above both EMAs', () => {
     // Provide 40 candles to satisfy 2*period warmup (period=10 -> 20 candles)
-    const prices = Array(40).fill(10).map((v, i) => v + i);
+    const prices = Array(60).fill(10).map((v, i) => v + i);
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -58,7 +58,7 @@ describe('SignalEngineService - ema_dual_close', () => {
     // Price was 100 for a long time, then jumps to 110.
     // EMA(5) will move faster towards 110 than EMA(10).
     // If we then drop to 105, 105 might be below EMA(5) but above EMA(10).
-    const prices = [...Array(30).fill(100), 110, 110, 110, 105];
+    const prices = [...Array(80).fill(100), 110, 110, 110, 105, 105];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -74,7 +74,7 @@ describe('SignalEngineService - ema_dual_close', () => {
   });
 
   it('should fire SHORT entry if price is below both EMAs', () => {
-    const prices = Array(40).fill(100).map((v, i) => v - i);
+    const prices = Array(60).fill(100).map((v, i) => v - i);
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -93,7 +93,7 @@ describe('SignalEngineService - ema_dual_close', () => {
   it('should fire LONG exit if price crosses below either EMA in the last COMPLETED candle', () => {
     // Price 100 for a long time, then we drop to 90 (completed), then 90 again (live).
     // Both EMAs will be > 90 for the completed candle.
-    const prices = [...Array(40).fill(100), 90, 90];
+    const prices = [...Array(80).fill(100), 90, 90];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -112,7 +112,7 @@ describe('SignalEngineService - ema_dual_close', () => {
   it('should NOT fire exit based on mid-candle (live) crossing', () => {
     // Price 100 (completed), then 90 (live).
     // The completed candle (100) is still above EMAs, so no exit should fire.
-    const prices = [...Array(41).fill(100), 90];
+    const prices = [...Array(61).fill(100), 90];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 

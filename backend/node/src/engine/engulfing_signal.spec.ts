@@ -3,6 +3,9 @@ import { Candle } from './kline_store.service';
 
 describe('SignalEngineService - Engulfing Expert Mode', () => {
   let service: SignalEngineService;
+  beforeAll(() => {
+    Object.defineProperty(SignalEngineService.prototype, "getRequiredWarmup", { value: () => 1, configurable: true });
+  });
   const mockKlineStore = {
     getRawCandles: jest.fn(),
   };

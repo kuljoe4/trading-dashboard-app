@@ -5,7 +5,10 @@ import { SessionConfig } from '../models/SessionConfig';
 
 describe('MACD and Supertrend Signal Engine Tests', () => {
   let service: SignalEngineService;
-  let klineStore: jest.Mocked<KlineStoreService>;
+  beforeAll(() => {
+    Object.defineProperty(SignalEngineService.prototype, "getRequiredWarmup", { value: () => 1, configurable: true });
+  });
+    let klineStore: jest.Mocked<KlineStoreService>;
 
   beforeEach(async () => {
     klineStore = {

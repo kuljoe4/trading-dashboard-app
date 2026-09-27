@@ -5,7 +5,10 @@ import { SessionConfig } from '../models/SessionConfig';
 
 describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)', () => {
   let service: SignalEngineService;
-  let klineStore: KlineStoreService;
+  beforeAll(() => {
+    Object.defineProperty(SignalEngineService.prototype, "getRequiredWarmup", { value: () => 1, configurable: true });
+  });
+    let klineStore: KlineStoreService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -116,7 +119,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
 
   describe('MACD Histogram Color Filter on Dual EMA Signals', () => {
     it('should fire SHORT entry when fast EMA crosses below slow EMA and MACD histogram is RED (negative)', () => {
-      const prices = [...Array(80).fill(100), 80];
+      const prices = [...Array(30).fill(100), 80];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -142,7 +145,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
 
     it('should reject SHORT entry when fast EMA crosses below slow EMA but MACD histogram is GREEN (positive)', () => {
       // Mock calculateMACD on service to return positive (GREEN) histogram even when EMA cross occurs
-      const prices = [...Array(80).fill(100), 80];
+      const prices = [...Array(30).fill(100), 80];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -168,7 +171,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     });
 
     it('should fire LONG entry when fast EMA crosses above slow EMA and MACD histogram is GREEN (positive)', () => {
-      const prices = [...Array(80).fill(100), 120];
+      const prices = [...Array(30).fill(100), 120];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -193,7 +196,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     });
 
     it('should reject LONG entry when fast EMA crosses above slow EMA but MACD histogram is RED (negative)', () => {
-      const prices = [...Array(80).fill(100), 120];
+      const prices = [...Array(30).fill(100), 120];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -221,7 +224,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     it('should fire SHORT exit when fast EMA crosses above slow EMA and MACD histogram is GREEN (positive)', () => {
       // For a SHORT position exit, the fast EMA crossing above slow EMA signals a bullish reversal.
       // With MACD filter enabled, the exit should be allowed if MACD histogram is GREEN (positive).
-      const prices = [...Array(80).fill(100), 120];
+      const prices = [...Array(30).fill(100), 120];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -247,7 +250,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
 
     it('should reject SHORT exit when fast EMA crosses above slow EMA but MACD histogram is RED (negative)', () => {
       // For a SHORT position exit, if MACD histogram is still RED (negative), the exit should be rejected.
-      const prices = [...Array(80).fill(100), 120];
+      const prices = [...Array(30).fill(100), 120];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -276,7 +279,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     it('should fire LONG exit when fast EMA crosses below slow EMA and MACD histogram is RED (negative)', () => {
       // For a LONG position exit, fast EMA crossing below slow EMA signals a bearish reversal.
       // With MACD filter enabled, the exit should be allowed if MACD histogram is RED (negative).
-      const prices = [...Array(80).fill(100), 80];
+      const prices = [...Array(30).fill(100), 80];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -301,7 +304,7 @@ describe('SignalEngineService - ema_dual_cross (Debug & Edge Case Verification)'
     });
 
     it('should reject LONG exit when fast EMA crosses below slow EMA but MACD histogram is GREEN (positive)', () => {
-      const prices = [...Array(80).fill(100), 80];
+      const prices = [...Array(30).fill(100), 80];
       const candles = mockCandles(prices);
       (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 

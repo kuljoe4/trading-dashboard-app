@@ -176,7 +176,7 @@ export class SignalEngineService {
           const mFast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
           const mSlow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
           const mSig = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
-          maxReq = Math.max(maxReq, (Math.max(mFast, mSlow) + mSig) * 2);
+          maxReq = Math.max(maxReq, (Math.max(mFast, mSlow) + mSig) * 5);
         }
       } else if (baseType === 'engulfing') {
         const lookbackVal = resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1');
@@ -194,7 +194,7 @@ export class SignalEngineService {
         const slow = parseInt(String(slowVal), 10);
         const signal = parseInt(String(sigVal), 10);
         const emaPeriod = parseInt(String(emaVal), 10);
-        maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 2, emaPeriod * 2);
+        maxReq = Math.max(maxReq, (Math.max(fast, slow) + signal) * 5, emaPeriod * 5);
       } else if (baseType === 'supertrend') {
         const periodVal = resolveParam(signalType, baseType, 'supertrend_period', '10');
         const period = parseInt(String(periodVal), 10);

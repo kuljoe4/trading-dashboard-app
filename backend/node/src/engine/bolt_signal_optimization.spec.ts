@@ -207,10 +207,9 @@ describe('SignalEngineService Optimization Benchmark', () => {
 
     // Create identical candle arrays with enough for warmup (period * 2 = 40)
     const candles1 = [];
-    for (let i = 0; i < 50; i++) {
-        candles1.push({ time: now - (50 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
+    for (let i = 0; i < 150; i++) {
+        candles1.push({ time: now - (150 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
     }
-    const candles2 = JSON.parse(JSON.stringify(candles1));
 
     const config: SessionConfig = {
         enabled_signals: ['ema'],
@@ -224,6 +223,8 @@ describe('SignalEngineService Optimization Benchmark', () => {
     // 5m interval - even if candles are identical, cache should not collide
     // We'll manually inject a different value for 5m to see if it's actually recomputed or correctly separated
     // Since it's O(N) calculation, if we change the input slightly, the output must change.
+    const candles2 = [...candles1];
+    candles2[0] = { ...candles1[0] };
     candles2[0].close = 105;
     jest.spyOn(klineStore, 'getRawCandles').mockReturnValue(candles2 as any);
     const res5m = signalEngine.checkEntry(symbol, config, '5m', 'LONG');

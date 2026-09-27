@@ -2124,6 +2124,7 @@ const flattenConfig = (config) => {
       reject_entry_if_sl_exceeds_max: config.reject_entry_if_sl_exceeds_max !== false,
       htf_ema_cross_boost_enabled: config.htf_ema_cross_boost_enabled !== false,
       htf_ema_cross_interval: config.htf_ema_cross_interval || '4h',
+      htf_ema_cross_intervals: Array.isArray(config.htf_ema_cross_intervals) ? config.htf_ema_cross_intervals : (config.htf_ema_cross_interval ? [config.htf_ema_cross_interval] : ['4h']),
       htf_ema_cross_count: config.htf_ema_cross_count || 4,
       htf_ema_fast_period: config.htf_ema_fast_period || 9,
       htf_ema_slow_period: config.htf_ema_slow_period || 21,

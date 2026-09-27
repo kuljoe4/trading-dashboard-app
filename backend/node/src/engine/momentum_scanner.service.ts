@@ -546,20 +546,34 @@ export class MomentumScannerService {
         const entryPrice = candles[i].close;
         let peakPrice = entryPrice;
 
+        // Check for End-to-End Strict SL Evaluation
+        // Use the prospective SL Price derived from candidateSlDistPct instead of entryPrice.
+        const slPrice = crossDir === 'LONG'
+          ? entryPrice * (1 - (slDistPct / 100))
+          : entryPrice * (1 + (slDistPct / 100));
+
         // Scan forward to find the exact exit point and check for End-to-End Strict losses
         let exitIndex = candles.length - 1; // Default to latest candle
         let endToEndLoss = false;
 
         for (let j = i + 1; j < candles.length; j++) {
           if (crossDir === 'LONG') {
-            if (candles[j].low < entryPrice) endToEndLoss = true;
+            if (candles[j].low <= slPrice) {
+              endToEndLoss = true;
+              exitIndex = j;
+              break;
+            }
             // Check for bearish cross to exit the LONG
             if (fastEma[j - 1] >= slowEma[j - 1] && fastEma[j] < slowEma[j]) {
               exitIndex = j;
               break;
             }
           } else {
-            if (candles[j].high > entryPrice) endToEndLoss = true;
+            if (candles[j].high >= slPrice) {
+              endToEndLoss = true;
+              exitIndex = j;
+              break;
+            }
             // Check for bullish cross to exit the SHORT
             if (fastEma[j - 1] <= slowEma[j - 1] && fastEma[j] > slowEma[j]) {
               exitIndex = j;
@@ -572,13 +586,12 @@ export class MomentumScannerService {
         let exitProfitPct = 0;
 
         if (endToEndLoss) {
-          // If the price wicked below the entry price, it's a loss.
-          // We capture the negative outcome by checking the worst case excursion (or just marking it as 0 profit)
-          // To be strict, an end-to-end loss yields 0 profit for the score boost.
-          exitProfitPct = 0;
+          // It's an end-to-end loss evaluated exactly at the SL boundary.
+          // The outcome is effectively the SL distance loss.
+          exitProfitPct = -slDistPct;
         } else {
-          // Compare entry to the wick of the exit candle
-          const exitPoint = crossDir === 'LONG' ? candles[exitIndex].high : candles[exitIndex].low;
+          // Use realistic close price instead of wick
+          const exitPoint = candles[exitIndex].close;
           exitProfitPct = crossDir === 'LONG'
             ? ((exitPoint - entryPrice) / entryPrice) * 100
             : ((entryPrice - exitPoint) / entryPrice) * 100;

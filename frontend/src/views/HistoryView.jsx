@@ -115,7 +115,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                 className="fixed inset-0 z-10100 bg-black/80 cursor-pointer w-full h-full"
               />
             </Dialog.Overlay>
-            <Dialog.Content className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10110 outline-none w-full max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-lg">
+            <Dialog.Content aria-labelledby="session-detail-title" aria-describedby="session-detail-description" className="fixed bottom-0 top-auto left-0 right-0 translate-x-0 translate-y-0 z-10110 outline-none w-full max-h-[85vh] md:fixed md:top-1/2 md:left-1/2 md:-translate-x-1/2 md:-translate-y-1/2 md:w-[calc(100%-2rem)] md:max-w-lg">
               <motion.div
                 role="dialog"
                 initial={{ opacity: 0, scale: 0.95 }}
@@ -131,8 +131,8 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                       <Info size={18} />
                     </div>
                     <div>
-                      <Dialog.Title className="text-sm font-black uppercase tracking-tight text-text">Session Details</Dialog.Title>
-                      <Dialog.Description className="text-[10px] text-dim font-bold uppercase tracking-widest mt-0.5">Technical lifecycle & metrics</Dialog.Description>
+                      <Dialog.Title id="session-detail-title" className="text-sm font-black uppercase tracking-tight text-text">Session Details</Dialog.Title>
+                      <Dialog.Description id="session-detail-description" className="text-[10px] text-dim font-bold uppercase tracking-widest mt-0.5">Technical lifecycle & metrics</Dialog.Description>
                     </div>
                   </div>
                   <Tooltip content="Close">

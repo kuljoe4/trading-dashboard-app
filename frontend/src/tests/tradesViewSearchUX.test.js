@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('TradesView filter toolbar features ultra-dense mobile-optimized chip groups, aria-pressed attributes, and reset button', () => {
   const p1 = path.join(process.cwd(), 'src/views/TradesView.jsx');

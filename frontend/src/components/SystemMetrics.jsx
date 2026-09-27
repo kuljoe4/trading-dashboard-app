@@ -391,7 +391,7 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
       <Drawer.Root open={isMobileDiagOpen} onOpenChange={setIsMobileDiagOpen} repositionInputs={false}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
-          <Drawer.Content className="bg-background border-t border-border flex flex-col rounded-t-[28px] fixed inset-x-0 bottom-0 max-h-[85vh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] overflow-hidden">
+          <Drawer.Content aria-labelledby="telemetry-drawer-title" aria-describedby="telemetry-drawer-description" className="bg-background border-t border-border flex flex-col rounded-t-[28px] fixed inset-x-0 bottom-0 max-h-[85vh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] overflow-hidden">
             <div className="p-2 bg-background rounded-t-[28px] flex flex-col items-center shrink-0 border-b border-border/40">
               <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
               <div className="w-full flex items-center justify-between px-3">
@@ -405,8 +405,8 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
                 </Drawer.Close>
               </div>
               <VisuallyHidden>
-                <Drawer.Title>System Telemetry & Diagnostics</Drawer.Title>
-                <Drawer.Description>Real-time REST call distribution, pipeline health, and diagnostic snippet exporter.</Drawer.Description>
+                <Drawer.Title id="telemetry-drawer-title">System Telemetry & Diagnostics</Drawer.Title>
+                <Drawer.Description id="telemetry-drawer-description">Real-time REST call distribution, pipeline health, and diagnostic snippet exporter.</Drawer.Description>
               </VisuallyHidden>
             </div>
 

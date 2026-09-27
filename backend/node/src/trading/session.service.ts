@@ -770,12 +770,15 @@ export class SessionService implements OnModuleInit {
 
     // Proactively scan all keys in signalParams for IIR indicator periods to protect against convergence failures.
     // IIR indicators (EMA, MACD, Supertrend, RSI) require a 5x warmup period.
-    const indicatorPeriods: number[] = [];
+    const indicatorPeriods: { key: string, value: number }[] = [];
     for (const [key, val] of Object.entries(signalParams)) {
       const lowerKey = key.toLowerCase();
 
       // Explicit whitelist for IIR indicator parameters to avoid flagging non-IIR values
       // (like `sl_lookback_period` or `fast_stochastic_threshold`)
+      // Additionally exclude fields ending with numbers preceded by underscores (like _3)
+      // since they represent stacked parameter IDs, not the actual period itself, unless they
+      // actually specify a valid base IIR property that is known.
       const isIIR = (
         lowerKey.includes("ema") ||
         lowerKey.includes("macd") ||
@@ -786,18 +789,18 @@ export class SessionService implements OnModuleInit {
         lowerKey.includes("fast") ||
         lowerKey.includes("slow") ||
         lowerKey.includes("signal")
-      ) && !lowerKey.includes("lookback");
+      ) && !lowerKey.includes("lookback") && !/_\d+$/.test(lowerKey);
 
       if (isIIR) {
         const parsed = parseInt(String(val), 10);
         if (!isNaN(parsed)) {
-          indicatorPeriods.push(parsed);
+          indicatorPeriods.push({ key, value: parsed });
 
           // If this is a supertrend period (including layered supertrend like supertrend_2_period), enforce the 5x warmup limit
           if (lowerKey.includes("supertrend")) {
             if (parsed * 5 >= maxCandles) {
               throw new BadRequestException(
-                `Supertrend ATR period ${parsed} is too large for current KLINE_MAX_CANDLES (${maxCandles}). The required warmup (${parsed * 5} candles) exceeds or equals KLINE_MAX_CANDLES. Please use an ATR Period < ${Math.floor(maxCandles / 5)} or increase KLINE_MAX_CANDLES.`,
+                `Supertrend ATR period ${parsed} ('${key}') is too large for current KLINE_MAX_CANDLES (${maxCandles}). The required warmup (${parsed * 5} candles) exceeds or equals KLINE_MAX_CANDLES. Please use an ATR Period < ${Math.floor(maxCandles / 5)} or increase KLINE_MAX_CANDLES.`,
               );
             }
           }
@@ -805,10 +808,10 @@ export class SessionService implements OnModuleInit {
       }
     }
 
-    for (const p of indicatorPeriods) {
+    for (const { key, value: p } of indicatorPeriods) {
       if (p >= maxCandles * 0.2) {
         throw new BadRequestException(
-          `Indicator period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). Values may not converge for reliable signals (requires 5x warmup). Use a period < ${Math.floor(maxCandles * 0.2)} or increase KLINE_MAX_CANDLES.`,
+          `Indicator period ${p} ('${key}') is too large for current KLINE_MAX_CANDLES (${maxCandles}). Values may not converge for reliable signals (requires 5x warmup). Use a period < ${Math.floor(maxCandles * 0.2)} or increase KLINE_MAX_CANDLES.`,
         );
       }
     }

@@ -682,81 +682,95 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
   }, []);
 
   const filteredResults = useMemo(() => {
-    let results = Array.isArray(strategyScannerResults) ? strategyScannerResults.filter(Boolean) : []
+    const rawList = Array.isArray(strategyScannerResults) ? strategyScannerResults : [];
+    const len = rawList.length;
+    if (len === 0) return [];
 
-    // Pre-calculate full lists for ranking reference
-    const sortedByVolume = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0));
-    const sortedByChange = [...results].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0));
+    // BOLT OPTIMIZATION: Single-pass filtering & Schwartzian Transform rank assignment.
+    // 1. Build rank lookup arrays using scalar sorting keys to eliminate O(N^2) search and intermediate array allocations.
+    const validItems = new Array(len);
+    let validCount = 0;
+    for (let i = 0; i < len; i++) {
+      const item = rawList[i];
+      if (item) {
+        validItems[validCount++] = item;
+      }
+    }
+    validItems.length = validCount;
 
-    // BOLT OPTIMIZATION: Convert O(N) findIndex calls into O(1) Map lookups to eliminate quadratic complexity O(N^2)
+    // Build volume and change ranks in-place via pre-calculated numeric arrays
+    const itemsByVol = [...validItems].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0));
+    const itemsByChg = [...validItems].sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0));
+
     const volRankMap = new Map();
-    for (let i = 0; i < sortedByVolume.length; i++) {
-      volRankMap.set(sortedByVolume[i].symbol, i + 1);
-    }
-
     const chgRankMap = new Map();
-    for (let i = 0; i < sortedByChange.length; i++) {
-      chgRankMap.set(sortedByChange[i].symbol, i + 1);
+    for (let i = 0; i < validCount; i++) {
+      volRankMap.set(itemsByVol[i].symbol, i + 1);
+      chgRankMap.set(itemsByChg[i].symbol, i + 1);
     }
 
-    // 1. Map ranks so they remain consistent regardless of secondary search/range filters
-    results = results.map(r => {
-      const volRank = volRankMap.get(r.symbol);
-      const chgRank = chgRankMap.get(r.symbol);
-      return {
+    // Single-pass filter over validItems to attach ranks and apply search / range filters simultaneously
+    const searchTerm = search ? search.toLowerCase().trim() : null;
+    const filtered = [];
+
+    for (let i = 0; i < validCount; i++) {
+      const r = validItems[i];
+      const sym = r.symbol || '';
+      const symLower = sym.toLowerCase();
+
+      if (searchTerm && !symLower.includes(searchTerm)) continue;
+
+      const pct = r.pct || 0;
+      const absPct = Math.abs(pct);
+
+      if (rangeFilter === 'usdt') {
+        if (!sym.toUpperCase().endsWith('USDT')) continue;
+      } else if (rangeFilter === 'non_usdt') {
+        if (sym.toUpperCase().endsWith('USDT')) continue;
+      } else if (rangeFilter === 'pos') {
+        if (pct <= 0) continue;
+      } else if (rangeFilter === 'neg') {
+        if (pct >= 0) continue;
+      } else if (rangeFilter === 'movers') {
+        if (absPct < 2.0) continue;
+      } else if (rangeFilter === 'extreme') {
+        if (absPct < 5.0) continue;
+      }
+
+      const volRank = volRankMap.get(sym);
+      const chgRank = chgRankMap.get(sym);
+
+      filtered.push({
         ...r,
         volume_rank: volRank !== undefined ? volRank : r.volume_rank,
         change_rank: chgRank
-      };
-    });
-
-    // 2. Filter by search
-    if (search) {
-      const term = search.toLowerCase().trim()
-      results = results.filter(r => r.symbol.toLowerCase().includes(term))
+      });
     }
 
-    // 3. Filter by range and quote asset
-    if (rangeFilter === 'usdt') {
-      results = results.filter(r => (r.symbol || '').toUpperCase().endsWith('USDT'))
-    } else if (rangeFilter === 'non_usdt') {
-      results = results.filter(r => !(r.symbol || '').toUpperCase().endsWith('USDT'))
-    } else if (rangeFilter === 'pos') {
-      results = results.filter(r => (r.pct || 0) > 0)
-    } else if (rangeFilter === 'neg') {
-      results = results.filter(r => (r.pct || 0) < 0)
-    } else if (rangeFilter === 'movers') {
-      results = results.filter(r => Math.abs(r.pct || 0) >= 2.0)
-    } else if (rangeFilter === 'extreme') {
-      results = results.filter(r => Math.abs(r.pct || 0) >= 5.0)
-    }
-
-    // 4. Apply Discovery Mode Slicing (Top 24)
+    // Apply Discovery Mode Slicing (Top 24)
     if (discoveryMode === 'volume') {
-      results = results
-        .sort((a, b) => (a.volume_rank || 999) - (b.volume_rank || 999))
-        .slice(0, 24);
+      filtered.sort((a, b) => (a.volume_rank || 999) - (b.volume_rank || 999));
+      if (filtered.length > 24) filtered.length = 24;
     } else if (discoveryMode === 'pct_change') {
-      results = results
-        .sort((a, b) => (a.change_rank || 999) - (b.change_rank || 999))
-        .slice(0, 24);
+      filtered.sort((a, b) => (a.change_rank || 999) - (b.change_rank || 999));
+      if (filtered.length > 24) filtered.length = 24;
     }
 
-    // 5. Apply sorting
+    // Apply Final Sorting
     if (sortBy === 'proximity') {
-      results = [...results].sort((a, b) => calculateOpportunityProximity(b, strategyConfig) - calculateOpportunityProximity(a, strategyConfig));
+      filtered.sort((a, b) => calculateOpportunityProximity(b, strategyConfig) - calculateOpportunityProximity(a, strategyConfig));
     } else if (sortBy === 'score') {
-      results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0))
+      filtered.sort((a, b) => (b.score || 0) - (a.score || 0));
     } else if (sortBy === 'pct_desc') {
-      results = [...results].sort((a, b) => (b.pct || 0) - (a.pct || 0))
+      filtered.sort((a, b) => (b.pct || 0) - (a.pct || 0));
     } else if (sortBy === 'pct_asc') {
-      results = [...results].sort((a, b) => (a.pct || 0) - (b.pct || 0))
+      filtered.sort((a, b) => (a.pct || 0) - (b.pct || 0));
     } else if (sortBy === 'vol_desc') {
-      results = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0))
+      filtered.sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0));
     }
 
-    return results;
-  }, [strategyScannerResults, search, rangeFilter, discoveryMode, sortBy])
+    return filtered;
+  }, [strategyScannerResults, search, rangeFilter, discoveryMode, sortBy, strategyConfig]);
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
   // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.

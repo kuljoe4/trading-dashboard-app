@@ -1,5 +1,5 @@
 import { NestFactory, HttpAdapterHost } from "@nestjs/core";
-import { ValidationPipe, LogLevel, Logger } from "@nestjs/common";
+import { ValidationPipe, LogLevel, Logger, ForbiddenException } from "@nestjs/common";
 import { Request, Response, NextFunction, json, urlencoded } from "express";
 import { DynamicLogger } from "./lib/logger";
 import { ConfigService } from "@nestjs/config";
@@ -23,11 +23,21 @@ process.on("unhandledRejection", (reason: any) => {
   const processLogger = new Logger("UnhandledRejection");
   const msg = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
   processLogger.error(`Unhandled Promise Rejection caught: ${msg}`);
+  // In production, consider exiting to allow the process manager (Railway/Docker) to restart the app
+  // cleanly if the Node event loop enters an unstable state.
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
 });
 
 process.on("uncaughtException", (err: Error) => {
   const processLogger = new Logger("UncaughtException");
   processLogger.error(`Uncaught Exception caught: ${err.stack || err.message}`);
+  // In production, consider exiting to allow the process manager (Railway/Docker) to restart the app
+  // cleanly if the Node event loop enters an unstable state.
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
 });
 
 async function bootstrap() {
@@ -140,7 +150,7 @@ async function bootstrap() {
         callback(null, true);
       } else {
         serverLogger.warn(`CORS blocked for origin: ${origin}`);
-        callback(new Error("Not allowed by CORS"));
+        callback(new ForbiddenException("Not allowed by CORS"));
       }
     },
     credentials: true,

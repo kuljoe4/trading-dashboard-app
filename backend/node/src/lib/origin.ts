@@ -15,6 +15,10 @@ export const checkOrigin = (origin: any, allowedOrigins: string[]): boolean => {
       .replace(/^['"]/, "")
       .replace(/['"]$/, "");
 
+    if (normalizedPattern === "*") {
+      return true;
+    }
+
     if (normalizedPattern.includes("*")) {
       const regexPattern = normalizedPattern
         .split("*")

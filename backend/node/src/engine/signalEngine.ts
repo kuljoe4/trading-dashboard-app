@@ -163,13 +163,13 @@ export class SignalEngineService {
         const entryPeriodVal = resolveParam(signalType, baseType, 'entry_ema_period', null);
         const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
         const period = parseInt(String(exitPeriodVal || entryPeriodVal || basePeriodVal), 10);
-        maxReq = Math.max(maxReq, period * 2);
+        maxReq = Math.max(maxReq, period * 5);
       } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close') {
         const fastVal = resolveParam(signalType, baseType, 'entry_ema_fast', resolveParam(signalType, baseType, 'exit_ema_fast', '9'));
         const slowVal = resolveParam(signalType, baseType, 'entry_ema_slow', resolveParam(signalType, baseType, 'exit_ema_slow', '21'));
         const fast = parseInt(String(fastVal), 10);
         const slow = parseInt(String(slowVal), 10);
-        maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
+        maxReq = Math.max(maxReq, Math.max(fast, slow) * 5);
 
         const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);
         if (macdFilter === true || macdFilter === 'true') {
@@ -180,8 +180,10 @@ export class SignalEngineService {
         }
       } else if (baseType === 'engulfing') {
         const lookbackVal = resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1');
+        const mode = resolveParam(signalType, baseType, 'engulfing_mode', config.engulfing_mode || 'range');
+        const closeOnlyMode = (mode === 'close_range' || mode === 'close_body');
         const lookback = parseInt(String(lookbackVal), 10);
-        maxReq = Math.max(maxReq, lookback + 1);
+        maxReq = Math.max(maxReq, lookback + (closeOnlyMode ? 2 : 1));
       } else if (baseType === 'macd_impulse' || baseType === 'macd_fade' || baseType === 'macd_pbc') {
         const fastVal = resolveParam(signalType, baseType, 'macd_fast', '12');
         const slowVal = resolveParam(signalType, baseType, 'macd_slow', '26');
@@ -220,7 +222,7 @@ export class SignalEngineService {
     if (config.htf_ema_cross_boost_enabled !== false) {
       const slowPeriod = config.htf_ema_slow_period || 21;
       // HTF calculations require slowPeriod + 10 candles
-      maxReq = Math.max(maxReq, slowPeriod + 10);
+      maxReq = Math.max(maxReq, slowPeriod * 2);
     }
 
     this.warmupCache.set(config, maxReq);
@@ -523,6 +525,9 @@ export class SignalEngineService {
       const softMode = mode === 'soft_range' || mode === 'soft_body';
 
       if (candles.length < lookback + (closeOnlyMode ? 2 : 1)) {
+        if (minimal) {
+           return false;
+        }
         return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: closeOnlyMode ? 'Waiting for closed confirmation candle' : 'Insufficient data', insufficientData: true };
       }
 

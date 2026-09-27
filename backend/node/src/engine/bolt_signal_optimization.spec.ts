@@ -207,8 +207,8 @@ describe('SignalEngineService Optimization Benchmark', () => {
 
     // Create identical candle arrays with enough for warmup (period * 2 = 40)
     const candles1 = [];
-    for (let i = 0; i < 50; i++) {
-        candles1.push({ time: now - (50 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
+    for (let i = 0; i < 150; i++) {
+        candles1.push({ time: now - (150 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
     }
     const candles2 = JSON.parse(JSON.stringify(candles1));
 

@@ -140,6 +140,7 @@ const DecisionLog = lazyWithRetry(() => import('../components/DecisionLog').then
 const ConfigModal = lazyWithRetry(() => import('../components/ConfigModal').then(module => ({ default: module.ConfigModal })))
 const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay').then(module => ({ default: module.ScannerOverlay })))
 const EquityCurve = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.EquityCurve })))
+const ActiveTradesRatioChart = lazyWithRetry(() => import('../components/Analytics').then(module => ({ default: module.ActiveTradesRatioChart })))
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
 // --- Custom Reference Design KPI Card ---
@@ -1844,6 +1845,9 @@ export function DashboardView({ initialStrategy }) {
     } catch (e) {}
   };
 
+
+  const [showActiveTradesRatio, setShowActiveTradesRatio] = useState(false);
+
   const [showTemporalRisk, setShowTemporalRisk] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [filterActive, setFilterActive] = useState(false)
@@ -3144,6 +3148,36 @@ export function DashboardView({ initialStrategy }) {
             )}
           </AnimatePresence>
         </motion.div>
+
+
+          {/* Active Trades Ratio Chart Toggle */}
+          <div className="mt-8 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-text uppercase tracking-wider flex items-center gap-2">
+              <Activity size={14} className="text-dim" /> Active Position Ratio
+            </h3>
+            <button
+              onClick={() => setShowActiveTradesRatio(s => !s)}
+              className="text-xs text-dim hover:text-text border border-border/30 hover:border-border/60 bg-surface/30 hover:bg-surface/50 px-2 py-1 rounded transition-colors"
+            >
+              {showActiveTradesRatio ? 'Hide Chart' : 'Show Ratio Chart'}
+            </button>
+          </div>
+
+          <AnimatePresence>
+            {showActiveTradesRatio && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-4 overflow-hidden"
+              >
+                <Suspense fallback={<div className="h-[180px] w-full flex items-center justify-center text-xs text-dim bg-surface/20 rounded-xl border border-border/30 animate-pulse">Loading Chart...</div>}>
+                   <ActiveTradesRatioChart activeTrades={activeTrades} height={180} />
+                </Suspense>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
 
         {/* Main Grid - Un-nested to full width */}
         <div className="grid grid-cols-1 items-start gap-6 w-full">

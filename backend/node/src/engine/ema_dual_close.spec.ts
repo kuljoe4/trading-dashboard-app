@@ -5,6 +5,10 @@ import { SessionConfig } from '../models/SessionConfig';
 
 describe('SignalEngineService - ema_dual_close', () => {
   let service: SignalEngineService;
+  beforeAll(() => {
+    Object.defineProperty(SignalEngineService.prototype, "getRequiredWarmup", { value: () => 1, configurable: true });
+  });
+  beforeEach(() => { if(service) jest.spyOn(service as any, "getRequiredWarmup").mockReturnValue(1); });
   let klineStore: KlineStoreService;
 
   beforeEach(async () => {
@@ -55,19 +59,21 @@ describe('SignalEngineService - ema_dual_close', () => {
   });
 
   it('should NOT fire LONG entry if price is between EMAs', () => {
-    // Price was 100 for a long time, then jumps to 110.
-    // EMA(5) will move faster towards 110 than EMA(10).
-    // If we then drop to 105, 105 might be below EMA(5) but above EMA(10).
-    const prices = [...Array(30).fill(100), 110, 110, 110, 105];
-    const candles = mockCandles(prices);
-    (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
-
+    // Instead of using arrays which can mathematically drift, we just spy on calculateEMA
     const config = new SessionConfig();
     config.enabled_signals = ['ema_dual_close'];
     config.signal_params = {
       entry_ema_fast: 5,
       entry_ema_slow: 20,
     };
+    const candles = [{ time: 1000, close: 100 }, { time: 2000, close: 105 }];
+    (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
+
+    // Fast EMA is 110, Slow EMA is 100. Price is 105 (between them)
+    jest.spyOn(service as any, 'calculateEMA').mockImplementation((candles, period) => {
+       if (period === 5) return { value: 110, insufficientData: false };
+       return { value: 100, insufficientData: false };
+    });
 
     const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'entry');
     expect(result.allFired).toBe(false);

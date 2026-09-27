@@ -403,6 +403,7 @@ export class SignalEngineService {
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType: string = 'engulfing',
   ): boolean | SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 1);
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -498,6 +499,7 @@ export class SignalEngineService {
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType: string = 'engulfing',
   ): boolean | SignalDetail {
     try {
       // DIRECTION-AWARE: For exit signals, we search for the opposite pattern direction
@@ -507,11 +509,19 @@ export class SignalEngineService {
       side = evaluatedSide;
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
-      const lookback = Math.max(config.engulfing_lookback || 1, 1);
-      const streakReq = Math.min(Math.max(config.engulfing_streak || lookback, 1), lookback);
-      const sequential = config.engulfing_sequential !== false;
-      const mode = config.engulfing_mode || 'range';
-      const volConfirm = config.engulfing_volume_confirm || false;
+      const params = config.signal_params || {};
+      const lookbackVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_lookback', config.engulfing_lookback || 1);
+      const streakVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_streak', config.engulfing_streak || 1);
+      const sequentialVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_sequential', config.engulfing_sequential !== false);
+      const modeVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_mode', config.engulfing_mode || 'range');
+      const volConfirmVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_volume_confirm', config.engulfing_volume_confirm || false);
+
+      const lookback = Math.max(parseInt(String(lookbackVal), 10) || 1, 1);
+      const streakReq = Math.min(Math.max(parseInt(String(streakVal), 10) || lookback, 1), lookback);
+      const sequential = sequentialVal === true || sequentialVal === 'true';
+      const mode = String(modeVal);
+      const volConfirm = volConfirmVal === true || volConfirmVal === 'true';
+
       const closeOnlyMode = mode === 'close_range' || mode === 'close_body';
       const softMode = mode === 'soft_range' || mode === 'soft_body';
 

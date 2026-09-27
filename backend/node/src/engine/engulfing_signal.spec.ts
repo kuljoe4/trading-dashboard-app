@@ -137,7 +137,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(100, 110, 95, 108),  // Bullish (Engulfs combined range 100-106 and body 101-105)
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(true);
@@ -150,7 +150,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(100, 110, 95, 108),  // Bullish
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
@@ -164,7 +164,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(106, 108, 98, 99),   // Bearish (Engulfs combined range 100-106)
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'SHORT');
       expect(result.allFired).toBe(true);
@@ -181,7 +181,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(106.5, 106.8, 106.2, 106.4), // live/next candle where entry may occur
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(true);
@@ -198,7 +198,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(105.5, 105.8, 105.2, 105.4),
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
@@ -213,7 +213,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(98.5, 99.2, 98.3, 98.8),
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'SHORT');
       expect(result.allFired).toBe(true);
@@ -231,7 +231,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(100, 110, 95, 108),  // Bullish (Signal)
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);
@@ -245,7 +245,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(100, 110, 95, 109),  // Bullish (Engulfs both)
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(true);
@@ -263,7 +263,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(105.5, 106, 105.3, 105.8), // Live
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_body', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_body', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(true);
@@ -279,7 +279,7 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
         createCandle(104.5, 105, 104.2, 104.8), // Live
       ];
       mockKlineStore.getRawCandles.mockReturnValue(candles);
-      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_body', engulfing_lookback: 2 };
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'close_body', signal_params: { engulfing_lookback: 2, engulfing_streak: 2 } };
 
       const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
       expect(result.allFired).toBe(false);

@@ -195,7 +195,14 @@ export class SignalEngineService {
       } else if (baseType === 'engulfing') {
         const lookbackVal = resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1');
         const lookback = parseInt(String(lookbackVal), 10);
-        maxReq = Math.max(maxReq, lookback + 1);
+        let req = lookback + 1;
+        const firstSinceCross = resolveParam(signalType, baseType, 'engulfing_first_since_cross', false) === true || resolveParam(signalType, baseType, 'engulfing_first_since_cross', false) === 'true';
+        if (firstSinceCross) {
+            const slowVal = resolveParam(signalType, baseType, 'entry_ema_slow', '21'); // Defaulting to entry for conservative max requirements
+            const slowPeriod = parseInt(String(slowVal), 10);
+            req = Math.max(req, slowPeriod * 2 + lookback);
+        }
+        maxReq = Math.max(maxReq, req);
       } else if (baseType === 'macd_impulse' || baseType === 'macd_fade' || baseType === 'macd_pbc') {
         const fastVal = resolveParam(signalType, baseType, 'macd_fast', '12');
         const slowVal = resolveParam(signalType, baseType, 'macd_slow', '26');
@@ -505,6 +512,108 @@ export class SignalEngineService {
     };
   }
 
+  private evaluateEngulfingAt(
+    candles: Candle[],
+    signalIdx: number,
+    side: 'LONG' | 'SHORT',
+    lookback: number,
+    streakReq: number,
+    sequential: boolean,
+    mode: string,
+    volConfirm: boolean
+  ): boolean {
+    const closeOnlyMode = mode === 'close_range' || mode === 'close_body';
+    // If it's close only mode, the signal candle is evaluated at signalIdx, but the pattern search is signalIdx-1
+    const actualSignalIdx = closeOnlyMode ? signalIdx - 1 : signalIdx;
+
+    if (actualSignalIdx < lookback) return false;
+
+    const curr = candles[actualSignalIdx];
+    const searchStartIdx = Math.max(0, actualSignalIdx - lookback);
+
+    let foundStreakStart = -1;
+    let foundStreakEnd = -1;
+
+    if (sequential) {
+      const sStart = actualSignalIdx - streakReq;
+      if (sStart >= searchStartIdx) {
+        let allReverse = true;
+        for (let i = sStart; i < actualSignalIdx; i++) {
+          const p = candles[i];
+          const isReverse = side === 'LONG' ? p.close < p.open : p.close > p.open;
+          if (!isReverse) { allReverse = false; break; }
+        }
+        if (allReverse) {
+          foundStreakStart = sStart;
+          foundStreakEnd = actualSignalIdx;
+        }
+      }
+    } else {
+      for (let end = actualSignalIdx; end >= searchStartIdx + streakReq; end--) {
+        let allReverse = true;
+        for (let i = end - streakReq; i < end; i++) {
+          const p = candles[i];
+          const isReverse = side === 'LONG' ? p.close < p.open : p.close > p.open;
+          if (!isReverse) { allReverse = false; break; }
+        }
+        if (allReverse) {
+          foundStreakStart = end - streakReq;
+          foundStreakEnd = end;
+          break;
+        }
+      }
+    }
+
+    if (foundStreakStart === -1) return false;
+
+    const isBullish = curr.close > curr.open;
+    const isBearish = curr.close < curr.open;
+
+    if (side === 'LONG' && !isBullish) return false;
+    if (side === 'SHORT' && !isBearish) return false;
+
+    let aggregateHigh = -Infinity;
+    let aggregateLow = Infinity;
+    let aggregateBodyHigh = -Infinity;
+    let aggregateBodyLow = Infinity;
+
+    for (let i = foundStreakStart; i < foundStreakEnd; i++) {
+      const p = candles[i];
+      if (p.high > aggregateHigh) aggregateHigh = p.high;
+      if (p.low < aggregateLow) aggregateLow = p.low;
+
+      const bH = Math.max(p.open, p.close);
+      const bL = Math.min(p.open, p.close);
+      if (bH > aggregateBodyHigh) aggregateBodyHigh = bH;
+      if (bL < aggregateBodyLow) aggregateBodyLow = bL;
+    }
+
+    const currBodyHigh = Math.max(curr.open, curr.close);
+    const currBodyLow = Math.min(curr.open, curr.close);
+
+    const bodyEngulfs = currBodyHigh > aggregateBodyHigh && currBodyLow < aggregateBodyLow;
+    const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
+
+    const softRangeEngulfs = side === 'SHORT' ? curr.close < aggregateLow : curr.close > aggregateHigh;
+    const softBodyEngulfs = side === 'SHORT' ? curr.close < aggregateBodyLow : curr.close > aggregateBodyHigh;
+
+    let volumeConfirms = true;
+    if (volConfirm && actualSignalIdx > 0) {
+      volumeConfirms = curr.volume > candles[actualSignalIdx - 1].volume;
+    }
+
+    let fired = false;
+    if (mode === 'body') fired = bodyEngulfs;
+    else if (mode === 'range') fired = rangeEngulfs;
+    else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
+    else if (mode === 'close_range' || mode === 'soft_range') fired = softRangeEngulfs;
+    else if (mode === 'close_body' || mode === 'soft_body') fired = softBodyEngulfs;
+
+    if (fired && volConfirm && !volumeConfirms) fired = false;
+
+    return fired;
+  }
+
   private engulfingSignal(
     symbol: string,
     config: any,
@@ -694,6 +803,72 @@ export class SignalEngineService {
       }
 
       const predictedSl = side === 'LONG' ? aggregateLow : aggregateHigh;
+
+      if (fired) {
+        const firstSinceCross = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_first_since_cross', false);
+        if (firstSinceCross === true || firstSinceCross === 'true') {
+          // Resolve EMA cross parameters
+          const fastVal = purpose === 'exit'
+            ? this.resolveSignalParam(params, signalType, 'engulfing', 'exit_ema_fast', this.resolveSignalParam(params, signalType, 'engulfing', 'entry_ema_fast', '9'))
+            : this.resolveSignalParam(params, signalType, 'engulfing', 'entry_ema_fast', this.resolveSignalParam(params, signalType, 'engulfing', 'exit_ema_fast', '9'));
+          const slowVal = purpose === 'exit'
+            ? this.resolveSignalParam(params, signalType, 'engulfing', 'exit_ema_slow', this.resolveSignalParam(params, signalType, 'engulfing', 'entry_ema_slow', '21'))
+            : this.resolveSignalParam(params, signalType, 'engulfing', 'entry_ema_slow', this.resolveSignalParam(params, signalType, 'engulfing', 'exit_ema_slow', '21'));
+
+          const fastPeriod = parseInt(String(fastVal || '9'), 10) || 9;
+          const slowPeriod = parseInt(String(slowVal || '21'), 10) || 21;
+
+          let priorEngulfingFound = false;
+          let crossFound = false;
+
+          // Walk backward to find the last EMA crossover in the same direction
+          // Only check back to the limit of our required warmup for EMA
+          for (let i = signalIdx - 1; i >= Math.max(0, slowPeriod + 1); i--) {
+            const fRes = this.calculateEMALastTwoAt(candles, i, fastPeriod, interval, symbol);
+            const sRes = this.calculateEMALastTwoAt(candles, i, slowPeriod, interval, symbol);
+
+            if (fRes && sRes) {
+              const [pFast, cFast] = fRes.values;
+              const [pSlow, cSlow] = sRes.values;
+              let isCross = false;
+
+              if (side === 'LONG') {
+                isCross = pFast <= pSlow && cFast > cSlow;
+              } else if (side === 'SHORT') {
+                isCross = pFast >= pSlow && cFast < cSlow;
+              }
+
+              if (isCross) {
+                crossFound = true;
+                break;
+              }
+            }
+
+            // Check if there was an engulfing signal in the same direction before the cross
+            if (!priorEngulfingFound && side !== undefined) {
+              const isPriorEngulfing = this.evaluateEngulfingAt(
+                candles,
+                i, // Signal evaluation index
+                side,
+                lookback,
+                streakReq,
+                sequential,
+                mode,
+                volConfirm
+              );
+
+              if (isPriorEngulfing) {
+                priorEngulfingFound = true;
+              }
+            }
+          }
+
+          if (crossFound && priorEngulfingFound) {
+            fired = false;
+            reason = 'Rejected: Another engulfing signal occurred since the last EMA dual cross';
+          }
+        }
+      }
 
       if (minimal) return fired;
 

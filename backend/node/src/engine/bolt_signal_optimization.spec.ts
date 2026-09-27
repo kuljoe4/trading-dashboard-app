@@ -4,7 +4,7 @@ import { SessionConfig } from '../models/SessionConfig';
 
 describe('SignalEngineService Optimization Benchmark', () => {
   let signalEngine: SignalEngineService;
-    let klineStore: KlineStoreService;
+  let klineStore: KlineStoreService;
   let mockKlineRepo: any;
 
   beforeEach(() => {
@@ -200,17 +200,20 @@ describe('SignalEngineService Optimization Benchmark', () => {
     expect(signalEngine.multiplierCache.get(period)).toBe(2 / (period + 1));
   });
 
-  it.skip('correctness: EMA cache handles timeframe separation', () => {
+  it('correctness: EMA cache handles timeframe separation', () => {
     const symbol = 'BTCUSDT';
     const period = 20;
     const now = Date.now();
 
     // Create identical candle arrays with enough for warmup (period * 2 = 40)
     const candles1 = [];
-    for (let i = 0; i < 50; i++) {
-        candles1.push({ time: now - (50 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
+    for (let i = 0; i < 200; i++) {
+        candles1.push({ time: now - (200 - i) * 60000, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 });
     }
-    const candles2 = JSON.parse(JSON.stringify(candles1));
+    const candles2 = [];
+    for (let i = 0; i < 200; i++) {
+        candles2.push({ time: now - (200 - i) * 300000, open: 100, high: 105, low: 95, close: 200 + i, volume: 1000 });
+    }
 
     const config: SessionConfig = {
         enabled_signals: ['ema'],

@@ -8,8 +8,7 @@ describe('SignalEngineService - ema_dual_close', () => {
   beforeAll(() => {
     Object.defineProperty(SignalEngineService.prototype, "getRequiredWarmup", { value: () => 1, configurable: true });
   });
-  beforeEach(() => { if(service) jest.spyOn(service as any, "getRequiredWarmup").mockReturnValue(1); });
-  let klineStore: KlineStoreService;
+    let klineStore: KlineStoreService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({

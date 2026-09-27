@@ -162,13 +162,27 @@ export class SignalEngineService {
         const exitPeriodVal = resolveParam(signalType, baseType, 'exit_ema_period', null);
         const entryPeriodVal = resolveParam(signalType, baseType, 'entry_ema_period', null);
         const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
-        const period = parseInt(String(exitPeriodVal || entryPeriodVal || basePeriodVal), 10);
+
+        const exitPeriod = parseInt(String(exitPeriodVal || basePeriodVal), 10);
+        const entryPeriod = parseInt(String(entryPeriodVal || basePeriodVal), 10);
+        const period = Math.max(exitPeriod, entryPeriod);
+
         maxReq = Math.max(maxReq, period * 2);
       } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close') {
-        const fastVal = resolveParam(signalType, baseType, 'entry_ema_fast', resolveParam(signalType, baseType, 'exit_ema_fast', '9'));
-        const slowVal = resolveParam(signalType, baseType, 'entry_ema_slow', resolveParam(signalType, baseType, 'exit_ema_slow', '21'));
-        const fast = parseInt(String(fastVal), 10);
-        const slow = parseInt(String(slowVal), 10);
+        const entryFastVal = resolveParam(signalType, baseType, 'entry_ema_fast', null);
+        const exitFastVal = resolveParam(signalType, baseType, 'exit_ema_fast', null);
+        const entrySlowVal = resolveParam(signalType, baseType, 'entry_ema_slow', null);
+        const exitSlowVal = resolveParam(signalType, baseType, 'exit_ema_slow', null);
+
+        const fast = Math.max(
+          parseInt(String(entryFastVal || '9'), 10),
+          parseInt(String(exitFastVal || '9'), 10)
+        );
+        const slow = Math.max(
+          parseInt(String(entrySlowVal || '21'), 10),
+          parseInt(String(exitSlowVal || '21'), 10)
+        );
+
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
 
         const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);

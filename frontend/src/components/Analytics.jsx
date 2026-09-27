@@ -345,6 +345,32 @@ export const EquityCurve = ({ data = [], height = 180, colorDrawdown = false, hi
           />
         )}
       </svg>
+
+        {/* Un-distorted Zero Line Overlay */}
+        <div
+          className="absolute left-0 right-0 border-t border-dashed border-border/40 pointer-events-none"
+          style={{ top: `${zeroY}%` }}
+        />
+
+        {/* Un-distorted Endpoint Dots */}
+        {points.length > 0 && (
+          <>
+            <div
+              className="absolute w-2 h-2 rounded-full bg-green transform -translate-x-1/2 -translate-y-1/2 shadow-[0_0_8px_rgba(0,229,160,0.5)]"
+              style={{
+                left: `${points[points.length-1].xPct * 100}%`,
+                top: `${100 - ((points[points.length-1].longPnl - viewMin) / viewRange) * 100}%`
+              }}
+            />
+            <div
+              className="absolute w-2 h-2 rounded-full bg-red transform -translate-x-1/2 -translate-y-1/2 shadow-[0_0_8px_rgba(255,68,102,0.5)]"
+              style={{
+                left: `${points[points.length-1].xPct * 100}%`,
+                top: `${100 - ((points[points.length-1].shortPnl - viewMin) / viewRange) * 100}%`
+              }}
+            />
+          </>
+        )}
     </div>
   );
 };
@@ -2535,6 +2561,199 @@ export const TODPerformance = ({ data = [] }) => {
           ))}
         </div>
       </div>
+    </div>
+  );
+};
+
+
+export const ActiveTradesRatioChart = ({ activeTrades = [], height = 180, updateIntervalMs = 300000 }) => {
+  const containerRef = useRef(null);
+  const dataRef = useRef([]);
+  const [tick, setTick] = useState(0);
+
+  // Determine bounds from active trades
+  const { oldestEntryTs, currentLongPnl, currentShortPnl } = useMemo(() => {
+    let oldest = Infinity;
+    let lPnl = 0;
+    let sPnl = 0;
+
+    for (let i = 0; i < activeTrades.length; i++) {
+      const t = activeTrades[i];
+      const pnl = Number(t.pnl) || 0;
+      const isLong = (t.direction ?? t.side ?? 'LONG').toString().toUpperCase() === 'LONG';
+      if (isLong) lPnl += pnl;
+      else sPnl += pnl;
+
+      const entryTs = t.entry_ts_ms || (t.entry_ts ? new Date(t.entry_ts).getTime() : 0) || (t.createdAt ? new Date(t.createdAt).getTime() : 0);
+      if (entryTs > 0 && entryTs < oldest) oldest = entryTs;
+    }
+    return {
+      oldestEntryTs: oldest === Infinity ? Date.now() : oldest,
+      currentLongPnl: lPnl,
+      currentShortPnl: sPnl
+    };
+  }, [activeTrades]);
+
+  // Record data periodically (default 5 min = 300000ms)
+  useEffect(() => {
+    if (!activeTrades || activeTrades.length === 0) return;
+
+    const now = Date.now();
+    const lastPoint = dataRef.current[dataRef.current.length - 1];
+
+    // Only add a new point if interval has passed
+    if (!lastPoint || now - lastPoint.ts >= updateIntervalMs) {
+      dataRef.current.push({
+        ts: now,
+        longPnl: currentLongPnl,
+        shortPnl: currentShortPnl
+      });
+      // Trigger render
+      setTick(t => t + 1);
+    }
+  }, [activeTrades, currentLongPnl, currentShortPnl, updateIntervalMs]);
+
+  const { points, viewMin, viewMax, viewRange, longPath, shortPath } = useMemo(() => {
+    const data = dataRef.current;
+    const len = data.length;
+    if (len < 1) return { points: [], viewMin: 0, viewMax: 0.1, viewRange: 0.1, longPath: '', shortPath: '' };
+
+    // Set X bounds: oldest active trade to now
+    const now = Date.now();
+    const xMin = oldestEntryTs;
+    let xMax = now;
+    if (xMax - xMin < 60000) xMax = xMin + 60000; // minimum 1 min span
+    const xRange = xMax - xMin;
+
+    // Calculate Y bounds
+    let yMin = 0;
+    let yMax = 0;
+
+    // Evaluate min/max and create points
+    const mapped = [];
+    for (let i = 0; i < len; i++) {
+      const d = data[i];
+      if (d.longPnl > yMax) yMax = d.longPnl;
+      if (d.longPnl < yMin) yMin = d.longPnl;
+      if (d.shortPnl > yMax) yMax = d.shortPnl;
+      if (d.shortPnl < yMin) yMin = d.shortPnl;
+
+      mapped.push({
+        ...d,
+        xPct: (d.ts - xMin) / xRange
+      });
+    }
+
+    // Include current moment point if not exactly matched to prevent trailing flat lines
+    const lastPt = data[len - 1];
+    if (now - lastPt.ts > 5000) {
+       mapped.push({
+         ts: now,
+         longPnl: currentLongPnl,
+         shortPnl: currentShortPnl,
+         xPct: 1.0
+       });
+       if (currentLongPnl > yMax) yMax = currentLongPnl;
+       if (currentLongPnl < yMin) yMin = currentLongPnl;
+       if (currentShortPnl > yMax) yMax = currentShortPnl;
+       if (currentShortPnl < yMin) yMin = currentShortPnl;
+    }
+
+    // Padding for bounds
+    if (yMax === yMin) {
+      yMax += 1;
+      yMin -= 1;
+    } else {
+      const pad = (yMax - yMin) * 0.1;
+      yMax += pad;
+      yMin -= pad;
+    }
+
+    if (yMax < 0 && yMin < 0) yMax = 0;
+    if (yMin > 0 && yMax > 0) yMin = 0;
+    const yRange = yMax - yMin;
+
+    let lPath = '';
+    let sPath = '';
+    const mLen = mapped.length;
+
+    for (let i = 0; i < mLen; i++) {
+      const pt = mapped[i];
+      const x = pt.xPct * 100;
+      const yL = 100 - ((pt.longPnl - yMin) / yRange) * 100;
+      const yS = 100 - ((pt.shortPnl - yMin) / yRange) * 100;
+
+      if (i === 0) {
+        lPath += `M ${x} ${yL}`;
+        sPath += `M ${x} ${yS}`;
+      } else {
+        // Linear path for sharpness and performance
+        lPath += ` L ${x} ${yL}`;
+        sPath += ` L ${x} ${yS}`;
+      }
+    }
+
+    return { points: mapped, viewMin: yMin, viewMax: yMax, viewRange: yRange, longPath: lPath, shortPath: sPath };
+  }, [oldestEntryTs, activeTrades, tick]); // Use tick dependency for memo update
+
+  const zeroY = viewRange > 0 ? 100 - ((0 - viewMin) / viewRange) * 100 : 50;
+
+  return (
+    <div className="w-full relative group" style={{ height }}>
+      <div className="absolute inset-0 z-0 bg-surface/20 rounded-xl border border-border/30">
+        <svg
+          ref={containerRef}
+          className="w-full h-full overflow-visible"
+          preserveAspectRatio="none"
+          viewBox="0 0 100 100"
+          aria-label="Active Trades Ratio Chart"
+          role="img"
+        >
+
+
+          {/* Paths */}
+          {longPath && <path d={longPath} fill="none" stroke="var(--color-green-theme, #00e5a0)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+          {shortPath && <path d={shortPath} fill="none" stroke="var(--color-red-theme, #ff4466)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />}
+
+
+        </svg>
+
+        {/* Dynamic Y Axis Labels */}
+        <div className="absolute left-2 top-2 text-[9px] font-mono text-dim/60 select-none pointer-events-none">
+          {viewMax > 0 ? '+' : ''}{viewMax.toFixed(2)}
+        </div>
+        <div className="absolute left-2 bottom-2 text-[9px] font-mono text-dim/60 select-none pointer-events-none">
+          {viewMin > 0 ? '+' : ''}{viewMin.toFixed(2)}
+        </div>
+
+        {/* Dynamic X Axis Labels */}
+        <div className="absolute right-2 bottom-2 text-[9px] font-mono text-dim/60 select-none pointer-events-none">
+          Now
+        </div>
+        <div className="absolute left-1/2 bottom-2 -translate-x-1/2 text-[9px] font-mono text-dim/40 select-none pointer-events-none">
+          {formatDuration(Date.now() - oldestEntryTs)} span
+        </div>
+      </div>
+
+      {/* Legend & Tooltip Overlay */}
+      <div className="absolute top-2 right-2 flex flex-col items-end gap-1 opacity-100 sm:opacity-50 sm:group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1.5 text-[10px] font-mono bg-surface/80 px-2 py-0.5 rounded border border-border/50">
+          <div className="w-2 h-2 rounded-full bg-green/80" />
+          <span className="text-text">Long:</span>
+          <span className={currentLongPnl >= 0 ? "text-green" : "text-red"}>{currentLongPnl >= 0 ? '+' : ''}{currentLongPnl.toFixed(2)}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-[10px] font-mono bg-surface/80 px-2 py-0.5 rounded border border-border/50">
+          <div className="w-2 h-2 rounded-full bg-red/80" />
+          <span className="text-text">Short:</span>
+          <span className={currentShortPnl >= 0 ? "text-green" : "text-red"}>{currentShortPnl >= 0 ? '+' : ''}{currentShortPnl.toFixed(2)}</span>
+        </div>
+      </div>
+
+      {activeTrades.length === 0 && (
+         <div className="absolute inset-0 flex items-center justify-center bg-surface/40 backdrop-blur-[1px] rounded-xl z-10">
+           <span className="text-xs font-medium text-dim/60">No active trades to plot</span>
+         </div>
+      )}
     </div>
   );
 };

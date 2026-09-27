@@ -13,13 +13,13 @@ describe('checkOrigin', () => {
   });
 
   it('should allow wildcard matches', () => {
-    expect(checkOrigin('https://frontend-staging-f45a.up.railway.app', allowedOrigins)).toBe(true);
+    expect(checkOrigin('https://frontend-staging2-d267.up.railway.app', allowedOrigins)).toBe(true);
     expect(checkOrigin('https://another-site.up.railway.app', allowedOrigins)).toBe(true);
   });
 
   it('should handle trailing slashes in origin', () => {
     expect(checkOrigin('http://localhost:5173/', allowedOrigins)).toBe(true);
-    expect(checkOrigin('https://frontend-staging-f45a.up.railway.app/', allowedOrigins)).toBe(true);
+    expect(checkOrigin('https://frontend-staging2-d267.up.railway.app/', allowedOrigins)).toBe(true);
   });
 
   it('should handle trailing slashes in patterns', () => {

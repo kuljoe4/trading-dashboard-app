@@ -81,8 +81,10 @@ async function bootstrap() {
     ?.split(",")
     .map((o) => o.trim()) || [
     "http://localhost:5173",
+    "http://localhost:3000",
+    "https://frontend-staging2-d267.up.railway.app",
     "http://127.0.0.1:5173",
-    "*.up.railway.app",
+    "https://*.up.railway.app",
   ];
 
   const nodeEnv = configService.get<string>("NODE_ENV");

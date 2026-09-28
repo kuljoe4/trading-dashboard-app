@@ -71,7 +71,25 @@ export class SessionStateService {
 
   public config: SessionConfig | null = null;
   public closedTrades: Trade[] = [];
-  public activeTrades: Trade[] = []; // BOLT: Track active trades here for circular dependency removal
+  private _activeTrades: Trade[] = [];
+  public activeTradesBySymbol: Map<string, Trade> = new Map();
+  public activeTradesById: Map<string, Trade> = new Map();
+
+  public get activeTrades(): Trade[] {
+    return this._activeTrades;
+  }
+  public set activeTrades(trades: Trade[]) {
+    this._activeTrades = trades;
+    this.activeTradesBySymbol.clear();
+    this.activeTradesById.clear();
+    if (trades) {
+      for (const t of trades) {
+        this.activeTradesBySymbol.set(t.symbol, t);
+        this.activeTradesById.set(t.id, t);
+      }
+    }
+  }
+
   public cachedClosedTradesStats: Record<string, { pnl: number, count: number, hits: number }> = {};
   private appliedStatsPnL: Map<string, number> = new Map(); // trade.id -> pnl portion already in stats.totalPnl
 

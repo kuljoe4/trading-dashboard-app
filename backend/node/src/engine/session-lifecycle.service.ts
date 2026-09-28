@@ -562,6 +562,13 @@ export class SessionLifecycleService {
     }
     // Real-time Position Tracking (Zero Weight)
     if (data.a.P) {
+      const activeTradesBySymbol = new Map();
+      const activeTradesById = new Map();
+      for (const t of this.sessionState.activeTrades) {
+        activeTradesBySymbol.set(t.symbol, t);
+        activeTradesById.set(t.id, t);
+      }
+
       for (const pos of data.a.P) {
         const symbol = pos.s;
         const amount = parseFloat(pos.pa);
@@ -574,9 +581,7 @@ export class SessionLifecycleService {
           `[Lifecycle] Real-time position update for ${symbol}: ${amount} @ ${entryPrice}`,
         );
 
-        let trade = this.sessionState.activeTrades.find(
-          (t) => t.symbol === symbol,
-        );
+        let trade = activeTradesBySymbol.get(symbol);
 
         // SRE: Race condition guard - check in-flight entries if not in active list
         if (!trade && amount !== 0) {
@@ -595,11 +600,13 @@ export class SessionLifecycleService {
 
           // CHRONOS: If this was an in-flight entry, promote it to active status immediately
           // now that we have exchange-confirmed position data.
-          if (!this.sessionState.activeTrades.find((t) => t.id === trade!.id)) {
+          if (!activeTradesById.has(trade!.id)) {
             this.logger.log(
               `[${tradeIdShort8}] [Sync] Promoting in-flight entry for ${symbol} to active list via ACCOUNT_UPDATE.`,
             );
             this.positionTracker.addTrade(trade);
+            activeTradesBySymbol.set(trade!.symbol, trade!);
+            activeTradesById.set(trade!.id, trade!);
           }
 
           // Authoritative Entry Price Sync
@@ -662,9 +669,7 @@ export class SessionLifecycleService {
             continue;
           }
 
-          const trade = this.sessionState.activeTrades.find(
-            (t) => t.symbol === symbol,
-          );
+          const trade = activeTradesBySymbol.get(symbol);
           if (trade) {
             const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
 
@@ -680,7 +685,7 @@ export class SessionLifecycleService {
             const executeSyncClose = () => {
               if (!this.running) return;
 
-              const currentTrade = this.sessionState.activeTrades.find(t => t.symbol === symbol);
+              const currentTrade = this.sessionState.activeTradesBySymbol ? this.sessionState.activeTradesBySymbol.get(symbol) : this.sessionState.activeTrades.find(t => t.symbol === symbol);
               if (!currentTrade) {
                 this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} already removed. Skipping zero-weight closure.`);
                 return;

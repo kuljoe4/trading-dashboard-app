@@ -162,13 +162,27 @@ export class SignalEngineService {
         const exitPeriodVal = resolveParam(signalType, baseType, 'exit_ema_period', null);
         const entryPeriodVal = resolveParam(signalType, baseType, 'entry_ema_period', null);
         const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
-        const period = parseInt(String(exitPeriodVal || entryPeriodVal || basePeriodVal), 10);
+
+        const exitPeriod = parseInt(String(exitPeriodVal || basePeriodVal), 10);
+        const entryPeriod = parseInt(String(entryPeriodVal || basePeriodVal), 10);
+        const period = Math.max(exitPeriod, entryPeriod);
+
         maxReq = Math.max(maxReq, period * 2);
       } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close') {
-        const fastVal = resolveParam(signalType, baseType, 'entry_ema_fast', resolveParam(signalType, baseType, 'exit_ema_fast', '9'));
-        const slowVal = resolveParam(signalType, baseType, 'entry_ema_slow', resolveParam(signalType, baseType, 'exit_ema_slow', '21'));
-        const fast = parseInt(String(fastVal), 10);
-        const slow = parseInt(String(slowVal), 10);
+        const entryFastVal = resolveParam(signalType, baseType, 'entry_ema_fast', null);
+        const exitFastVal = resolveParam(signalType, baseType, 'exit_ema_fast', null);
+        const entrySlowVal = resolveParam(signalType, baseType, 'entry_ema_slow', null);
+        const exitSlowVal = resolveParam(signalType, baseType, 'exit_ema_slow', null);
+
+        const fast = Math.max(
+          parseInt(String(entryFastVal || '9'), 10),
+          parseInt(String(exitFastVal || '9'), 10)
+        );
+        const slow = Math.max(
+          parseInt(String(entrySlowVal || '21'), 10),
+          parseInt(String(exitSlowVal || '21'), 10)
+        );
+
         maxReq = Math.max(maxReq, Math.max(fast, slow) * 2);
 
         const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);
@@ -403,6 +417,7 @@ export class SignalEngineService {
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType: string = 'engulfing',
   ): boolean | SignalDetail {
     const lookback = Math.max(config.scan_lookback || 3, 1);
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
@@ -498,6 +513,7 @@ export class SignalEngineService {
     purpose?: 'entry' | 'exit',
     passedCandles?: Candle[],
     minimal?: boolean,
+    signalType: string = 'engulfing',
   ): boolean | SignalDetail {
     try {
       // DIRECTION-AWARE: For exit signals, we search for the opposite pattern direction
@@ -507,11 +523,19 @@ export class SignalEngineService {
       side = evaluatedSide;
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
-      const lookback = Math.max(config.engulfing_lookback || 1, 1);
-      const streakReq = Math.min(Math.max(config.engulfing_streak || lookback, 1), lookback);
-      const sequential = config.engulfing_sequential !== false;
-      const mode = config.engulfing_mode || 'range';
-      const volConfirm = config.engulfing_volume_confirm || false;
+      const params = config.signal_params || {};
+      const lookbackVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_lookback', config.engulfing_lookback || 1);
+      const streakVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_streak', config.engulfing_streak || 1);
+      const sequentialVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_sequential', config.engulfing_sequential !== false);
+      const modeVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_mode', config.engulfing_mode || 'range');
+      const volConfirmVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_volume_confirm', config.engulfing_volume_confirm || false);
+
+      const lookback = Math.max(parseInt(String(lookbackVal), 10) || 1, 1);
+      const streakReq = Math.min(Math.max(parseInt(String(streakVal), 10) || lookback, 1), lookback);
+      const sequential = sequentialVal === true || sequentialVal === 'true';
+      const mode = String(modeVal);
+      const volConfirm = volConfirmVal === true || volConfirmVal === 'true';
+
       const closeOnlyMode = mode === 'close_range' || mode === 'close_body';
       const softMode = mode === 'soft_range' || mode === 'soft_body';
 
@@ -573,9 +597,6 @@ export class SignalEngineService {
         };
       }
 
-      const isBullish = curr.close > curr.open;
-      const isBearish = curr.close < curr.open;
-
       // Calculate aggregate range and body of the FOUND streak only
       let aggregateHigh = -Infinity;
       let aggregateLow = Infinity;
@@ -593,81 +614,110 @@ export class SignalEngineService {
         if (bL < aggregateBodyLow) aggregateBodyLow = bL;
       }
 
-      const currBodyHigh = Math.max(curr.open, curr.close);
-      const currBodyLow = Math.min(curr.open, curr.close);
-      
-      const bodyEngulfs = currBodyHigh > aggregateBodyHigh && currBodyLow < aggregateBodyLow;
-      const rangeEngulfs = curr.high > aggregateHigh && curr.low < aggregateLow;
+      // Inline pure helper function to evaluate engulfing condition at a specific index
+      const evaluateEngulfingAt = (idx: number, isVolConfirmReq: boolean): { fired: boolean; reason: string } => {
+        const candle = candles[idx];
+        const isBullish = candle.close > candle.open;
+        const isBearish = candle.close < candle.open;
 
-      const softRangeEngulfs = side === 'SHORT' ? curr.close < aggregateLow : curr.close > aggregateHigh;
-      const softBodyEngulfs = side === 'SHORT' ? curr.close < aggregateBodyLow : curr.close > aggregateBodyHigh;
+        const cBodyHigh = Math.max(candle.open, candle.close);
+        const cBodyLow = Math.min(candle.open, candle.close);
 
-      const volumeConfirms = curr.volume > candles[signalIdx - 1].volume;
+        const bodyEngulfs = cBodyHigh > aggregateBodyHigh && cBodyLow < aggregateBodyLow;
+        const rangeEngulfs = candle.high > aggregateHigh && candle.low < aggregateLow;
 
-      let fired = false;
-      let reason = '';
+        const softRangeEngulfs = side === 'SHORT' ? candle.close < aggregateLow : candle.close > aggregateHigh;
+        const softBodyEngulfs = side === 'SHORT' ? candle.close < aggregateBodyLow : candle.close > aggregateBodyHigh;
+
+        const volumeConfirms = candle.volume > candles[idx - 1].volume;
+
+        let evalFired = false;
+        let evalReason = '';
+
+        if (side === 'LONG') {
+          if (!isBullish) {
+            evalFired = false;
+            evalReason = 'Not a bullish candle';
+          } else {
+            if (mode === 'body') evalFired = bodyEngulfs;
+            else if (mode === 'range') evalFired = rangeEngulfs;
+            else if (mode === 'strict') evalFired = bodyEngulfs && rangeEngulfs;
+            else if (mode === 'close_range') evalFired = softRangeEngulfs;
+            else if (mode === 'close_body') evalFired = softBodyEngulfs;
+            else if (mode === 'soft_range') evalFired = softRangeEngulfs;
+            else if (mode === 'soft_body') evalFired = softBodyEngulfs;
+
+            if (evalFired && isVolConfirmReq && !volumeConfirms) {
+              evalFired = false;
+              evalReason = 'Insufficient volume confirmation';
+            } else if (!evalFired) {
+              evalReason = mode === 'body' ? 'Body did not engulf' :
+                       mode === 'range' ? 'Range did not engulf' :
+                       mode === 'strict' ? 'Strict engulfing failed' :
+                       mode === 'close_body' || mode === 'soft_body' ? `Close did not clear prior ${streakReq}-candle body high` :
+                       `Close did not clear prior ${streakReq}-candle high`;
+            }
+          }
+        } else if (side === 'SHORT') {
+          if (!isBearish) {
+            evalFired = false;
+            evalReason = 'Not a bearish candle';
+          } else {
+            if (mode === 'body') evalFired = bodyEngulfs;
+            else if (mode === 'range') evalFired = rangeEngulfs;
+            else if (mode === 'strict') evalFired = bodyEngulfs && rangeEngulfs;
+            else if (mode === 'close_range') evalFired = softRangeEngulfs;
+            else if (mode === 'close_body') evalFired = softBodyEngulfs;
+            else if (mode === 'soft_range') evalFired = softRangeEngulfs;
+            else if (mode === 'soft_body') evalFired = softBodyEngulfs;
+
+            if (evalFired && isVolConfirmReq && !volumeConfirms) {
+              evalFired = false;
+              evalReason = 'Insufficient volume confirmation';
+            } else if (!evalFired) {
+              evalReason = mode === 'body' ? 'Body did not engulf' :
+                       mode === 'range' ? 'Range did not engulf' :
+                       mode === 'strict' ? 'Strict engulfing failed' :
+                       mode === 'close_body' || mode === 'soft_body' ? `Close did not clear prior ${streakReq}-candle body low` :
+                       `Close did not clear prior ${streakReq}-candle low`;
+            }
+          }
+        } else {
+          // Universal Signal check (no side provided)
+          if (mode === 'body') evalFired = bodyEngulfs;
+          else if (mode === 'range') evalFired = rangeEngulfs;
+          else if (mode === 'close_range' || mode === 'soft_range') evalFired = candle.close > aggregateHigh || candle.close < aggregateLow;
+          else if (mode === 'close_body' || mode === 'soft_body') evalFired = candle.close > aggregateBodyHigh || candle.close < aggregateBodyLow;
+          else evalFired = bodyEngulfs && rangeEngulfs;
+
+          if (evalFired && isVolConfirmReq && !volumeConfirms) evalFired = false;
+        }
+
+        return { fired: evalFired, reason: evalReason };
+      };
+
+      // Check if an earlier candle already satisfied the engulfing condition against this streak
+      let alreadyEngulfed = false;
+      for (let j = foundStreakEnd; j < signalIdx; j++) {
+        const earlierEval = evaluateEngulfingAt(j, volConfirm);
+        if (earlierEval.fired) {
+          alreadyEngulfed = true;
+          break;
+        }
+      }
+
+      let currEval = evaluateEngulfingAt(signalIdx, volConfirm);
+      let fired = currEval.fired;
+      let reason = currEval.reason;
+
+      if (fired && alreadyEngulfed) {
+        fired = false;
+        reason = 'Already engulfed by an earlier candle';
+      }
+
       let threshold = (mode === 'close_body' || mode === 'soft_body')
         ? (side === 'SHORT' ? aggregateBodyLow : aggregateBodyHigh)
         : (side === 'SHORT' ? aggregateLow : aggregateHigh);
-
-      if (side === 'LONG') {
-        if (!isBullish) {
-          fired = false;
-          reason = 'Not a bullish candle';
-        } else {
-          if (mode === 'body') fired = bodyEngulfs;
-          else if (mode === 'range') fired = rangeEngulfs;
-          else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
-          else if (mode === 'close_range') fired = softRangeEngulfs;
-          else if (mode === 'close_body') fired = softBodyEngulfs;
-          else if (mode === 'soft_range') fired = softRangeEngulfs;
-          else if (mode === 'soft_body') fired = softBodyEngulfs;
-
-          if (fired && volConfirm && !volumeConfirms) {
-            fired = false;
-            reason = 'Insufficient volume confirmation';
-          } else if (!fired) {
-            reason = mode === 'body' ? 'Body did not engulf' :
-                     mode === 'range' ? 'Range did not engulf' :
-                     mode === 'strict' ? 'Strict engulfing failed' :
-                     mode === 'close_body' || mode === 'soft_body' ? `Close did not clear prior ${streakReq}-candle body high` :
-                     `Close did not clear prior ${streakReq}-candle high`;
-          }
-        }
-      } else if (side === 'SHORT') {
-        if (!isBearish) {
-          fired = false;
-          reason = 'Not a bearish candle';
-        } else {
-          if (mode === 'body') fired = bodyEngulfs;
-          else if (mode === 'range') fired = rangeEngulfs;
-          else if (mode === 'strict') fired = bodyEngulfs && rangeEngulfs;
-          else if (mode === 'close_range') fired = softRangeEngulfs;
-          else if (mode === 'close_body') fired = softBodyEngulfs;
-          else if (mode === 'soft_range') fired = softRangeEngulfs;
-          else if (mode === 'soft_body') fired = softBodyEngulfs;
-
-          if (fired && volConfirm && !volumeConfirms) {
-            fired = false;
-            reason = 'Insufficient volume confirmation';
-          } else if (!fired) {
-            reason = mode === 'body' ? 'Body did not engulf' :
-                     mode === 'range' ? 'Range did not engulf' :
-                     mode === 'strict' ? 'Strict engulfing failed' :
-                     mode === 'close_body' || mode === 'soft_body' ? `Close did not clear prior ${streakReq}-candle body low` :
-                     `Close did not clear prior ${streakReq}-candle low`;
-          }
-        }
-      } else {
-        // Universal Signal check (no side provided)
-        if (mode === 'body') fired = bodyEngulfs;
-        else if (mode === 'range') fired = rangeEngulfs;
-        else if (mode === 'close_range' || mode === 'soft_range') fired = curr.close > aggregateHigh || curr.close < aggregateLow;
-        else if (mode === 'close_body' || mode === 'soft_body') fired = curr.close > aggregateBodyHigh || curr.close < aggregateBodyLow;
-        else fired = bodyEngulfs && rangeEngulfs;
-
-        if (fired && volConfirm && !volumeConfirms) fired = false;
-      }
 
       const predictedSl = side === 'LONG' ? aggregateLow : aggregateHigh;
 
@@ -675,14 +725,14 @@ export class SignalEngineService {
 
       return {
         fired,
-        value: (closeOnlyMode || softMode) ? curr.close : (fired ? 1 : 0),
-        threshold: (closeOnlyMode || softMode) ? threshold : 1,
-        unit: (closeOnlyMode || softMode) ? 'price' : 'bool',
+        value: curr.close,
+        threshold: threshold,
+        unit: 'price',
         metric: (closeOnlyMode || softMode) ? 'Close Engulf' : 'Engulfing',
         description: fired
           ? (softMode ? `Live candle broke through ${streakReq}-candle cluster` : closeOnlyMode ? `Closed candle close-engulfed ${streakReq}-candle streak` : `Engulfing pattern (${mode}) detected`)
           : (reason || 'No engulfing pattern'),
-        threshold_is_price: closeOnlyMode || softMode,
+        threshold_is_price: true,
         pattern_low: aggregateLow !== Infinity ? aggregateLow : undefined,
         pattern_high: aggregateHigh !== -Infinity ? aggregateHigh : undefined,
         body_low: aggregateBodyLow !== Infinity ? aggregateBodyLow : undefined,

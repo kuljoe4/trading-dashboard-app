@@ -2044,7 +2044,7 @@ export const HistoryView = () => {
           {filtersExpanded && (
             <div className="pt-2 border-t border-border/20 flex flex-wrap items-center justify-between gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
                {/* Time Range Filter */}
-               <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+               <div role="group" aria-label="Time range filter" className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
                   <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Range:</span>
                   {['24H', '7D', '30D', 'ALL'].map(r => (
                     <button
@@ -2064,7 +2064,7 @@ export const HistoryView = () => {
                </div>
 
                {/* Limit Selector */}
-               <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+               <div role="group" aria-label="Trade history limit" className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
                   <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Limit:</span>
                   {[50, 100, 250, 500, 1000, 'ALL'].map(l => (
                     <button
@@ -2084,7 +2084,7 @@ export const HistoryView = () => {
                </div>
 
                {/* Sort controls */}
-               <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
+               <div role="group" aria-label="Sort trade history" className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl">
                   <span className="text-[8px] text-dim/70 font-black uppercase tracking-widest px-1.5">Sort:</span>
                   {[
                     { id: 'time', label: 'Recent' },
@@ -2093,6 +2093,7 @@ export const HistoryView = () => {
                   ].map(opt => (
                     <button
                       key={opt.id}
+                      type="button"
                       onClick={() => handleSortByChange(opt.id)}
                       aria-pressed={sortBy === opt.id}
                       aria-label={`Sort sessions by ${opt.label}`}

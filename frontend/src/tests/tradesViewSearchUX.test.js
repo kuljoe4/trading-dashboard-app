@@ -7,14 +7,17 @@ import { fileURLToPath } from 'node:url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-test('TradesView filter toolbar features ultra-dense mobile-optimized chip groups, aria-pressed attributes, and reset button', () => {
-  const p1 = path.join(process.cwd(), 'src/views/TradesView.jsx');
-  const p2 = path.join(process.cwd(), 'src/views/TradesView.jsx');
-  const filePath = fs.existsSync(p1) ? p1 : p2;
+test('TradesView filter toolbar features ultra-dense mobile-optimized chip groups, role="group", aria-pressed attributes, and reset button', () => {
+  const filePath = path.join(__dirname, '../views/TradesView.jsx');
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
   // Verify ultra-dense filter toolbar element
   assert.match(fileContent, /id="active-trades-filter-toolbar"/, 'TradesView should render ultra-dense filter toolbar container');
+
+  // Verify WCAG group accessibility attributes on filter chip containers
+  assert.match(fileContent, /role="group"\s+aria-label="Strategy filter"/, 'TradesView strategy filter chip group should enforce role="group" and aria-label');
+  assert.match(fileContent, /role="group"\s+aria-label="Direction filter"/, 'TradesView direction filter chip group should enforce role="group" and aria-label');
+  assert.match(fileContent, /role="group"\s+aria-label="Risk status filter"/, 'TradesView risk filter chip group should enforce role="group" and aria-label');
 
   // Verify strategy, direction, and risk filter chip groups with WCAG aria-pressed state
   assert.match(fileContent, /aria-pressed=\{strategyFilter === 'ALL'\}/, 'TradesView strategy filter should enforce aria-pressed state');

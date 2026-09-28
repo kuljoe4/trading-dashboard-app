@@ -269,7 +269,7 @@ const TradesView = () => {
               <div className="pt-2 border-t border-border/20 flex flex-col sm:flex-row sm:flex-wrap items-start sm:items-center justify-between gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
                 {/* Strategy Filter */}
                 {availableStrategies.length > 1 && (
-                  <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                  <div role="group" aria-label="Strategy filter" className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
                     <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Strategy:</span>
                     <button
                       type="button"
@@ -300,7 +300,7 @@ const TradesView = () => {
                 )}
 
                 {/* Direction Filter */}
-                <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                <div role="group" aria-label="Direction filter" className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
                   <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Direction:</span>
                   {['ALL', 'LONG', 'SHORT'].map(d => (
                     <button
@@ -319,7 +319,7 @@ const TradesView = () => {
                 </div>
 
                 {/* Risk Status Filter */}
-                <div className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
+                <div role="group" aria-label="Risk status filter" className="flex items-center gap-1 p-1 bg-surface border border-border/30 rounded-xl max-w-full overflow-x-auto no-scrollbar">
                   <span className="text-[7.5px] text-dim/70 font-black uppercase tracking-widest px-1 shrink-0">Risk:</span>
                   {[
                     { id: 'ALL', label: 'ALL' },

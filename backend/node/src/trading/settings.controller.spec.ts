@@ -144,13 +144,18 @@ describe('SettingsController: updateKeys masked key bypass prevention', () => {
   });
 });
 
-describe('SettingsController: validateKeys error sanitization', () => {
+describe('SettingsController: validateKeys error sanitization & audit logging', () => {
   let controller: SettingsController;
   let binanceClientFactory: any;
   let repo: any;
+  let auditLog: any;
 
   const mockRepo = {
     findOne: jest.fn(),
+  };
+
+  const mockAuditLog = {
+    log: jest.fn(),
   };
 
   beforeAll(() => {
@@ -173,7 +178,7 @@ describe('SettingsController: validateKeys error sanitization', () => {
         },
         {
           provide: AuditLogService,
-          useValue: { log: jest.fn() },
+          useValue: mockAuditLog,
         },
         {
           provide: BinanceClientFactory,
@@ -189,6 +194,41 @@ describe('SettingsController: validateKeys error sanitization', () => {
     controller = module.get<SettingsController>(SettingsController);
     binanceClientFactory = module.get(BinanceClientFactory);
     repo = module.get(getRepositoryToken(SettingsEntity));
+    auditLog = module.get(AuditLogService);
+  });
+
+  it('should extract request metadata and log VALIDATE_EXCHANGE_CREDENTIALS audit log entry during validateKeys', async () => {
+    mockRepo.findOne.mockResolvedValue(null);
+
+    const mockClient = {
+      restAPI: {
+        futuresAccountBalanceV3: jest.fn().mockResolvedValue({ status: 200 }),
+      },
+    };
+
+    binanceClientFactory.createClient.mockReturnValue(mockClient);
+
+    const dto = {
+      api_key: 'valid_live_api_key_test_12345',
+      api_secret: 'valid_live_api_secret_test_12345',
+    };
+
+    const req = {
+      ip: '192.168.1.50',
+      headers: { 'user-agent': 'test-browser' },
+    } as any;
+
+    const result = await controller.validateKeys(dto, req);
+
+    expect(result.valid).toBe(true);
+    expect(mockAuditLog.log).toHaveBeenCalledWith({
+      action: 'VALIDATE_EXCHANGE_CREDENTIALS',
+      actor: '192.168.1.50',
+      ip: '192.168.1.50',
+      userAgent: 'test-browser',
+      details: { valid: true },
+      level: 'INFO',
+    });
   });
 
   it('should sanitize sensitive error messages containing API keys or secrets during validateKeys', async () => {

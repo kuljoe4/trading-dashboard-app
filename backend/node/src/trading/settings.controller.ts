@@ -69,7 +69,7 @@ export class SettingsController {
   }
 
   @Post('keys/validate')
-  async validateKeys(@Body() body: ValidateKeysDto) {
+  async validateKeys(@Body() body: ValidateKeysDto, @Req() req?: Request) {
     // SEC-SENTINEL: Defense-in-depth validation of ValidateKeysDto payload
     const keysDto = plainToInstance(ValidateKeysDto, body || {});
     const dtoErrors = await validate(keysDto, { whitelist: true, forbidNonWhitelisted: true });
@@ -80,6 +80,9 @@ export class SettingsController {
         detail: detailedErrors,
       });
     }
+
+    const clientIp = req ? (req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown')) : 'unknown';
+    const userAgent = req?.headers ? req.headers['user-agent'] : undefined;
 
     const results: any = {
       valid: true,
@@ -96,8 +99,8 @@ export class SettingsController {
     const savedTestnetSecret = decrypt(settings?.binance_testnet_api_secret);
 
     // Test live key and secret using signed futuresAccountBalanceV3 endpoint
-    let liveKeyToTest = body.api_key;
-    let liveSecretToTest = body.api_secret;
+    let liveKeyToTest = keysDto.api_key;
+    let liveSecretToTest = keysDto.api_secret;
 
     const isLiveMaskedOrEmpty = !liveKeyToTest || liveKeyToTest.includes('...') || liveKeyToTest.trim() === '';
     if (isLiveMaskedOrEmpty) {
@@ -133,7 +136,7 @@ export class SettingsController {
         // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
         this.logger.error(`Live API key validation failed: ${JSON.stringify({ msg: errMsg, code })}`);
       }
-    } else if (body.api_key && !isLiveMaskedOrEmpty && !liveSecretToTest) {
+    } else if (keysDto.api_key && !isLiveMaskedOrEmpty && !liveSecretToTest) {
       results.valid = false;
       results.checks.push({
         type: 'live',
@@ -143,8 +146,8 @@ export class SettingsController {
     }
 
     // Test testnet key and secret using signed futuresAccountBalanceV3 endpoint
-    let testnetKeyToTest = body.testnet_api_key;
-    let testnetSecretToTest = body.testnet_api_secret;
+    let testnetKeyToTest = keysDto.testnet_api_key;
+    let testnetSecretToTest = keysDto.testnet_api_secret;
 
     const isTestnetMaskedOrEmpty = !testnetKeyToTest || testnetKeyToTest.includes('...') || testnetKeyToTest.trim() === '';
     if (isTestnetMaskedOrEmpty) {
@@ -180,7 +183,7 @@ export class SettingsController {
         // SENTINEL: Only log safe fields to prevent leakage of credentials in full error objects
         this.logger.error(`Testnet API key validation failed: ${JSON.stringify({ msg: errMsg, code })}`);
       }
-    } else if (body.testnet_api_key && !isTestnetMaskedOrEmpty && !testnetSecretToTest) {
+    } else if (keysDto.testnet_api_key && !isTestnetMaskedOrEmpty && !testnetSecretToTest) {
       results.valid = false;
       results.checks.push({
         type: 'testnet',
@@ -188,6 +191,15 @@ export class SettingsController {
         message: 'Testnet secret key is required to validate the API key'
       });
     }
+
+    await this.auditLog.log({
+      action: 'VALIDATE_EXCHANGE_CREDENTIALS',
+      actor: clientIp,
+      ip: clientIp,
+      userAgent,
+      details: { valid: results.valid },
+      level: results.valid ? 'INFO' : 'WARN',
+    });
 
     return results;
   }

@@ -2209,57 +2209,72 @@ export const HitRateTrend = ({ trades = [], height = 180 }) => {
   const containerRef = useRef(null);
   const [hoverData, setHoverData] = useState(null);
 
+  // ⚡ Bolt Optimization: Single-Pass Loop Fusion & Bounds Tracking for HitRateTrend.
+  // Consolidates sorting, rolling win calculation, scalar min/max tracking, and point mapping
+  // into fused single-pass loops over pre-allocated arrays, eliminating transient intermediate array heap allocations
+  // (.map(), wrapper objects) and call-stack array spreads (Math.min(...values), Math.max(...values)).
   const { points, viewMin, viewMax, viewRange } = useMemo(() => {
     const rawTrades = Array.isArray(trades) ? trades : [];
-    if (rawTrades.length < 2) return { points: [], viewMin: 0, viewMax: 100, viewRange: 100 };
-
     const count = rawTrades.length;
-    const safeTrades = new Array(count);
-    for (let i = 0; i < count; i++) {
-      const t = rawTrades[i];
-      const exitTs = t?.exit_ts_ms !== undefined ? t.exit_ts_ms : (t?.exit_ts || t?.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : 0);
-      safeTrades[i] = { trade: t, exitTs };
-    }
+    if (count < 2) return { points: [], viewMin: 0, viewMax: 100, viewRange: 100 };
 
+    const getTs = (t) => (t?.exit_ts_ms !== undefined ? t.exit_ts_ms : (t?.exit_ts || t?.createdAt ? new Date(t.exit_ts || t.createdAt).getTime() : 0));
+
+    let safeTrades = rawTrades;
     let isSortedAsc = true;
     let isSortedDesc = true;
+
+    let prevTs = getTs(rawTrades[0]);
     for (let i = 1; i < count; i++) {
-      const current = safeTrades[i].exitTs;
-      const prev = safeTrades[i - 1].exitTs;
-      if (current < prev) isSortedAsc = false;
-      if (current > prev) isSortedDesc = false;
+      const curTs = getTs(rawTrades[i]);
+      if (curTs < prevTs) isSortedAsc = false;
+      if (curTs > prevTs) isSortedDesc = false;
+      prevTs = curTs;
     }
 
-    if (isSortedDesc) {
-      safeTrades.reverse();
-    } else if (!isSortedAsc) {
-      safeTrades.sort((a, b) => a.exitTs - b.exitTs);
+    if (!isSortedAsc) {
+      safeTrades = rawTrades.slice();
+      if (isSortedDesc) {
+        safeTrades.reverse();
+      } else {
+        safeTrades.sort((a, b) => getTs(a) - getTs(b));
+      }
     }
 
     let totalWins = 0;
-    const rollingData = safeTrades.map(({ trade: t }, idx) => {
-      const isWin = Number(t?.pnl || 0) > 0;
-      if (isWin) totalWins++;
-      const currentHitRate = (totalWins / (idx + 1)) * 100;
-      return {
-        tradeIndex: idx + 1,
-        hitRate: currentHitRate,
-        pnl: Number(t?.pnl || 0),
+    let minHitRate = Infinity;
+    let maxHitRate = -Infinity;
+    const pts = new Array(count);
+
+    for (let i = 0; i < count; i++) {
+      const t = safeTrades[i];
+      const pnl = Number(t?.pnl || 0);
+      if (pnl > 0) totalWins++;
+      const hitRate = (totalWins / (i + 1)) * 100;
+      if (hitRate < minHitRate) minHitRate = hitRate;
+      if (hitRate > maxHitRate) maxHitRate = hitRate;
+
+      pts[i] = {
+        x: 0,
+        y: 0,
+        hitRate,
+        tradeIndex: i + 1,
         symbol: t?.symbol,
+        pnl,
         ts: t?.exit_ts_ms || (t?.exit_ts ? new Date(t.exit_ts).getTime() : 0)
       };
-    });
+    }
 
-    const values = rollingData.map(d => d.hitRate);
-    const min = Math.max(0, Math.min(...values) - 5);
-    const max = Math.min(100, Math.max(...values) + 5);
+    const min = Math.max(0, minHitRate - 5);
+    const max = Math.min(100, maxHitRate + 5);
     const range = Math.max(10, max - min);
+    const denom = count - 1;
 
-    const pts = rollingData.map((d, i) => {
-      const x = (i / (rollingData.length - 1)) * 100;
-      const y = 100 - ((d.hitRate - min) / range) * 100;
-      return { x, y, hitRate: d.hitRate, tradeIndex: d.tradeIndex, symbol: d.symbol, pnl: d.pnl, ts: d.ts };
-    });
+    for (let i = 0; i < count; i++) {
+      const pt = pts[i];
+      pt.x = (i / denom) * 100;
+      pt.y = 100 - ((pt.hitRate - min) / range) * 100;
+    }
 
     return { points: pts, viewMin: min, viewMax: max, viewRange: range };
   }, [trades]);

@@ -211,8 +211,8 @@ describe('Exit Reason Preservation and Dynamic Signal Resolution', () => {
     });
   });
 
-  describe('recoverClosingContext with price proximity', () => {
-    it('should recover specific milestone Stop Loss based on price proximity when order type is MARKET/generic', async () => {
+  describe('recoverClosingContext with price match', () => {
+    it('should recover specific milestone Stop Loss based on price match when order type is MARKET/generic', async () => {
       const trade: Trade = {
         id: 'trade-uuid-prox-1',
         symbol: 'BTCUSDT',
@@ -241,7 +241,7 @@ describe('Exit Reason Preservation and Dynamic Signal Resolution', () => {
       expect(recovery.reason).toBe('SL_HIT_BREAKEVEN');
     });
 
-    it('should recover initial Stop Loss based on price proximity when order type is MARKET/generic', async () => {
+    it('should recover initial Stop Loss based on price match when order type is MARKET/generic', async () => {
       const trade: Trade = {
         id: 'trade-uuid-prox-2',
         symbol: 'BTCUSDT',
@@ -268,7 +268,7 @@ describe('Exit Reason Preservation and Dynamic Signal Resolution', () => {
       expect(recovery.reason).toBe('SL_HIT_INITIAL_SL');
     });
 
-    it('should recover Take Profit based on price proximity when order type is MARKET/generic', async () => {
+    it('should recover Take Profit based on price match when order type is MARKET/generic', async () => {
       const trade: Trade = {
         id: 'trade-uuid-prox-3',
         symbol: 'BTCUSDT',

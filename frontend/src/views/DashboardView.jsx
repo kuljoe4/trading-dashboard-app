@@ -792,7 +792,7 @@ const BanBanner = ({ apiStatus }) => {
 };
 
 // --- Strategy Card ---
-export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null, viewMode = 'detailed' }) => {
+export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, hideEdit, paused, isPausing, gateInfo, className, isResuming, showResumingFeedback, onMouseEnter, onEditMouseEnter, stratMetrics = null, viewMode = 'detailed' }) => {
   const analytics = useTradingStore(state => state.analytics);
   const isGated = gateInfo && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(gateInfo.gateState || '');
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
@@ -1089,17 +1089,19 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, p
         <div className="flex flex-col items-end shrink-0 min-w-[80px] gap-2">
           {/* Inline Action Buttons */}
           <div className="flex items-center gap-1 relative z-20">
-            <Tooltip content="Edit Strategy Config">
-              <button
-                type="button"
-                onClick={handleEditClick}
-                onMouseEnter={onEditMouseEnter}
-                className="p-1.5 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
-                aria-label="Edit Strategy"
-              >
-                <Edit3 size={12.5} />
-              </button>
-            </Tooltip>
+            {!hideEdit && (
+              <Tooltip content="Edit Strategy Config">
+                <button
+                  type="button"
+                  onClick={handleEditClick}
+                  onMouseEnter={onEditMouseEnter}
+                  className="p-1.5 hover:bg-white/5 text-dim hover:text-accent rounded-lg transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
+                  aria-label="Edit Strategy"
+                >
+                  <Edit3 size={12.5} />
+                </button>
+              </Tooltip>
+            )}
             <Tooltip content={isPausing ? (paused ? "Resuming Strategy..." : "Pausing Strategy...") : (paused ? "Resume Strategy Engine" : "Pause Strategy Engine")}>
               <button
                 type="button"
@@ -3231,6 +3233,7 @@ export function DashboardView({ initialStrategy }) {
                                 onPause={togglePause}
                                 onOpenScanner={handleOpenScanner}
                                 onEdit={handleEditVariant}
+                                hideEdit={true}
                                 onClick={handleSelectVariant}
                                 onMouseEnter={preloadStrategyDetailView}
                                 onEditMouseEnter={preloadConfigModal}

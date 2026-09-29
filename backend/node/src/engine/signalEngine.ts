@@ -540,7 +540,7 @@ export class SignalEngineService {
       const softMode = mode === 'soft_range' || mode === 'soft_body';
 
       if (candles.length < lookback + (closeOnlyMode ? 2 : 1)) {
-        return { fired: false, value: 0, threshold: 0, unit: 'bool', metric: 'Engulfing', description: closeOnlyMode ? 'Waiting for closed confirmation candle' : 'Insufficient data', insufficientData: true };
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'Engulfing', description: closeOnlyMode ? 'Waiting for closed confirmation candle' : 'Insufficient data', insufficientData: true, threshold_is_price: true };
       }
 
       // Closed close-only modes intentionally ignore the actively forming candle.
@@ -587,13 +587,14 @@ export class SignalEngineService {
       if (foundStreakStart === -1) {
         return {
           fired: false,
-          value: 0,
-          threshold: 0,
-          unit: 'bool',
+          value: curr.close,
+          threshold: curr.close, // Fallback target when no streak is found
+          unit: 'price',
           metric: 'Engulfing',
           description: sequential
             ? `Previous ${streakReq} candles not ${side === 'LONG' ? 'bearish' : 'bullish'}`
-            : `No ${streakReq}-candle ${side === 'LONG' ? 'bearish' : 'bullish'} streak found in last ${lookback} candles`
+            : `No ${streakReq}-candle ${side === 'LONG' ? 'bearish' : 'bullish'} streak found in last ${lookback} candles`,
+          threshold_is_price: true,
         };
       }
 
@@ -746,7 +747,7 @@ export class SignalEngineService {
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);
-      return { fired: false, value: 0, threshold: 0, unit: 'error', metric: 'Engulfing', description: 'Signal error' };
+      return { fired: false, value: passedCandles?.[passedCandles.length - 1]?.close || 0, threshold: 0, unit: 'error', metric: 'Engulfing', description: 'Signal error', threshold_is_price: true };
     }
   }
 
@@ -763,7 +764,7 @@ export class SignalEngineService {
       const period = parseInt(config.signal_params?.ma_period || '20', 10);
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true };
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'MA Cross', description: 'Insufficient data', insufficientData: true, threshold_is_price: true };
       }
 
       const ma = this.calculateSMA(candles, candles.length - period - 1, candles.length - 1, symbol, interval, period);
@@ -787,7 +788,7 @@ export class SignalEngineService {
       };
     } catch (error) {
       this.logger.debug(`MA signal error: ${error instanceof Error ? error.message : String(error)}`);
-      return { fired: false, value: 0, threshold: 0, unit: 'error', metric: 'MA Cross', description: 'Signal error' };
+      return { fired: false, value: passedCandles?.[passedCandles.length - 1]?.close || 0, threshold: 0, unit: 'error', metric: 'MA Cross', description: 'Signal error', threshold_is_price: true };
     }
   }
 
@@ -808,7 +809,7 @@ export class SignalEngineService {
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < period + 1) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true };
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'EMA Cross', description: 'Insufficient data', insufficientData: true, threshold_is_price: true };
       }
 
       const emaRes = this.calculateEMA(candles, period, interval, symbol, `EMA(${period})`);
@@ -859,7 +860,7 @@ export class SignalEngineService {
       };
     } catch (error) {
       this.logger.debug(`EMA signal error: ${error instanceof Error ? error.message : String(error)}`);
-      return { fired: false, value: 0, threshold: 0, unit: 'error', metric: 'EMA Cross', description: 'Signal error' };
+      return { fired: false, value: passedCandles?.[passedCandles.length - 1]?.close || 0, threshold: 0, unit: 'error', metric: 'EMA Cross', description: 'Signal error', threshold_is_price: true };
     }
   }
 
@@ -891,14 +892,14 @@ export class SignalEngineService {
       const maxPeriod = Math.max(fastPeriod, slowPeriod);
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       if (candles.length < maxPeriod + 1) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true };
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true, threshold_is_price: true };
       }
 
       const fastRes = this.calculateEMALastTwo(candles, fastPeriod, interval, symbol);
       const slowRes = this.calculateEMALastTwo(candles, slowPeriod, interval, symbol);
 
       if (!fastRes || !slowRes) {
-        return { fired: false, value: 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data', insufficientData: true };
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data', insufficientData: true, threshold_is_price: true };
       }
 
       const [prevFast, currFast] = fastRes.values;
@@ -1004,7 +1005,7 @@ export class SignalEngineService {
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
-      return { fired: false, value: 0, threshold: 0, unit: 'error', metric: 'EMA Dual', description: 'Signal error' };
+      return { fired: false, value: passedCandles?.[passedCandles.length - 1]?.close || 0, threshold: 0, unit: 'error', metric: 'EMA Dual', description: 'Signal error', threshold_is_price: true };
     }
   }
 
@@ -1045,12 +1046,13 @@ export class SignalEngineService {
       if (candles.length < maxPeriod + 2) {
         return {
           fired: false,
-          value: 0,
+          value: candles[candles.length - 1]?.close || 0,
           threshold: 0,
           unit: 'price',
           metric: 'EMA Dual Close',
           description: 'Insufficient candle data',
           insufficientData: true,
+          threshold_is_price: true,
         };
       }
 
@@ -1137,11 +1139,12 @@ export class SignalEngineService {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
       return {
         fired: false,
-        value: 0,
+        value: passedCandles?.[passedCandles.length - 1]?.close || 0,
         threshold: 0,
         unit: 'error',
         metric: 'EMA Dual Close',
         description: 'Signal error',
+        threshold_is_price: true
       };
     }
   }
@@ -1169,12 +1172,13 @@ export class SignalEngineService {
       if (candles.length < period + 2) {
         return {
           fired: false,
-          value: 0,
+          value: candles[candles.length - 1]?.close || 0,
           threshold: 0,
           unit: 'price',
           metric: 'EMA Close',
           description: 'Insufficient candle data',
           insufficientData: true,
+          threshold_is_price: true,
         };
       }
 
@@ -1212,11 +1216,12 @@ export class SignalEngineService {
       this.logger.debug(`EMA Close signal error: ${error instanceof Error ? error.message : String(error)}`);
       return {
         fired: false,
-        value: 0,
+        value: passedCandles?.[passedCandles.length - 1]?.close || 0,
         threshold: 0,
         unit: 'error',
         metric: 'EMA Close',
         description: 'Signal error',
+        threshold_is_price: true,
       };
     }
   }
@@ -2353,12 +2358,13 @@ export class SignalEngineService {
       if (candles.length < period + 5) {
         return {
           fired: false,
-          value: 0,
+          value: candles[candles.length - 1]?.close || 0,
           threshold: 0,
           unit: 'price',
           metric: 'Supertrend',
           description: 'Insufficient candle data',
           insufficientData: true,
+          threshold_is_price: true,
         };
       }
 
@@ -2437,11 +2443,12 @@ export class SignalEngineService {
       this.logger.debug(`Supertrend signal error: ${error instanceof Error ? error.message : String(error)}`);
       return {
         fired: false,
-        value: 0,
+        value: passedCandles?.[passedCandles.length - 1]?.close || 0,
         threshold: 0,
         unit: 'price',
         metric: 'Supertrend',
         description: 'Signal error',
+        threshold_is_price: true,
       };
     }
   }

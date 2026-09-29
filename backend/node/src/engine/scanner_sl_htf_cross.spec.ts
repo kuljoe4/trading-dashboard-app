@@ -57,17 +57,19 @@ describe('MomentumScannerService - Configurable Boost Points & R:R Performance S
 
     const candles4h: Candle[] = [];
     let price = 100;
-    for (let i = 0; i < 40; i++) {
-      const cycle = Math.sin(i * 0.5);
-      price += cycle * 3;
+    let phase = 0;
+    for (let i = 0; i < 150; i++) {
+      const cycle = Math.sin(phase);
+      price += cycle * 4;
       candles4h.push({
         time: (i + 1) * 14400000,
         open: price,
-        high: price + 4,
+        high: price + 2,
         low: Math.max(10, price - 2),
-        close: price + 1,
+        close: price + (cycle > 0 ? 1 : -1),
         volume: 50000,
       });
+      phase += 0.2;
     }
 
     klineStore.getRawCandles.mockImplementation((symbol, interval) => {

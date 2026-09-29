@@ -478,9 +478,10 @@ export class MomentumScannerService {
       return null;
     }
 
-    // 2. Identify cross points and measure post-cross profit percentages & peak R:R
-    const crossProfits: number[] = [];
-    const peakRrs: number[] = [];
+    // 2. Identify cross points and measure post-cross actual profit percentages & R:R
+    let profitSum = 0;
+    let rrSum = 0;
+    let crossCount = 0;
     let wins = 0;
     let lastCrossDirection: 'LONG' | 'SHORT' | undefined;
 
@@ -501,47 +502,81 @@ export class MomentumScannerService {
         }
 
         const entryPrice = candles[i].close;
-        let peakPrice = entryPrice;
+        const slPriceLong = entryPrice * (1 - slDistPct / 100);
+        const slPriceShort = entryPrice * (1 + slDistPct / 100);
+        let actualExitPrice = entryPrice;
+        let hitSl = false;
 
-        // Peak price reached over the next 6 candles (~24 hours on 4H) or until next candle
-        const forwardWindow = Math.min(candles.length - 1, i + 6);
+        // Forward scan until exit cross, SL hit, or end of candles
+        const forwardWindow = candles.length - 1;
         for (let j = i + 1; j <= forwardWindow; j++) {
-          if (crossDir === 'LONG') {
-            if (candles[j].high > peakPrice) peakPrice = candles[j].high;
-          } else {
-            if (candles[j].low < peakPrice) peakPrice = candles[j].low;
+          const fPrevFast = fastEma[j - 1];
+          const fPrevSlow = slowEma[j - 1];
+          const fCurrFast = fastEma[j];
+          const fCurrSlow = slowEma[j];
+
+          const fBullCross = fPrevFast <= fPrevSlow && fCurrFast > fCurrSlow;
+          const fBearCross = fPrevFast >= fPrevSlow && fCurrFast < fCurrSlow;
+
+          // Check if SL is hit in this candle
+          if (crossDir === 'LONG' && candles[j].low <= slPriceLong) {
+            actualExitPrice = slPriceLong;
+            hitSl = true;
+            break;
+          } else if (crossDir === 'SHORT' && candles[j].high >= slPriceShort) {
+            actualExitPrice = slPriceShort;
+            hitSl = true;
+            break;
+          }
+
+          // Check if exit cross happened
+          if (crossDir === 'LONG' && fBearCross) {
+            actualExitPrice = candles[j].close;
+            break;
+          } else if (crossDir === 'SHORT' && fBullCross) {
+            actualExitPrice = candles[j].close;
+            break;
+          }
+
+          // If it's the last candle and no exit yet
+          if (j === forwardWindow) {
+            actualExitPrice = candles[j].close;
           }
         }
 
-        const profitPct = crossDir === 'LONG'
-          ? ((peakPrice - entryPrice) / entryPrice) * 100
-          : ((entryPrice - peakPrice) / entryPrice) * 100;
+        let profitPct = 0;
+        if (hitSl) {
+          profitPct = -slDistPct;
+        } else {
+          profitPct = crossDir === 'LONG'
+            ? ((actualExitPrice - entryPrice) / entryPrice) * 100
+            : ((entryPrice - actualExitPrice) / entryPrice) * 100;
+        }
 
-        const peakRr = slDistPct > 0 ? profitPct / slDistPct : profitPct;
+        const actualRr = slDistPct > 0 ? profitPct / slDistPct : profitPct;
 
-        crossProfits.push(profitPct);
-        peakRrs.push(peakRr);
-        if (profitPct > 0) wins++;
+        profitSum += profitPct;
+        rrSum += actualRr;
+        crossCount++;
 
-        if (crossProfits.length >= targetCrossCount) {
+        // Strict evaluation: only >0 returns are wins (breakevens and below are not)
+        if (profitPct > 0) {
+          wins++;
+        }
+
+        if (crossCount >= targetCrossCount) {
           break;
         }
       }
     }
 
-    if (crossProfits.length === 0) {
+    if (crossCount === 0) {
       return null;
     }
 
-    let profitSum = 0;
-    let rrSum = 0;
-    for (let i = 0; i < crossProfits.length; i++) {
-      profitSum += crossProfits[i];
-      rrSum += peakRrs[i];
-    }
-    const avgProfitPct = profitSum / crossProfits.length;
-    const avgPeakRr = rrSum / crossProfits.length;
-    const winRate = (wins / crossProfits.length) * 100;
+    const avgProfitPct = profitSum / crossCount;
+    const avgPeakRr = rrSum / crossCount;
+    const winRate = (wins / crossCount) * 100;
 
     const maxBoost = config.htf_ema_cross_max_boost ?? 25.0;
     const rrWeight = config.htf_ema_cross_rr_weight ?? 1.5;
@@ -556,7 +591,7 @@ export class MomentumScannerService {
       avg_profit_pct: Number(avgProfitPct.toFixed(2)),
       avg_peak_rr: Number(avgPeakRr.toFixed(2)),
       win_rate: Number(winRate.toFixed(1)),
-      cross_count: crossProfits.length,
+      cross_count: crossCount,
       last_cross_direction: lastCrossDirection,
     };
 

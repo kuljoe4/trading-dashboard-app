@@ -744,7 +744,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
     // 5. Apply sorting
     if (sortBy === 'proximity') {
-      results = [...results].sort((a, b) => calculateOpportunityProximity(b, strategyConfig) - calculateOpportunityProximity(a, strategyConfig));
+      // Precompute proximities to avoid redundant calculations during sort
+      const proxMap = new Map();
+      for (const r of results) {
+        proxMap.set(r.symbol, calculateOpportunityProximity(r, strategyConfig));
+      }
+      results = [...results].sort((a, b) => proxMap.get(b.symbol) - proxMap.get(a.symbol));
     } else if (sortBy === 'score') {
       results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0))
     } else if (sortBy === 'pct_desc') {

@@ -442,6 +442,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           <button
             type="button"
             onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+            aria-expanded={isCalendarOpen}
+            aria-controls="calendar-content"
             className="w-full py-2.5 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             <div className="flex items-center gap-2">
@@ -451,7 +453,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             <ChevronDown size={14} className={cn("text-dim transition-transform duration-200", isCalendarOpen && "rotate-180")} />
           </button>
           {isCalendarOpen && (
-            <div className="pt-3 animate-in fade-in duration-200">
+            <div id="calendar-content" className="pt-3 animate-in fade-in duration-200">
               <Suspense fallback={
                 <div className="h-[120px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
                   <Loader2 size={18} className="animate-spin text-accent" />
@@ -564,6 +566,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             <button
               type="button"
               onClick={() => setIsChecklistOpen(!isChecklistOpen)}
+              aria-expanded={isChecklistOpen}
+              aria-controls="checklist-content"
               className="w-full p-4 flex items-center justify-between hover:bg-surface/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
               <div className="flex items-center gap-2.5">
@@ -591,7 +595,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </button>
 
             {isChecklistOpen && (
-              <div className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200 flex flex-col gap-4">
+              <div id="checklist-content" className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200 flex flex-col gap-4">
                 {/* Checklist Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
                   {/* Velocity (Scanner Threshold) */}

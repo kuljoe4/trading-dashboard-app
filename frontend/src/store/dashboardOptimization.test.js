@@ -406,3 +406,131 @@ test('correlationData: performance benchmark', () => {
   console.log(`  - Optimized O(1) timestamps / branch: ${optimizedDuration.toFixed(4)} ms`);
   console.log(`  - Execution Speedup:                  ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
 });
+
+function originalAllTransactions(tradeHistory = [], activeTrades = []) {
+  const list = [];
+  (activeTrades || []).forEach(t => {
+    list.push({
+      id: t.id || t.symbol,
+      symbol: t.symbol,
+      type: t.direction || (t.amount > 0 ? 'LONG' : 'SHORT'),
+      amount: Number(t.pnl) || 0,
+      notional: Number(t.notional || t.entry_price * (t.qty || 1)) || 0,
+      status: 'Open',
+      timestamp: t.entry_ts_ms || Date.now(),
+      isKnife: t.is_knife
+    });
+  });
+
+  (tradeHistory || []).slice(0, 8).forEach(t => {
+    list.push({
+      id: t.id || `${t.symbol}-${t.exit_ts}`,
+      symbol: t.symbol,
+      type: t.direction || 'CLOSED',
+      amount: Number(t.pnl) || 0,
+      notional: Number(t.notional || t.entry_price * t.qty) || 0,
+      status: 'Closed',
+      timestamp: t.exit_ts_ms || t.entry_ts_ms || Date.now(),
+      isKnife: t.is_knife
+    });
+  });
+
+  return list.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function optimizedAllTransactions(tradeHistory = [], activeTrades = []) {
+  const active = activeTrades || [];
+  const history = tradeHistory || [];
+
+  const aLen = active.length;
+  const hLen = Math.min(history.length, 8);
+  const result = new Array(aLen + hLen);
+
+  let idx = 0;
+  for (let i = 0; i < aLen; i++) {
+    const t = active[i];
+    result[idx++] = {
+      id: t.id || t.symbol,
+      symbol: t.symbol,
+      type: t.direction || (t.amount > 0 ? 'LONG' : 'SHORT'),
+      amount: Number(t.pnl) || 0,
+      notional: Number(t.notional || t.entry_price * (t.qty || 1)) || 0,
+      status: 'Open',
+      timestamp: t.entry_ts_ms || Date.now(),
+      isKnife: t.is_knife
+    };
+  }
+
+  for (let i = 0; i < hLen; i++) {
+    const t = history[i];
+    result[idx++] = {
+      id: t.id || `${t.symbol}-${t.exit_ts}`,
+      symbol: t.symbol,
+      type: t.direction || 'CLOSED',
+      amount: Number(t.pnl) || 0,
+      notional: Number(t.notional || t.entry_price * t.qty) || 0,
+      status: 'Closed',
+      timestamp: t.exit_ts_ms || t.entry_ts_ms || Date.now(),
+      isKnife: t.is_knife
+    };
+  }
+
+  return result.sort((a, b) => b.timestamp - a.timestamp);
+}
+
+test('allTransactions: correctness of original and optimized implementations', () => {
+  const activeTrades = [
+    { id: 't1', symbol: 'BTCUSDT', direction: 'LONG', pnl: 50, entry_price: 60000, qty: 1, entry_ts_ms: 1000 },
+    { id: 't2', symbol: 'ETHUSDT', direction: 'SHORT', pnl: -10, entry_price: 3000, qty: 10, entry_ts_ms: 2000 }
+  ];
+
+  const tradeHistory = Array.from({ length: 15 }, (_, i) => ({
+    id: `h${i}`,
+    symbol: `COIN${i}USDT`,
+    direction: 'LONG',
+    pnl: i * 10,
+    entry_price: 100,
+    qty: 100,
+    exit_ts_ms: 3000 - i * 100
+  }));
+
+  const originalResult = originalAllTransactions(tradeHistory, activeTrades);
+  const optimizedResult = optimizedAllTransactions(tradeHistory, activeTrades);
+
+  assert.deepStrictEqual(optimizedResult, originalResult, 'Both implementations must return identical values.');
+  assert.strictEqual(optimizedResult.length, 10); // 2 active + 8 history
+});
+
+test('allTransactions: performance benchmark', () => {
+  const activeTrades = Array.from({ length: 50 }, (_, i) => ({
+    id: `a${i}`, symbol: `SYM${i}`, direction: 'LONG', pnl: 10, entry_price: 100, qty: 1, entry_ts_ms: Date.now()
+  }));
+  const tradeHistory = Array.from({ length: 1000 }, (_, i) => ({
+    id: `h${i}`, symbol: `SYM${i}`, direction: 'SHORT', pnl: 5, entry_price: 100, qty: 1, exit_ts_ms: Date.now() - i * 1000
+  }));
+
+  // Warmup
+  originalAllTransactions(tradeHistory, activeTrades);
+  optimizedAllTransactions(tradeHistory, activeTrades);
+
+  const iterations = 5000;
+
+  const startOriginal = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    originalAllTransactions(tradeHistory, activeTrades);
+  }
+  const endOriginal = performance.now();
+  const originalDuration = endOriginal - startOriginal;
+
+  const startOptimized = performance.now();
+  for (let i = 0; i < iterations; i++) {
+    optimizedAllTransactions(tradeHistory, activeTrades);
+  }
+  const endOptimized = performance.now();
+  const optimizedDuration = endOptimized - startOptimized;
+
+  console.log(`\n⚡ Bolt Performance Benchmark (allTransactions mapping):`);
+  console.log(`  - Original .slice().forEach().push(): ${originalDuration.toFixed(4)} ms`);
+  console.log(`  - Optimized Array pre-allocation:     ${optimizedDuration.toFixed(4)} ms`);
+  console.log(`  - Execution Speedup:                  ${(originalDuration / Math.max(0.0001, optimizedDuration)).toFixed(1)}x faster`);
+});

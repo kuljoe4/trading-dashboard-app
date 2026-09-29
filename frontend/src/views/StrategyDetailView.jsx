@@ -260,17 +260,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                </Tooltip>
              )}
 
-             <Tooltip content="Edit Strategy Configuration">
-               <button
-                 type="button"
-                 onClick={onEdit}
-                 className="px-2.5 py-1.5 min-h-[32px] sm:px-3 bg-surface border border-border text-dim hover:text-accent hover:border-accent/40 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer"
-                 aria-label="Edit strategy configuration"
-               >
-                 <Edit3 size={12} />
-                 <span>Edit</span>
-               </button>
-             </Tooltip>
+             {!isVariant && (
+               <Tooltip content="Edit Strategy Configuration">
+                 <button
+                   type="button"
+                   onClick={onEdit}
+                   className="px-2.5 py-1.5 min-h-[32px] sm:px-3 bg-surface border border-border text-dim hover:text-accent hover:border-accent/40 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer"
+                   aria-label="Edit strategy configuration"
+                 >
+                   <Edit3 size={12} />
+                   <span>Edit</span>
+                 </button>
+               </Tooltip>
+             )}
            </div>
          </div>
       </ViewHeader>

@@ -257,49 +257,59 @@ export const calculateOpportunityProximity = (opp, strategyConfig = {}) => {
 
   const velocityProgress = Math.min(100, (Math.abs(opp.pct || 0) / scanThresh) * 100);
 
-  const signalProximities = [];
-  if (opp.signalResult?.signals) {
-    for (const sigKey of enabledSigs) {
-      const s = opp.signalResult.signals[sigKey];
-      if (s) {
-        const prox = calculateProximity(s, s.value || opp.close || 0, 0, isLong, false);
-        signalProximities.push({ key: sigKey, prox });
-      }
-    }
-  }
-
   let compositeProximity = velocityProgress;
 
-  if (signalProximities.length > 0) {
-    if (signalLogic === 'all') {
-      // ALL logic: Proximity is bottlenecked by the least-ready signal / velocity
-      const minSigProx = Math.min(...signalProximities.map(p => p.prox));
-      compositeProximity = Math.min(velocityProgress, minSigProx);
-    } else if (signalLogic === 'any') {
-      // ANY logic: Proximity is driven by the most-ready signal (provided velocity is progressing)
-      const maxSigProx = Math.max(...signalProximities.map(p => p.prox));
-      compositeProximity = Math.min(velocityProgress, maxSigProx);
-    } else if (signalLogic === 'combo') {
-      // COMBO logic: Required signals bottleneck, optional signals pick max
-      let reqSigs = signalProximities;
-      let optSigs = [];
-      if (requiredSigs.length > 0) {
-        reqSigs = signalProximities.filter(p => requiredSigs.includes(p.key));
-        optSigs = signalProximities.filter(p => !requiredSigs.includes(p.key));
-      } else {
-        reqSigs = [signalProximities[0]];
-        optSigs = signalProximities.slice(1);
+  if (opp.signalResult?.signals && enabledSigs.length > 0) {
+    let minSigProx = Infinity;
+    let maxSigProx = -Infinity;
+    let minReqProx = Infinity;
+    let maxOptProx = -Infinity;
+    let sigSum = velocityProgress;
+    let sigCount = 0;
+    let hasReqSigs = false;
+    let hasOptSigs = false;
+
+    for (let i = 0; i < enabledSigs.length; i++) {
+      const sigKey = enabledSigs[i];
+      const s = opp.signalResult.signals[sigKey];
+      if (s) {
+        sigCount++;
+        const mark = s.value !== undefined && s.value !== null ? s.value : (opp.close || 0);
+        const prox = calculateProximity(s, mark, 0, isLong, false);
+
+        if (prox < minSigProx) minSigProx = prox;
+        if (prox > maxSigProx) maxSigProx = prox;
+
+        if (signalLogic === 'combo') {
+          const isRequired = requiredSigs.length > 0 ? requiredSigs.includes(sigKey) : (sigCount === 1);
+          if (isRequired) {
+            hasReqSigs = true;
+            if (prox < minReqProx) minReqProx = prox;
+          } else {
+            hasOptSigs = true;
+            if (prox > maxOptProx) maxOptProx = prox;
+          }
+        }
+        sigSum += prox;
       }
+    }
 
-      const minReqProx = reqSigs.length > 0 ? Math.min(...reqSigs.map(p => p.prox)) : 100;
-      const maxOptProx = optSigs.length > 0 ? Math.max(...optSigs.map(p => p.prox)) : 100;
-
-      compositeProximity = Math.min(velocityProgress, minReqProx, maxOptProx);
-    } else {
-      // Fallback: Average proximity
-      let sigSum = velocityProgress;
-      for (const p of signalProximities) sigSum += p.prox;
-      compositeProximity = sigSum / (signalProximities.length + 1);
+    if (sigCount > 0) {
+      if (signalLogic === 'all') {
+        // ALL logic: Proximity is bottlenecked by the least-ready signal / velocity
+        compositeProximity = Math.min(velocityProgress, minSigProx);
+      } else if (signalLogic === 'any') {
+        // ANY logic: Proximity is driven by the most-ready signal (provided velocity is progressing)
+        compositeProximity = Math.min(velocityProgress, maxSigProx);
+      } else if (signalLogic === 'combo') {
+        // COMBO logic: Required signals bottleneck, optional signals pick max
+        const reqProx = hasReqSigs ? minReqProx : 100;
+        const optProx = hasOptSigs ? maxOptProx : 100;
+        compositeProximity = Math.min(velocityProgress, reqProx, optProx);
+      } else {
+        // Fallback: Average proximity
+        compositeProximity = sigSum / (sigCount + 1);
+      }
     }
   }
 

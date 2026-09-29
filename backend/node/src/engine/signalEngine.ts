@@ -540,7 +540,7 @@ export class SignalEngineService {
       const softMode = mode === 'soft_range' || mode === 'soft_body';
 
       if (candles.length < lookback + (closeOnlyMode ? 2 : 1)) {
-        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'Engulfing', description: closeOnlyMode ? 'Waiting for closed confirmation candle' : 'Insufficient data', insufficientData: true, threshold_is_price: true };
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'Engulfing', description: closeOnlyMode ? 'Waiting for closed confirmation candle' : 'Insufficient data', insufficientData: true };
       }
 
       // Closed close-only modes intentionally ignore the actively forming candle.
@@ -588,13 +588,12 @@ export class SignalEngineService {
         return {
           fired: false,
           value: curr.close,
-          threshold: curr.close, // Fallback target when no streak is found
+          threshold: 0, // Fallback target when no streak is found
           unit: 'price',
           metric: 'Engulfing',
           description: sequential
             ? `Previous ${streakReq} candles not ${side === 'LONG' ? 'bearish' : 'bullish'}`
-            : `No ${streakReq}-candle ${side === 'LONG' ? 'bearish' : 'bullish'} streak found in last ${lookback} candles`,
-          threshold_is_price: true,
+            : `No ${streakReq}-candle ${side === 'LONG' ? 'bearish' : 'bullish'} streak found in last ${lookback} candles`
         };
       }
 
@@ -747,7 +746,7 @@ export class SignalEngineService {
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);
-      return { fired: false, value: passedCandles?.[passedCandles.length - 1]?.close || 0, threshold: 0, unit: 'error', metric: 'Engulfing', description: 'Signal error', threshold_is_price: true };
+      return { fired: false, value: passedCandles?.[passedCandles.length - 1]?.close || 0, threshold: 0, unit: 'error', metric: 'Engulfing', description: 'Signal error' };
     }
   }
 
@@ -1066,6 +1065,15 @@ export class SignalEngineService {
       const fastEma = fastRes.value;
       const slowEma = slowRes.value;
 
+      // Calculate prevFast and prevSlow for exit estimation spread velocity
+      const prevCompletedCandleIdx = completedCandleIdx - 1;
+      let prevFast = fastEma;
+      let prevSlow = slowEma;
+      if (prevCompletedCandleIdx >= 0) {
+        prevFast = this.calculateEMAAt(candles, prevCompletedCandleIdx, fastPeriod, interval, symbol).value;
+        prevSlow = this.calculateEMAAt(candles, prevCompletedCandleIdx, slowPeriod, interval, symbol).value;
+      }
+
       let fired = false;
       const threshold = side === 'SHORT' ? Math.min(fastEma, slowEma) : Math.max(fastEma, slowEma);
 
@@ -1134,6 +1142,8 @@ export class SignalEngineService {
         threshold_is_price: true,
         slPrice: roundTo(slowEma, 8),
         rejected: macdRejected,
+        prevFast: roundTo(prevFast, 8),
+        prevSlow: roundTo(prevSlow, 8),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);

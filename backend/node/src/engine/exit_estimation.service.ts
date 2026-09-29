@@ -162,7 +162,7 @@ export class ExitEstimationService {
       const { estPnl, estR } = computePnLAndR(currentPrice);
       return {
         signalType,
-        state: 'fired',
+        state: 'fired' as const,
         proximity: 100,
         etaCandles: 0,
         etaSeconds: 0,
@@ -278,7 +278,7 @@ export class ExitEstimationService {
           const { estPnl, estR } = computePnLAndR(currentPrice);
           return {
             signalType,
-            state: 'ready',
+            state: 'ready' as const,
             proximity: 99,
             etaCandles: 0,
             etaSeconds: 0,
@@ -376,7 +376,7 @@ export class ExitEstimationService {
             const { estPnl, estR } = computePnLAndR(currentPrice);
             return {
               signalType,
-              state: 'ready',
+              state: 'ready' as const,
               proximity: 99,
               etaCandles: 0,
               etaSeconds: 0,
@@ -419,7 +419,7 @@ export class ExitEstimationService {
           return {
             signalType,
             state: 'diverging',
-            proximity: 15,
+            proximity: 0,
             etaCandles: null,
             etaSeconds: null,
             confidence: 60,
@@ -446,7 +446,14 @@ export class ExitEstimationService {
       const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
       const targetPrice = signalDetail?.threshold_is_price ? thresh : roundTo(currentPrice + (isLong ? -dist : dist), 8);
       const { estPnl, estR } = computePnLAndR(targetPrice);
-      const proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (3 * atr))) * 100)));
+
+      let proximity = 0;
+      if (signalDetail?.threshold_is_price) {
+        proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (3 * atr))) * 100)));
+      } else {
+        const magnitude = Math.max(Math.abs(thresh), 1e-8);
+        proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / magnitude)) * 100)));
+      }
 
       return {
         signalType,
@@ -505,12 +512,19 @@ export class ExitEstimationService {
     }
 
     if (baseType === 'momentum_pct') {
-      const thresholdPct = Number(config.signal_params?.scan_pct_threshold || 2.0);
-      const lookback = Number(config.signal_params?.scan_lookback || 3);
+      const sp = config.signal_params || {};
+      const thresholdPct = Number(sp.exit_momentum_pct_threshold || sp.scan_pct_threshold || 2.0);
+      const lookback = Number(sp.exit_momentum_lookback || sp.scan_lookback || 3);
       if (candles.length >= lookback + 1) {
         const pastPrice = candles[candles.length - 1 - lookback].close;
-        const currentPct = Math.abs((currentPrice - pastPrice) / pastPrice) * 100;
-        const proximity = Math.min(99, Math.max(1, Math.round((currentPct / thresholdPct) * 100)));
+        const rawPct = ((currentPrice - pastPrice) / pastPrice) * 100;
+        // Evaluate distance in the correct direction
+        const currentPct = isLong ? rawPct : -rawPct;
+
+        let proximity = 0;
+        if (currentPct > 0) {
+          proximity = Math.min(99, Math.max(1, Math.round((currentPct / thresholdPct) * 100)));
+        }
         const { estPnl, estR } = computePnLAndR(currentPrice);
 
         return {
@@ -593,65 +607,72 @@ export class ExitEstimationService {
 
     const estimationsList = Object.values(signalEstimations);
 
-    // Any fired signal takes top priority
-    const firedEst = estimationsList.find(e => e.state === 'fired');
-    if (firedEst) {
-      return {
-        selectedSignalKey: firedEst.signalType,
-        state: 'fired',
+    // Get the fired/ready logic inside each branch so ALL and COMBO can act correctly.
+    const allReadyOrFired = estimationsList.every(e => e.state === 'fired' || e.state === 'ready');
+
+    const getTopPriority = (ests: ExitEstimation[]) => {
+      const fired = ests.find((e: ExitEstimation) => e.state === 'fired');
+      if (fired) return {
+        selectedSignalKey: fired.signalType,
+        state: 'fired' as const,
         proximity: 100,
         etaCandles: 0,
         etaSeconds: 0,
         confidence: 100,
-        estimatedExitPrice: firedEst.estimatedExitPrice,
-        estimatedPnl: firedEst.estimatedPnl,
-        estimatedR: firedEst.estimatedR,
-        description: `Exit fired by ${firedEst.signalType}`,
+        estimatedExitPrice: fired.estimatedExitPrice,
+        estimatedPnl: fired.estimatedPnl,
+        estimatedR: fired.estimatedR,
+        description: `Exit fired by ${fired.signalType}`,
         signalEstimations
       };
-    }
-
-    // Any ready signal takes next priority
-    const readyEst = estimationsList.find(e => e.state === 'ready');
-    if (readyEst) {
-      return {
-        selectedSignalKey: readyEst.signalType,
-        state: 'ready',
+      const ready = ests.find((e: ExitEstimation) => e.state === 'ready');
+      if (ready) return {
+        selectedSignalKey: ready.signalType,
+        state: 'ready' as const,
         proximity: 99,
         etaCandles: 0,
         etaSeconds: 0,
-        confidence: readyEst.confidence,
-        estimatedExitPrice: readyEst.estimatedExitPrice,
-        estimatedPnl: readyEst.estimatedPnl,
-        estimatedR: readyEst.estimatedR,
-        description: `Exit ready via ${readyEst.signalType}`,
+        confidence: ready.confidence,
+        estimatedExitPrice: ready.estimatedExitPrice,
+        estimatedPnl: ready.estimatedPnl,
+        estimatedR: ready.estimatedR,
+        description: `Exit ready via ${ready.signalType}`,
         signalEstimations
       };
-    }
+      return null;
+    };
 
     if (logic === 'any') {
-      // ANY logic: Select actionable signal with shortest non-null ETA or highest proximity
-      const actionable = estimationsList.filter(e => e.state === 'approaching' && e.etaCandles !== null);
-      if (actionable.length > 0) {
-        actionable.sort((a, b) => (a.etaCandles || 999) - (b.etaCandles || 999));
-        const sel = actionable[0];
-        return {
-          selectedSignalKey: sel.signalType,
-          state: sel.state,
-          proximity: sel.proximity,
-          etaCandles: sel.etaCandles,
-          etaSeconds: sel.etaSeconds,
-          confidence: sel.confidence,
-          estimatedExitPrice: sel.estimatedExitPrice,
-          estimatedPnl: sel.estimatedPnl,
-          estimatedR: sel.estimatedR,
-          description: sel.description,
-          signalEstimations
-        };
+      const top = getTopPriority(estimationsList);
+      if (top) return top;
+
+      // ANY logic: Select actionable signal with highest proximity
+      // BOLT OPTIMIZATION: Single-pass O(N) loop replaces array mutation sort()
+      let sel = estimationsList[0];
+      for (let i = 1; i < estimationsList.length; i++) {
+        if (estimationsList[i].proximity > sel.proximity) {
+          sel = estimationsList[i];
+        }
       }
+      return {
+        selectedSignalKey: sel.signalType,
+        state: sel.state,
+        proximity: sel.proximity,
+        etaCandles: sel.etaCandles,
+        etaSeconds: sel.etaSeconds,
+        confidence: sel.confidence,
+        estimatedExitPrice: sel.estimatedExitPrice,
+        estimatedPnl: sel.estimatedPnl,
+        estimatedR: sel.estimatedR,
+        description: sel.description,
+        signalEstimations
+      };
     } else if (logic === 'all') {
       // ALL logic: Bottlenecked by signal with lowest proximity
-      // BOLT OPTIMIZATION: Single-pass O(N) loop replaces [...list].sort() to avoid array allocations and N log N sorting
+      if (allReadyOrFired) {
+         const top = getTopPriority(estimationsList);
+         if (top) return top;
+      }
       if (estimationsList.length > 0) {
         let sel = estimationsList[0];
         for (let i = 1; i < estimationsList.length; i++) {
@@ -676,26 +697,49 @@ export class ExitEstimationService {
     } else if (logic === 'combo') {
       // COMBO logic: Required bottleneck combined with optional max
       const reqKeys = requiredExitSigs.length > 0 ? requiredExitSigs : [exitSignals[0]];
+      const optKeys = exitSignals.filter(k => !reqKeys.includes(k));
       const reqEsts = estimationsList.filter(e => reqKeys.includes(e.signalType));
+      const optEsts = estimationsList.filter(e => optKeys.includes(e.signalType));
+
+      const reqAllReadyOrFired = reqEsts.every(e => e.state === 'fired' || e.state === 'ready');
+      const optAnyReadyOrFired = optEsts.some(e => e.state === 'fired' || e.state === 'ready') || optEsts.length === 0;
+
+      if (reqAllReadyOrFired && optAnyReadyOrFired) {
+          const reqTop = getTopPriority(reqEsts);
+          if (reqTop) return reqTop;
+      }
 
       if (reqEsts.length > 0) {
-        let sel = reqEsts[0];
+        let selReq = reqEsts[0];
         for (let i = 1; i < reqEsts.length; i++) {
-          if (reqEsts[i].proximity < sel.proximity) {
-            sel = reqEsts[i];
+          if (reqEsts[i].proximity < selReq.proximity) {
+            selReq = reqEsts[i];
           }
         }
+
+        let selOpt = optEsts.length > 0 ? optEsts[0] : null;
+        if (selOpt) {
+          for (let i = 1; i < optEsts.length; i++) {
+            if (optEsts[i].proximity > selOpt.proximity) {
+              selOpt = optEsts[i];
+            }
+          }
+        }
+
+        const finalProximity = selOpt ? Math.min(selReq.proximity, selOpt.proximity) : selReq.proximity;
+        const sel = (selOpt && selOpt.proximity < selReq.proximity) ? selOpt : selReq;
+
         return {
           selectedSignalKey: sel.signalType,
           state: sel.state,
-          proximity: sel.proximity,
+          proximity: finalProximity,
           etaCandles: sel.etaCandles,
           etaSeconds: sel.etaSeconds,
           confidence: sel.confidence,
           estimatedExitPrice: sel.estimatedExitPrice,
           estimatedPnl: sel.estimatedPnl,
           estimatedR: sel.estimatedR,
-          description: `Required exit ${sel.signalType}`,
+          description: `Required exit ${selReq.signalType}${selOpt ? `, Optional ${selOpt.signalType}` : ''}`,
           signalEstimations
         };
       }

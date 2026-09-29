@@ -127,7 +127,7 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
           // For event-based signals (like _cross), being on the satisfied side without being fired (isFired === false)
           // means the cross event occurred previously and is no longer actionable (or was blocked). Return 0 (STALE/PASSED).
           if (isEventBased && !isFired) {
-            return maxVal; // State: STALE / PASSED
+            return 0; // State: STALE / PASSED
           }
           return 100; // State: SATISFIED
         }

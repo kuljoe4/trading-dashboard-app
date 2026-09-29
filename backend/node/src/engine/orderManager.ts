@@ -2611,15 +2611,15 @@ export class OrderManagerService {
                          } else {
                             reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
                          }
-                         this.logger.log(`[Sync] Price proximity recovery: resolved ${symbol} exit as Stop Loss (${reason}) based on price ${fillPrice} close to SL ${currentSl}`);
+                         this.logger.log(`[Sync] Price match recovery: resolved ${symbol} exit as Stop Loss (${reason}) based on price ${fillPrice} close to SL ${currentSl}`);
                       } else if (initialSl > 0 && Math.abs(fillPrice - initialSl) / initialSl <= threshold) {
                          reason = `${EXIT_REASONS.SL_HIT}_INITIAL_SL`;
-                         this.logger.log(`[Sync] Price proximity recovery: resolved ${symbol} exit as Initial Stop Loss based on price ${fillPrice} close to Initial SL ${initialSl}`);
+                         this.logger.log(`[Sync] Price match recovery: resolved ${symbol} exit as Initial Stop Loss based on price ${fillPrice} close to Initial SL ${initialSl}`);
                       } else {
                          const tpPrice = Number((trade as any).tp_price || (trade as any).current_tp || 0);
                          if (tpPrice > 0 && Math.abs(fillPrice - tpPrice) / tpPrice <= threshold) {
                             reason = EXIT_REASONS.TP_HIT;
-                            this.logger.log(`[Sync] Price proximity recovery: resolved ${symbol} exit as Take Profit based on price ${fillPrice} close to TP ${tpPrice}`);
+                            this.logger.log(`[Sync] Price match recovery: resolved ${symbol} exit as Take Profit based on price ${fillPrice} close to TP ${tpPrice}`);
                          }
                       }
                    }
@@ -2649,7 +2649,7 @@ export class OrderManagerService {
 
   /**
    * REFACTOR: Encapsulates slippage validation logic including negative slippage caps
-   * and positive slippage proximity guards for capital safety.
+   * and positive slippage breach guards for capital safety.
    */
   private async validateSlippage(
     symbol: string,
@@ -2684,11 +2684,11 @@ export class OrderManagerService {
     // "Normal" small positive slippage is allowed and beneficial.
     // Rejection only occurs if slippage consumes >10% of the intended risk-to-stop distance.
     const intendedRiskDistance = Math.abs(targetPrice - slPrice);
-    const proximityBuffer = intendedRiskDistance * 0.1; // 10% distance-to-SL guard
+    const slBreachBuffer = intendedRiskDistance * 0.1; // 10% distance-to-SL guard
 
     const isTooCloseOrPastSl = direction === 'LONG'
-      ? actualPrice <= (slPrice + proximityBuffer)
-      : actualPrice >= (slPrice - proximityBuffer);
+      ? actualPrice <= (slPrice + slBreachBuffer)
+      : actualPrice >= (slPrice - slBreachBuffer);
 
     if (isTooCloseOrPastSl) {
       const isPast = direction === 'LONG' ? actualPrice <= slPrice : actualPrice >= slPrice;

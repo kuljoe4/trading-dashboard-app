@@ -176,6 +176,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('theme')}
               aria-expanded={openSections.has('theme')}
+              aria-controls="theme-content"
               aria-label={openSections.has('theme') ? "Collapse Dashboard Visual Theme section" : "Expand Dashboard Visual Theme section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -188,7 +189,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('theme') && "rotate-180")} />
             </button>
             {openSections.has('theme') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <div id="theme-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
                 <p className="text-[11px] text-dim font-medium uppercase mb-2">Choose a modern look for your trading cockpit and analytics dashboard</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {Object.entries(THEMES).map(([id, t]) => {
@@ -235,6 +236,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('security')}
               aria-expanded={openSections.has('security')}
+              aria-controls="security-content"
               aria-label={openSections.has('security') ? "Collapse Dashboard Security section" : "Expand Dashboard Security section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -247,7 +249,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('security') && "rotate-180")} />
             </button>
             {openSections.has('security') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
+              <div id="security-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
                 <div className="flex flex-col gap-2">
                   <label htmlFor="adminApiKey" className="text-[10px] text-dim font-bold tracking-widest uppercase">Admin API Key</label>
                   <p className="text-[11px] text-dim font-medium uppercase mb-2">Required for dashboard authentication in production</p>
@@ -316,6 +318,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('exchange_live')}
               aria-expanded={openSections.has('exchange_live')}
+              aria-controls="exchange_live-content"
               aria-label={openSections.has('exchange_live') ? "Collapse Exchange Integration (Live) section" : "Expand Exchange Integration (Live) section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -328,7 +331,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('exchange_live') && "rotate-180")} />
             </button>
             {openSections.has('exchange_live') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+              <div id="exchange_live-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
                 <div className="flex flex-col gap-2">
                   <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Live Credentials</div>
                   <div className="flex items-center gap-3 p-4 bg-background/50 border border-border rounded-xl">
@@ -419,6 +422,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('exchange_testnet')}
               aria-expanded={openSections.has('exchange_testnet')}
+              aria-controls="exchange_testnet-content"
               aria-label={openSections.has('exchange_testnet') ? "Collapse Binance Demo (Testnet) section" : "Expand Binance Demo (Testnet) section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none"
             >
@@ -431,7 +435,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('exchange_testnet') && "rotate-180")} />
             </button>
             {openSections.has('exchange_testnet') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+              <div id="exchange_testnet-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
                 <div className="flex flex-col gap-2">
                   <div className="text-[10px] text-dim font-bold tracking-widest uppercase mb-1">Demo Credentials</div>
                   <div className="flex items-center gap-3 p-4 bg-background/50 border border-border rounded-xl">
@@ -522,6 +526,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('credentials')}
               aria-expanded={openSections.has('credentials')}
+              aria-controls="credentials-content"
               aria-label={openSections.has('credentials') ? "Collapse Validate & Apply Credentials section" : "Expand Validate & Apply Credentials section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -531,7 +536,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('credentials') && "rotate-180")} />
             </button>
             {openSections.has('credentials') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+              <div id="credentials-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200 bg-surface/50">
                 {(apiKey || testnetApiKey) && (
                   <div className="flex flex-col gap-4">
                     <div className="flex items-center gap-2">
@@ -639,6 +644,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('performance')}
               aria-expanded={openSections.has('performance')}
+              aria-controls="performance-content"
               aria-label={openSections.has('performance') ? "Collapse Engine Performance & Resources section" : "Expand Engine Performance & Resources section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -651,7 +657,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('performance') && "rotate-180")} />
             </button>
             {openSections.has('performance') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+              <div id="performance-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-1.5">
@@ -890,6 +896,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('scanner_bandwidth')}
               aria-expanded={openSections.has('scanner_bandwidth')}
+              aria-controls="scanner_bandwidth-content"
               aria-label={openSections.has('scanner_bandwidth') ? "Collapse Scanner & Market Feed Bandwidth section" : "Expand Scanner & Market Feed Bandwidth section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -902,7 +909,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('scanner_bandwidth') && "rotate-180")} />
             </button>
             {openSections.has('scanner_bandwidth') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+              <div id="scanner_bandwidth-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
                 <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-border/50 group hover:border-accent/30 transition-colors">
                   <label htmlFor="global_scanner_enabled" className="cursor-pointer select-none flex-grow mr-4">
                     <div className="text-sm font-bold">Global Market Scanner</div>
@@ -935,6 +942,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('streaming')}
               aria-expanded={openSections.has('streaming')}
+              aria-controls="streaming-content"
               aria-label={openSections.has('streaming') ? "Collapse Dashboard, Streaming & Eco-Graphics section" : "Expand Dashboard, Streaming & Eco-Graphics section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -947,7 +955,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('streaming') && "rotate-180")} />
             </button>
             {openSections.has('streaming') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+              <div id="streaming-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
                 <div className="flex items-center justify-between p-4 bg-background rounded-2xl border border-accent/30 group transition-colors">
                   <div className="flex items-center gap-4 flex-grow">
                     <div className="w-10 h-10 rounded-xl bg-amber/10 flex items-center justify-center shrink-0">
@@ -1074,6 +1082,7 @@ export function SettingsView() {
               type="button"
               onClick={() => toggleSection('maintenance')}
               aria-expanded={openSections.has('maintenance')}
+              aria-controls="maintenance-content"
               aria-label={openSections.has('maintenance') ? "Collapse Account Maintenance section" : "Expand Account Maintenance section"}
               className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
             >
@@ -1083,7 +1092,7 @@ export function SettingsView() {
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('maintenance') && "rotate-180")} />
             </button>
             {openSections.has('maintenance') && (
-              <div className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-6 animate-in fade-in duration-200">
+              <div id="maintenance-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center">

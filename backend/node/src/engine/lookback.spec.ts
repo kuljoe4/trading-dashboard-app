@@ -191,7 +191,39 @@ describe('Lookback SL Logic', () => {
       expect(result.slPrice).toBe(97.0); // Clamped to maxDistance (3.0%)
     });
 
-    it('should support rejection when lookback SL is less than MACD PBC stop-loss and action is reject', () => {
+    it('should NOT reject when lookback SL is less than MACD PBC stop-loss and action is reject, IF MACD PBC is within bounds', () => {
+      const config = new SessionConfig();
+      config.sl_type = 'lookback_low/high';
+      config.sl_min_pct = 1.0;
+      config.sl_max_pct = 3.0;
+      config.sl_out_of_bounds_action = 'reject';
+
+      const entryPrice = 100;
+      const direction = 'LONG';
+      const minLow = 99.5; // Lookback SL distance = 0.5% (below min 1%)
+      const macdPbcSlPrice = 98.5; // MACD PBC SL distance = 1.5% (within 1-3% bounds)
+
+      const result = riskEngine.computeSl(
+        entryPrice,
+        direction,
+        config,
+        minLow,
+        105,
+        'BTCUSDT',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        macdPbcSlPrice
+      );
+
+      // It should adopt the MACD PBC SL and NOT reject because 1.5% is valid
+      expect(result.rejected).toBe(false);
+      expect(result.slPrice).toBe(98.5);
+    });
+
+    it('should reject when MACD PBC stop-loss is adopted but is out of bounds', () => {
       const config = new SessionConfig();
       config.sl_type = 'lookback_low/high';
       config.sl_min_pct = 1.0;
@@ -201,7 +233,7 @@ describe('Lookback SL Logic', () => {
       const entryPrice = 100;
       const direction = 'LONG';
       const minLow = 99.5; // Lookback SL distance = 0.5%
-      const macdPbcSlPrice = 98.5; // MACD PBC SL distance = 1.5%
+      const macdPbcSlPrice = 95.0; // MACD PBC SL distance = 5.0% (above max 3%)
 
       const result = riskEngine.computeSl(
         entryPrice,
@@ -219,7 +251,7 @@ describe('Lookback SL Logic', () => {
       );
 
       expect(result.rejected).toBe(true);
-      expect(result.reason).toContain('below MACD PBC adjusted min');
+      expect(result.reason).toContain('(MACD PBC) above max 3%');
     });
 
     it('should use MACD PBC stop-loss when lookback extremes are unavailable', () => {

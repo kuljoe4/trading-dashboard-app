@@ -187,13 +187,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       return exitEst.proximity
     }
     if (!trade.exit_signals_status) return 0
-    const statuses = Object.values(trade.exit_signals_status)
+    const statuses = Object.entries(trade.exit_signals_status)
     if (statuses.length === 0) return 0
 
     let maxProx = 0
-    for (const sig of statuses) {
+    for (const [key, sig] of statuses) {
       if (sig) {
-        const prox = calculateProximity(sig, mark, entry, isLong, true)
+        const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
         if (prox > maxProx) maxProx = prox
       }
     }

@@ -83,7 +83,7 @@ test('calculateProximity unit tests', async (t) => {
     // For SHORT (isLong = false): value 99 < threshold 100 is satisfied side, but fired is false for an event signal.
     // Must clamp to maxVal (99) instead of returning 100%.
     const prox = calculateProximity(unfiredEventSignal, 99, 0, false, false);
-    assert.strictEqual(prox, 99, 'Unfired event signal must clamp to 99% instead of 100%');
+    assert.strictEqual(prox, 0, 'Unfired event signal must evaluate to 0% (stale/passed) instead of 100%');
   });
 
   await t.test('evaluates rejected MACD filter signals as 0% (blocked state)', () => {

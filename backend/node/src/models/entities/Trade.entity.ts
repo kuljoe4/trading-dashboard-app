@@ -105,6 +105,9 @@ export class TradeEntity {
   @Column('jsonb', { default: [] })
   sl_adjustments: any[];
 
+  @Column('jsonb', { default: [] })
+  active_trade_events: any[];
+
   @Column({ type: 'text', nullable: true })
   _sig_json: string | null;
 

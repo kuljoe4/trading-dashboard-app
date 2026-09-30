@@ -89,6 +89,14 @@ export class Trade {
 
   entry_signal_confidence = 0;
 
+  active_trade_events?: {
+    timestamp: string;
+    level: 'info' | 'warn' | 'error';
+    type: string;
+    message: string;
+    details?: Record<string, any>;
+  }[];
+
   sl_adjustments?: {
     timestamp: string;
     prev_sl: number;

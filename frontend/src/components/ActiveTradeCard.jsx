@@ -25,7 +25,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
 
   const entry = Number(trade.entry_price || 0)
   const mark = Number(trade.current_price || trade.mark_price || trade.last_price || 0)
-  const sl = Number(trade.sl_price || 0)
+  const sl = Number(trade.current_sl ?? trade.sl_price ?? 0)
   const tp = Number(trade.tp_price || 0)
   const isLong = trade.direction === 'LONG'
 

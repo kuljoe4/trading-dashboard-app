@@ -198,6 +198,7 @@ describe('SessionLifecycleService - live UDS balance drives risk engine during s
 
   // Config that gates purely on total SL risk % of balance.
   const riskConfig = {
+    strategy_label: 'Momentum Strategy',
     max_open_trades: 5,
     max_open_trades_per_symbol: 1,
     max_total_risk_pct: 4,
@@ -274,7 +275,7 @@ describe('SessionLifecycleService - live UDS balance drives risk engine during s
     sessionState.balanceLive = 2000;
 
     // At 2000 USDT: 50/2000 = 2.5% total risk + 1% prospective = 3.5% < 4% ceiling -> allowed.
-    const allowedAtHigh = riskEngine.canEnter([], [], sessionState.getBalance(false), 'BTCUSDT', riskConfig, totalSlUsed);
+    const allowedAtHigh = riskEngine.canEnter([{ symbol: 'ETHUSDT', risk_usdt: 50, status: 'OPEN', strategy_label: 'Momentum Strategy' } as any], [], sessionState.getBalance(false), 'BTCUSDT', riskConfig, totalSlUsed);
     expect(allowedAtHigh.canEnter).toBe(true);
 
     // Mid-session balance crash to 1000 USDT via UDS (no REST).
@@ -285,7 +286,7 @@ describe('SessionLifecycleService - live UDS balance drives risk engine during s
     expect(sessionState.getBalance(false)).toBe(1000);
 
     // At 1000 USDT: 50/1000 = 5% total risk + 1% prospective = 6% > 4% ceiling -> blocked.
-    const blockedAtLow = riskEngine.canEnter([], [], sessionState.getBalance(false), 'BTCUSDT', riskConfig, totalSlUsed);
+    const blockedAtLow = riskEngine.canEnter([{ symbol: 'ETHUSDT', risk_usdt: 50, status: 'OPEN', strategy_label: 'Momentum Strategy' } as any], [], sessionState.getBalance(false), 'BTCUSDT', riskConfig, totalSlUsed);
     expect(blockedAtLow.canEnter).toBe(false);
     expect(blockedAtLow.reason).toMatch(/Risk ceiling/i);
   });

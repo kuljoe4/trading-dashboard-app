@@ -75,7 +75,7 @@ describe('Knife Catch Anti-Whipsaw Bypass & Gated Entry Allowance', () => {
 
       // Since 1 active knife trade exists, allow_knife_when_gated does NOT bypass maxOpenTrades
       expect(result.canEnter).toBe(false);
-      expect(result.reason).toContain('Global max open trades (1) reached');
+      expect(result.reason).toContain('Strategy max open trades (1) reached');
     });
   });
 });

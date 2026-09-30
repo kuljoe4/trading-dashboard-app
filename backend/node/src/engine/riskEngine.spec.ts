@@ -121,7 +121,7 @@ describe('RiskEngineService - Frequency Limits', () => {
       // With 4 active and 1 entering, total is 5 (max). Next entry should be blocked.
       const result = service.canEnter(activeTrades, closedTrades, balance, 'ETHUSDT', config, totalSlUsed, enteringCount);
       expect(result.canEnter).toBe(false);
-      expect(result.reason).toContain('Global max open trades (5) reached (incl. 1 pending)');
+      expect(result.reason).toContain('Strategy max open trades (5) reached (incl. 1 pending)');
     });
 
     it('should include enteringCount in trades_per_period limit', () => {
@@ -175,10 +175,11 @@ describe('RiskEngineService - Frequency Limits', () => {
     });
 
     it('should block entry if nominal risk itself exceeds max_total_risk_pct', () => {
-      const activeTrades: any[] = [];
+      const activeTrades: any[] = [{ symbol: 'ETHUSDT', risk_usdt: 10, status: 'OPEN', strategy_label: 'Momentum Strategy' }];
       const closedTrades: any[] = [];
       const balance = 1000;
       const config = {
+        strategy_label: 'Momentum Strategy',
         risk_pct_per_trade: 1.5, // nominal risk is 1.5%
         max_total_risk_pct: 2.0 // limit is 2.0%
       } as any;

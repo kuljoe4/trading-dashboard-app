@@ -118,17 +118,16 @@ export class RiskEngineService {
 
     // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)
     if (!isKnifeGatedBypass && activeTradesCountForStrategy + enteringCount >= maxOpenTrades) {
-      const maxOpenMsg = isBaseStrategy ? `Global max open trades (${maxOpenTrades}) reached` : `Strategy max open trades (${maxOpenTrades}) reached`;
-      return { canEnter: false, reason: `${maxOpenMsg} (incl. ${enteringCount} pending)${!isBaseStrategy ? ' for label "' + targetLabel + '"' : ''}` };
+      return { canEnter: false, reason: `Strategy max open trades (${maxOpenTrades}) reached (incl. ${enteringCount} pending) for label "${targetLabel}"` };
     }
 
     if (symbolTradeCount >= maxOpenTradesPerSymbol) {
-      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached${!isBaseStrategy ? ' for label "' + targetLabel + '"' : ''}` };
+      return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached for label "${targetLabel}"` };
     }
 
     const riskPerTrade = prospectiveRiskPct !== undefined ? prospectiveRiskPct : (config.risk_pct_per_trade ?? 1.0);
-    // In base strategy (or tests), fallback to the passed totalSlUsed to maintain backward compatibility
-    const slUsed = isBaseStrategy ? totalSlUsed : totalSlUsedForStrategy;
+    // BOLT: Fix gating bug where base strategy was gated by global active risks instead of its own
+    const slUsed = totalSlUsedForStrategy;
     const totalRiskPct = balance > 0 ? (slUsed / balance) * 100 : 0;
 
     // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.

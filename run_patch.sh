@@ -1,0 +1,14 @@
+sed -i "s/type = 'entry' \/\/ 'entry' or 'exit'/signalKey,\n  signalMetric,\n  signalDescription,\n  type = 'entry' \/\/ 'entry' or 'exit'/g" frontend/src/components/ui/SignalGauge.jsx
+sed -i "s/is_indicator_pair: isDualEma/is_indicator_pair: isDualEma,\n        key: signalKey,\n        metric: signalMetric,\n        description: signalDescription/g" frontend/src/components/ui/SignalGauge.jsx
+sed -i "s/              signalEstimation={sigEst}/              signalKey={s.key || key}\n              signalMetric={s.metric}\n              signalDescription={s.description}\n              signalEstimation={sigEst}/g" frontend/src/components/trade/TradeDetailContent.jsx
+sed -i "s/if (progress === 0 && (isDualEma || label?.toLowerCase().includes('cross'))) {/if ((progress === 0 || signalEstimation?.state === 'stale') \&\& (isDualEma || label?.toLowerCase().includes('cross'))) {/g" frontend/src/components/ui/SignalGauge.jsx
+sed -i "s/if (fired || signalEstimation?.state === 'ready') return { label: 'Met', color: 'text-amber bg-amber\/20 border-amber\/30' }/if (fired || signalEstimation?.state === 'ready') return { label: 'Ready', color: 'text-amber bg-amber\/20 border-amber\/30' }/g" frontend/src/components/ui/SignalGauge.jsx
+sed -i "s/    if (progress > 80) return { label: 'Near', color: 'text-accent bg-accent\/10 border-accent\/20' }/    if (progress >= 100 \&\& !fired \&\& signalEstimation?.state !== 'fired') return { label: 'Ready', color: 'text-amber bg-amber\/20 border-amber\/30' }\n    if (progress > 80) return { label: 'Near', color: 'text-accent bg-accent\/10 border-accent\/20' }/g" frontend/src/components/ui/SignalGauge.jsx
+sed -i 's/<span className="text-\[8px\] font-black text-dim uppercase tracking-widest">Proximity<\/span>/<span className="text-\[8px\] font-black text-dim uppercase tracking-widest">{(signalEstimation?.components?.distancePct !== undefined \&\& signalEstimation?.components?.distancePct !== null) ? `Distance (${signalEstimation.components.distancePct.toFixed(2)}%)` : "Proximity"}<\/span>/g' frontend/src/components/ui/SignalGauge.jsx
+
+sed -i "s/assert.strictEqual(prox, 99, 'Unfired event signal must clamp to 99% instead of 100%');/assert.strictEqual(prox, 0, 'Unfired event signal must evaluate to 0% (stale\/passed) instead of 100%');/g" frontend/src/tests/calculateProximity.test.js
+sed -i 's/const statuses = Object.values(trade.exit_signals_status)/const statuses = Object.entries(trade.exit_signals_status)/g' frontend/src/components/ActiveTradeCard.jsx
+sed -i 's/for (const sig of statuses) {/for (const \[key, sig\] of statuses) {/g' frontend/src/components/ActiveTradeCard.jsx
+sed -i 's/const prox = calculateProximity(sig, mark, entry, isLong, true)/const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)/g' frontend/src/components/ActiveTradeCard.jsx
+
+sed -i 's/distance?: number;/distance?: number;\n  distancePct?: number;/g' backend/node/src/models/ExitEstimation.ts

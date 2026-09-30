@@ -790,6 +790,9 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
               markPrice={mark}
               qty={qty}
               riskUsdt={riskUsdt}
+              signalKey={s.key || key}
+              signalMetric={s.metric}
+              signalDescription={s.description}
               signalEstimation={sigEst}
               type="exit"
             >

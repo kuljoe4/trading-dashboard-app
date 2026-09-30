@@ -288,7 +288,7 @@ export class ExitEstimationService {
             estimatedR: estR,
             method: 'dual_convergence',
             description: 'EMA cross condition met',
-            components: { fastValue: val, slowValue: thresh, spread: roundTo(currentSpread, 8) }
+            components: { fastValue: val, slowValue: thresh, spread: roundTo(currentSpread, 8), distancePct: roundTo(Math.abs((val - thresh) / thresh) * 100, 4) }
           };
         } else {
           // Spread is widening (diverging)

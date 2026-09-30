@@ -6,6 +6,7 @@ export interface ExitEstimationComponents {
   priceVelocity?: number;
   atr?: number;
   distance?: number;
+  distancePct?: number;
   currHist?: number;
   histVelocity?: number;
   boundPrice?: number;

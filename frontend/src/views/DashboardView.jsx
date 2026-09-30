@@ -2527,9 +2527,19 @@ export function DashboardView({ initialStrategy }) {
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 pr-3 py-1.5 bg-surface border border-border/60 hover:border-accent/40 focus:border-accent text-xs font-semibold rounded-xl text-text placeholder-dim focus-visible:ring-2 focus-visible:ring-accent outline-none transition-all w-36 sm:w-48"
+                className="pl-8 pr-8 py-1.5 bg-surface border border-border/60 hover:border-accent/40 focus:border-accent text-xs font-semibold rounded-xl text-text placeholder-dim focus-visible:ring-2 focus-visible:ring-accent outline-none transition-all w-36 sm:w-48"
                 aria-label="Search dashboard"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
+                  aria-label="Clear search"
+                >
+                  <XCircle size={13} />
+                </button>
+              )}
             </div>
 
             {/* Filter Toggle Button */}

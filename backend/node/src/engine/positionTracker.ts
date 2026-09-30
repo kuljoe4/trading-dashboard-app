@@ -635,6 +635,21 @@ export class PositionTrackerService {
     this.logger.debug(
       `SL Adjusted for ${trade.symbol}: ${prevSl} → ${newSl} (Reason: ${reasonText})`,
     );
+
+    const eventLevel = reasonText.startsWith('DEFERRED_') ? 'warn' : 'info';
+    const eventType = reasonText.startsWith('DEFERRED_') ? 'SL_RATCHET_DEFERRED' : 'SL_CHANGED';
+    const eventMessage = reasonText.startsWith('DEFERRED_')
+      ? `SL ratchet deferred: ${reasonText.replace('DEFERRED_', '')}. Current SL remains ${newSl}.`
+      : `SL changed from ${prevSl} to ${newSl} (${reasonText}).`;
+    const events = Array.isArray(trade.active_trade_events) ? trade.active_trade_events : [];
+    events.push({
+      timestamp: new Date().toISOString(),
+      level: eventLevel,
+      type: eventType,
+      message: eventMessage,
+      details: { prevSl, newSl, reason: reasonText, milestoneIndex, maxRr: trade.max_rr_achieved, adaptive }
+    });
+    trade.active_trade_events = events.slice(-50);
   }
 
   checkExitConditions(

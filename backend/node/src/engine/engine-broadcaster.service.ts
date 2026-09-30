@@ -392,6 +392,7 @@ export class EngineBroadcasterService {
           exit_signals_status,
           _sig_json,
           sl_adjustments,
+          active_trade_events,
           tp_mode,
           tp_ratio,
           exit_signal_logic,

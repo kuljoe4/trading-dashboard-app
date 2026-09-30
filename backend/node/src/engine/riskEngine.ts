@@ -640,18 +640,14 @@ export class RiskEngineService {
         }
       }
 
-      let effectiveMinDistance = minDistance;
-
       if (!usingMacdPbcSl && macdPbcSlPrice && macdPbcSlPrice > 0) {
         const macdPbcDistance = Math.abs(entryPrice - macdPbcSlPrice);
         if (rawDistance < macdPbcDistance) {
-          effectiveMinDistance = Math.min(macdPbcDistance, maxDistance);
+          structuralSl = macdPbcSlPrice;
+          rawDistance = macdPbcDistance;
           usingMacdPbcSl = true;
-          this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback SL distance (${rawDistance.toFixed(5)}) is less than MACD PBC SL distance (${macdPbcDistance.toFixed(5)}). Adjusting effectiveMinDistance to: ${effectiveMinDistance.toFixed(5)}`);
+          this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback SL distance is less than MACD PBC SL distance (${macdPbcDistance.toFixed(5)}). Using MACD PBC SL as structural SL.`);
         }
-      } else if (usingMacdPbcSl) {
-        const macdPbcDistance = Math.abs(entryPrice - macdPbcSlPrice!);
-        effectiveMinDistance = Math.min(macdPbcDistance, maxDistance);
       }
 
       const rawDistPct = (rawDistance / entryPrice) * 100;
@@ -660,22 +656,22 @@ export class RiskEngineService {
       let rejected = false;
       let reason: string | undefined;
 
-      if (rawDistance < effectiveMinDistance) {
+      if (rawDistance < minDistance) {
         if (action === 'reject') {
            clampType = 'REJECT';
            rejected = true;
-           reason = usingMacdPbcSl
-             ? `Lookback SL dist ${rawDistPct.toFixed(2)}% below MACD PBC adjusted min ${((effectiveMinDistance / entryPrice) * 100).toFixed(2)}%`
-             : `Lookback SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
+           reason = `Lookback SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
         } else {
-           finalDistance = effectiveMinDistance;
+           finalDistance = minDistance;
            clampType = 'MIN_CLAMP';
         }
       } else if (rawDistance > maxDistance) {
         if (action === 'reject') {
            clampType = 'REJECT';
            rejected = true;
-           reason = `Lookback SL dist ${rawDistPct.toFixed(2)}% above max ${maxPct}%`;
+           reason = usingMacdPbcSl
+             ? `Lookback SL dist ${rawDistPct.toFixed(2)}% (MACD PBC) above max ${maxPct}%`
+             : `Lookback SL dist ${rawDistPct.toFixed(2)}% above max ${maxPct}%`;
         } else {
            finalDistance = maxDistance;
            clampType = 'MAX_CLAMP';
@@ -689,7 +685,7 @@ export class RiskEngineService {
         Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl} ${usingMacdPbcSl ? '(MACD PBC)' : ''}
         Raw Dist: ${Number(rawDistance || 0).toFixed(5)} (${rawDistPct.toFixed(2)}%)
         Min: ${minPct}% (${Number(minDistance || 0).toFixed(5)}), Max: ${maxPct}% (${Number(maxDistance || 0).toFixed(5)})
-        Effective Min: ${Number(effectiveMinDistance || 0).toFixed(5)}
+
         Action: ${action.toUpperCase()}, Result: ${clampType} -> Dist: ${Number(finalDistance || 0).toFixed(5)}
         Final SL: ${Number(slPrice || 0).toFixed(5)}`);
 

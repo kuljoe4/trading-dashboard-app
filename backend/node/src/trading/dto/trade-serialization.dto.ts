@@ -86,6 +86,7 @@ export interface TickTradeDto {
   _thin: boolean;
   _sl_len: number;
   _sig_json: string;
+  active_trade_events?: any[];
   live_rr_sequence?: number[];
   exit_rr_sequence?: number[];
   exit_estimation?: any;

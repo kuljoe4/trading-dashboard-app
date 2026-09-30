@@ -2165,6 +2165,42 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 })()}
              </div>
 
+             {/* Active Trade Event Log section */}
+             {(trade.active_trade_events || []).length > 0 && (
+                <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm mt-4">
+                  <SectionLabel className="mb-3 md:mb-5">
+                    <Activity size={14} className="text-accent" /> Active Trade Event Log
+                  </SectionLabel>
+                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1 no-scrollbar">
+                    {[...(trade.active_trade_events || [])].reverse().map((evt, i) => (
+                      <div key={i} className="flex flex-col gap-1 text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/evt hover:border-accent/30 transition-colors">
+                        <div className="flex items-center justify-between mb-1">
+                           <div className="flex items-center gap-1.5">
+                              <span className={cn(
+                                 "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest",
+                                 evt.level === 'error' ? "bg-red/10 text-red" :
+                                 evt.level === 'warn' ? "bg-amber/10 text-amber" :
+                                 "bg-blue-500/10 text-blue-400"
+                              )}>
+                                 {evt.type}
+                              </span>
+                           </div>
+                           <span className="text-dim/40 font-mono text-[9px]">{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <span className="text-dim/80 text-[10px] leading-relaxed">{evt.message}</span>
+                        {evt.details && Object.keys(evt.details).length > 0 && (
+                           <div className="mt-2 p-2 bg-black/20 rounded border border-white/[0.02] overflow-hidden">
+                             <pre className="text-[8px] font-mono text-dim/60 whitespace-pre-wrap break-words m-0">
+                               {JSON.stringify(evt.details, null, 2)}
+                             </pre>
+                           </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
              {/* Risk Mitigation Log section */}
              {(trade.sl_adjustments || []).length > 0 && (
                 <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">

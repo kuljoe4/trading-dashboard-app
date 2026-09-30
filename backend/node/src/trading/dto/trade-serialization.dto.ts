@@ -23,6 +23,7 @@ export interface TradeSerializationDto {
   trading_mode?: 'paper' | 'testnet' | 'live' | 'backtest';
   exit_signals_status?: Record<string, any>;
   sl_adjustments?: any[];
+  active_trade_events?: any[];
   live_rr_sequence?: number[];
   exit_rr_sequence?: number[];
   tp_mode?: 'fixed' | 'exp_rr_seq';
@@ -88,4 +89,5 @@ export interface TickTradeDto {
   live_rr_sequence?: number[];
   exit_rr_sequence?: number[];
   exit_estimation?: any;
+  active_trade_events?: any[];
 }

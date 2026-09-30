@@ -518,6 +518,13 @@ export class PositionTrackerService {
         const prevSl = trade.current_sl;
 
         this.logger.log(`[SL Ratchet] Initiating ratchet for ${symbol}: ${prevSl} → ${newSl} (Milestone ${currentIndex}, Target RR: ${exitRr})`);
+        this.recordActiveTradeEvent(
+          trade,
+          'SL_RATCHET_ATTEMPT',
+          `Attempting SL move ${prevSl} → ${newSl} at milestone ${currentIndex} (${exitRr}R).`,
+          'info',
+          { prevSl, targetSl, newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved }
+        );
 
         // Acknowledge-then-Update: Update exchange first in live mode
         const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
@@ -541,6 +548,13 @@ export class PositionTrackerService {
            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         } else {
            this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
+           this.recordActiveTradeEvent(
+             trade,
+             'SL_RATCHET_FAILED',
+             `SL move ${prevSl} → ${newSl} was not confirmed by the exchange; local SL remains ${trade.current_sl}.`,
+             'warn',
+             { prevSl, targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, updateRes }
+           );
         }
       } else {
         // Check if current SL is ALREADY at or beyond target SL for this milestone (or at max exchange tick precision newSl)
@@ -557,10 +571,30 @@ export class PositionTrackerService {
           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
         } else {
           this.logger.warn(`[SL Ratchet] ${symbol} milestone ${currentIndex} reached (Peak RR: ${Number(trade.max_rr_achieved).toFixed(2)}), but SL adjustment was constrained (current_sl: ${trade.current_sl}, targetSl: ${targetSl}, newSl: ${newSl}). Retrying on next tick.`);
+          this.recordActiveTradeEvent(
+            trade,
+            'SL_RATCHET_CONSTRAINED',
+            `Milestone ${currentIndex} was reached but the SL could not advance; retry scheduled on the next evaluation.`,
+            'warn',
+            { currentSl: trade.current_sl, targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved }
+          );
         }
       }
     }
   }
+  }
+
+  private recordActiveTradeEvent(
+    trade: Trade,
+    type: string,
+    message: string,
+    level: 'info' | 'warn' | 'error' = 'info',
+    details?: Record<string, any>,
+  ): void {
+    const events = Array.isArray(trade.active_trade_events) ? trade.active_trade_events : [];
+    events.push({ timestamp: new Date().toISOString(), level, type, message, details });
+    trade.active_trade_events = events.slice(-50);
+    this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
   }
 
   private logSlAdjustment(
@@ -601,6 +635,21 @@ export class PositionTrackerService {
     this.logger.debug(
       `SL Adjusted for ${trade.symbol}: ${prevSl} → ${newSl} (Reason: ${reasonText})`,
     );
+
+    const eventLevel = reasonText.startsWith('DEFERRED_') ? 'warn' : 'info';
+    const eventType = reasonText.startsWith('DEFERRED_') ? 'SL_RATCHET_DEFERRED' : 'SL_CHANGED';
+    const eventMessage = reasonText.startsWith('DEFERRED_')
+      ? `SL ratchet deferred: ${reasonText.replace('DEFERRED_', '')}. Current SL remains ${newSl}.`
+      : `SL changed from ${prevSl} to ${newSl} (${reasonText}).`;
+    const events = Array.isArray(trade.active_trade_events) ? trade.active_trade_events : [];
+    events.push({
+      timestamp: new Date().toISOString(),
+      level: eventLevel,
+      type: eventType,
+      message: eventMessage,
+      details: { prevSl, newSl, reason: reasonText, milestoneIndex, maxRr: trade.max_rr_achieved, adaptive }
+    });
+    trade.active_trade_events = events.slice(-50);
   }
 
   checkExitConditions(

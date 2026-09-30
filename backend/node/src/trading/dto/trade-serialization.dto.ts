@@ -90,4 +90,5 @@ export interface TickTradeDto {
   live_rr_sequence?: number[];
   exit_rr_sequence?: number[];
   exit_estimation?: any;
+  active_trade_events?: any[];
 }

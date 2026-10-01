@@ -1782,10 +1782,11 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/20 pt-3">
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[8px] font-black text-dim uppercase tracking-wider">Initial Stop Loss Price</label>
+                            <label htmlFor={`initial-sl-${pos.symbol}`} className="text-[8px] font-black text-dim uppercase tracking-wider cursor-pointer">Initial Stop Loss Price</label>
                             <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs pointer-events-none">$</span>
                               <input
+                                id={`initial-sl-${pos.symbol}`}
                                 type="number"
                                 step="any"
                                 value={manualInitialSl[pos.symbol] || ''}
@@ -1800,10 +1801,11 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
                             </div>
                           </div>
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[8px] font-black text-dim uppercase tracking-wider">Current Stop Loss Price</label>
+                            <label htmlFor={`current-sl-${pos.symbol}`} className="text-[8px] font-black text-dim uppercase tracking-wider cursor-pointer">Current Stop Loss Price</label>
                             <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs pointer-events-none">$</span>
                               <input
+                                id={`current-sl-${pos.symbol}`}
                                 type="number"
                                 step="any"
                                 value={manualCurrentSl[pos.symbol] || ''}

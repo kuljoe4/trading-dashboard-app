@@ -163,37 +163,40 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                   </div>
 
                   {/* General Overview Card */}
-                  <div className="bg-background/40 border border-border/60 rounded-xl p-4 flex flex-col gap-3">
-                    <div className="flex justify-between items-center flex-wrap gap-2">
-                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Strategy Label</span>
-                      <span className="text-xs font-black text-text uppercase">{label}</span>
-                    </div>
-
-                    <div className="flex justify-between items-center flex-wrap gap-2">
-                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Session UUID</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[10px] font-mono font-bold text-text/80 bg-surface px-2 py-1 rounded border border-border/50 select-all">{session.id}</span>
-                        <CopyButton value={session.id} tooltip="Copy session ID" successTooltip="Copied session ID!" className="p-1" />
+                  <div className="bg-background/40 border border-border/60 rounded-xl p-4 flex flex-col gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">Strategy Label</span>
+                        <span className="text-xs font-black text-text uppercase">{label}</span>
+                      </div>
+                      <div className="flex flex-col gap-1 items-end text-right">
+                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">Environment</span>
+                        <span className={cn(
+                          "text-[9px] font-black px-2 py-0.5 rounded uppercase border",
+                          session.paperMode
+                            ? "text-amber border-amber/20 bg-amber/5"
+                            : (session.config?.trading_mode === 'testnet' ? "text-purple border-purple/20 bg-purple/5" : "text-green border-green/20 bg-green/5")
+                        )}>
+                          {session.paperMode ? 'PAPER' : (session.config?.trading_mode || 'LIVE').toUpperCase()}
+                        </span>
                       </div>
                     </div>
 
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Environment</span>
-                      <span className={cn(
-                        "text-[9px] font-black px-2 py-0.5 rounded uppercase border",
-                        session.paperMode
-                          ? "text-amber border-amber/20 bg-amber/5"
-                          : (session.config?.trading_mode === 'testnet' ? "text-purple border-purple/20 bg-purple/5" : "text-green border-green/20 bg-green/5")
-                      )}>
-                        {session.paperMode ? 'PAPER' : (session.config?.trading_mode || 'LIVE').toUpperCase()}
-                      </span>
+                    <div className="flex justify-between items-center bg-surface/50 p-2.5 rounded-lg border border-border/30 group hover:border-accent/30 transition-colors">
+                      <div className="flex flex-col gap-0.5 min-w-0">
+                        <span className="text-[9px] text-dim font-black uppercase tracking-widest">Session UUID</span>
+                        <span className="text-[10px] font-mono font-medium text-text/90 truncate pr-2 select-all">{session.id}</span>
+                      </div>
+                      <CopyButton value={session.id} tooltip="Copy session ID" successTooltip="Copied session ID!" className="p-2 bg-background border border-border/40 rounded-md shrink-0 opacity-80 group-hover:opacity-100 transition-opacity hover:bg-accent hover:text-background hover:border-accent" />
                     </div>
 
-                    <div className="flex justify-between items-center border-t border-border/10 pt-2.5">
-                      <span className="text-[10px] text-dim font-black uppercase tracking-widest">Total Fees & Funding</span>
-                      <div className="flex items-center gap-3 font-mono text-xs font-bold">
-                        <span className="text-red/80">Fees: {fmtUSD(-sessionFees)}</span>
-                        <span className={sessionFunding > 0 ? "text-red/80" : "text-green/80"}>Funding: {fmtUSD(-sessionFunding)}</span>
+                    <div className="flex justify-between items-center border-t border-border/10 pt-3">
+                      <span className="text-[9px] text-dim font-black uppercase tracking-widest">Net Fees & Funding</span>
+                      <div className="flex items-center gap-3 font-mono text-[11px] font-black">
+                        <span className="text-red/90 bg-red/5 px-1.5 py-0.5 rounded border border-red/10">F: {fmtUSD(-sessionFees)}</span>
+                        <span className={cn("px-1.5 py-0.5 rounded border", sessionFunding > 0 ? "text-red/90 bg-red/5 border-red/10" : "text-green/90 bg-green/5 border-green/10")}>
+                          FD: {fmtUSD(-sessionFunding)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1214,14 +1217,25 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     for (let i = 0; i < filteredTrades.length; i++) {
       const t = filteredTrades[i];
       const pnlVal = safeNum(t.pnl);
-      if (pnlVal > 0) winsArr.push(t);
-      else if (pnlVal < 0) lossesArr.push(t);
+      if (pnlVal > 0) {
+        let j = 0;
+        while (j < winsArr.length && pnlVal <= winsArr[j].pnlVal) j++;
+        if (j < 5) {
+          winsArr.splice(j, 0, { t, pnlVal });
+          if (winsArr.length > 5) winsArr.pop();
+        }
+      } else if (pnlVal < 0) {
+        let j = 0;
+        while (j < lossesArr.length && pnlVal >= lossesArr[j].pnlVal) j++;
+        if (j < 5) {
+          lossesArr.splice(j, 0, { t, pnlVal });
+          if (lossesArr.length > 5) lossesArr.pop();
+        }
+      }
     }
-    winsArr.sort((a, b) => safeNum(b.pnl) - safeNum(a.pnl));
-    lossesArr.sort((a, b) => safeNum(a.pnl) - safeNum(b.pnl));
     return {
-      sessionTopWins: winsArr.slice(0, 5),
-      sessionTopLosses: lossesArr.slice(0, 5)
+      sessionTopWins: winsArr.map(w => w.t),
+      sessionTopLosses: lossesArr.map(l => l.t)
     };
   }, [filteredTrades]);
 
@@ -1726,17 +1740,27 @@ export const HistoryView = () => {
 
     for (let i = 0; i < modeTrades.length; i++) {
       const t = modeTrades[i];
-      const pnl = safeNum(t.pnl);
-      if (pnl > 0) wins.push(t);
-      else if (pnl < 0) losses.push(t);
+      const pnlVal = safeNum(t.pnl);
+      if (pnlVal > 0) {
+        let j = 0;
+        while (j < wins.length && pnlVal <= wins[j].pnlVal) j++;
+        if (j < 5) {
+          wins.splice(j, 0, { t, pnlVal });
+          if (wins.length > 5) wins.pop();
+        }
+      } else if (pnlVal < 0) {
+        let j = 0;
+        while (j < losses.length && pnlVal >= losses[j].pnlVal) j++;
+        if (j < 5) {
+          losses.splice(j, 0, { t, pnlVal });
+          if (losses.length > 5) losses.pop();
+        }
+      }
     }
 
-    wins.sort((a, b) => safeNum(b.pnl) - safeNum(a.pnl));
-    losses.sort((a, b) => safeNum(a.pnl) - safeNum(b.pnl));
-
     return {
-      topWins: wins.slice(0, 5),
-      topLosses: losses.slice(0, 5)
+      topWins: wins.map(w => w.t),
+      topLosses: losses.map(l => l.t)
     };
   }, [modeTrades]);
 

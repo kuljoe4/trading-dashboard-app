@@ -852,7 +852,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               onChange={(e) => setSearch(e.target.value)}
               onFocus={handleInputFocus}
               onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-background border border-border rounded-lg pl-8 pr-10 py-1 text-[10px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+              className="w-full bg-background border border-border rounded-lg pl-8 pr-8 py-1 text-[10px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
               aria-label="Filter scanner symbols"
             />
             {search ? (

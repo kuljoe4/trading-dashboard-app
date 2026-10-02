@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { settingsAPI, setAdminApiKey } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck, ChevronDown, SlidersHorizontal, Database } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck, ChevronDown, SlidersHorizontal, Database, XCircle } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -272,7 +272,7 @@ export function SettingsView() {
                             aria-label="Clear Admin API Key"
                             className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                           >
-                            <X size={18} />
+                            <XCircle size={18} />
                           </button>
                         </Tooltip>
                       )}
@@ -366,7 +366,7 @@ export function SettingsView() {
                               aria-label="Clear API Key"
                               className="text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                             >
-                              <X size={18} />
+                              <XCircle size={18} />
                             </button>
                           </Tooltip>
                         </div>
@@ -394,7 +394,7 @@ export function SettingsView() {
                               aria-label="Clear API Secret"
                               className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
                             >
-                              <X size={18} />
+                              <XCircle size={18} />
                             </button>
                           </Tooltip>
                         )}
@@ -470,7 +470,7 @@ export function SettingsView() {
                               aria-label="Clear Testnet API Key"
                               className="text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                             >
-                              <X size={18} />
+                              <XCircle size={18} />
                             </button>
                           </Tooltip>
                         </div>
@@ -498,7 +498,7 @@ export function SettingsView() {
                               aria-label="Clear Testnet API Secret"
                               className="hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-md"
                             >
-                              <X size={18} />
+                              <XCircle size={18} />
                             </button>
                           </Tooltip>
                         )}

@@ -454,7 +454,12 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
   }, [tradeHistory, timeframe]);
 
   const { buckets, maxVal } = periodicData;
-  const totalRevenue = buckets.reduce((acc, m) => acc + m.pnl, 0);
+  // BOLT OPTIMIZATION: Fused totalRevenue calculation
+  // Replaces .reduce() with a single-pass O(N) loop to eliminate callback allocation.
+  let totalRevenue = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    totalRevenue += buckets[i].pnl;
+  }
 
   // Period Quick Badges (Today, 7D, 30D)
   const periodBadges = useMemo(() => {
@@ -837,12 +842,19 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
 
   const activeCount = s.activeTradeCount || 0;
   const isAutoAdjust = config.auto_adjust_max_trades_enabled || false;
+  // BOLT OPTIMIZATION: Fused activeRisk calculation using a single-pass O(N) loop
+  // Replaces .filter() and .reduce() to eliminate transient array allocations.
   const activeRisk = useTradingStore(state => {
     const trades = state.activeTrades || [];
     const stratLabel = s.strategy_label || 'Momentum Strategy';
-    return trades
-      .filter(t => (t.strategy_label || 'Momentum Strategy') === stratLabel)
-      .reduce((acc, t) => acc + (t.risk_usdt || 0), 0);
+    let risk = 0;
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if ((t.strategy_label || 'Momentum Strategy') === stratLabel) {
+        risk += (t.risk_usdt || 0);
+      }
+    }
+    return risk;
   });
   const isZeroActiveRiskExpanded = isAutoAdjust && activeCount > 0 && activeRisk <= 1e-6;
   const effectiveMaxOpen = isZeroActiveRiskExpanded

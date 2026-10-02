@@ -1662,22 +1662,27 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       ? new Set(configuredExitSignals)
       : null
 
-    const enhancedExitSignals = Object.entries(exitSignals).reduce((acc, [key, s]) => {
+    // BOLT OPTIMIZATION: Fused enhancedExitSignals single pass map loop
+    // Avoids Object.entries array allocation and .reduce callback closure allocations.
+    const enhancedExitSignals = {};
+    const keys = Object.keys(exitSignals);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const s = exitSignals[key];
       if (!activeExitSet || activeExitSet.has(key) || activeExitSet.has(getBaseSignalType(key))) {
         const sigEst = trade.exit_estimation?.signalEstimations?.[key];
         const distPct = (sigEst && typeof sigEst.proximity === 'number')
           ? sigEst.proximity
           : calculateProximity(s, mark, entry, isLong, true);
 
-        acc[key] = {
+        enhancedExitSignals[key] = {
           ...s,
           distPct,
           label: (s.label || key).replace(/price/gi, '').trim(),
           unit: (s.unit || '').replace(/price/gi, '').trim()
-        }
+        };
       }
-      return acc
-    }, {})
+    }
 
     const estPnlToRealize = Number(trade.est_pnl_to_realize || 0)
 

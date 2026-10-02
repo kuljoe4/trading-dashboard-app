@@ -812,17 +812,25 @@ export const RrOptimizationChart = ({ data = [], recommendedRr = 0 }) => {
 
   if (safeData.length < 5) return null;
 
-  const maxPF = Math.max(1, ...safeData.map(d => d.profitFactor));
-  const minPF = 0;
-  const rangePF = maxPF - minPF;
+  // BOLT OPTIMIZATION: Fused Single-Pass Calculation for RrOptimizationChart
+  // Eliminates safeData.map, Math.max(...) array spreading, and secondary pointsPF map allocation
+  const { maxPF, rangePF, pointsPF } = useMemo(() => {
+    const len = safeData.length;
+    let max = 1;
+    for (let i = 0; i < len; i++) {
+      if (safeData[i].profitFactor > max) max = safeData[i].profitFactor;
+    }
 
-  const pointsPF = useMemo(() => {
-    return safeData.map((d, i) => {
-      const x = (i / (safeData.length - 1)) * 100;
-      const y = 100 - ((d.profitFactor - minPF) / (rangePF || 1)) * 100;
-      return { x, y, ...d };
-    });
-  }, [safeData, rangePF]);
+    const range = max; // min is 0
+    const pts = new Array(len);
+    for (let i = 0; i < len; i++) {
+      const d = safeData[i];
+      const x = (i / (len - 1)) * 100;
+      const y = 100 - ((d.profitFactor) / (range || 1)) * 100;
+      pts[i] = { x, y, ...d };
+    }
+    return { maxPF: max, rangePF: range, pointsPF: pts };
+  }, [safeData]);
 
   const pathPF = useMemo(() => solveSmoothing(pointsPF), [pointsPF]);
 

@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { SessionController } from '../trading/session.controller';
+import { SessionController, SessionIdPipe } from '../trading/session.controller';
 import { SessionService } from '../trading/session.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { PresetsController } from '../trading/presets.controller';
@@ -181,18 +181,16 @@ describe('Sentinel: Parameter and Query Input Hardening', () => {
 
     it('should reject sessionId query options that are too long (> 50 characters)', async () => {
       const massiveSessionId = 'C'.repeat(51);
-      await expect(controller.getHistory(massiveSessionId)).rejects.toThrow(
+      expect(() => new SessionIdPipe().transform(massiveSessionId, { type: 'query' } as any)).toThrow(
         new BadRequestException('Invalid sessionId format')
       );
-      expect(mockSessionService.getHistory).not.toHaveBeenCalled();
     });
 
     it('should reject malformed sessionId within size bounds', async () => {
       const invalidSessionId = 'not-a-uuid';
-      await expect(controller.getHistory(invalidSessionId)).rejects.toThrow(
+      expect(() => new SessionIdPipe().transform(invalidSessionId, { type: 'query' } as any)).toThrow(
         new BadRequestException('Invalid sessionId format')
       );
-      expect(mockSessionService.getHistory).not.toHaveBeenCalled();
     });
   });
 

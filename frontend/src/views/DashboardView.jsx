@@ -1046,6 +1046,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
                 </span>
               </Tooltip>
             )}
+            {config.tp_mode === 'exp_rr_seq_switch' && s.peakRrSwitchHits >= (config.peak_rr_switch_count || 1) && (
+              <Tooltip content={`Strategy has achieved peak RR threshold ${config.peak_rr_switch_threshold}R. Using alternate switched milestone guards.`}>
+                <span className="bg-blue/10 text-blue border border-blue/30 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help">
+                  <RefreshCw size={8} className="text-blue shrink-0" />
+                  GUARDS SWITCHED
+                </span>
+              </Tooltip>
+            )}
             {isZeroActiveRiskExpanded && (
               <Tooltip content={`Dynamic Capacity Expanded: All open trades risk-protected (0.00 USDT active risk). Max trades boosted to ${maxOpen} (Step +${config.auto_adjust_max_trades_step || 1}, Max ${config.auto_adjust_max_trades_max || 5}).`}>
                 <span className="bg-green/10 text-green border border-green/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help animate-pulse">

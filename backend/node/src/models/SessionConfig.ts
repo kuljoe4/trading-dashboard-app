@@ -310,9 +310,9 @@ export class SessionConfig {
   @IsOptional()
   htf_ema_cross_rr_weight?: number = 1.5;
 
-  @IsEnum(['fixed', 'exp_rr_seq'])
+  @IsEnum(['fixed', 'exp_rr_seq', 'exp_rr_seq_switch'])
   @IsOptional()
-  tp_mode?: 'fixed' | 'exp_rr_seq' = 'fixed';
+  tp_mode?: 'fixed' | 'exp_rr_seq' | 'exp_rr_seq_switch' = 'fixed';
 
   @IsNumber()
   @Min(CONFIG_LIMITS.TP_RATIO_MIN)
@@ -331,6 +331,35 @@ export class SessionConfig {
   @IsOptional()
   @ArrayMaxSize(10)
   exit_rr_sequence?: number[] = [0.0, 1.0, 2.0];
+
+  // Dynamic RR Milestone Switch Options
+  @IsNumber()
+  @Min(0.1)
+  @IsOptional()
+  peak_rr_switch_threshold?: number = 5.0;
+
+  @IsNumber()
+  @Min(1)
+  @IsOptional()
+  peak_rr_switch_count?: number = 1;
+
+  @IsNumber()
+  @Min(0.1)
+  @Max(CONFIG_LIMITS.SL_DISTANCE_MAX)
+  @IsOptional()
+  switched_sl_distance_pct?: number;
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  @ArrayMaxSize(10)
+  switched_live_rr_sequence?: number[] = [1.0, 2.0, 3.0];
+
+  @IsArray()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  @ArrayMaxSize(10)
+  switched_exit_rr_sequence?: number[] = [0.0, 1.0, 1.5];
 
   // Exit Signal Configuration - ANY exit signal fires close
   @IsArray()

@@ -506,6 +506,19 @@ export class ExecutionService {
         const price = this.tickerCache.getPrice(opp.symbol);
         if (!price) continue;
 
+        // Apply SL distance pct override if switch mode is active and threshold met
+        let effectiveSlDistancePct = symbolConfig.sl_distance_pct;
+        if (symbolConfig.tp_mode === 'exp_rr_seq_switch' && symbolConfig.switched_sl_distance_pct && symbolConfig.peak_rr_switch_threshold) {
+          const stratLabel = symbolConfig.strategy_label || 'Momentum Strategy';
+          const hits = this.positionTracker.peakRrSwitchHits.get(stratLabel) || 0;
+          if (hits >= (symbolConfig.peak_rr_switch_count || 1)) {
+            effectiveSlDistancePct = symbolConfig.switched_sl_distance_pct;
+          }
+        }
+
+        // Pass the effective SL distance pct explicitly instead of mutating the config
+        const overriddenConfig = { ...symbolConfig, sl_distance_pct: effectiveSlDistancePct };
+
         const slTimeframe = (!symbolConfig.sl_lookback_timeframe || symbolConfig.sl_lookback_timeframe === 'default')
           ? (symbolConfig.scan_interval || '1m')
           : symbolConfig.sl_lookback_timeframe;
@@ -526,7 +539,7 @@ export class ExecutionService {
         const slResult = this.riskEngine.computeSl(
           price,
           opp.direction.toUpperCase() as 'LONG' | 'SHORT',
-          symbolConfig,
+          overriddenConfig,
           lookback.minLow,
           lookback.maxHigh,
           opp.symbol,

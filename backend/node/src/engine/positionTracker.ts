@@ -910,7 +910,14 @@ export class PositionTrackerService {
   removeTrade(symbol: string): void {
     const existing = this.trades.get(symbol);
     if (existing) {
-      this.tradePeakRrSwitchHandled.delete(existing.id);
+      if (this.tradePeakRrSwitchHandled.has(existing.id)) {
+        this.tradePeakRrSwitchHandled.delete(existing.id);
+        const stratLabel = existing.strategy_label || 'Momentum Strategy';
+        const currentHits = this.peakRrSwitchHits.get(stratLabel) || 0;
+        if (currentHits > 0) {
+          this.peakRrSwitchHits.set(stratLabel, currentHits - 1);
+        }
+      }
     }
     this.trades.delete(symbol);
     this.rrSequenceIndex.delete(symbol);

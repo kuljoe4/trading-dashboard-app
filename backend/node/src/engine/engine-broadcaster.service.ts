@@ -62,6 +62,7 @@ export class EngineBroadcasterService {
         gateState: v?.gateState || null,
         gateReason: v?.gateReason || null,
         isAdaptiveTightened: v?.isAdaptiveTightened || false,
+        peakRrSwitchHits: this.positionTracker?.peakRrSwitchHits?.get(k) || 0,
       };
     }
     return res;

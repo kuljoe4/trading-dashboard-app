@@ -294,9 +294,14 @@ export class BacktestService {
             }
 
             // Ratchet SL on Exponential RR sequence milestone
-            if (config.tp_mode === 'exp_rr_seq' && config.live_rr_sequence && config.exit_rr_sequence) {
-              const liveSeq = config.live_rr_sequence;
-              const exitSeq = config.exit_rr_sequence;
+            if ((config.tp_mode === 'exp_rr_seq' || config.tp_mode === 'exp_rr_seq_switch') && config.live_rr_sequence && config.exit_rr_sequence) {
+              let liveSeq = config.live_rr_sequence;
+              let exitSeq = config.exit_rr_sequence;
+              if (config.tp_mode === 'exp_rr_seq_switch' && pos.peak_rr >= (config.peak_rr_switch_threshold || 5.0)) {
+                // Approximate backtest handling (trades individually track switch rather than strictly strategy history context for simplicity)
+                liveSeq = config.switched_live_rr_sequence || liveSeq;
+                exitSeq = config.switched_exit_rr_sequence || exitSeq;
+              }
               for (let k = 0; k < liveSeq.length; k++) {
                 if (pos.peak_rr >= liveSeq[k]) {
                   const targetExitRr = exitSeq[k] !== undefined ? exitSeq[k] : 0;

@@ -616,7 +616,7 @@ export class SessionService implements OnModuleInit {
     }
 
     // 3. Take Profit Dependencies
-    if (config.tp_mode === "exp_rr_seq") {
+    if (config.tp_mode === "exp_rr_seq" || config.tp_mode === "exp_rr_seq_switch") {
       if (!config.live_rr_sequence || config.live_rr_sequence.length === 0) {
         throw new BadRequestException(
           "Live RR sequence is required for Exponential RR mode",
@@ -628,6 +628,14 @@ export class SessionService implements OnModuleInit {
       ) {
         throw new BadRequestException(
           "Exit RR sequence must match Live RR sequence length",
+        );
+      }
+    }
+
+    if (config.tp_mode === "exp_rr_seq_switch") {
+      if (config.peak_rr_switch_threshold === undefined || config.peak_rr_switch_threshold <= 0) {
+        throw new BadRequestException(
+          "Peak RR Switch Threshold must be > 0 for Dynamic RR Milestone (Switch) mode",
         );
       }
     }
@@ -2568,7 +2576,7 @@ export class SessionService implements OnModuleInit {
     }
 
     const tpMode = strategyConfig.tp_mode || session.config?.tp_mode || "fixed";
-    if (tpMode === "exp_rr_seq") {
+    if (tpMode === "exp_rr_seq" || tpMode === "exp_rr_seq_switch") {
       if (finalLiveSeq.length === 0) {
         throw new BadRequestException("Live RR sequence is required for Exponential RR mode");
       }

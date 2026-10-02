@@ -1184,6 +1184,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   // Extract unique available strategy labels across this session's trades with counts, total PnL, fees & funding
   const availableSessionStrategies = useMemo(() => {
     const map = new Map();
+    const result = [];
     const safeTrades = trades || [];
     for (let i = 0; i < safeTrades.length; i++) {
       const t = safeTrades[i];
@@ -1191,16 +1192,20 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       const pnlVal = safeNum(t.pnl);
       const feeVal = safeNum(t.realized_fee || t.commission || 0);
       const fundingVal = safeNum(t.funding_fee || 0);
-      if (!map.has(lbl)) {
-        map.set(lbl, { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 });
+
+      let item = map.get(lbl);
+      if (item === undefined) {
+        item = { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 };
+        map.set(lbl, item);
+        result.push(item);
       }
-      const item = map.get(lbl);
+
       item.count += 1;
       item.pnl += pnlVal;
       item.fees += feeVal;
       item.funding += fundingVal;
     }
-    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+    return result.sort((a, b) => b.count - a.count);
   }, [trades]);
 
   // Filter session trades by selected session strategy
@@ -1766,12 +1771,19 @@ export const HistoryView = () => {
 
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
-    const tradesBySession = (tradeHistory || []).filter(Boolean).reduce((acc, t) => {
-      if (!t.sessionId) return acc;
-      if (!acc[t.sessionId]) acc[t.sessionId] = [];
-      acc[t.sessionId].push(t);
-      return acc;
-    }, {});
+    // BOLT OPTIMIZATION: Fused tradesBySession initialization
+    // Avoids transient array allocations from .filter(Boolean) and callback overhead from .reduce().
+    const tradesBySession = Object.create(null);
+    const trades = tradeHistory || [];
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if (t && t.sessionId) {
+        if (!tradesBySession[t.sessionId]) {
+          tradesBySession[t.sessionId] = [];
+        }
+        tradesBySession[t.sessionId].push(t);
+      }
+    }
 
     // BOLT OPTIMIZATION: Use pre-calculated startTimeMs directly (Schwartzian transform)
     // to avoid instantiating new Date objects inside the sort comparator loop.
@@ -2005,7 +2017,7 @@ export const HistoryView = () => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-                className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-10 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-8 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
               />
               {search ? (
                 <Tooltip content="Clear Search">

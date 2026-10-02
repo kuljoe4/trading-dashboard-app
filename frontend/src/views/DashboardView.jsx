@@ -454,7 +454,12 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
   }, [tradeHistory, timeframe]);
 
   const { buckets, maxVal } = periodicData;
-  const totalRevenue = buckets.reduce((acc, m) => acc + m.pnl, 0);
+  // BOLT OPTIMIZATION: Fused totalRevenue calculation
+  // Replaces .reduce() with a single-pass O(N) loop to eliminate callback allocation.
+  let totalRevenue = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    totalRevenue += buckets[i].pnl;
+  }
 
   // Period Quick Badges (Today, 7D, 30D)
   const periodBadges = useMemo(() => {
@@ -837,12 +842,19 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
 
   const activeCount = s.activeTradeCount || 0;
   const isAutoAdjust = config.auto_adjust_max_trades_enabled || false;
+  // BOLT OPTIMIZATION: Fused activeRisk calculation using a single-pass O(N) loop
+  // Replaces .filter() and .reduce() to eliminate transient array allocations.
   const activeRisk = useTradingStore(state => {
     const trades = state.activeTrades || [];
     const stratLabel = s.strategy_label || 'Momentum Strategy';
-    return trades
-      .filter(t => (t.strategy_label || 'Momentum Strategy') === stratLabel)
-      .reduce((acc, t) => acc + (t.risk_usdt || 0), 0);
+    let risk = 0;
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if ((t.strategy_label || 'Momentum Strategy') === stratLabel) {
+        risk += (t.risk_usdt || 0);
+      }
+    }
+    return risk;
   });
   const isZeroActiveRiskExpanded = isAutoAdjust && activeCount > 0 && activeRisk <= 1e-6;
   const effectiveMaxOpen = isZeroActiveRiskExpanded
@@ -1031,6 +1043,14 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
               <Tooltip content={`HTF EMA Cross Ranking Active: ${config.htf_ema_cross_interval || '4h'} timeframe (${config.htf_ema_fast_period || 9}/${config.htf_ema_slow_period || 21} EMAs, Boost Weight: ${config.htf_ema_cross_rr_weight || 1.5}x)`}>
                 <span className="bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help">
                   ⚡ {(config.htf_ema_cross_interval || '4h').toUpperCase()} HTF Cross (+{config.htf_ema_cross_max_boost || 25} Max)
+                </span>
+              </Tooltip>
+            )}
+            {config.tp_mode === 'exp_rr_seq_switch' && s.peakRrSwitchHits >= (config.peak_rr_switch_count || 1) && (
+              <Tooltip content={`Strategy has achieved peak RR threshold ${config.peak_rr_switch_threshold}R. Using alternate switched milestone guards.`}>
+                <span className="bg-blue/10 text-blue border border-blue/30 text-[7px] md:text-[8px] font-black px-1.5 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono flex items-center gap-1 cursor-help">
+                  <RefreshCw size={8} className="text-blue shrink-0" />
+                  GUARDS SWITCHED
                 </span>
               </Tooltip>
             )}
@@ -1782,10 +1802,11 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-border/20 pt-3">
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[8px] font-black text-dim uppercase tracking-wider">Initial Stop Loss Price</label>
+                            <label htmlFor={`initial-sl-${pos.symbol}`} className="text-[8px] font-black text-dim uppercase tracking-wider cursor-pointer">Initial Stop Loss Price</label>
                             <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs pointer-events-none">$</span>
                               <input
+                                id={`initial-sl-${pos.symbol}`}
                                 type="number"
                                 step="any"
                                 value={manualInitialSl[pos.symbol] || ''}
@@ -1800,10 +1821,11 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
                             </div>
                           </div>
                           <div className="flex flex-col gap-1.5">
-                            <label className="text-[8px] font-black text-dim uppercase tracking-wider">Current Stop Loss Price</label>
+                            <label htmlFor={`current-sl-${pos.symbol}`} className="text-[8px] font-black text-dim uppercase tracking-wider cursor-pointer">Current Stop Loss Price</label>
                             <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs">$</span>
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/60 font-mono text-xs pointer-events-none">$</span>
                               <input
+                                id={`current-sl-${pos.symbol}`}
                                 type="number"
                                 step="any"
                                 value={manualCurrentSl[pos.symbol] || ''}

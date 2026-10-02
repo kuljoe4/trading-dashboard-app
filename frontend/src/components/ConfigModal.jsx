@@ -675,7 +675,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               setIsOpen(false);
             }
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
         />
         {value && (
           <Tooltip content="Clear Input">
@@ -685,7 +685,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
               aria-label="Clear Input"
             >
-              <X size={16} />
+              <XCircle size={16} />
             </button>
           </Tooltip>
         )}
@@ -747,7 +747,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
             setName(e.target.value);
             setIsUserEdited(true);
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         {name && (
           <Tooltip content="Clear Preset Name">
@@ -761,7 +761,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
               className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
               aria-label="Clear Preset Name"
             >
-              <X size={16} />
+              <XCircle size={16} />
             </button>
           </Tooltip>
         )}
@@ -861,7 +861,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             value={searchTerm}
             onFocus={() => setIsOpen(true)}
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-8 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm ? (
             <Tooltip content="Clear Search">
@@ -874,7 +874,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
                 aria-label="Clear Search symbol"
               >
-                <X size={16} />
+                <XCircle size={16} />
               </button>
             </Tooltip>
           ) : (
@@ -4409,11 +4409,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  </div>
               </div>
 
-              {cfg.tp_mode === 'exp_rr_seq' && (
+              {(cfg.tp_mode === 'exp_rr_seq' || cfg.tp_mode === 'exp_rr_seq_switch') && (
                 <div className="flex flex-col gap-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
+                  {cfg.tp_mode === 'exp_rr_seq_switch' && (
+                    <div className="mb-4 grid grid-cols-2 gap-4 pb-4 border-b border-border/30">
+                      {renderField('Peak RR Switch Threshold', 'peak_rr_switch_threshold', 'number', null, { min: 0.1, step: 0.1, tooltip: 'When an active trade reaches this peak RR, all new trades will switch to the alternative guards.' })}
+                      {renderField('Peak RR Switch Count', 'peak_rr_switch_count', 'number', null, { min: 1, step: 1, tooltip: 'How many times the strategy must hit the threshold to activate the switch.' })}
+                      {renderField('Switched SL Distance %', 'switched_sl_distance_pct', 'number', null, { min: 0.1, step: 0.1, max: 10, tooltip: 'If set, overrides the strategy SL distance % (when using High/Low or fallback Stop Loss) after the switch condition is met. Leave blank to retain default.' })}
+                    </div>
+                  )}
                   <div className="flex justify-between items-center text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
                     <div className="flex items-center gap-2">
-                      <span>RR Milestone (Target)</span>
+                      <span>{cfg.tp_mode === 'exp_rr_seq_switch' ? 'Primary RR Milestone (Target)' : 'RR Milestone (Target)'}</span>
                       <span>→ Adjust SL (R)</span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -4524,6 +4531,85 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       exit_rr_sequence: pairs.map(p => p.exit)
                     }));
                   }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
+
+                  {cfg.tp_mode === 'exp_rr_seq_switch' && (
+                    <div className="mt-4 pt-4 border-t border-border/30">
+                      <div className="flex justify-between items-center text-[10px] text-dim font-bold uppercase tracking-widest mb-3 px-1">
+                        <div className="flex items-center gap-2">
+                          <span>Switched RR Milestone (Target)</span>
+                          <span>→ Adjust SL (R)</span>
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const swSeq = [];
+                        const liveSw = Array.isArray(cfg.switched_live_rr_sequence) ? cfg.switched_live_rr_sequence : [1.0, 2.0, 3.0];
+                        const exitSw = Array.isArray(cfg.switched_exit_rr_sequence) ? cfg.switched_exit_rr_sequence : [0.0, 1.0, 1.5];
+                        for (let i = 0; i < liveSw.length; i++) {
+                          swSeq.push([liveSw[i], exitSw[i] !== undefined ? exitSw[i] : 0]);
+                        }
+
+                        const handleSortSwitchedMilestones = () => {
+                          const pairs = swSeq.map(([trigger, exit]) => ({ trigger, exit }));
+                          pairs.sort((a, b) => a.trigger - b.trigger);
+                          setCfg(prev => ({
+                            ...prev,
+                            switched_live_rr_sequence: pairs.map(p => p.trigger),
+                            switched_exit_rr_sequence: pairs.map(p => p.exit)
+                          }));
+                        };
+
+                        return (
+                          <div className="flex flex-col gap-2">
+                            {swSeq.map(([live, exit], i) => (
+                              <div key={i} className="flex items-center gap-3">
+                                <div className="relative flex-1">
+                                  <input type="number" step="0.1" value={live} onChange={(e) => {
+                                    const next = [...liveSw];
+                                    next[i] = Number(e.target.value);
+                                    setField('switched_live_rr_sequence', next);
+                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                                </div>
+                                <ArrowRight size={14} className="text-dim/20 shrink-0" />
+                                <div className="relative flex-1">
+                                  <input type="number" step="0.1" value={exit} onChange={(e) => {
+                                    const next = [...exitSw];
+                                    next[i] = Number(e.target.value);
+                                    setField('switched_exit_rr_sequence', next);
+                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                                </div>
+                                <Tooltip content="Remove Switched Milestone">
+                                  <button type="button" onClick={() => {
+                                    const nextL = [...liveSw];
+                                    const nextE = [...exitSw];
+                                    nextL.splice(i, 1);
+                                    nextE.splice(i, 1);
+                                    setCfg(prev => ({ ...prev, switched_live_rr_sequence: nextL, switched_exit_rr_sequence: nextE }));
+                                  }} aria-label="Remove Switched Milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                                </Tooltip>
+                              </div>
+                            ))}
+                            <button type="button" onClick={() => {
+                              const nextL = [...liveSw, 5.0];
+                              const nextE = [...exitSw, 3.0];
+                              const pairs = nextL.map((trigger, idx) => ({
+                                trigger: Number(trigger || 0),
+                                exit: Number(nextE[idx] || 0)
+                              }));
+                              pairs.sort((a, b) => a.trigger - b.trigger);
+                              setCfg(prev => ({
+                                ...prev,
+                                switched_live_rr_sequence: pairs.map(p => p.trigger),
+                                switched_exit_rr_sequence: pairs.map(p => p.exit)
+                              }));
+                            }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add Switched RR Milestone</button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
                 </div>
               )}
             </CollapsibleSection>
@@ -4623,7 +4709,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Exit Strategy', 'tp_mode', 'text', [
                   { value: 'fixed', label: 'Fixed Ratio (TP)' },
-                  { value: 'exp_rr_seq', label: 'Dynamic RR Milestone' }
+                  { value: 'exp_rr_seq', label: 'Dynamic RR Milestone' },
+                  { value: 'exp_rr_seq_switch', label: 'Dynamic RR Milestone (Switch)' }
                 ])}
                 {cfg.tp_mode === 'fixed' ? renderField('Fixed Ratio (R)', 'tp_ratio', 'number', null, { min: 0.1, step: 0.1 }) : <div />}
               </div>
@@ -4964,7 +5051,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       placeholder="Search preset by name..."
                       value={presetSearch}
                       onChange={(e) => setPresetSearch(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-10 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
                     />
                     {presetSearch ? (
                       <Tooltip content="Clear Preset Search">
@@ -4977,7 +5064,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
                           aria-label="Clear Preset Search"
                         >
-                          <X size={12} />
+                          <XCircle size={12} />
                         </button>
                       </Tooltip>
                     ) : (

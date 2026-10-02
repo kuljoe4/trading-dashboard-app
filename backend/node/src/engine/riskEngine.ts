@@ -842,7 +842,7 @@ export class RiskEngineService {
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
   ): number | null {
-    if (config.tp_mode === 'exp_rr_seq') {
+    if (config.tp_mode === 'exp_rr_seq' || config.tp_mode === 'exp_rr_seq_switch') {
       return null;
     }
 

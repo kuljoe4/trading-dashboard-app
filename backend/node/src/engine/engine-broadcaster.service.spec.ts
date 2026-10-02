@@ -239,14 +239,14 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
 
     it('should correctly format strategy gate states when map is populated', () => {
       sessionState.strategyGateStates = new Map([
-        ['Strategy A', { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true }],
-        ['Strategy B', { gateState: null, gateReason: null, isAdaptiveTightened: false }],
+        ['Strategy A', { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true, peakRrSwitchHits: 0 }],
+        ['Strategy B', { gateState: null, gateReason: null, isAdaptiveTightened: false, peakRrSwitchHits: 0 }],
       ]);
 
       const result = service.serializeStrategyGateStates();
       expect(result).toEqual({
-        'Strategy A': { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true },
-        'Strategy B': { gateState: null, gateReason: null, isAdaptiveTightened: false },
+        'Strategy A': { gateState: 'max_trades', gateReason: 'Limit reached', isAdaptiveTightened: true, peakRrSwitchHits: 0 },
+        'Strategy B': { gateState: null, gateReason: null, isAdaptiveTightened: false, peakRrSwitchHits: 0 },
       });
     });
 
@@ -262,8 +262,8 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
 
     it('benchmark: serializeStrategyGateStates 1,000,000 calls', () => {
       sessionState.strategyGateStates = new Map([
-        ['Strategy 1', { gateState: 'max_trades', gateReason: 'Limit', isAdaptiveTightened: false }],
-        ['Strategy 2', { gateState: 'sl_guard', gateReason: 'Stop loss hit', isAdaptiveTightened: true }],
+        ['Strategy 1', { gateState: 'max_trades', gateReason: 'Limit', isAdaptiveTightened: false, peakRrSwitchHits: 0 }],
+        ['Strategy 2', { gateState: 'sl_guard', gateReason: 'Stop loss hit', isAdaptiveTightened: true, peakRrSwitchHits: 0 }],
       ]);
 
       const iterations = 1000000;

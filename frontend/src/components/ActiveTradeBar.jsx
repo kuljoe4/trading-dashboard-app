@@ -24,7 +24,13 @@ export const ActiveTradeBar = React.memo(() => {
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
 
-  const totalPnl = (activeTrades || []).reduce((sum, t) => sum + safeNum(t.pnl), 0)
+  // BOLT OPTIMIZATION: Fused totalPnl calculation using a single-pass O(N) loop
+  // Replaces .reduce() to eliminate transient array allocations and callback closures.
+  let totalPnl = 0;
+  const trades = activeTrades || [];
+  for (let i = 0; i < trades.length; i++) {
+    totalPnl += safeNum(trades[i].pnl);
+  }
 
   const getEstSlPnl = (t) => {
     const sl = Number(t.sl_price || 0)

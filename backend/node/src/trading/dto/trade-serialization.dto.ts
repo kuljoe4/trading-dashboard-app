@@ -26,7 +26,7 @@ export interface TradeSerializationDto {
   active_trade_events?: any[];
   live_rr_sequence?: number[];
   exit_rr_sequence?: number[];
-  tp_mode?: 'fixed' | 'exp_rr_seq';
+  tp_mode?: 'fixed' | 'exp_rr_seq' | 'exp_rr_seq_switch';
   tp_ratio?: number;
   signal_logic?: 'any' | 'all' | 'combo';
   exit_signal_logic?: 'any' | 'all' | 'combo';

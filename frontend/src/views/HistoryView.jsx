@@ -1184,6 +1184,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   // Extract unique available strategy labels across this session's trades with counts, total PnL, fees & funding
   const availableSessionStrategies = useMemo(() => {
     const map = new Map();
+    const result = [];
     const safeTrades = trades || [];
     for (let i = 0; i < safeTrades.length; i++) {
       const t = safeTrades[i];
@@ -1191,16 +1192,20 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       const pnlVal = safeNum(t.pnl);
       const feeVal = safeNum(t.realized_fee || t.commission || 0);
       const fundingVal = safeNum(t.funding_fee || 0);
-      if (!map.has(lbl)) {
-        map.set(lbl, { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 });
+
+      let item = map.get(lbl);
+      if (item === undefined) {
+        item = { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 };
+        map.set(lbl, item);
+        result.push(item);
       }
-      const item = map.get(lbl);
+
       item.count += 1;
       item.pnl += pnlVal;
       item.fees += feeVal;
       item.funding += fundingVal;
     }
-    return Array.from(map.values()).sort((a, b) => b.count - a.count);
+    return result.sort((a, b) => b.count - a.count);
   }, [trades]);
 
   // Filter session trades by selected session strategy

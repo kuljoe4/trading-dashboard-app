@@ -1766,12 +1766,19 @@ export const HistoryView = () => {
 
   const allSessionsWithTrades = useMemo(() => {
     // BOLT: Optimize O(N*M) join to O(N+M) using a lookup object
-    const tradesBySession = (tradeHistory || []).filter(Boolean).reduce((acc, t) => {
-      if (!t.sessionId) return acc;
-      if (!acc[t.sessionId]) acc[t.sessionId] = [];
-      acc[t.sessionId].push(t);
-      return acc;
-    }, {});
+    // BOLT OPTIMIZATION: Fused tradesBySession initialization
+    // Avoids transient array allocations from .filter(Boolean) and callback overhead from .reduce().
+    const tradesBySession = Object.create(null);
+    const trades = tradeHistory || [];
+    for (let i = 0; i < trades.length; i++) {
+      const t = trades[i];
+      if (t && t.sessionId) {
+        if (!tradesBySession[t.sessionId]) {
+          tradesBySession[t.sessionId] = [];
+        }
+        tradesBySession[t.sessionId].push(t);
+      }
+    }
 
     // BOLT OPTIMIZATION: Use pre-calculated startTimeMs directly (Schwartzian transform)
     // to avoid instantiating new Date objects inside the sort comparator loop.

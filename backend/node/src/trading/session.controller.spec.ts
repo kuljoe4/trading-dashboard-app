@@ -1,5 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { SessionController } from "./session.controller";
+import { SessionController, LimitPipe, SessionIdPipe, ModePipe } from "./session.controller";
 import { SessionService } from "./session.service";
 import { BacktestService } from "../engine/backtest.service";
 import { SmartOptimizerService } from "../engine/smart-optimizer.service";
@@ -123,48 +123,46 @@ describe("SessionController", () => {
     });
 
     it("should reject invalid sessionId format", async () => {
-      await expect(controller.getHistory("invalid_session_id")).rejects.toThrow(
+      expect(() => new SessionIdPipe().transform("invalid_session_id", { type: 'query' } as any)).toThrow(
         BadRequestException,
       );
     });
 
     it("should parse and allow valid limit parameter", async () => {
-      await controller.getHistory("all", "250");
+      await controller.getHistory("all", new LimitPipe(5000).transform("250", { type: 'query' } as any) as any);
       expect(sessionService.getHistory).toHaveBeenCalledWith("all", 250);
     });
 
     it("should reject invalid limit format (non-numeric, negative, or out-of-bounds)", async () => {
-      await expect(controller.getHistory("all", "abc")).rejects.toThrow(BadRequestException);
-      await expect(controller.getHistory("all", "-10")).rejects.toThrow(BadRequestException);
-      await expect(controller.getHistory("all", "0")).rejects.toThrow(BadRequestException);
-      await expect(controller.getHistory("all", "100000")).rejects.toThrow(BadRequestException);
-      await expect(controller.getHistory("all", "123456789012")).rejects.toThrow(BadRequestException);
+      expect(() => new LimitPipe(5000).transform("abc", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(5000).transform("-10", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(5000).transform("0", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(5000).transform("100000", { type: 'query' } as any)).toThrow(BadRequestException);
+      expect(() => new LimitPipe(5000).transform("123456789012", { type: 'query' } as any)).toThrow(BadRequestException);
     });
   });
 
   describe("getLifetimeAnalytics", () => {
     it("should allow valid modes", async () => {
-      await controller.getLifetimeAnalytics("paper");
+      await controller.getLifetimeAnalytics(new ModePipe().transform("paper", { type: 'query' } as any) as any);
       expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith("paper");
 
-      await controller.getLifetimeAnalytics("testnet");
+      await controller.getLifetimeAnalytics(new ModePipe().transform("testnet", { type: 'query' } as any) as any);
       expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith(
         "testnet",
       );
 
-      await controller.getLifetimeAnalytics("live");
+      await controller.getLifetimeAnalytics(new ModePipe().transform("live", { type: 'query' } as any) as any);
       expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith("live");
     });
 
     it("should allow undefined mode and fallback to paper", async () => {
-      await controller.getLifetimeAnalytics(undefined as any);
+      await controller.getLifetimeAnalytics(new ModePipe().transform(undefined, { type: 'query' } as any) as any);
       expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith("paper");
     });
 
     it("should reject invalid mode", async () => {
-      await expect(
-        controller.getLifetimeAnalytics("invalid_mode" as any),
-      ).rejects.toThrow(BadRequestException);
+      expect(() => new ModePipe().transform("invalid_mode" as any, { type: 'query' } as any)).toThrow(BadRequestException);
     });
   });
 

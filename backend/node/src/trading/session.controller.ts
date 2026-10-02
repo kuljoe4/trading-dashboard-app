@@ -11,6 +11,9 @@ import {
   BadRequestException,
   UseGuards,
   Req,
+  PipeTransform,
+  Injectable,
+  ArgumentMetadata,
 } from "@nestjs/common";
 import { Request } from "express";
 import { plainToInstance } from "class-transformer";
@@ -24,6 +27,49 @@ import { StartSessionDto, UpdateSessionDto, UpdateTradeConfigDto, AdoptPositionD
 import { PauseSessionDto } from "./dto/pause-session.dto";
 import { extractIp } from "../lib/throttle";
 import { formatValidationErrors } from "../lib/logger";
+
+@Injectable()
+export class LimitPipe implements PipeTransform<any, number | undefined> {
+  constructor(private readonly maxLimit: number = 1000) {}
+  transform(value: any, metadata: ArgumentMetadata): number | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    if (typeof value !== "string" || value.length > 10 || !/^\d+$/.test(value)) {
+      throw new BadRequestException("Invalid limit format. Must be a positive integer.");
+    }
+    const parsed = parseInt(value, 10);
+    if (isNaN(parsed) || parsed < 1 || parsed > this.maxLimit) {
+      throw new BadRequestException(`Limit must be between 1 and ${this.maxLimit}`);
+    }
+    return parsed;
+  }
+}
+
+@Injectable()
+export class SessionIdPipe implements PipeTransform<any, string | undefined> {
+  transform(value: any, metadata: ArgumentMetadata): string | undefined {
+    if (value === undefined || value === null || value === "") return undefined;
+    if (value === "all") return value;
+    if (typeof value !== "string" || value.length > 50) {
+      throw new BadRequestException("Invalid sessionId format");
+    }
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+    if (!isUuid) {
+      throw new BadRequestException("Invalid sessionId format");
+    }
+    return value;
+  }
+}
+
+@Injectable()
+export class ModePipe implements PipeTransform<any, string> {
+  transform(value: any, metadata: ArgumentMetadata): string {
+    const mode = value || "paper";
+    if (typeof mode !== "string" || mode.length > 20 || !["paper", "testnet", "live"].includes(mode)) {
+      throw new BadRequestException("Invalid mode. Must be one of: paper, testnet, live");
+    }
+    return mode;
+  }
+}
 
 @Controller("session")
 @UseGuards(ApiKeyGuard)
@@ -288,19 +334,8 @@ export class SessionController {
   }
 
   @Get("logs")
-  async getLogs(@Query("limit") limit?: string) {
-    let parsedLimit = 50;
-    if (limit !== undefined && limit !== null && limit !== "") {
-      // SENTINEL: Enforce explicit string type assertion, length bounds, and positive integer format
-      if (typeof limit !== "string" || limit.length > 10 || !/^\d+$/.test(limit)) {
-        throw new BadRequestException("Invalid limit format. Must be a positive integer.");
-      }
-      parsedLimit = parseInt(limit, 10);
-      if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 1000) {
-        throw new BadRequestException("Limit must be between 1 and 1000");
-      }
-    }
-    return this.sessionService.getLogs(parsedLimit);
+  async getLogs(@Query("limit", new LimitPipe(1000)) limit?: number) {
+    return this.sessionService.getLogs(limit ?? 50);
   }
 
   @Get("trade/:id")
@@ -386,35 +421,10 @@ export class SessionController {
 
   @Get("history")
   async getHistory(
-    @Query("sessionId") sessionId?: string,
-    @Query("limit") limit?: string,
+    @Query("sessionId", new SessionIdPipe()) sessionId?: string,
+    @Query("limit", new LimitPipe(5000)) limit?: number,
   ) {
-    let parsedLimit: number | undefined = undefined;
-    if (limit !== undefined && limit !== "") {
-      // SENTINEL: Enforce explicit string type assertion, length bounds, and positive integer format
-      if (typeof limit !== "string" || limit.length > 10 || !/^\d+$/.test(limit)) {
-        throw new BadRequestException("Invalid limit format. Must be a positive integer.");
-      }
-      parsedLimit = parseInt(limit, 10);
-      if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 5000) {
-        throw new BadRequestException("Limit must be between 1 and 5000");
-      }
-    }
-
-    if (sessionId && sessionId !== "all") {
-      // SENTINEL: Enforce type safety and maximum length constraint before any regex evaluation to prevent ReDoS/CPU abuse and type confusion.
-      if (typeof sessionId !== "string" || sessionId.length > 50) {
-        throw new BadRequestException("Invalid sessionId format");
-      }
-      const isUuid =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-          sessionId,
-        );
-      if (!isUuid) {
-        throw new BadRequestException("Invalid sessionId format");
-      }
-    }
-    return this.sessionService.getHistory(sessionId as string, parsedLimit);
+    return this.sessionService.getHistory(sessionId as string, limit);
   }
 
   @Post("trade/:symbol/close")
@@ -440,17 +450,9 @@ export class SessionController {
 
   @Get("lifetime-analytics")
   async getLifetimeAnalytics(
-    @Query("mode") mode: "paper" | "testnet" | "live",
+    @Query("mode", new ModePipe()) mode: "paper" | "testnet" | "live",
   ) {
-    // SENTINEL: Enforce type safety, maximum length constraint, and whitelisting to prevent ReDoS, HPP type confusion, and invalid query parameters.
-    if (mode) {
-      if (typeof mode !== "string" || mode.length > 20 || !["paper", "testnet", "live"].includes(mode)) {
-        throw new BadRequestException(
-          "Invalid mode. Must be one of: paper, testnet, live",
-        );
-      }
-    }
-    return this.sessionService.getLifetimeAnalytics(mode || "paper");
+    return this.sessionService.getLifetimeAnalytics(mode);
   }
 
   @Post("reset-paper-balance")

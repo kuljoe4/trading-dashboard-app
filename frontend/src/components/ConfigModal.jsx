@@ -675,7 +675,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               setIsOpen(false);
             }
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
         />
         {value && (
           <Tooltip content="Clear Input">
@@ -685,7 +685,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
               aria-label="Clear Input"
             >
-              <X size={16} />
+              <XCircle size={16} />
             </button>
           </Tooltip>
         )}
@@ -747,7 +747,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
             setName(e.target.value);
             setIsUserEdited(true);
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-10 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         {name && (
           <Tooltip content="Clear Preset Name">
@@ -761,7 +761,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
               className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
               aria-label="Clear Preset Name"
             >
-              <X size={16} />
+              <XCircle size={16} />
             </button>
           </Tooltip>
         )}
@@ -861,7 +861,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             value={searchTerm}
             onFocus={() => setIsOpen(true)}
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-10 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-8 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm ? (
             <Tooltip content="Clear Search">
@@ -874,7 +874,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
                 aria-label="Clear Search symbol"
               >
-                <X size={16} />
+                <XCircle size={16} />
               </button>
             </Tooltip>
           ) : (
@@ -4964,7 +4964,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       placeholder="Search preset by name..."
                       value={presetSearch}
                       onChange={(e) => setPresetSearch(e.target.value)}
-                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-10 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
                     />
                     {presetSearch ? (
                       <Tooltip content="Clear Preset Search">
@@ -4977,7 +4977,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
                           aria-label="Clear Preset Search"
                         >
-                          <X size={12} />
+                          <XCircle size={12} />
                         </button>
                       </Tooltip>
                     ) : (

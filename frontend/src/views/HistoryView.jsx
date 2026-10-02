@@ -2012,7 +2012,7 @@ export const HistoryView = () => {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-                className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-10 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
+                className="w-full bg-surface border border-border/40 rounded-xl pl-9 pr-8 py-1.5 text-[10.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
               />
               {search ? (
                 <Tooltip content="Clear Search">

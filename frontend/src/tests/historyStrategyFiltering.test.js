@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 function processSessionTradeFiltering(sessionTrades, sessionStrategyFilter) {
   // Available session strategy badges calculation
   const map = new Map();
+  const result = [];
   const safeTrades = sessionTrades || [];
   for (let i = 0; i < safeTrades.length; i++) {
     const t = safeTrades[i];
@@ -12,16 +13,20 @@ function processSessionTradeFiltering(sessionTrades, sessionStrategyFilter) {
     const pnl = Number(t.pnl || 0);
     const fee = Number(t.realized_fee || t.commission || 0);
     const funding = Number(t.funding_fee || 0);
-    if (!map.has(label)) {
-      map.set(label, { label, count: 0, pnl: 0, fees: 0, funding: 0 });
+
+    let item = map.get(label);
+    if (item === undefined) {
+      item = { label, count: 0, pnl: 0, fees: 0, funding: 0 };
+      map.set(label, item);
+      result.push(item);
     }
-    const item = map.get(label);
+
     item.count += 1;
     item.pnl += pnl;
     item.fees += fee;
     item.funding += funding;
   }
-  const availableSessionStrategies = Array.from(map.values()).sort((a, b) => b.count - a.count);
+  const availableSessionStrategies = result.sort((a, b) => b.count - a.count);
 
   // Filter trades by selected strategy
   const filteredTrades = sessionStrategyFilter === 'ALL'

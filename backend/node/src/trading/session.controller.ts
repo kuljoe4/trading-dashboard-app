@@ -33,10 +33,14 @@ export class LimitPipe implements PipeTransform<any, number | undefined> {
   constructor(private readonly maxLimit: number = 1000) {}
   transform(value: any, metadata: ArgumentMetadata): number | undefined {
     if (value === undefined || value === null || value === "") return undefined;
-    if (typeof value !== "string" || value.length > 10 || !/^\d+$/.test(value)) {
+
+    // NestJS ValidationPipe with transform: true might convert query params to numbers BEFORE our custom pipe runs.
+    const strValue = String(value);
+
+    if (strValue.length > 10 || !/^\d+$/.test(strValue)) {
       throw new BadRequestException("Invalid limit format. Must be a positive integer.");
     }
-    const parsed = parseInt(value, 10);
+    const parsed = parseInt(strValue, 10);
     if (isNaN(parsed) || parsed < 1 || parsed > this.maxLimit) {
       throw new BadRequestException(`Limit must be between 1 and ${this.maxLimit}`);
     }

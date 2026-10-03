@@ -4424,23 +4424,31 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       <span>→ Adjust SL (R)</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Tooltip content="Copy RR Milestones to Clipboard">
+                      <Tooltip content="Copy Milestones to Clipboard">
                         <button
                           type="button"
                           onClick={() => {
                             const l = Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0];
                             const ex = Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0];
-                            const text = l.map((trig, idx) => `${trig} -> ${ex[idx] ?? 0}`).join('\n');
+                            let text = l.map((trig, idx) => `${trig} -> ${ex[idx] ?? 0}`).join('\n');
+
+                            if (cfg.tp_mode === 'exp_rr_seq_switch') {
+                              const swL = Array.isArray(cfg.switched_live_rr_sequence) ? cfg.switched_live_rr_sequence : [1.0, 2.0, 3.0];
+                              const swEx = Array.isArray(cfg.switched_exit_rr_sequence) ? cfg.switched_exit_rr_sequence : [0.0, 1.0, 1.5];
+                              const swText = swL.map((trig, idx) => `${trig} -> ${swEx[idx] ?? 0}`).join('\n');
+                              text = `Baseline:\n${text}\n\nSwitched:\n${swText}`;
+                            }
+
                             navigator.clipboard.writeText(text);
                             addAlert({ level: 'info', title: 'Milestones Copied', message: 'RR Milestones copied to clipboard.' });
                           }}
                           className="px-2 py-1 bg-surface border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                          aria-label="Copy RR Milestones to Clipboard"
+                          aria-label="Copy Milestones to Clipboard"
                         >
                           <Copy size={10} /> Copy
                         </button>
                       </Tooltip>
-                      <Tooltip content="Paste RR Milestones (e.g., 1 -> 0, 2 -> 1, 4 -> 2 or 1,2,4)">
+                      <Tooltip content="Paste Milestones (e.g., 1 -> 0, 2 -> 1, 4 -> 2)">
                         <button
                           type="button"
                           onClick={async () => {
@@ -4448,39 +4456,63 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               const text = await navigator.clipboard.readText();
                               if (!text) return;
                               const lines = text.split(/[\r\n]+/);
-                              const parsedPairs = [];
+
+                              const parsedBase = [];
+                              const parsedSwitched = [];
+                              let currentTarget = parsedBase;
+
                               lines.forEach(line => {
                                 const trimmed = line.trim();
                                 if (!trimmed) return;
+
+                                if (trimmed.toLowerCase().includes('baseline:')) {
+                                  currentTarget = parsedBase;
+                                  return;
+                                }
+                                if (trimmed.toLowerCase().includes('switched:')) {
+                                  currentTarget = parsedSwitched;
+                                  return;
+                                }
+
                                 if (trimmed.includes('->') || trimmed.includes(':') || trimmed.includes(',')) {
                                   const parts = trimmed.split(/->|:|,/);
                                   const trig = parseFloat(parts[0]);
                                   const ex = parseFloat(parts[1] ?? '0');
                                   if (!isNaN(trig)) {
-                                    parsedPairs.push({ trigger: trig, exit: isNaN(ex) ? 0 : ex });
+                                    currentTarget.push({ trigger: trig, exit: isNaN(ex) ? 0 : ex });
                                   }
                                 } else {
                                   const val = parseFloat(trimmed);
                                   if (!isNaN(val)) {
-                                    parsedPairs.push({ trigger: val, exit: Math.max(0, val - 1) });
+                                    currentTarget.push({ trigger: val, exit: Math.max(0, val - 1) });
                                   }
                                 }
                               });
-                              if (parsedPairs.length > 0) {
-                                parsedPairs.sort((a, b) => a.trigger - b.trigger);
-                                setCfg(prev => ({
-                                  ...prev,
-                                  live_rr_sequence: parsedPairs.map(p => p.trigger),
-                                  exit_rr_sequence: parsedPairs.map(p => p.exit)
-                                }));
-                                addAlert({ level: 'success', title: 'Milestones Imported', message: `Imported ${parsedPairs.length} RR milestones.` });
+
+                              if (parsedBase.length > 0 || parsedSwitched.length > 0) {
+                                parsedBase.sort((a, b) => a.trigger - b.trigger);
+                                parsedSwitched.sort((a, b) => a.trigger - b.trigger);
+
+                                setCfg(prev => {
+                                  const nextState = { ...prev };
+                                  if (parsedBase.length > 0) {
+                                    nextState.live_rr_sequence = parsedBase.map(p => p.trigger);
+                                    nextState.exit_rr_sequence = parsedBase.map(p => p.exit);
+                                  }
+                                  if (parsedSwitched.length > 0) {
+                                    nextState.switched_live_rr_sequence = parsedSwitched.map(p => p.trigger);
+                                    nextState.switched_exit_rr_sequence = parsedSwitched.map(p => p.exit);
+                                  }
+                                  return nextState;
+                                });
+                                addAlert({ level: 'success', title: 'Milestones Imported', message: `Imported ${parsedBase.length} base and ${parsedSwitched.length} switched milestones.` });
                               }
                             } catch (err) {
                               addAlert({ level: 'warn', title: 'Paste Failed', message: 'Could not read clipboard. Please grant permission or check input.' });
                             }
                           }}
                           className="px-2 py-1 bg-surface border border-border/60 hover:border-accent/40 rounded text-[9px] font-black uppercase text-dim hover:text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
-                          aria-label="Paste RR Milestones from Clipboard"
+                          aria-label="Paste Milestones from Clipboard"
                         >
                           <ClipboardPaste size={10} /> Paste
                         </button>

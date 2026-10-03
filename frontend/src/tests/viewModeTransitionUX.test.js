@@ -4,9 +4,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 test('View Mode Switch Standard - DashboardView and Analytics remove FLIP stretch', () => {
-  const dashboardPath = path.join(process.cwd(), 'frontend/src/views/DashboardView.jsx');
-  const analyticsPath = path.join(process.cwd(), 'frontend/src/components/Analytics.jsx');
-  const detailPath = path.join(process.cwd(), 'frontend/src/views/StrategyDetailView.jsx');
+  const dashboardPath = path.join(process.cwd(), 'src/views/DashboardView.jsx');
+  const analyticsPath = path.join(process.cwd(), 'src/components/Analytics.jsx');
+  const detailPath = path.join(process.cwd(), 'src/views/StrategyDetailView.jsx');
 
   const dashboardCode = fs.readFileSync(dashboardPath, 'utf8');
   const analyticsCode = fs.readFileSync(analyticsPath, 'utf8');

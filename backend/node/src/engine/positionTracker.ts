@@ -237,8 +237,8 @@ export class PositionTrackerService {
       // 2. Floor from current SL locked profit
       if (trade.current_sl && trade.current_sl > 0) {
         const slReward = trade.direction === 'LONG'
-          ? trade.current_sl - trade.entry_price
-          : trade.entry_price - trade.current_sl;
+          ? Number(trade.current_sl) - trade.entry_price
+          : trade.entry_price - Number(trade.current_sl);
         if (slReward > 0) {
           maxRr = Math.max(maxRr, slReward / risk);
         }
@@ -467,9 +467,9 @@ export class PositionTrackerService {
       const minDelta = trade.entry_price * 0.0001;
       let isSlBehindTarget = false;
       if (trade.direction === 'LONG') {
-        isSlBehindTarget = !trade.current_sl || trade.current_sl < targetSl - Math.max(0.00000001, minDelta);
+        isSlBehindTarget = !trade.current_sl || Number(trade.current_sl) < targetSl - Math.max(0.00000001, minDelta);
       } else {
-        isSlBehindTarget = !trade.current_sl || trade.current_sl > targetSl + Math.max(0.00000001, minDelta);
+        isSlBehindTarget = !trade.current_sl || Number(trade.current_sl) > targetSl + Math.max(0.00000001, minDelta);
       }
 
       // If we crossed a new milestone OR current SL lags behind target SL for the achieved milestone, update SL
@@ -533,9 +533,9 @@ export class PositionTrackerService {
       // so tiny float differences or minDelta don't block reaching target breakeven/milestone SL.
       let shouldUpdate = false;
       if (trade.direction === 'LONG' && newSl) {
-        shouldUpdate = newSl > trade.current_sl + 0.00000001;
+        shouldUpdate = newSl > Number(trade.current_sl) + 0.00000001;
       } else if (trade.direction === 'SHORT' && newSl) {
-        shouldUpdate = newSl < trade.current_sl - 0.00000001;
+        shouldUpdate = newSl < Number(trade.current_sl) - 0.00000001;
       }
 
       if (shouldUpdate) {
@@ -584,8 +584,8 @@ export class PositionTrackerService {
         // Check if current SL is ALREADY at or beyond target SL for this milestone (or at max exchange tick precision newSl)
         const targetDelta = trade.entry_price * 0.0001;
         const isSlAtOrBeyondTarget = trade.direction === 'LONG'
-          ? (trade.current_sl >= newSl || trade.current_sl >= targetSl - Math.max(0.00000001, targetDelta))
-          : (trade.current_sl <= newSl || trade.current_sl <= targetSl + Math.max(0.00000001, targetDelta));
+          ? (trade.current_sl >= newSl || Number(trade.current_sl) >= targetSl - Math.max(0.00000001, targetDelta))
+          : (trade.current_sl <= newSl || Number(trade.current_sl) <= targetSl + Math.max(0.00000001, targetDelta));
 
         if (isSlAtOrBeyondTarget) {
           this.rrSequenceIndex.set(symbol, currentIndex);
@@ -806,9 +806,9 @@ export class PositionTrackerService {
             const minDelta = trade.entry_price * 0.0001;
             let shouldUpdate = false;
             if (trade.direction === 'LONG') {
-              shouldUpdate = roundedSl > trade.current_sl + Math.max(0.00000001, minDelta);
+              shouldUpdate = roundedSl > Number(trade.current_sl) + Math.max(0.00000001, minDelta);
             } else {
-              shouldUpdate = roundedSl < trade.current_sl - Math.max(0.00000001, minDelta);
+              shouldUpdate = roundedSl < Number(trade.current_sl) - Math.max(0.00000001, minDelta);
             }
 
             if (shouldUpdate && !this.orderManager.isRatcheting(symbol)) {
@@ -945,8 +945,8 @@ export class PositionTrackerService {
 
     if (trade.current_sl && trade.current_sl > 0) {
       isBreakevenOrBetter = trade.direction === 'LONG'
-        ? trade.current_sl >= trade.entry_price - tolerance
-        : trade.current_sl <= trade.entry_price + tolerance;
+        ? Number(trade.current_sl) >= trade.entry_price - tolerance
+        : Number(trade.current_sl) <= trade.entry_price + tolerance;
       if (isBreakevenOrBetter) {
         lockReason = 'SL_AT_BREAKEVEN';
       } else {
@@ -1264,9 +1264,9 @@ export class PositionTrackerService {
     const minDelta = trade.entry_price * 0.0001;
     let shouldUpdate = false;
     if (trade.direction === 'LONG') {
-      shouldUpdate = newSl > (trade.current_sl || 0) + Math.max(0.00000001, minDelta);
+      shouldUpdate = newSl > (Number(trade.current_sl) || 0) + Math.max(0.00000001, minDelta);
     } else {
-      shouldUpdate = !trade.current_sl || newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+      shouldUpdate = !trade.current_sl || newSl < Number(trade.current_sl) - Math.max(0.00000001, minDelta);
     }
 
     if (shouldUpdate) {
@@ -1438,9 +1438,9 @@ export class PositionTrackerService {
     let shouldUpdate = false;
 
     if (trade.direction === 'LONG') {
-      shouldUpdate = newSl > (trade.current_sl || 0) + Math.max(0.00000001, minDelta);
+      shouldUpdate = newSl > (Number(trade.current_sl) || 0) + Math.max(0.00000001, minDelta);
     } else {
-      shouldUpdate = !trade.current_sl || newSl < trade.current_sl - Math.max(0.00000001, minDelta);
+      shouldUpdate = !trade.current_sl || newSl < Number(trade.current_sl) - Math.max(0.00000001, minDelta);
     }
 
     if (shouldUpdate) {

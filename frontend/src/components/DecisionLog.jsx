@@ -388,7 +388,7 @@ export const DecisionLog = React.memo(() => {
     <div className="flex flex-col gap-3 h-[500px] min-h-0 overflow-hidden">
       <div className="flex flex-col gap-3">
         <div className="relative group p-1.5">
-          <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+          <Search size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
           <input
             ref={searchInputRef}
             type="text"

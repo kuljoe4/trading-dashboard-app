@@ -1,4 +1,4 @@
-import { extractIp } from './throttle';
+import { extractIp, isGeneralRateLimited } from './throttle';
 
 describe('Throttle Library', () => {
   describe('extractIp', () => {
@@ -75,6 +75,18 @@ describe('Throttle Library', () => {
         'x-real-ip': ['198.51.100.10', '198.51.100.20'],
       };
       expect(extractIp(headers, '1.2.3.4')).toBe('203.0.113.80');
+    });
+  });
+
+  describe('isGeneralRateLimited', () => {
+    it('should correctly limit a given ip', () => {
+      const testIp = '1.2.3.5';
+      let limited = false;
+      for (let i = 0; i < 60; i++) {
+        limited = isGeneralRateLimited(testIp);
+      }
+      expect(limited).toBe(false); // First 60 requests should pass
+      expect(isGeneralRateLimited(testIp)).toBe(true); // 61st should be limited
     });
   });
 });

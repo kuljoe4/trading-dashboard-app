@@ -1,5 +1,5 @@
 import { SessionService } from './session.service';
-import { SessionController } from './session.controller';
+import { SessionController, LimitPipe } from './session.controller';
 
 describe('Session Logs & REST Endpoint Unit Tests', () => {
   let sessionService: jest.Mocked<any>;
@@ -37,7 +37,7 @@ describe('Session Logs & REST Endpoint Unit Tests', () => {
     expect(sessionService.getLogs).toHaveBeenCalledWith(50);
     expect(resultDefault).toHaveLength(1);
 
-    await sessionController.getLogs('100');
+    await sessionController.getLogs(new LimitPipe(1000).transform('100', { type: 'query' } as any) as any);
     expect(sessionService.getLogs).toHaveBeenCalledWith(100);
   });
 });

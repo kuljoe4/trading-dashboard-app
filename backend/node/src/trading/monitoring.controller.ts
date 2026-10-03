@@ -1,7 +1,9 @@
-import { Controller, Get, UseGuards, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, UseGuards, HttpException, HttpStatus, Req } from '@nestjs/common';
 import { MonitoringService } from '../engine/monitoring.service';
 import { SessionStateService } from '../engine/session_state.service';
 import { ApiKeyGuard } from '../lib/api-key.guard';
+import { Request } from 'express';
+import { extractIp, isGeneralRateLimited } from '../lib/throttle';
 
 @Controller()
 export class MonitoringController {
@@ -21,7 +23,11 @@ export class MonitoringController {
    * Returns 200 OK as long as the NestJS application loop isn't deadlocked.
    */
   @Get('healthz/liveness')
-  getLiveness() {
+  getLiveness(@Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    if (isGeneralRateLimited(clientIp)) {
+      throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
+    }
     return { status: 'OK', timestamp: new Date().toISOString() };
   }
 
@@ -30,7 +36,12 @@ export class MonitoringController {
    * Evaluates active pipeline dependencies: UDS status and Rate Limit utilization.
    */
   @Get('healthz/readiness')
-  getReadiness() {
+  getReadiness(@Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    if (isGeneralRateLimited(clientIp)) {
+      throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
+    }
+
     const metrics = this.monitoringService.getMetrics();
     const rateLimit = this.sessionState.getBinanceRateLimit();
 

@@ -853,7 +853,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col md:flex-row gap-3">
         <div className="relative flex-1 group">
-          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
           <input
             ref={watchlistSearchInputRef}
             type="text"
@@ -5044,7 +5044,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
                 <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                   <div className="relative flex-1 sm:w-64 group">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent transition-colors" />
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent pointer-events-none transition-colors" />
                     <input
                       ref={presetSearchInputRef}
                       type="text"

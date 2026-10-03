@@ -2008,7 +2008,7 @@ export const HistoryView = () => {
 
             {/* Center: Search input */}
             <div className="relative group w-full sm:max-w-[280px]">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
               <input
                 ref={searchInputRef}
                 type="text"

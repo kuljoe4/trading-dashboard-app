@@ -7,7 +7,10 @@ import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'
 import { analyzeTradeDiagnostics } from '../utils/tradeDiagnostics'
 
+import { useTradingStore } from '../store/trading'
+
 export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClick, isResuming, showResumingFeedback, onMouseEnter, compact = false }) => {
+  const strategyGateStates = useTradingStore(state => state.strategyGateStates || {})
   const now = useNow()
 
   const handleKeyDown = (e) => {
@@ -316,8 +319,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </Tooltip>
             )}
 
-            {trade.strategy_config?.tp_mode === 'exp_rr_seq_switch' && trade.max_rr_achieved >= (trade.strategy_config?.peak_rr_switch_threshold || 5) && (
-              <Tooltip content={`Switched to alternate milestone guards (Peak RR threshold ${trade.strategy_config?.peak_rr_switch_threshold}R reached)`}>
+            {trade.strategy_config?.tp_mode === 'exp_rr_seq_switch' && (strategyGateStates[trade.strategy_label || 'Momentum Strategy']?.peakRrSwitchHits >= (trade.strategy_config?.peak_rr_switch_count || 1)) && (
+              <Tooltip content={`Switched to alternate milestone guards (Strategy hit peak RR threshold)`}>
                 <span className="bg-blue/10 border border-blue/30 text-blue text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0 cursor-help">
                   <RefreshCw size={7} className="text-blue shrink-0" />
                   <span>SWITCHED</span>

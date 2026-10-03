@@ -3215,7 +3215,8 @@ export function DashboardView({ initialStrategy }) {
                               activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
                               activeEstPnl: activeEstPnlToRealizeMap[currentStrategy.strategy_label] || 0,
                               activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0,
-                              totalEstPnlToRealize: safeVariantStats[currentStrategy.strategy_label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[currentStrategy.strategy_label] ?? 0
+                              totalEstPnlToRealize: safeVariantStats[currentStrategy.strategy_label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[currentStrategy.strategy_label] ?? 0,
+                              peakRrSwitchHits: strategyGateStates[currentStrategy.strategy_label]?.peakRrSwitchHits || 0
                             }}
                             scannerResults={variantScannerResults[currentStrategy.strategy_label]}
                             config={config}
@@ -3251,7 +3252,8 @@ export function DashboardView({ initialStrategy }) {
                                   activePnl: activePnlMap[label] || 0,
                                   activeEstPnl: activeEstPnlToRealizeMap[label] || 0,
                                   activeTradeCount: activeTradeCountsMap[label] || 0,
-                                  totalEstPnlToRealize: safeVariantStats[label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[label] ?? 0
+                                  totalEstPnlToRealize: safeVariantStats[label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[label] ?? 0,
+                                  peakRrSwitchHits: strategyGateStates[label]?.peakRrSwitchHits || 0
                                 }}
                                 scannerResults={variantScannerResults[label]}
                                 config={variantConfig}

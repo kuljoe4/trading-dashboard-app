@@ -184,6 +184,10 @@ export class BacktestService {
     const lastExitTsMap = new Map<string, number>();
     const equityCurve: EquityCurvePoint[] = [];
 
+    // Switch state for backtesting (tracks active hit count)
+    let activeSwitchHits = 0;
+    const tradesContributingToSwitch = new Set<string>();
+
     const sampleSymbol = Array.from(symbolCandlesMap.keys())[0];
     const fullCandles = symbolCandlesMap.get(sampleSymbol)!;
 
@@ -293,12 +297,19 @@ export class BacktestService {
               }
             }
 
+            // Handle Switch Hit Tracking
+            if (config.tp_mode === 'exp_rr_seq_switch' && config.peak_rr_switch_threshold) {
+              if (pos.peak_rr >= config.peak_rr_switch_threshold && !tradesContributingToSwitch.has(pos.id)) {
+                tradesContributingToSwitch.add(pos.id);
+                activeSwitchHits++;
+              }
+            }
+
             // Ratchet SL on Exponential RR sequence milestone
             if ((config.tp_mode === 'exp_rr_seq' || config.tp_mode === 'exp_rr_seq_switch') && config.live_rr_sequence && config.exit_rr_sequence) {
               let liveSeq = config.live_rr_sequence;
               let exitSeq = config.exit_rr_sequence;
-              if (config.tp_mode === 'exp_rr_seq_switch' && pos.peak_rr >= (config.peak_rr_switch_threshold || 5.0)) {
-                // Approximate backtest handling (trades individually track switch rather than strictly strategy history context for simplicity)
+              if (config.tp_mode === 'exp_rr_seq_switch' && activeSwitchHits >= (config.peak_rr_switch_count || 1)) {
                 liveSeq = config.switched_live_rr_sequence || liveSeq;
                 exitSeq = config.switched_exit_rr_sequence || exitSeq;
               }
@@ -347,6 +358,12 @@ export class BacktestService {
             const pnlPct = (netPnl / (pos.entry_price * pos.qty)) * 100;
             const slDist = Math.abs(pos.entry_price - pos.initial_sl);
             const rr = slDist > 0 ? roundTo(netPnl / pos.risk_usdt, 2) : 0;
+
+            // Handle switch revert on trade closure
+            if (config.tp_mode === 'exp_rr_seq_switch' && tradesContributingToSwitch.has(pos.id)) {
+              tradesContributingToSwitch.delete(pos.id);
+              if (activeSwitchHits > 0) activeSwitchHits--;
+            }
 
             closedTrades.push({
               id: pos.id,
@@ -410,7 +427,7 @@ export class BacktestService {
               // BOLT OPTIMIZATION: Bounded window slice on-demand only when evaluating entry signal
               const longCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'LONG', 'entry', candles, i, requiredWarmup);
               if (longCheck.allFired) {
-                this.openSimulatedPosition('LONG', symbol, currentCandle, currentTs, balance, config, activePositions, longCheck.details);
+                this.openSimulatedPosition('LONG', symbol, currentCandle, currentTs, balance, config, activePositions, activeSwitchHits, longCheck.details);
                 continue;
               }
             }
@@ -420,7 +437,7 @@ export class BacktestService {
               // BOLT OPTIMIZATION: Bounded window slice on-demand only when evaluating entry signal
               const shortCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'SHORT', 'entry', candles, i, requiredWarmup);
               if (shortCheck.allFired) {
-                this.openSimulatedPosition('SHORT', symbol, currentCandle, currentTs, balance, config, activePositions, shortCheck.details);
+                this.openSimulatedPosition('SHORT', symbol, currentCandle, currentTs, balance, config, activePositions, activeSwitchHits, shortCheck.details);
               }
             }
           }
@@ -655,10 +672,18 @@ export class BacktestService {
     balance: number,
     config: SessionConfig,
     activePositions: Map<string, any>,
+    activeSwitchHits: number,
     details?: any
   ) {
     const entryPrice = currentCandle.close;
     let slDistPct = config.sl_distance_pct || 2.0;
+
+    // Handle Switch Hit Overrides for SL Distance in backtest simulation
+    if (config.tp_mode === 'exp_rr_seq_switch' && config.switched_sl_distance_pct && config.peak_rr_switch_threshold) {
+      if (activeSwitchHits >= (config.peak_rr_switch_count || 1)) {
+        slDistPct = config.switched_sl_distance_pct;
+      }
+    }
 
     // Apply SL floor/ceiling clamping (sl_min_pct & sl_max_pct)
     if (config.sl_min_pct !== undefined && config.sl_min_pct > 0) {

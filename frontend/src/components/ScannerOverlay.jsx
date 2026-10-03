@@ -843,7 +843,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
         <div className="flex items-center gap-2 flex-1 justify-end max-w-xs md:max-w-md">
           <div className="relative group flex-1">
-            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent transition-colors" />
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
             <input
               ref={searchInputRef}
               type="text"

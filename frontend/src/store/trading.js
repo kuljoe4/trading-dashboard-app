@@ -259,8 +259,12 @@ const deepMerge = (target, source) => {
 
   const output = { ...target };
   Object.keys(source).forEach(key => {
-    if (source[key] instanceof Object && !Array.isArray(source[key]) && key in target) {
-      output[key] = deepMerge(target[key], source[key]);
+    if (source[key] instanceof Object && !Array.isArray(source[key])) {
+      if (key in target) {
+        output[key] = deepMerge(target[key], source[key]);
+      } else {
+        output[key] = deepMerge({}, source[key]);
+      }
     } else {
       output[key] = source[key];
     }

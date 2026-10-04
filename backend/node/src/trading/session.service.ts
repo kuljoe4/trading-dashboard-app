@@ -3449,8 +3449,12 @@ export class SessionService implements OnModuleInit {
     const output = { ...target };
     Object.keys(source).forEach(key => {
       if (key === "__proto__" || key === "constructor" || key === "prototype") return;
-      if (source[key] instanceof Object && !Array.isArray(source[key]) && key in target) {
-        output[key] = this.deepMerge(target[key], source[key]);
+      if (source[key] instanceof Object && !Array.isArray(source[key])) {
+        if (key in target) {
+          output[key] = this.deepMerge(target[key], source[key]);
+        } else {
+          output[key] = this.deepMerge({}, source[key]);
+        }
       } else {
         output[key] = source[key];
       }

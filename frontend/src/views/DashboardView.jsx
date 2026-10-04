@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, lazy, Suspense } from 'react'
+import React, { useEffect, useMemo, useState, lazy, Suspense, useRef } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { formatDuration, calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
@@ -1856,6 +1856,7 @@ ReconciliationCenter.displayName = 'ReconciliationCenter';
 
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
+  const searchInputRef = useRef(null)
   const [cardViewMode, setCardViewMode] = useState(() => {
     return localStorage.getItem('dashboard_card_view_mode') || 'detailed';
   });
@@ -2545,22 +2546,29 @@ export function DashboardView({ initialStrategy }) {
             <div className="relative flex items-center">
               <Search size={14} className="absolute left-3 text-dim pointer-events-none" />
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setSearchQuery('')}
                 className="pl-8 pr-8 py-1.5 bg-surface border border-border/60 hover:border-accent/40 focus:border-accent text-xs font-semibold rounded-xl text-text placeholder-dim focus-visible:ring-2 focus-visible:ring-accent outline-none transition-all w-36 sm:w-48"
                 aria-label="Search dashboard"
               />
               {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
-                  aria-label="Clear search"
-                >
-                  <XCircle size={13} />
-                </button>
+                <Tooltip content="Clear Search">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery('');
+                      searchInputRef.current?.focus();
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:text-accent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-full p-0.5"
+                    aria-label="Clear search"
+                  >
+                    <XCircle size={13} />
+                  </button>
+                </Tooltip>
               )}
             </div>
 

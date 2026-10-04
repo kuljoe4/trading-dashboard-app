@@ -238,3 +238,62 @@ describe('RiskEngineService - Frequency Limits', () => {
     });
   });
 });
+
+describe('RiskEngineService - Martingale', () => {
+  let service: RiskEngineService;
+  let mockConfig: SessionConfig;
+
+  beforeEach(() => {
+    service = new RiskEngineService();
+    mockConfig = new SessionConfig();
+    mockConfig.risk_pct_per_trade = 1.0;
+    mockConfig.martingale_enabled = true;
+    mockConfig.martingale_multiplier = 2.0;
+    mockConfig.martingale_reset_threshold_pct = 4.0;
+    mockConfig.martingale_max_steps = 3;
+    mockConfig.strategy_label = 'Momentum Strategy';
+  });
+
+  it('should apply martingale multiplier after consecutive losses', () => {
+    const closed: Trade[] = [
+      { id: '1', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 1000) } as Trade
+    ];
+    const result = service.computePositionSize(1000, 100, 99, 'LONG', mockConfig, 'BTCUSDT', closed);
+
+    // risk = 1.0 * 2.0 = 2.0% -> 0 risk /  distance = 20 qty
+    expect(result.qty).toBe(20);
+    expect(result.martingaleMultiplierApplied).toBe(2);
+  });
+
+  it('should reset martingale if risk exceeds threshold', () => {
+    const closed: Trade[] = [
+      { id: '1', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 1000) } as Trade,
+      { id: '2', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 2000) } as Trade,
+      { id: '3', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 3000) } as Trade
+    ];
+    // 3 losses -> multiplier 2^3 = 8
+    // risk = 1.0 * 8 = 8.0% -> exceeds reset threshold of 4.0%
+    const result = service.computePositionSize(1000, 100, 99, 'LONG', mockConfig, 'BTCUSDT', closed);
+
+    // risk should reset to base 1.0%
+    expect(result.qty).toBe(10);
+    expect(result.martingaleMultiplierApplied).toBe(1);
+  });
+
+  it('should cap martingale steps', () => {
+    mockConfig.martingale_reset_threshold_pct = 20.0; // Avoid threshold reset
+    const closed: Trade[] = [
+      { id: '1', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 1000) } as Trade,
+      { id: '2', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 2000) } as Trade,
+      { id: '3', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 3000) } as Trade,
+      { id: '4', strategy_label: 'Momentum Strategy', status: 'CLOSED', pnl_pct: -1, exit_ts: new Date(Date.now() - 4000) } as Trade
+    ];
+    // 4 losses, but max steps is 3
+    // multiplier = 2^3 = 8
+    const result = service.computePositionSize(1000, 100, 99, 'LONG', mockConfig, 'BTCUSDT', closed);
+
+    // risk = 8.0% -> 0 /  = 80 qty
+    expect(result.qty).toBe(80);
+    expect(result.martingaleMultiplierApplied).toBe(8);
+  });
+});

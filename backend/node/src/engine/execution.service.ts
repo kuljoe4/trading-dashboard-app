@@ -573,7 +573,7 @@ export class ExecutionService {
         });
         slPrice = slFiltered.price;
 
-        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
+        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol, this.sessionState.closedTrades);
 
         if (sizeResult.qty <= 0) {
           if (sizeResult.rejected) {
@@ -669,6 +669,7 @@ export class ExecutionService {
               entry_reason: signalResult.reason,
               entry_signal_type: signalResult.firedSignals?.join(', ') || 'combo',
               entry_signal_reason: signalResult.reason,
+              martingale_multiplier_applied: sizeResult.martingaleMultiplierApplied,
             }
           );
 

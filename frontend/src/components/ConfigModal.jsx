@@ -4259,6 +4259,33 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 />
               </div>
 
+              {/* Martingale Recovery */}
+              <div className="p-4 my-4 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
+                      <TrendingUp size={12} className="text-orange-500" />
+                      Martingale Recovery
+                    </span>
+                    <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-xl">
+                      Automatically multiply risk for the next trade after a loss to recover capital.
+                    </p>
+                  </div>
+                  <Toggle
+                    value={cfg.martingale_enabled || false}
+                    onChange={(v) => setField('martingale_enabled', v)}
+                  />
+                </div>
+
+                {cfg.martingale_enabled && (
+                  <div className="grid grid-cols-3 gap-4 pt-2 border-t border-border/20">
+                    {renderField('Risk Multiplier', 'martingale_multiplier', 'number', null, { min: 1.1, max: 10, step: 0.1 })}
+                    {renderField('Max Consecutive Steps', 'martingale_max_steps', 'number', null, { min: 1, max: 10 })}
+                    {renderField('Max Risk Cap (%)', 'martingale_reset_threshold_pct', 'number', null, { min: 0.1, max: 100, step: 0.5 })}
+                  </div>
+                )}
+              </div>
+
               {/* Dynamic Auto-Adjust Max Open Trades on Zero Risk */}
               <div className="p-4 my-4 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

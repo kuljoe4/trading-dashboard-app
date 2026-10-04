@@ -745,7 +745,7 @@ export class OrderManagerService {
     qty: number,
     slPrice: number,
     tpPrice: number | null,
-    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct' | 'entry_reason' | 'entry_signal_type' | 'entry_signal_reason'> = {},
+    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct' | 'entry_reason' | 'entry_signal_type' | 'entry_signal_reason' | 'martingale_multiplier_applied'> = {},
   ): Promise<ExecutionResult<Trade>> {
     const filters = this.marketFeed.getSymbolFilters(symbol);
 
@@ -851,6 +851,7 @@ export class OrderManagerService {
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,
         entry_daily_change_pct: metadata.entry_daily_change_pct,
+        martingale_multiplier_applied: metadata.martingale_multiplier_applied,
         updated_at: new Date(),
       } as Trade;
 

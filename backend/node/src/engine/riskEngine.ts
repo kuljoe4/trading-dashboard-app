@@ -765,12 +765,49 @@ export class RiskEngineService {
     slPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
-    symbol?: string
-  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean } {
+    symbol?: string,
+    closedTrades: Trade[] = []
+  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean; martingaleMultiplierApplied?: number } {
     this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
     if (balance <= 0 || entryPrice <= 0) return { qty: 0 };
 
-    const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
+    let effectiveRiskPct = config.risk_pct_per_trade ?? 1.0;
+    let martingaleMultiplierApplied = 1;
+
+    if (config.martingale_enabled) {
+      const baseLabel = config.strategy_label || 'Momentum Strategy';
+      // Find strategy-specific closed trades, sorted by exit_ts descending
+      const strategyTrades = closedTrades
+        .filter(t => this.matchesStrategyLabel(t.strategy_label, baseLabel, baseLabel) && t.status !== 'OPEN')
+        .sort((a, b) => (b.exit_ts?.getTime() || 0) - (a.exit_ts?.getTime() || 0));
+
+      let consecutiveLosses = 0;
+      for (const t of strategyTrades) {
+        if ((t.pnl_pct || 0) < 0) {
+          consecutiveLosses++;
+        } else {
+          break;
+        }
+      }
+
+      if (consecutiveLosses > 0) {
+        const maxSteps = config.martingale_max_steps ?? 3;
+        const stepsToApply = Math.min(consecutiveLosses, maxSteps);
+        const multiplier = Math.pow(config.martingale_multiplier ?? 2.0, stepsToApply);
+        const adjustedRiskPct = effectiveRiskPct * multiplier;
+        const resetThreshold = config.martingale_reset_threshold_pct ?? 4.0;
+
+        if (adjustedRiskPct <= resetThreshold) {
+          effectiveRiskPct = adjustedRiskPct;
+          martingaleMultiplierApplied = multiplier;
+          this.logger.debug(`[RiskEngine] Martingale applied: ${consecutiveLosses} losses -> ${multiplier}x multiplier -> ${effectiveRiskPct.toFixed(2)}% risk`);
+        } else {
+          this.logger.debug(`[RiskEngine] Martingale reset: Adjusted risk ${adjustedRiskPct.toFixed(2)}% exceeds threshold ${resetThreshold.toFixed(2)}%`);
+        }
+      }
+    }
+
+    const riskAmount = balance * (effectiveRiskPct / 100);
     const slDistance = Math.abs(entryPrice - slPrice);
     
     if (slDistance <= 0) return { qty: 0 };
@@ -830,7 +867,7 @@ export class RiskEngineService {
        }
     }
 
-    return { qty, isNominalOvershoot };
+    return { qty, isNominalOvershoot, martingaleMultiplierApplied };
   }
 
   /**

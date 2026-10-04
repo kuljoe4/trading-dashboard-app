@@ -319,6 +319,14 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               </Tooltip>
             )}
 
+            {trade.martingale_multiplier_applied && trade.martingale_multiplier_applied > 1 && (
+              <Tooltip content={`Martingale Recovery Active: Multiplier ${trade.martingale_multiplier_applied}x applied based on consecutive losses.`}>
+                <span className="bg-orange-500/10 border border-orange-500/30 text-orange-500 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0 cursor-help font-mono">
+                  <span>🔥 {trade.martingale_multiplier_applied}x RISK</span>
+                </span>
+              </Tooltip>
+            )}
+
             {trade.strategy_config?.tp_mode === 'exp_rr_seq_switch' && (strategyGateStates[trade.strategy_label || 'Momentum Strategy']?.peakRrSwitchHits >= (trade.strategy_config?.peak_rr_switch_count || 1)) && (
               <Tooltip content={`Switched to alternate milestone guards (Strategy hit peak RR threshold)`}>
                 <span className="bg-blue/10 border border-blue/30 text-blue text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0 cursor-help">

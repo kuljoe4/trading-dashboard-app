@@ -1809,6 +1809,13 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   🔪 KNIFE
                 </div>
               )}
+              {trade.martingale_multiplier_applied && trade.martingale_multiplier_applied > 1 && (
+                <Tooltip content={`Martingale Recovery Active: Multiplier ${trade.martingale_multiplier_applied}x applied based on consecutive losses.`}>
+                  <div className="bg-orange-500/10 text-orange-500 border border-orange-500/30 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1 cursor-help">
+                    🔥 {trade.martingale_multiplier_applied}x RISK
+                  </div>
+                </Tooltip>
+              )}
               {trade.is_reconciliation && (
                 <div className="bg-amber/10 text-amber border border-amber/20 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5">
                   <Activity size={12} /> Reconciled

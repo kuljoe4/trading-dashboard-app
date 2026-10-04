@@ -367,6 +367,13 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
                   🔪 KNIFE
                 </span>
               )}
+              {trade.martingale_multiplier_applied && trade.martingale_multiplier_applied > 1 && (
+                <Tooltip content={`Martingale Recovery Active: Multiplier ${trade.martingale_multiplier_applied}x applied based on consecutive losses.`}>
+                  <span className="text-[8px] bg-orange-500/10 text-orange-500 font-black border border-orange-500/30 px-1.5 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 shrink-0 leading-none cursor-help">
+                    🔥 {trade.martingale_multiplier_applied}x RISK
+                  </span>
+                </Tooltip>
+              )}
               {showStrategy && (
                 <div className="flex items-center gap-1.5">
                   <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-black px-1.5 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase truncate max-w-[100px]">

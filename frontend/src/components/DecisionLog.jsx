@@ -127,21 +127,21 @@ const VariantGatingSummary = React.memo(() => {
                         {stateLabel}
                       </span>
                     </div>
-                    {info.gateReason && (
+                    {info?.gateReason && (
                       <p className="text-[9px] text-dim/95 font-semibold leading-normal break-words mt-0.5">
-                        {info.gateReason}
+                        {info?.gateReason}
                       </p>
                     )}
-                    {(info.value !== undefined && info.value !== null) || info.nextSlotTs ? (
+                    {(info?.value !== undefined && info?.value !== null) || info?.nextSlotTs ? (
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 border-t border-border/10 pt-1.5">
-                        {info.value !== undefined && info.value !== null && (
+                        {info?.value !== undefined && info?.value !== null && (
                           <div className="text-[8px] font-mono text-dim/50 font-bold uppercase">
-                            Trigger: <span className="text-text font-black font-mono">{String(info.value)}</span>
+                            Trigger: <span className="text-text font-black font-mono">{String(info?.value)}</span>
                           </div>
                         )}
-                        {info.nextSlotTs && (
+                        {info?.nextSlotTs && (
                           <div className="text-[8px] font-mono text-dim/50 font-bold uppercase flex items-center gap-1">
-                            <Clock size={8} /> Next Slot: <span className="text-accent font-black font-mono">{new Date(info.nextSlotTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            <Clock size={8} /> Next Slot: <span className="text-accent font-black font-mono">{new Date(info?.nextSlotTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
                         )}
                       </div>
@@ -202,20 +202,22 @@ const LogEntry = React.memo(({ log }) => {
           >
             [{timestampInfo.formatted}]
           </time>
-          <span className={cn(
-            "transition-colors break-words break-all min-w-0 flex-1",
-            shouldTruncate && !isExpanded && "line-clamp-2",
-            logLevel === 'warn' ? "text-amber font-black" :
-            logLevel === 'error' ? "text-red font-black" :
-            "text-text/90 font-medium"
-          )}>
-            {formatMessage(logMessage)}
+          <div className="flex-1 min-w-0">
+            <span className={cn(
+              "transition-colors break-words break-all inline",
+              shouldTruncate && !isExpanded && "line-clamp-2",
+              logLevel === 'warn' ? "text-amber font-black" :
+              logLevel === 'error' ? "text-red font-black" :
+              "text-text/90 font-medium"
+            )}>
+              {formatMessage(logMessage)}
+            </span>
             {shouldTruncate && (
               <span className="text-accent hover:underline ml-1 cursor-pointer font-black text-[9px] uppercase tracking-wider whitespace-nowrap">
                 {isExpanded ? ' (show less)' : ' (show more)'}
               </span>
             )}
-          </span>
+          </div>
         </div>
         <CopyButton
           value={logMessage}
@@ -334,7 +336,7 @@ export const DecisionLog = React.memo(() => {
   const visibleLogs = useMemo(
     () => {
       // BOLT: Single-pass filter and pre-computed search term for O(N) efficiency
-      const term = search ? search.toLowerCase() : null;
+      const searchRegex = search ? new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
       const filtered = safeLogs.filter((log) => {
         if (!log) return false;
         // BOLT: Use pre-normalized properties from store but add defensive fallback to prevent crashes
@@ -342,7 +344,7 @@ export const DecisionLog = React.memo(() => {
         const msg = typeof log.msg === 'string' ? log.msg : String(log.msg || '');
 
         if (safeLogFilters[level] === false) return false;
-        if (term && !msg.toLowerCase().includes(term)) return false;
+        if (searchRegex && !searchRegex.test(msg)) return false;
         return true;
       });
 
@@ -361,10 +363,14 @@ export const DecisionLog = React.memo(() => {
     }
   }, [visibleLogs, isAtTop]);
 
+  const copyAllText = useMemo(() => {
+    return (visibleLogs || []).map(l => `[${l.ts}] ${l.msg}`).join('\n');
+  }, [visibleLogs]);
+
   const newLogsCount = useMemo(() => {
     if (isAtTop || !lastReadLogId.current || visibleLogs.length === 0) return 0;
     const index = visibleLogs.findIndex(log => log && log.id === lastReadLogId.current);
-    return index > 0 ? index : 0;
+    return index === -1 ? visibleLogs.length : (index > 0 ? index : 0);
   }, [visibleLogs, isAtTop]);
 
   // Audit Item 41: Scroll-lock pattern
@@ -427,7 +433,7 @@ export const DecisionLog = React.memo(() => {
         >
           <div className="flex-1 flex gap-2 overflow-x-auto min-w-0">
             <CopyButton
-              value={(visibleLogs || []).map(l => `[${l.ts}] ${l.msg}`).join('\n')}
+              value={copyAllText}
               className="bg-surface border border-border"
               tooltip="Copy All Visible Logs"
             />
@@ -505,10 +511,10 @@ export const DecisionLog = React.memo(() => {
                 if (listRef.current) listRef.current.scrollTo({ top: 0 })
                 setIsAtTop(true)
               }}
-              aria-label={newLogsCount > 0 ? `Scroll to top (${newLogsCount} new log${newLogsCount === 1 ? '' : 's'} above)` : 'Scroll to top'}
+              aria-label={newLogsCount > 0 ? `Scroll to top (${newLogsCount} new log${newLogsCount === 1 ? '' : 's'} above)` : 'Scroll to top \u2191'}
               className="pointer-events-auto bg-accent/95 backdrop-blur-sm text-white px-4 py-1.5 rounded-full text-[10px] font-black tracking-wider shadow-2xl shadow-black/80 border border-white/15 animate-in fade-in zoom-in slide-in-from-top-2 duration-300 whitespace-nowrap hover:scale-105 active:scale-95 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
             >
-              {newLogsCount > 0 ? `${newLogsCount} new logs above ↑` : 'New logs above ↑'}
+              {newLogsCount > 0 ? `${newLogsCount} new logs above ↑` : 'Scroll to top ↑'}
             </button>
           </div>
         )}

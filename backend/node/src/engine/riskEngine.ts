@@ -796,7 +796,7 @@ export class RiskEngineService {
          const scaledRisk = Math.abs(entryPrice - slPrice) * scaledQty;
 
          const overshootRatio = scaledRisk / riskAmount;
-         const MAX_OVERSHOOT = 3.0;
+         const MAX_OVERSHOOT = config.auto_scale_max_overshoot ?? 3.0;
 
          if (overshootRatio > MAX_OVERSHOOT) {
             const reason = `Min notional $${MIN_NOTIONAL_SCALED} forces ${overshootRatio.toFixed(1)}x risk overshoot (Max ${MAX_OVERSHOOT}x).`;

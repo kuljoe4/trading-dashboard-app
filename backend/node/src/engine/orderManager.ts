@@ -306,7 +306,7 @@ export class OrderManagerService {
               // SRE: Update real-time position cache to match exchange
               this.sessionState.realTimePositions.set(symbol, {
                 amount: remainingQty,
-                entryPrice: trade.entry_price
+                entryPrice: Number(trade.entry_price)
               });
 
               this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
@@ -321,10 +321,10 @@ export class OrderManagerService {
             if (exitPrice === 0) {
               const tickerPrice = this.tickerCache.getPrice(symbol);
               this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} SL. Using ticker fallback: ${tickerPrice}`);
-              exitPrice = tickerPrice || trade.current_sl;
+              exitPrice = tickerPrice || Number(trade.current_sl);
             }
 
-            const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+            const slType = Number(trade.current_sl) === Number(trade.initial_sl) ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
             const slLabel = formatSlType(slType);
             trade.exit_signal_reason = `EXCHANGE_${slType}: Hit at ${exitPrice}`;
 
@@ -345,14 +345,14 @@ export class OrderManagerService {
         }
         else if (isEntryOrder) {
            this.logger.debug(`[${tradeIdShort8}] [UDS] Entry order update for ${symbol}: Status=${status}, Price=${avgPrice}, Qty=${order.z}/${order.q}`);
-           if (avgPrice > 0 && trade.entry_price !== avgPrice) {
-              this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from UDS for ${symbol}: ${trade.entry_price} -> ${avgPrice}`);
+           if (avgPrice > 0 && Number(trade.entry_price) !== avgPrice) {
+              this.logger.log(`[${tradeIdShort8}] [Sync] Updating entry price from UDS for ${symbol}: ${Number(trade.entry_price)} -> ${avgPrice}`);
               trade.entry_price = roundEight(avgPrice);
 
               // SRE: Proactively update the real-time position cache to prevent queryOrder fallbacks in SL placement
               this.sessionState.realTimePositions.set(symbol, {
                  amount: trade.qty,
-                 entryPrice: trade.entry_price
+                 entryPrice: Number(trade.entry_price)
               });
            }
 
@@ -366,7 +366,7 @@ export class OrderManagerService {
               // SRE: Also update the real-time position cache
               this.sessionState.realTimePositions.set(symbol, {
                  amount: filledQty,
-                 entryPrice: trade.entry_price
+                 entryPrice: Number(trade.entry_price)
               });
 
               this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: filledQty });
@@ -394,7 +394,7 @@ export class OrderManagerService {
 
                  this.sessionState.realTimePositions.set(symbol, {
                     amount: trade.qty,
-                    entryPrice: trade.entry_price
+                    entryPrice: Number(trade.entry_price)
                  });
                  this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: trade.qty });
                }
@@ -414,7 +414,7 @@ export class OrderManagerService {
              if (exitPrice === 0) {
                 const tickerPrice = this.tickerCache.getPrice(symbol);
                 this.logger.warn(`[${tradeIdShort8}] Binance WS returned 0 price for ${symbol} fill. Using ticker fallback: ${tickerPrice}`);
-                exitPrice = tickerPrice || trade.entry_price;
+                exitPrice = tickerPrice || Number(trade.entry_price);
              }
 
              // Distinguish between app-initiated manual close and external exchange events
@@ -487,7 +487,7 @@ export class OrderManagerService {
                 // Update real-time position cache
                 this.sessionState.realTimePositions.set(symbol, {
                    amount: remainingQty,
-                   entryPrice: trade.entry_price
+                   entryPrice: Number(trade.entry_price)
                 });
 
                 this.eventEmitter.emit(ENGINE_EVENTS.QUANTITY_SYNC, { symbol, qty: remainingQty });
@@ -808,6 +808,24 @@ export class OrderManagerService {
         return { status: ExecutionStatus.ORDER_REJECTED, error: 'Position size too small after LOT_SIZE filtering.' };
       }
 
+      // SRE: Enforce MAX_OVERSHOOT after LOT_SIZE filtering step rounding
+      if (metadata.strategy_config?.risk_pct_per_trade) {
+        const balance = this.sessionState.getBalance(this.paperMode);
+        const intendedRiskUsdt = (balance * metadata.strategy_config.risk_pct_per_trade) / 100;
+
+        if (intendedRiskUsdt > 0) {
+          const actualRiskUsdt = Math.abs(entryPrice - slPrice) * qty;
+          const overshootRatio = actualRiskUsdt / intendedRiskUsdt;
+          const maxOvershoot = metadata.strategy_config.auto_scale_max_overshoot ?? 3.0;
+
+          if (overshootRatio > maxOvershoot) {
+             const reason = `LOT_SIZE step rounding forces ${overshootRatio.toFixed(1)}x risk overshoot (Max ${maxOvershoot}x).`;
+             this.logger.warn(`[OrderManager] ${symbol} entry rejected: ${reason}`);
+             return { status: ExecutionStatus.ORDER_REJECTED, error: reason };
+          }
+        }
+      }
+
       // SRE: Pre-flight Leverage Bracket check
       const notional = qty * entryPrice;
       const bracketCheck = await this.checkLeverageBracket(symbol, notional);
@@ -1067,25 +1085,25 @@ export class OrderManagerService {
 
           // Recalculate SL after actual fill to maintain intended risk distance
           const originalDistance = Math.abs(entryPrice - slPrice);
-          slPrice = direction === 'LONG' ? trade.entry_price - originalDistance : trade.entry_price + originalDistance;
+          slPrice = direction === 'LONG' ? Number(trade.entry_price) - originalDistance : Number(trade.entry_price) + originalDistance;
           trade.current_sl = trade.initial_sl = slPrice;
 
           // Zero-Cost Math Estimation for fees (FALLBACK ONLY if REST fills didn't provide it)
           if (trade.realized_fee === 0) {
-            const notionalValue = (trade.qty || 0) * (trade.entry_price || 0);
+            const notionalValue = (trade.qty || 0) * (Number(trade.entry_price) || 0);
             const fee = notionalValue * (this.takerFeeRate || 0.0004);
             trade.realized_fee = roundEight(isNaN(fee) ? 0 : fee);
           }
 
-          entryPrice = trade.entry_price;
+          entryPrice = Number(trade.entry_price);
           qty = trade.qty;
 
           // Re-calculate risk USDT with actual entry price
-          trade.risk_usdt = roundEight(Math.max(0, direction === 'LONG' ? trade.entry_price - slPrice : slPrice - trade.entry_price) * trade.qty);
+          trade.risk_usdt = roundEight(Math.max(0, direction === 'LONG' ? Number(trade.entry_price) - slPrice : slPrice - Number(trade.entry_price)) * trade.qty);
           trade.initial_risk_usdt = trade.risk_usdt;
 
           // Combined log for entry
-          const msg = `Binance order placed: ${symbol} ${direction} @ ${trade.entry_price} qty=${qty} order_id=${entryReceipt.orderId} est_fee=${trade.realized_fee} SL=${slPrice}`;
+          const msg = `Binance order placed: ${symbol} ${direction} @ ${Number(trade.entry_price)} qty=${qty} order_id=${entryReceipt.orderId} est_fee=${trade.realized_fee} SL=${slPrice}`;
           this.logger.log(msg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
@@ -1103,9 +1121,9 @@ export class OrderManagerService {
 
           // Place SL separately. Pass actual fill price for immediate-breach guard.
           // SRE: Proactively update real-time positions map so SL placement can use the most fresh data if UDS hasn't arrived yet
-          this.sessionState.realTimePositions.set(symbol, { amount: trade.qty, entryPrice: trade.entry_price });
+          this.sessionState.realTimePositions.set(symbol, { amount: trade.qty, entryPrice: Number(trade.entry_price) });
 
-          const slResult = await this.placeStopLoss(trade, slPrice, trade.entry_price);
+          const slResult = await this.placeStopLoss(trade, slPrice, Number(trade.entry_price));
           if (slResult?.orderId === 'TRIGGERED_LOCALLY') {
              const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
              this.logger.log(`[${tradeIdShort8}] SL for ${symbol} was triggered locally during entry. Trade will be handled by event-driven closure.`);
@@ -1264,8 +1282,8 @@ export class OrderManagerService {
         // Breakeven includes a 0.1% buffer for taker fees (0.04% * 2 + safety)
         const feeBuffer = 0.001;
         const isProfitable = trade.direction === 'LONG'
-           ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
-           : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
+           ? currentSlPrice >= Number(trade.entry_price) * (1 + feeBuffer)
+           : currentSlPrice <= Number(trade.entry_price) * (1 - feeBuffer);
 
         // DATA-07: For reconciliation trades, we allow adaptation even if not strictly "profitable"
         // to give the system a chance to protect the position without immediate closure.
@@ -1281,10 +1299,10 @@ export class OrderManagerService {
            if (trade.direction === 'LONG') {
               adjustedSl = currentMarketPrice * (1 - bufferPct / 100);
               // Hard floor at entry price to ensure we don't turn a profit into a loss
-              adjustedSl = Math.max(adjustedSl, trade.entry_price * (1 + feeBuffer));
+              adjustedSl = Math.max(adjustedSl, Number(trade.entry_price) * (1 + feeBuffer));
            } else {
               adjustedSl = currentMarketPrice * (1 + bufferPct / 100);
-              adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
+              adjustedSl = Math.min(adjustedSl, Number(trade.entry_price) * (1 - feeBuffer));
            }
 
            const logMsg = `[Adaptive SL] Pre-emptive breach for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
@@ -1297,7 +1315,7 @@ export class OrderManagerService {
 
         const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
         this.logger.warn(`[${tradeIdShort8}] ${trade.symbol} SL ${currentSlPrice} already breached by price ${currentMarketPrice}. Adaptive limit reached or not profitable. Closing.`);
-        const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+        const slType = Number(trade.current_sl) === Number(trade.initial_sl) ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
         // SRE Loop Prevention: Only emit EXCHANGE_CLOSE if we are not already in a close sequence or close_blocked
         const isClosing = this.closureLocks.get(trade.symbol) === true;
@@ -1387,8 +1405,8 @@ export class OrderManagerService {
             // Adaptive Buffer Strategy: If profitable, try widening buffer
             const feeBuffer = 0.001;
             const isProfitable = trade.direction === 'LONG'
-               ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
-               : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
+               ? currentSlPrice >= Number(trade.entry_price) * (1 + feeBuffer)
+               : currentSlPrice <= Number(trade.entry_price) * (1 - feeBuffer);
 
             const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && (isProfitable || trade.is_reconciliation);
 
@@ -1404,10 +1422,10 @@ export class OrderManagerService {
                let adjustedSl: number;
                if (trade.direction === 'LONG') {
                   adjustedSl = refPrice * (1 - bufferPct / 100);
-                  adjustedSl = Math.max(adjustedSl, trade.entry_price * (1 + feeBuffer));
+                  adjustedSl = Math.max(adjustedSl, Number(trade.entry_price) * (1 + feeBuffer));
                } else {
                   adjustedSl = refPrice * (1 + bufferPct / 100);
-                  adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
+                  adjustedSl = Math.min(adjustedSl, Number(trade.entry_price) * (1 - feeBuffer));
                }
 
                const logMsg = `[Adaptive SL] Binance rejected -2021 for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
@@ -1421,7 +1439,7 @@ export class OrderManagerService {
             const warnMsg = `[${symbol}] SL REJECTED: Price overran target (Code: -2021). Forcing emergency local close.`;
             this.logger.warn(warnMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
-            const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+            const slType = Number(trade.current_sl) === Number(trade.initial_sl) ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
             this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol,
               exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
@@ -1437,11 +1455,11 @@ export class OrderManagerService {
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: syncMsg, level: 'info' });
             this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
                symbol,
-               exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
+               exitPrice: this.tickerCache.getPrice(symbol) || Number(trade.entry_price),
                reason: EXIT_REASONS.EXCHANGE_SYNC,
                feesAlreadyAccounted: false
             });
-            return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
+            return { orderId: 'TRIGGERED_LOCALLY', price: Number(trade.entry_price) };
           } else {
             const errorMsg = `[${symbol}] SL REJECTED: ${msg} (Code: ${code})`;
             this.logger.warn(errorMsg);
@@ -1496,8 +1514,8 @@ export class OrderManagerService {
           // Adaptive Buffer Strategy (Exception variant)
           const feeBuffer = 0.001;
           const isProfitable = trade.direction === 'LONG'
-             ? currentSlPrice >= trade.entry_price * (1 + feeBuffer)
-             : currentSlPrice <= trade.entry_price * (1 - feeBuffer);
+             ? currentSlPrice >= Number(trade.entry_price) * (1 + feeBuffer)
+             : currentSlPrice <= Number(trade.entry_price) * (1 - feeBuffer);
 
           const canAdapt = adaptiveAttempts < MAX_ADAPTIVE_ATTEMPTS && (isProfitable || trade.is_reconciliation);
 
@@ -1513,10 +1531,10 @@ export class OrderManagerService {
              let adjustedSl: number;
              if (trade.direction === 'LONG') {
                 adjustedSl = refPrice * (1 - bufferPct / 100);
-                adjustedSl = Math.max(adjustedSl, trade.entry_price * (1 + feeBuffer));
+                adjustedSl = Math.max(adjustedSl, Number(trade.entry_price) * (1 + feeBuffer));
              } else {
                 adjustedSl = refPrice * (1 + bufferPct / 100);
-                adjustedSl = Math.min(adjustedSl, trade.entry_price * (1 - feeBuffer));
+                adjustedSl = Math.min(adjustedSl, Number(trade.entry_price) * (1 - feeBuffer));
              }
 
              const logMsg = `[Adaptive SL] Binance rejected SL (exception) for ${trade.symbol}. Multiplier x${multiplier}: ${currentSlPrice.toFixed(5)} -> ${adjustedSl.toFixed(5)} (Attempt ${adaptiveAttempts}/${MAX_ADAPTIVE_ATTEMPTS})`;
@@ -1530,7 +1548,7 @@ export class OrderManagerService {
           const warnMsg = `[${symbol}] SL REJECTED: Price protection or trigger breach (Code: ${msg}). Forcing emergency close.`;
           this.logger.warn(warnMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warnMsg, level: 'warn' });
-          const slType = trade.current_sl === trade.initial_sl ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
+          const slType = Number(trade.current_sl) === Number(trade.initial_sl) ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
           this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
             symbol,
             exitPrice: this.tickerCache.getPrice(symbol) || currentSlPrice,
@@ -1545,11 +1563,11 @@ export class OrderManagerService {
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: syncMsg, level: 'info' });
           this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
              symbol,
-             exitPrice: this.tickerCache.getPrice(symbol) || trade.entry_price,
+             exitPrice: this.tickerCache.getPrice(symbol) || Number(trade.entry_price),
              reason: EXIT_REASONS.EXCHANGE_SYNC,
              feesAlreadyAccounted: false
           });
-          return { orderId: 'TRIGGERED_LOCALLY', price: trade.entry_price };
+          return { orderId: 'TRIGGERED_LOCALLY', price: Number(trade.entry_price) };
         } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate clientAlgoId')) {
           this.logger.log(`[${symbol}] [Sync] Detected duplicate client ID (via exception) on SL retry. Recovering SL state...`);
           let queryData;
@@ -1603,9 +1621,9 @@ export class OrderManagerService {
       this.sessionState.realTimeOrders.set(symbol, [...currentSlOrders.filter(o => String(o.orderId || o.algoId) !== stopLossId), slOrderEntry]);
 
       // Accuracy: Ensure local tracking reflects the final price used for placement
-      if (trade.current_sl !== currentSlPrice) {
+      if (Number(trade.current_sl) !== currentSlPrice) {
          const label = adaptiveAttempts > 0 ? 'adaptive placement' : 'filter rounding';
-         this.logger.log(`[${trade.symbol}] Syncing local SL to ${label} price: ${trade.current_sl} -> ${currentSlPrice.toFixed(5)}`);
+         this.logger.log(`[${trade.symbol}] Syncing local SL to ${label} price: ${Number(trade.current_sl)} -> ${currentSlPrice.toFixed(5)}`);
          trade.current_sl = currentSlPrice;
       }
 
@@ -1727,7 +1745,7 @@ export class OrderManagerService {
 
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     let lockAcquired = false;
-    const oldSlPrice = prevSlPrice || trade.current_sl;
+    const oldSlPrice = prevSlPrice || Number(trade.current_sl);
     const oldStopOrderId = trade.binance_stop_order_id;
     const oldStopOrderType = trade.binance_stop_order_type;
 
@@ -1777,7 +1795,7 @@ export class OrderManagerService {
         const status = exchangeState.status?.toUpperCase();
         if (status === 'FILLED') {
            this.logger.log(`[SL Ratchet] Existing SL order ${exchangeState.orderId} is already FILLED. Short-circuiting to EXCHANGE_CLOSE.`);
-           const exitPrice = parseFloat(exchangeState.avgPrice || exchangeState.price || '0') || this.tickerCache.getPrice(trade.symbol) || trade.current_sl;
+           const exitPrice = parseFloat(exchangeState.avgPrice || exchangeState.price || '0') || this.tickerCache.getPrice(trade.symbol) || Number(trade.current_sl);
            this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
               symbol: trade.symbol,
               exitPrice,
@@ -2055,16 +2073,16 @@ export class OrderManagerService {
 
         // SRE: Override delay to zero if exit_signals_override_ratchet is active and we are in high profit relative to signal target
         if (config.exit_signals_override_ratchet && detail && detail.threshold_is_price && typeof detail.threshold === 'number' && detail.threshold > 0) {
-          const currentPrice = this.tickerCache.getPrice(symbol) || trade.mark_price || trade.last_price || trade.entry_price;
-          if (currentPrice && trade.entry_price && trade.qty) {
+          const currentPrice = this.tickerCache.getPrice(symbol) || Number(trade.mark_price) || trade.last_price || Number(trade.entry_price);
+          if (currentPrice && Number(trade.entry_price) && trade.qty) {
             let currentPnl = 0;
             let signalPnl = 0;
             if (trade.direction === 'LONG') {
-              currentPnl = (currentPrice - trade.entry_price) * trade.qty;
-              signalPnl = (detail.threshold - trade.entry_price) * trade.qty;
+              currentPnl = (currentPrice - Number(trade.entry_price)) * trade.qty;
+              signalPnl = (detail.threshold - Number(trade.entry_price)) * trade.qty;
             } else {
-              currentPnl = (trade.entry_price - currentPrice) * trade.qty;
-              signalPnl = (trade.entry_price - detail.threshold) * trade.qty;
+              currentPnl = (Number(trade.entry_price) - currentPrice) * trade.qty;
+              signalPnl = (Number(trade.entry_price) - detail.threshold) * trade.qty;
             }
 
             if (currentPnl > 0 && signalPnl > 0 && currentPnl > signalPnl) {
@@ -2540,7 +2558,7 @@ export class OrderManagerService {
                       reason = EXIT_REASONS.TP_HIT;
                    } else if (type === 'STOP' || type === 'STOP_MARKET') {
                       // Distinguish between initial SL and ratchet milestones if possible
-                      const isInitial = Math.abs(parseFloat(orderData.stopPrice || orderData.triggerPrice || '0') - trade.initial_sl) < trade.initial_sl * 0.0001;
+                      const isInitial = Math.abs(parseFloat(orderData.stopPrice || orderData.triggerPrice || '0') - Number(trade.initial_sl)) < Number(trade.initial_sl) * 0.0001;
                       const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
                       // Explicitly preserve slType (e.g. SL_HIT_M1, SL_HIT_BREAKEVEN, SL_HIT_TRAILING_STOP)
@@ -2888,7 +2906,7 @@ export class OrderManagerService {
       // we attempt to fetch the canonical avgPrice from the exchange state.
       if (!paperMode && this.binanceClient && (exitPrice === 0 || localOnly)) {
         const tickerPrice = this.tickerCache.getPrice(symbol);
-        const estimate = exitPrice || tickerPrice || trade.current_sl;
+        const estimate = exitPrice || tickerPrice || Number(trade.current_sl);
 
         const context = await this.recoverClosingContext(symbol, trade, estimate, options.orderId || stopOrderId);
 
@@ -3265,7 +3283,7 @@ export class OrderManagerService {
                      trade.exit_signal_reason = `${label} at ${exitPrice}`;
                   }
                } else {
-                  const tradeMeta = { id: trade.id, direction: trade.direction, qty: trade.qty, entryPrice: trade.entry_price, sl: trade.current_sl };
+                  const tradeMeta = { id: trade.id, direction: trade.direction, qty: trade.qty, entryPrice: Number(trade.entry_price), sl: Number(trade.current_sl) };
                   this.logger.warn(`[${symbol}] Close order failed (REDUCE_ONLY) but position still exists on exchange (Amt: ${positionAmt}). This typically means a side mismatch or a ghost SL order is consuming the 'reduce-only' capacity. TradeMeta: ${JSON.stringify(tradeMeta)}. Error: ${errMsg}`);
 
                   // SRE: Aggressive symbol flush on REDUCE_ONLY failure to clear any untracked or conflicting SLs
@@ -3279,7 +3297,7 @@ export class OrderManagerService {
                   const willBeBlocked = trade.close_blocked || isExhausted;
                   if (!trade.binance_stop_order_id && !willBeBlocked) {
                      this.logger.warn(`[${symbol}] Close failed but position persists. Re-arming protection SL...`);
-                     await this.placeStopLoss(trade, trade.current_sl);
+                     await this.placeStopLoss(trade, Number(trade.current_sl));
                   }
 
                   if (trade.close_attempts && trade.close_attempts >= MAX_CLOSE_ATTEMPTS) {
@@ -3341,7 +3359,7 @@ export class OrderManagerService {
                 }
                 trade.binance_stop_order_id = undefined;
              }
-             await this.placeStopLoss(trade, trade.current_sl);
+             await this.placeStopLoss(trade, Number(trade.current_sl));
           }
         }
       } else if (paperMode) {
@@ -3357,12 +3375,12 @@ export class OrderManagerService {
       if (!paperMode) {
          // pnl_pct: Recover original quantity from risk_usdt to ensure accuracy even if terminal qty is 0 or reduced.
          // We do this BEFORE potentially updating pnl but after we have everything needed.
-         const riskDist = Math.abs(trade.entry_price - trade.initial_sl);
+         const riskDist = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
          const initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (trade.qty || 1);
 
          const totalPnlPoints = trade.direction === 'LONG'
-           ? exitPrice - trade.entry_price
-           : trade.entry_price - exitPrice;
+           ? exitPrice - Number(trade.entry_price)
+           : Number(trade.entry_price) - exitPrice;
 
          const totalGrossPnl = totalPnlPoints * initialQty;
          const absoluteNetPnl = roundEight(totalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0));
@@ -3375,7 +3393,7 @@ export class OrderManagerService {
          if ((options.alreadyRealized || options.feesAlreadyAccounted) && !isAnySlHit) {
             const divergence = Math.abs((trade.pnl || 0) - absoluteNetPnl);
             if (divergence > 0.01) {
-               this.logger.warn(`[PnL Divergence Alert] Trade ${trade.id} (${symbol}): Accumulated PnL (${trade.pnl}) and Absolute Recomputed PnL (${absoluteNetPnl}) diverge by ${divergence.toFixed(4)}. Force-correcting trade PnL to Absolute Recomputed PnL to prevent state-bleeding or double-count. Qty=${initialQty}, Entry=${trade.entry_price}, Exit=${exitPrice}, Fees=${trade.realized_fee}, Funding=${trade.funding_fee}`);
+               this.logger.warn(`[PnL Divergence Alert] Trade ${trade.id} (${symbol}): Accumulated PnL (${trade.pnl}) and Absolute Recomputed PnL (${absoluteNetPnl}) diverge by ${divergence.toFixed(4)}. Force-correcting trade PnL to Absolute Recomputed PnL to prevent state-bleeding or double-count. Qty=${initialQty}, Entry=${Number(trade.entry_price)}, Exit=${exitPrice}, Fees=${trade.realized_fee}, Funding=${trade.funding_fee}`);
                trade.pnl = absoluteNetPnl;
             } else {
                this.logger.debug(`[PnL Integrity] Using authoritative accumulated PnL for ${symbol}: ${trade.pnl} (Absolute PnL=${absoluteNetPnl}, Divergence=${divergence})`);
@@ -3394,25 +3412,25 @@ export class OrderManagerService {
          // This must happen AFTER Incremental PnL calculation to avoid double-counting.
          trade.qty = initialQty;
 
-         const notional = trade.entry_price * initialQty;
+         const notional = Number(trade.entry_price) * initialQty;
 
          const finalPnlPct = (notional !== 0) ? (trade.pnl / notional) * 100 : 0;
          trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
       } else {
          // BOLT: Final PnL calculation using the finalized exitPrice (potentially from fills)
          const finalPnlPoints = trade.direction === 'LONG'
-           ? exitPrice - trade.entry_price
-           : trade.entry_price - exitPrice;
+           ? exitPrice - Number(trade.entry_price)
+           : Number(trade.entry_price) - exitPrice;
 
          const finalGrossPnl = finalPnlPoints * (trade.qty || 0);
          const finalNetPnl = finalGrossPnl - (trade.realized_fee || 0) - (trade.funding_fee || 0);
 
          // DATA-CONSISTENCY: pnl_pct now reflects Net PnL relative to notional value
-         const notional = trade.entry_price * (trade.qty || 0);
+         const notional = Number(trade.entry_price) * (trade.qty || 0);
          const finalPnlPct = (notional !== 0) ? (finalNetPnl / notional) * 100 : 0;
          trade.pnl_pct = roundEight(Number.isFinite(finalPnlPct) ? finalPnlPct : 0);
 
-         this.logger.log(`[PnL Calculation] ${symbol} (Paper): ${trade.direction} Exit=${exitPrice}, Entry=${trade.entry_price}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
+         this.logger.log(`[PnL Calculation] ${symbol} (Paper): ${trade.direction} Exit=${exitPrice}, Entry=${Number(trade.entry_price)}, Qty=${trade.qty}, Gross=${Number(finalGrossPnl || 0).toFixed(4)}, Fee=${Number(trade.realized_fee || 0).toFixed(4)}, Net=${Number(finalNetPnl || 0).toFixed(4)}`);
 
          trade.pnl = roundEight(Number.isFinite(finalNetPnl) ? finalNetPnl : 0);
       }
@@ -3453,8 +3471,8 @@ export class OrderManagerService {
       }
 
       // Calculate final exit RR
-      const initialRisk = Math.abs(trade.entry_price - trade.initial_sl);
-      trade.exit_rr = initialRisk > 0 ? (trade.direction === 'LONG' ? (exitPrice - trade.entry_price) : (trade.entry_price - exitPrice)) / initialRisk : 0;
+      const initialRisk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
+      trade.exit_rr = initialRisk > 0 ? (trade.direction === 'LONG' ? (exitPrice - Number(trade.entry_price)) : (Number(trade.entry_price) - exitPrice)) / initialRisk : 0;
 
       // REDUCE LOG NOISE: PositionTrackerService already logs a standardized closure message.
       // We only log to debug here for internal traceability.

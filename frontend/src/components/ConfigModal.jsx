@@ -50,6 +50,9 @@ const TAB_ERROR_MAP = {
   scan_mode: 'scan',
   trading_mode: 'env',
   risk_pct_per_trade: 'risk',
+  martingale_multiplier: 'risk',
+  martingale_reset_threshold_pct: 'risk',
+  martingale_max_steps: 'risk',
   max_open_trades: 'risk',
   sl_distance_pct: 'risk',
   scanner_weights_momentum: 'scan',
@@ -2403,6 +2406,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       errs.risk_pct_per_trade_warn = 'Aggressive (>4%)'
     }
 
+    if (c.martingale_enabled) {
+      if (c.martingale_multiplier < 1 || c.martingale_multiplier > 10) errs.martingale_multiplier = 'Must be 1-10';
+      if (c.martingale_reset_threshold_pct < CONFIG_LIMITS.RISK_PER_TRADE_MIN || c.martingale_reset_threshold_pct > CONFIG_LIMITS.RISK_PER_TRADE_MAX) errs.martingale_reset_threshold_pct = `Must be ${CONFIG_LIMITS.RISK_PER_TRADE_MIN}-${CONFIG_LIMITS.RISK_PER_TRADE_MAX}`;
+      if (c.martingale_max_steps < 1 || c.martingale_max_steps > 20) errs.martingale_max_steps = 'Must be 1-20';
+    }
+
     if (c.sl_distance_pct > 5) {
       errs.sl_distance_pct_warn = 'Aggressive (>5%)'
     }
@@ -4648,6 +4657,36 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   )}
                 </div>
               )}
+            </CollapsibleSection>
+
+            <CollapsibleSection
+              id="risk_martingale"
+              icon={Zap}
+              title="Martingale Recovery"
+              subtitle="Exponential risk sizing after losses"
+              isOpen={openSectionId === 'risk_martingale'}
+              onToggle={() => setOpenSectionId(openSectionId === 'risk_martingale' ? null : 'risk_martingale')}
+            >
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface/40 border border-border/30 rounded-xl">
+                  <div className="flex flex-col text-left">
+                    <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
+                      <Zap size={12} className="text-accent" />
+                      Enable Martingale
+                    </span>
+                    <p className="text-[9px] text-dim/75 font-semibold mt-0.5">Increases position risk multiplier sequentially after each consecutive loss to accelerate recovery.</p>
+                  </div>
+                  <Toggle value={cfg.martingale_enabled === true} onChange={(v) => setField('martingale_enabled', v)} />
+                </div>
+
+                {cfg.martingale_enabled && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-surface/20 border border-border/20 rounded-xl">
+                    {renderField('Multiplier', 'martingale_multiplier', 'number', 'e.g. 2.0 = double risk per loss', { min: 1.0, max: 10.0, step: 0.1 })}
+                    {renderField('Max Steps', 'martingale_max_steps', 'number', 'Maximum consecutive loss multipliers', { min: 1, max: 20, step: 1 })}
+                    {renderField('Hard Reset Risk %', 'martingale_reset_threshold_pct', 'number', 'Reset multiplier if new risk exceeds this %', { min: 0.1, max: 100.0, step: 0.1 })}
+                  </div>
+                )}
+              </div>
             </CollapsibleSection>
 
             <CollapsibleSection

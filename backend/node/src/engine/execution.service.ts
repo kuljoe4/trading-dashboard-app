@@ -573,7 +573,7 @@ export class ExecutionService {
         });
         slPrice = slFiltered.price;
 
-        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol);
+        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol, closedTrades);
 
         if (sizeResult.qty <= 0) {
           if (sizeResult.rejected) {

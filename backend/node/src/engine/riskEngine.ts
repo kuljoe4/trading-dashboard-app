@@ -765,12 +765,52 @@ export class RiskEngineService {
     slPrice: number,
     direction: 'LONG' | 'SHORT',
     config: SessionConfig,
-    symbol?: string
-  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean } {
+    symbol?: string,
+    closedTrades: Trade[] = []
+  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean; martingaleActive?: boolean; activeMultiplier?: number } {
     this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
     if (balance <= 0 || entryPrice <= 0) return { qty: 0 };
 
-    const riskAmount = balance * ((config.risk_pct_per_trade ?? 1.0) / 100);
+    let riskPct = config.risk_pct_per_trade ?? 1.0;
+    let martingaleActive = false;
+    let activeMultiplier = 1.0;
+
+    if (config.martingale_enabled) {
+      const strategyLabel = config.strategy_label || 'default';
+      let consecutiveLosses = 0;
+
+      for (const trade of closedTrades) {
+         if ((trade.strategy_label || 'default') === strategyLabel) {
+            const pnl = Number(trade.pnl) || 0;
+            if (pnl < 0) {
+               consecutiveLosses++;
+            } else if (pnl > 0) {
+               break;
+            }
+         }
+      }
+
+      if (consecutiveLosses > 0) {
+         const multiplier = config.martingale_multiplier ?? 2.0;
+         const maxSteps = config.martingale_max_steps ?? 3;
+         const resetThreshold = config.martingale_reset_threshold_pct ?? 4.0;
+
+         const steps = Math.min(consecutiveLosses, maxSteps);
+         activeMultiplier = Math.pow(multiplier, steps);
+         const newRiskPct = riskPct * activeMultiplier;
+
+         if (newRiskPct > resetThreshold) {
+            this.logger.warn(`[RiskEngine] Martingale risk ${newRiskPct.toFixed(2)}% exceeds reset threshold ${resetThreshold.toFixed(2)}%. Resetting to base risk ${riskPct}%.`);
+            activeMultiplier = 1.0;
+         } else {
+            riskPct = newRiskPct;
+            martingaleActive = true;
+            this.logger.log(`[RiskEngine] Martingale active: ${consecutiveLosses} consecutive losses. Multiplier=${activeMultiplier.toFixed(2)}x, New Risk=${riskPct.toFixed(2)}%`);
+         }
+      }
+    }
+
+    const riskAmount = balance * (riskPct / 100);
     const slDistance = Math.abs(entryPrice - slPrice);
     
     if (slDistance <= 0) return { qty: 0 };
@@ -830,7 +870,7 @@ export class RiskEngineService {
        }
     }
 
-    return { qty, isNominalOvershoot };
+    return { qty, isNominalOvershoot, martingaleActive, activeMultiplier };
   }
 
   /**

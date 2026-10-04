@@ -459,6 +459,28 @@ export class SessionConfig {
   @IsOptional()
   max_total_risk_pct?: number = CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT;
 
+  @IsBoolean()
+  @IsOptional()
+  martingale_enabled?: boolean = false;
+
+  @IsNumber()
+  @Min(1.0)
+  @Max(10.0)
+  @IsOptional()
+  martingale_multiplier?: number = 2.0;
+
+  @IsNumber()
+  @Min(CONFIG_LIMITS.RISK_PER_TRADE_MIN)
+  @Max(CONFIG_LIMITS.RISK_PER_TRADE_MAX)
+  @IsOptional()
+  martingale_reset_threshold_pct?: number = 4.0;
+
+  @IsNumber()
+  @Min(1)
+  @Max(20)
+  @IsOptional()
+  martingale_max_steps?: number = 3;
+
   @IsNumber()
   @Min(0)
   @IsOptional()

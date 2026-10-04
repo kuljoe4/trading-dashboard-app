@@ -468,6 +468,12 @@ export class SessionConfig {
   @IsOptional()
   auto_scale_min_notional?: boolean = true;
 
+  @IsNumber()
+  @IsOptional()
+  @Min(1.0)
+  @Max(10.0)
+  auto_scale_max_overshoot?: number = 3.0;
+
   @IsBoolean()
   @IsOptional()
   risk_hardening_enabled?: boolean = false;

@@ -2098,6 +2098,7 @@ const flattenConfig = (config) => {
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
       scanner_signal_depth: config.scanner_signal_depth || 10,
       auto_scale_min_notional: config.auto_scale_min_notional !== undefined ? config.auto_scale_min_notional : true,
+      auto_scale_max_overshoot: config.auto_scale_max_overshoot !== undefined ? config.auto_scale_max_overshoot : 3.0,
       risk_hardening_enabled: !!config.risk_hardening_enabled,
       max_single_trade_risk_pct: config.max_single_trade_risk_pct !== undefined ? config.max_single_trade_risk_pct : 20.0,
       engulfing_mode: config.engulfing_mode || 'range',
@@ -4318,6 +4319,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                   </div>
                   <div className="flex flex-col gap-1.5 mt-0.5">
+                    <div className={cn(cfg.auto_scale_min_notional !== false ? "block" : "hidden", "mb-2")}>
+                      {renderField('Max Scaled Risk Overshoot (Multiplier)', 'auto_scale_max_overshoot', 'number', null, { min: 1.0, max: 10.0, step: 0.1 })}
+                    </div>
                     <div className="flex items-baseline gap-2">
                       <span className={cn(
                         "text-sm font-bold font-mono transition-colors",

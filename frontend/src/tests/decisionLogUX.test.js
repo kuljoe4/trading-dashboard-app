@@ -52,7 +52,7 @@ test('DecisionLog UX & Keyboard Accessibility Standard', () => {
   // 6. Scroll-to-top button specifies type="button", dynamic aria-label, and focus-visible ring
   assert.ok(
     content.includes('type="button"') &&
-    content.includes('aria-label={newLogsCount > 0 ? `Scroll to top (${newLogsCount} new log${newLogsCount === 1 ? \'\' : \'s\'} above)` : \'Scroll to top\'}') &&
+    content.includes('aria-label={newLogsCount > 0 ? `Scroll to top (${newLogsCount} new log${newLogsCount === 1 ? \'\' : \'s\'} above)` : \'Scroll to top \\u2191\'}') &&
     content.includes('focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none'),
     'Scroll-to-top button must specify type="button", dynamic aria-label, and high-contrast focus-visible ring'
   )

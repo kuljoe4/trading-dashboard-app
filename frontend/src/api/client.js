@@ -137,6 +137,8 @@ const sessionConfigAllowedKeys = [
   'max_total_risk_pct',
   'total_sl_guard_usdt',
   'auto_scale_min_notional',
+  'auto_scale_max_overshoot',
+  'is_nominal_overshoot',
   'paper_mode',
   'trading_mode',
   'paper_starting_balance',

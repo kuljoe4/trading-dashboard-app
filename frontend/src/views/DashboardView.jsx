@@ -1662,6 +1662,7 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
         className="group flex items-center justify-between w-full mb-4 text-left outline-none cursor-pointer select-none"
         aria-expanded={showReconciliation}
         aria-controls="reconciliation-center-list"
+        aria-label={showReconciliation ? "Collapse Reconciliation Center section" : "Expand Reconciliation Center section"}
       >
         <SectionLabel className="mb-0 flex-1 flex items-center gap-2">
           <Briefcase size={14} className="text-accent" /> Reconciliation Center
@@ -2852,6 +2853,7 @@ export function DashboardView({ initialStrategy }) {
               className="group flex items-center justify-between w-full mb-4 text-left outline-none"
               aria-expanded={showTemporalRisk}
               aria-controls="temporal-risk-grid"
+              aria-label={showTemporalRisk ? "Collapse Temporal Risk section" : "Expand Temporal Risk section"}
             >
               <SectionLabel className="mb-0 flex-1">
                 <ShieldCheck size={14} className="text-accent" /> Temporal Risk & Limits

@@ -711,7 +711,11 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
     let pnlTwoToThree = 0;
     let pnlThreePlus = 0;
 
-    trades.forEach(t => {
+    // BOLT OPTIMIZATION: Replacing .forEach with a single-pass for loop.
+    // This avoids closure execution overhead and aligns with high-frequency render optimizations.
+    const tradesLen = trades.length;
+    for (let i = 0; i < tradesLen; i++) {
+      const t = trades[i];
       const err = Number(t.exit_rr ?? 0);
       const pnl = safeNum(t.pnl);
       if (err < -0.5) {
@@ -742,7 +746,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
         rangeThreePlus++;
         pnlThreePlus += pnl;
       }
-    });
+    }
 
     const total = trades.length || 1;
     return [
@@ -1856,8 +1860,25 @@ export const HistoryView = () => {
   };
 
   const orphans = useMemo(() => {
-    const sessionIds = new Set((sessionList || []).filter(Boolean).map(s => s.id))
-    return (tradeHistory || []).filter(Boolean).filter(t => !t.sessionId || !sessionIds.has(t.sessionId))
+    // BOLT OPTIMIZATION: Loop-fused single-pass set population and filtering (no intermediate array allocations)
+    const sessionIds = new Set();
+    const listLen = sessionList?.length || 0;
+    for (let i = 0; i < listLen; i++) {
+      const s = sessionList[i];
+      if (s?.id) {
+        sessionIds.add(s.id);
+      }
+    }
+
+    const result = [];
+    const tradesLen = tradeHistory?.length || 0;
+    for (let i = 0; i < tradesLen; i++) {
+      const t = tradeHistory[i];
+      if (t && (!t.sessionId || !sessionIds.has(t.sessionId))) {
+        result.push(t);
+      }
+    }
+    return result;
   }, [sessionList, tradeHistory])
 
   const [deletingOrphans, setDeletingOrphans] = useState(false)

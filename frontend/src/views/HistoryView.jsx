@@ -357,28 +357,32 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
         <div className="flex items-start justify-between gap-3">
           <div className="flex flex-col gap-1 min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm font-black font-mono tracking-tight shrink-0">{trade.symbol}</span>
+              <span className="text-sm font-bold font-mono tracking-tight shrink-0">{trade.symbol}</span>
               <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
-              <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded border uppercase shrink-0", isLong ? "text-green border-green/20 bg-green/5" : "text-red border-red/20 bg-red/5")}>
+              <span className={cn("text-[8.5px] font-bold font-mono uppercase tracking-wider shrink-0", isLong ? "text-green" : "text-red")}>
                 {trade.direction}
               </span>
               {trade.is_knife && (
-                <span className="text-[8px] bg-amber/15 text-amber font-black border border-amber/30 px-1.5 py-0.5 rounded tracking-wider uppercase flex items-center gap-0.5 shrink-0 leading-none">
-                  🔪 KNIFE
-                </span>
+                <>
+                  <span className="text-dim/40 text-[8.5px]">·</span>
+                  <span className="text-[8.5px] text-amber font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none">
+                    🔪 KNIFE
+                  </span>
+                </>
               )}
               {showStrategy && (
                 <div className="flex items-center gap-1.5">
-                  <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8px] font-black px-1.5 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase truncate max-w-[100px]">
+                  <span className="text-dim/40 text-[8.5px]">·</span>
+                  <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8.5px] font-bold font-mono text-dim hover:text-accent transition-colors uppercase truncate max-w-[120px]">
                     {strategyLabel(trade)}
                   </a>
                   {(strategyLabel(trade) === 'Momentum Strategy' || strategyLabel(trade) === (session?.config?.strategy_label || 'Momentum Strategy')) ? (
-                    <span className="text-[7px] font-black px-1.5 py-0.5 rounded border border-blue-500/20 bg-blue-500/5 text-blue-400 uppercase shrink-0 scale-90 origin-left">
-                      Base
+                    <span className="text-[7.5px] font-mono text-dim/60 uppercase shrink-0">
+                      (Base)
                     </span>
                   ) : (
-                    <span className="text-[7px] font-black px-1.5 py-0.5 rounded border border-purple/20 bg-purple/5 text-purple uppercase shrink-0 scale-90 origin-left">
-                      Variant
+                    <span className="text-[7.5px] font-mono text-accent/80 uppercase shrink-0">
+                      (Variant)
                     </span>
                   )}
                 </div>
@@ -2241,7 +2245,7 @@ export const HistoryView = () => {
                 className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 flex flex-col gap-6 md:gap-8"
               >
                 {/* 1. Stat Cards Grid (First 6) */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 gap-y-4">
                   <StatCard
                     label="Total Performance"
                     value={fmtUSD(totalPnl)}
@@ -2254,19 +2258,37 @@ export const HistoryView = () => {
                       </span>
                     }
                   />
-                  <StatCard label="Win Rate" value={`${winRate}%`} color="text-accent" subValue={`${wins}W / ${totalTrades - wins}L`} />
+                  <StatCard
+                    label="Win Rate"
+                    value={`${winRate}%`}
+                    color="text-accent"
+                    subValue={`${wins}W / ${totalTrades - wins}L`}
+                    tooltipText={`Percentage of profitable trades: ${wins} winning trades out of ${totalTrades} total trades.`}
+                  />
                   <StatCard
                     label="Max Drawdown"
                     value={currentAnalytics ? fmtUSD(-currentAnalytics.maxDrawdown) : '$0.00'}
                     color="text-red"
                     subValue={currentAnalytics ? `${Number(currentAnalytics.maxDrawdownPct || 0).toFixed(1)}% Peak` : '0%'}
+                    tooltipText="Maximum dollar and percentage drawdown observed from equity peak to trough."
                   />
-                  <StatCard label="Avg Win" value={fmtUSD(currentAnalytics?.avgWin || 0)} color="text-green" />
-                  <StatCard label="Avg Loss" value={fmtUSD(-(currentAnalytics?.avgLoss || 0))} color="text-red" />
+                  <StatCard
+                    label="Avg Win"
+                    value={fmtUSD(currentAnalytics?.avgWin || 0)}
+                    color="text-green"
+                    tooltipText="Average dollar gain across all profitable trades."
+                  />
+                  <StatCard
+                    label="Avg Loss"
+                    value={fmtUSD(-(currentAnalytics?.avgLoss || 0))}
+                    color="text-red"
+                    tooltipText="Average dollar loss across all unprofitable trades."
+                  />
                   <StatCard
                     label="W/L Ratio"
                     value={Number(currentAnalytics?.avgWinLossRatio || 0).toFixed(2)}
                     color="text-accent"
+                    tooltipText={`Win/Loss payout ratio: average winning trade size divided by average losing trade size. Expectancy: ${Number(lifetimeExpectancyStatus.expectancy || 0).toFixed(2)}.`}
                     subValue={
                       <div className="flex flex-col gap-0.5">
                         <span className={cn("flex items-center gap-1", lifetimeExpectancyStatus.color)}>

@@ -275,105 +275,81 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         </div>
       )}
 
-      {/* TIER 1: Dominant Header (Symbol, Position, Badges + Dominant P&L Block) */}
-      <div className="flex items-start justify-between gap-2 h-[34px] min-w-0 shrink-0">
-        <div className="flex flex-col justify-center gap-0.5 min-w-0 flex-1">
-          <div className="flex items-center gap-1 min-w-0 flex-wrap leading-none">
-            <span className="text-xs sm:text-sm font-black font-mono tracking-tight text-text leading-none shrink-0">
+      {/* TIER 1: Clean Terminal Header (Symbol, Direction, Meta + Dominant P&L Block) */}
+      <div className="flex items-start justify-between gap-3 min-w-0 shrink-0">
+        <div className="flex flex-col justify-center min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0 flex-wrap leading-tight">
+            <span className="text-xs sm:text-sm font-bold font-mono tracking-tight text-text leading-none shrink-0">
               {trade.symbol || '---'}
             </span>
             <CopyButton value={trade.symbol} className="hidden sm:inline-flex opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity scale-75 -ml-1" />
 
             <span className={cn(
-              "text-[7.5px] font-black px-1 py-0.5 rounded border uppercase shrink-0 leading-none font-mono",
-              isLong ? 'text-green border-green/20 bg-green/5' : 'text-red border-red/20 bg-red/5'
+              "text-[8.5px] font-bold font-mono tracking-wider uppercase shrink-0 leading-none",
+              isLong ? 'text-green' : 'text-red'
             )}>
-              {isLong ? '▲ LONG' : '▼ SHORT'}
+              {isLong ? 'LONG' : 'SHORT'}
             </span>
 
-            <span className="bg-accent/10 text-accent border border-accent/20 text-[7px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 font-mono leading-none">
+            <span className="text-dim/40 text-[8.5px]">·</span>
+
+            <span className="text-[8.5px] font-mono text-dim tracking-tight shrink-0 leading-none">
               {trade.strategy_config?.scan_interval || trade.strategy_config?.interval || config?.scan_interval || '5m'}
             </span>
 
-            {/* Risk Phase & Protection Badges */}
+            {/* Risk Phase & Protection Unboxed Indicator */}
             {isRiskReleased ? (
-              <Tooltip content={`INITIAL RISK PROTECTED: Stop Loss moved to entry or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Initial risk is 0.00R.`}>
-                <span className="bg-green/10 border border-green/30 text-green text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-sm font-mono">
-                  <Lock size={7} className="text-green shrink-0" />
-                  <span>RISK PROTECTED</span>
-                </span>
-              </Tooltip>
+              <>
+                <span className="text-dim/40 text-[8.5px]">·</span>
+                <Tooltip content={`INITIAL RISK PROTECTED: Stop Loss moved to entry or better (${trade.risk_lock_reason || 'SL_AT_BREAKEVEN'}). Initial risk is 0.00R.`}>
+                  <span className="text-green text-[8.5px] font-semibold uppercase tracking-wider flex items-center gap-1 cursor-help shrink-0 font-mono leading-none">
+                    <Lock size={9} className="text-green shrink-0" />
+                    <span>PROTECTED</span>
+                  </span>
+                </Tooltip>
+              </>
             ) : trade.initial_sl > 0 && Math.abs((trade.sl_price || sl) - trade.initial_sl) > 0.0000001 ? (
-              <Tooltip content={`Stop Loss ratcheted from ${fmtUSD(trade.initial_sl)} to ${fmtUSD(trade.sl_price || sl)}`}>
-                <span className="bg-amber/10 border border-amber/25 text-amber text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 font-mono">
-                  <ShieldCheck size={7} className="text-amber" />
-                  <span>SL MOVED</span>
-                </span>
-              </Tooltip>
-            ) : (
-              <Tooltip content={`Active Trade Risk: ${fmtUSD(trade.risk_usdt || trade.initial_risk_usdt || 0)}`}>
-                <span className="bg-surface text-dim border border-white/10 text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 font-mono">
-                  <ShieldCheck size={7} className="text-dim/70" />
-                  <span>RISK: {fmtUSD(trade.risk_usdt || trade.initial_risk_usdt || 0)}</span>
-                </span>
-              </Tooltip>
-            )}
-
-            {trade.strategy_config?.tp_mode === 'exp_rr_seq_switch' && (strategyGateStates[trade.strategy_label || 'Momentum Strategy']?.peakRrSwitchHits >= (trade.strategy_config?.peak_rr_switch_count || 1)) && (
-              <Tooltip content={`Switched to alternate milestone guards (Strategy hit peak RR threshold)`}>
-                <span className="bg-blue/10 border border-blue/30 text-blue text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0 cursor-help">
-                  <RefreshCw size={7} className="text-blue shrink-0" />
-                  <span>SWITCHED</span>
-                </span>
-              </Tooltip>
-            )}
-
-            {trade.strategy_config?.trailing_stop_enabled && (
-              <Tooltip content="Dynamic Trailing Stop Loss engaged">
-                <span className="bg-purple/10 border border-purple/25 text-purple text-[7px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none shrink-0 cursor-help">
-                  <RefreshCw size={7} className="animate-spin text-purple shrink-0" />
-                  <span>TRAIL</span>
-                </span>
-              </Tooltip>
-            )}
-
-            {diag.hasError ? (
-              <Tooltip content={`CRITICAL DISCREPANCY: ${diag.issues.filter(i => i.type === 'error').map(i => i.title).join(', ')}`}>
-                <span className="bg-red/15 border border-red/40 text-red text-[7.5px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 shadow-[0_0_8px_rgba(255,68,102,0.25)] font-mono animate-pulse">
-                  <AlertTriangle size={7} className="text-red shrink-0" />
-                  <span>E</span>
-                </span>
-              </Tooltip>
-            ) : diag.hasWarning ? (
-              <Tooltip content={`TRADE WARNING: ${diag.issues.filter(i => i.type === 'warning').map(i => i.title).join(', ')}`}>
-                <span className="bg-amber/15 border border-amber/35 text-amber text-[7.5px] font-black uppercase tracking-wider px-1 py-0.5 rounded flex items-center gap-0.5 leading-none cursor-help shrink-0 font-mono">
-                  <AlertTriangle size={7} className="text-amber shrink-0" />
-                  <span>W</span>
-                </span>
-              </Tooltip>
+              <>
+                <span className="text-dim/40 text-[8.5px]">·</span>
+                <Tooltip content={`Stop Loss ratcheted from ${fmtUSD(trade.initial_sl)} to ${fmtUSD(trade.sl_price || sl)}`}>
+                  <span className="text-amber text-[8.5px] font-semibold uppercase tracking-wider flex items-center gap-1 cursor-help shrink-0 font-mono leading-none">
+                    <ShieldCheck size={9} className="text-amber" />
+                    <span>SL MOVED</span>
+                  </span>
+                </Tooltip>
+              </>
             ) : null}
 
-            {trade.is_knife && (
-              <span className="text-[7.5px] bg-amber/15 text-amber font-black border border-amber/30 px-1 py-0.5 rounded tracking-wider uppercase leading-none shrink-0">
-                🔪 KNIFE
-              </span>
+            {diag.hasError && (
+              <>
+                <span className="text-dim/40 text-[8.5px]">·</span>
+                <Tooltip content={`CRITICAL DISCREPANCY: ${diag.issues.filter(i => i.type === 'error').map(i => i.title).join(', ')}`}>
+                  <span className="text-red text-[8.5px] font-bold uppercase tracking-wider flex items-center gap-0.5 cursor-help shrink-0 font-mono leading-none">
+                    <AlertTriangle size={9} className="text-red shrink-0" />
+                    <span>ISSUE</span>
+                  </span>
+                </Tooltip>
+              </>
             )}
 
             {config?.single_symbol_configs?.some(sc => sc.symbol === trade.symbol && sc.enabled) && (
-              <MonitoredBadge className="opacity-80 scale-90 -ml-0.5" />
+              <>
+                <span className="text-dim/40 text-[8.5px]">·</span>
+                <MonitoredBadge className="opacity-90" />
+              </>
             )}
           </div>
 
-          <div className="flex items-center gap-1 text-[7.5px] text-dim font-mono font-medium leading-none pt-0.5">
+          <div className="flex items-center gap-1.5 text-[8px] text-dim font-mono font-medium leading-none pt-1">
             <span className="flex items-center gap-0.5">
-              <Clock size={8} className="text-accent/80 shrink-0" /> {duration}
+              <Clock size={8} className="text-dim/70 shrink-0" /> {duration}
             </span>
-            <span>·</span>
+            <span className="text-dim/40">·</span>
             <span>Entry {fmtUSD(entry)}</span>
-            {(netFee !== 0) && (
+            {netFee !== 0 && (
               <>
-                <span>·</span>
-                <span className={netFee > 0 ? "text-red/60" : "text-green/60"}>Fee {fmtUSD(-netFee)}</span>
+                <span className="text-dim/40">·</span>
+                <span className={netFee > 0 ? "text-red/70" : "text-green/70"}>Fee {fmtUSD(-netFee)}</span>
               </>
             )}
           </div>
@@ -383,23 +359,18 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="flex flex-col items-end justify-center shrink-0 leading-none">
           <Tooltip content={`Live P&L: ${fmtUSD(trade.pnl)} | Current R: ${markR >= 0 ? '+' : ''}${markR.toFixed(2)}R | Return: ${markPercent >= 0 ? '+' : ''}${markPercent.toFixed(2)}%`}>
             <div className={cn(
-              "text-base sm:text-lg font-black font-mono tracking-tighter leading-none cursor-help transition-all duration-300 flex items-center gap-1",
+              "text-base sm:text-lg font-bold font-mono tracking-tight tabular-nums leading-none cursor-help transition-all duration-300",
               trade.pnl != null && !isNaN(Number(trade.pnl)) ? pnlClass(trade.pnl) : 'text-dim'
             )}>
               {trade.pnl != null && !isNaN(Number(trade.pnl)) ? fmtUSD(trade.pnl) : '$0.00'}
             </div>
           </Tooltip>
-          <div className="flex items-center gap-1 pt-0.5 text-[8.5px] font-black font-mono leading-none">
-            <span className={cn(
-              "px-1 py-0.2 rounded font-mono font-black",
-              markR >= 0 ? "bg-green/10 text-green" : "bg-red/10 text-red"
-            )}>
+          <div className="flex items-center gap-1.5 pt-1 text-[8.5px] font-bold font-mono tabular-nums leading-none">
+            <span className={markR >= 0 ? "text-green" : "text-red"}>
               {markR >= 0 ? '+' : ''}{markR.toFixed(2)}R
             </span>
-            <span className={cn(
-              "font-mono font-semibold",
-              markPercent >= 0 ? "text-green" : "text-red"
-            )}>
+            <span className="text-dim/40">·</span>
+            <span className={markPercent >= 0 ? "text-green" : "text-red"}>
               {markPercent >= 0 ? '+' : ''}{markPercent.toFixed(2)}%
             </span>
           </div>
@@ -607,26 +578,27 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
         <div className="flex items-center gap-1 shrink-0">
           {hasCrossedSignal || exitEst?.state === 'fired' ? (
             <Tooltip content="Strategy exit conditions triggered!">
-              <span className="bg-red/15 text-red border border-red/30 px-1 py-0.2 rounded font-black flex items-center gap-0.5 animate-pulse">
-                ⚡ FIRED
+              <span className="text-red font-bold flex items-center gap-1 animate-pulse">
+                <Zap size={9} className="text-red shrink-0" />
+                <span>EXIT TRIGGERED</span>
               </span>
             </Tooltip>
           ) : exitEst?.state === 'blocked' ? (
             <Tooltip content={exitEst.description || "Exit signal blocked by MACD filter"}>
-              <span className="bg-red/10 text-red border border-red/20 px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help">
-                ⛔ BLOCKED
+              <span className="text-red/90 font-bold flex items-center gap-1 cursor-help">
+                <span>FILTER BLOCKED</span>
               </span>
             </Tooltip>
           ) : exitEst?.state === 'diverging' ? (
             <Tooltip content={exitEst.description || "Fast/Slow EMA moving apart"}>
-              <span className="bg-surface text-dim border border-white/10 px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help">
-                ↔ DIVERGING
+              <span className="text-dim font-bold flex items-center gap-1 cursor-help">
+                <span>DIVERGING</span>
               </span>
             </Tooltip>
           ) : hasDelayedSignal ? (
             <Tooltip content="Exit signal active but delay-gated">
-              <span className="bg-amber/10 text-amber border border-amber/20 px-1 py-0.2 rounded font-black flex items-center gap-0.5">
-                <Clock size={7} className="animate-spin" /> DELAYED
+              <span className="text-amber font-bold flex items-center gap-1">
+                <Clock size={8} className="animate-spin" /> DELAYED
               </span>
             </Tooltip>
           ) : (
@@ -646,14 +618,15 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               ) : `Strategy Exit Engine actively monitoring position (${activeSignalCount} signal rules active, ${exitSignalProximity}% proximity)`
             }>
               <span className={cn(
-                "border px-1 py-0.2 rounded font-black flex items-center gap-0.5 cursor-help",
-                exitSignalProximity >= 80 ? "text-red bg-red/10 border-red/20" :
-                exitSignalProximity >= 50 ? "text-amber bg-amber/10 border-amber/20" :
-                "bg-surface text-accent border-accent/20"
+                "font-bold flex items-center gap-1 cursor-help",
+                exitSignalProximity >= 80 ? "text-red" :
+                exitSignalProximity >= 50 ? "text-amber" :
+                "text-dim/80 hover:text-text transition-colors"
               )}>
-                <Activity size={7} className="shrink-0" /> MONITORING · {exitSignalProximity}%
+                <Activity size={8} className="shrink-0 text-accent" />
+                <span>MONITORING · {exitSignalProximity}%</span>
                 {exitEst?.etaCandles !== null && exitEst?.etaCandles !== undefined && (
-                  <span className="text-dim opacity-80 font-normal">· ~{exitEst.etaCandles}c</span>
+                  <span className="text-dim/60 font-normal">· ~{exitEst.etaCandles}c</span>
                 )}
               </span>
             </Tooltip>

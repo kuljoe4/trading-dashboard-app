@@ -109,12 +109,12 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-4 lg:p-5 rounded-2xl shadow-md transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[80px] lg:min-h-[100px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-        isLocked ? "border-border shadow-black/20" : "border-accent/40 bg-accent/[0.02] shadow-[0_0_20px_rgba(91,111,255,0.05)]",
+        "bg-surface border p-3 md:p-4 rounded-xl shadow-xs transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[76px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+        isLocked ? "border-border hover:border-border-hover" : "border-accent/50 bg-accent/[0.03] shadow-[0_0_20px_rgba(79,70,229,0.08)]",
         disabled && "opacity-40 grayscale pointer-events-none",
-        usagePct >= 90 && "border-red/40 bg-red/[0.02] shadow-[0_0_20px_rgba(255,68,102,0.1)] animate-pulse-slow",
-        usagePct >= 70 && usagePct < 90 && "border-amber/40 bg-amber/[0.02] shadow-[0_0_20px_rgba(245,166,35,0.05)]",
-        subValue?.includes('Wait') && "border-amber/40 bg-amber/[0.01] animate-pulse-slow"
+        usagePct >= 90 && "border-red/50 bg-red/[0.03] shadow-[0_0_20px_rgba(244,63,94,0.1)]",
+        usagePct >= 70 && usagePct < 90 && "border-amber/50 bg-amber/[0.03] shadow-[0_0_20px_rgba(245,158,11,0.08)]",
+        subValue?.includes('Wait') && "border-amber/40 bg-amber/[0.02]"
       )}
       onKeyDown={handleKeyDown}
       tabIndex={0}
@@ -128,17 +128,17 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
       )}
-      <div className="flex flex-col gap-0.5 w-full relative z-10">
-        <div className="flex items-start w-full min-h-[2rem] md:min-h-[2.25rem]">
-          <div className="flex items-center gap-2 flex-grow overflow-hidden mr-1">
+      <div className="flex flex-col gap-1 w-full relative z-10">
+        <div className="flex items-start w-full">
+          <div className="flex items-center gap-1.5 flex-grow overflow-hidden mr-1">
             {tooltip ? (
               <Tooltip content={tooltip}>
-                <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors cursor-help border-b border-dashed border-dim/30">
+                <div className="text-[9px] md:text-[10px] text-dim tracking-wider uppercase font-bold leading-tight hover:text-dim/90 transition-colors cursor-help border-b border-dashed border-dim/30">
                   {label}
                 </div>
               </Tooltip>
             ) : (
-              <div className="text-[9px] md:text-[10px] text-dim tracking-[0.15em] uppercase font-black leading-[1.1] hover:text-dim/80 transition-colors">
+              <div className="text-[9px] md:text-[10px] text-dim tracking-wider uppercase font-bold leading-tight hover:text-dim/90 transition-colors">
                 {label}
               </div>
             )}
@@ -150,24 +150,24 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setIsLocked(!isLocked); }}
-              className={cn("p-1 rounded-md transition-colors shrink-0 mt-0.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
+              className={cn("p-1 rounded-md transition-colors shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer", isLocked ? "text-dim/40 hover:text-dim" : "text-accent")}
               aria-label={isLocked ? "Unlock controls" : "Lock controls"}
             >
-              {isLocked ? <Lock size={10} /> : <Unlock size={10} />}
+              {isLocked ? <Lock size={11} /> : <Unlock size={11} />}
             </button>
           </Tooltip>
         </div>
         <div className="flex items-center w-full gap-2">
           <div className="flex flex-col flex-grow min-w-0">
             <div className={cn(
-              "text-sm md:text-base lg:text-xl font-black font-mono tracking-tighter transition-all duration-500 truncate",
-              isLocked ? "text-dim/60" : "text-text",
+              "text-sm md:text-base lg:text-xl font-bold font-mono tabular-nums tracking-tight transition-all duration-300 truncate",
+              isLocked ? "text-dim/70" : "text-text",
               syncing && "opacity-40 blur-[1px]"
             )}>
               {value}{unit}
             </div>
             {subValue && (
-              <div className="text-[8px] font-black text-dim uppercase tracking-wider mt-0.5 truncate">{subValue}</div>
+              <div className="text-[8px] md:text-[8.5px] font-semibold text-dim font-mono tracking-wider mt-0.5 truncate">{subValue}</div>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -176,28 +176,28 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
               onClick={(e) => { e.stopPropagation(); handleAction(onDecrement); }}
               disabled={!isLocked && value <= min}
               className={cn(
-                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                "w-9 h-9 sm:w-10 sm:h-10 rounded-lg border flex items-center justify-center transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
-                  : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
+                  : "bg-surface-elevated border-border text-dim hover:text-text hover:border-accent/40 shadow-xs"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Decrease ${label}`}
             >
-              <Minus size={22} />
+              <Minus size={18} />
             </button>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); handleAction(onIncrement); }}
               disabled={!isLocked && value >= max}
               className={cn(
-                "w-11 h-11 rounded-lg border flex items-center justify-center transition-all active:scale-90 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                "w-9 h-9 sm:w-10 sm:h-10 rounded-lg border flex items-center justify-center transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
                 isLocked
                   ? "bg-transparent border-transparent text-dim/20"
-                  : "bg-background border-border text-dim hover:text-text hover:border-accent/40 shadow-sm"
+                  : "bg-surface-elevated border-border text-dim hover:text-text hover:border-accent/40 shadow-xs"
               )}
               aria-label={isLocked ? "Tap to unlock" : `Increase ${label}`}
             >
-              <Plus size={22} />
+              <Plus size={18} />
             </button>
           </div>
         </div>
@@ -228,10 +228,10 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
   const content = (
     <div
       className={cn(
-        "bg-surface border border-border rounded-xl md:rounded-2xl shadow-md shadow-black/20 hover:border-accent/40 hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none focus-visible:border-accent/30 focus-visible:bg-white/[0.01]",
+        "bg-surface border border-border rounded-xl hover:border-border-hover hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none",
         compact
-          ? "p-2 md:p-2.5 min-h-[48px] md:min-h-[56px] lg:min-h-[64px]"
-          : "p-3 md:p-4 lg:p-5 min-h-[64px] md:min-h-[80px] lg:min-h-[100px]"
+          ? "p-2.5 min-h-[48px] md:min-h-[56px]"
+          : "p-3.5 md:p-4 min-h-[64px] md:min-h-[76px]"
       )}
       role="region"
       aria-label={ariaLabel || `${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
@@ -241,29 +241,31 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className={cn("flex flex-col w-full", compact ? "gap-0" : "gap-0.5")}>
-        <div className={cn("flex items-start gap-1.5", compact ? "min-h-[1.25rem]" : "min-h-[2rem] md:min-h-[2.25rem]")}>
-            <div className={cn("text-dim tracking-[0.15em] uppercase font-black leading-[1.1] flex-1", compact ? "text-[8px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">{label}</div>
-            {tooltipText && <Info size={compact ? 8 : 10} className="text-dim/30 group-hover:text-accent group-focus-visible:text-accent transition-colors" />}
+      <div className="flex flex-col items-start self-start w-full gap-1">
+        <div className="flex items-center gap-1.5 w-full">
+          <div className={cn("text-dim tracking-wider uppercase font-bold leading-snug flex-1", compact ? "text-[8.5px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">
+            {label}
+          </div>
+          {tooltipText && <Info size={compact ? 9 : 11} className="text-dim/40 group-hover:text-accent group-focus-visible:text-accent transition-colors shrink-0 cursor-help" />}
         </div>
-        <div className="flex flex-col">
+        <div className={cn(
+          "font-bold font-mono tabular-nums tracking-tight transition-all duration-300 truncate leading-tight w-full",
+          color,
+          compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
+          syncing && "opacity-75"
+        )}>
+          {sanitizedValue}
+        </div>
+        {subValue && (
           <div className={cn(
-            "font-black font-mono tracking-tighter transition-all duration-500 truncate leading-none",
-            color,
-            compact ? "text-xs md:text-sm lg:text-base" : "text-sm md:text-base lg:text-xl",
-            syncing && "opacity-75"
-          )}>{sanitizedValue}</div>
-          {subValue && (
-            <div className={cn(
-              "text-dim font-mono font-black uppercase flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0",
-              compact ? "text-[7px] md:text-[7.5px] mt-0.5" : "text-[8px] md:text-[9px] mt-0.5",
-              syncing && "text-accent/80 font-black"
-            )}>
-              {syncing && <RefreshCw size={compact ? 6 : 8} className="animate-spin shrink-0 text-accent" aria-hidden="true" />}
-              <span className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</span>
-            </div>
-          )}
-        </div>
+            "text-dim font-mono tabular-nums font-medium flex flex-wrap items-center gap-x-1.5 gap-y-0.5 min-w-0 w-full leading-normal",
+            compact ? "text-[7.5px] md:text-[8px]" : "text-[8.5px] md:text-[9.5px]",
+            syncing && "text-accent/80 font-bold"
+          )}>
+            {syncing && <RefreshCw size={compact ? 6 : 8} className="animate-spin shrink-0 text-accent" aria-hidden="true" />}
+            <span className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -285,10 +287,10 @@ export const SectionLabel = ({ children, className }) => (
 // --- Button ---
 export const Btn = React.forwardRef(({ children, variant = "primary", onClick, className, disabled, loading, icon: Icon, ...props }, ref) => {
   const variants = {
-    success: "bg-green/10 text-green border border-green/20 hover:bg-green/20 shadow-[0_0_15px_rgba(0,229,160,0.1)]",
-    danger: "bg-red/10 text-red border border-red/20 hover:bg-red/20 shadow-[0_0_15px_rgba(255,68,102,0.1)]",
-    primary: "bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]",
-    ghost: "bg-transparent text-dim hover:text-text hover:bg-surface border border-border"
+    success: "bg-green/15 text-green border border-green/30 hover:bg-green/25",
+    danger: "bg-red/15 text-red border border-red/30 hover:bg-red/25",
+    primary: "bg-accent text-white hover:bg-accent/90 shadow-sm",
+    ghost: "bg-transparent text-dim hover:text-text hover:bg-surface border border-border hover:border-border-hover"
   }
 
   return (
@@ -297,13 +299,13 @@ export const Btn = React.forwardRef(({ children, variant = "primary", onClick, c
       onClick={onClick}
       disabled={disabled || loading}
       className={cn(
-        "px-5 py-2.5 rounded-xl font-bold text-[13px] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+        "px-4 py-2 rounded-lg font-semibold text-xs tracking-wide transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none whitespace-nowrap shrink-0 cursor-pointer",
         variants[variant],
         className
       )}
       {...props}
     >
-      {loading ? <Loader2 size={16} className="animate-spin" /> : Icon && <Icon size={16} />}
+      {loading ? <Loader2 size={14} className="animate-spin shrink-0" /> : Icon && <Icon size={14} className="shrink-0" />}
       {children}
     </button>
   )
@@ -316,7 +318,7 @@ export const StatusBadge = ({ status }) => {
   
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-all",
+      "inline-flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-wider font-mono transition-colors",
       active ? "text-green" : "text-dim"
     )}>
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", active ? "bg-green animate-pulse" : "bg-dim/40")} />
@@ -325,9 +327,9 @@ export const StatusBadge = ({ status }) => {
   )
 }
 
-// --- Mode Badges ---
+// --- Mode Badges (Zero-Pill Typography) ---
 export const PaperBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-amber">
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-amber font-mono">
     <span className="w-1.5 h-1.5 rounded-full bg-amber shrink-0" />
     Paper
   </span>
@@ -350,7 +352,7 @@ export const EcoBadge = () => {
 
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest transition-colors",
+      "inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider font-mono transition-colors",
       showResumingFeedback ? "text-accent" : "text-green"
     )}>
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", showResumingFeedback ? "bg-accent animate-spin" : "bg-green animate-pulse")} />
@@ -360,47 +362,47 @@ export const EcoBadge = () => {
 }
 
 export const DemoBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-purple">
-    <span className="w-1.5 h-1.5 rounded-full bg-purple shrink-0" />
-    Demo
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-purple-400 font-mono">
+    <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
+    Testnet
   </span>
 )
 
 export const LiveBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-green">
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-green font-mono">
     <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0 animate-pulse" />
     Live
   </span>
 )
 
 export const BacktestBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9.5px] font-black uppercase tracking-widest text-cyan-400">
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-cyan-400 font-mono">
     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
     Backtest
   </span>
 )
 
 export const MonitoredBadge = React.memo(({ className, label = "Monitored" }) => (
-  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
-    <ShieldCheck size={12} className="text-accent shrink-0" />
-    <span className="text-[8px] md:text-[9px] font-black text-accent uppercase tracking-widest truncate">{label}</span>
-  </div>
+  <span className={cn("inline-flex items-center gap-1 text-[8.5px] font-semibold text-accent font-mono tracking-wider", className)}>
+    <ShieldCheck size={11} className="text-accent shrink-0" />
+    <span>{label}</span>
+  </span>
 ))
 MonitoredBadge.displayName = 'MonitoredBadge'
 
 export const InPosBadge = React.memo(({ className, label = "In Pos" }) => (
-  <div className={cn("flex items-center gap-1 whitespace-nowrap overflow-hidden", className)}>
-     <Zap size={10} className="text-green fill-green/20 shrink-0" />
-     <span className="text-[8px] font-black text-green uppercase tracking-tighter truncate">{label}</span>
-  </div>
+  <span className={cn("inline-flex items-center gap-1 text-[8.5px] font-semibold text-green font-mono tracking-wider", className)}>
+     <Zap size={10} className="text-green shrink-0" />
+     <span>{label}</span>
+  </span>
 ))
 InPosBadge.displayName = 'InPosBadge'
 
 export const SmartCandidateBadge = React.memo(({ className, label = "Predictive" }) => (
-  <div className={cn("flex items-center gap-1.5 whitespace-nowrap overflow-hidden", className)}>
+  <span className={cn("inline-flex items-center gap-1 text-[8.5px] font-semibold text-purple-400 font-mono tracking-wider", className)}>
     <Activity size={10} className="text-purple-400 shrink-0" />
-    <span className="text-[8px] md:text-[9px] font-black text-purple-400 uppercase tracking-widest truncate">{label}</span>
-  </div>
+    <span>{label}</span>
+  </span>
 ))
 SmartCandidateBadge.displayName = 'SmartCandidateBadge'
 

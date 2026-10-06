@@ -1,0 +1,7 @@
+{
+  "name": "Momentum Engine",
+  "description": "Resource-lean momentum trading dashboard for Binance USDⓈ-M futures with real-time analytics, risk controls, and automated strategy monitoring.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

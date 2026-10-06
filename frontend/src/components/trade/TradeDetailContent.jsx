@@ -1795,31 +1795,35 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                 {fmtUSD(trade.pnl)}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                "px-3.5 py-1.5 rounded-full text-xs font-black font-mono shadow-md border",
-                trade.pnl >= 0
-                  ? "bg-green/10 border-green/20 text-green"
-                  : "bg-red/10 border-red/20 text-red"
-              )}>
+            <div className="flex items-center gap-2.5 flex-wrap justify-center text-xs font-mono font-bold mt-1">
+              <span className={cn("text-xs font-bold font-mono", pnlClass(trade.pnl))}>
                 ROI: {Number(pnlPct || 0) >= 0 ? '+' : ''}{Number(pnlPct || 0).toFixed(2)}% · {fmt(trade.rr || 0, 2)}R
-              </div>
+              </span>
               {trade.is_knife && (
-                <div className="bg-amber/15 text-amber border border-amber/30 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1">
-                  🔪 KNIFE
-                </div>
+                <>
+                  <span className="text-dim/40">·</span>
+                  <span className="text-amber flex items-center gap-1 uppercase tracking-wider text-[11px] font-bold">
+                    🗡️ Knife
+                  </span>
+                </>
               )}
               {trade.is_reconciliation && (
-                <div className="bg-amber/10 text-amber border border-amber/20 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5">
-                  <Activity size={12} /> Reconciled
-                </div>
+                <>
+                  <span className="text-dim/40">·</span>
+                  <span className="text-amber flex items-center gap-1 uppercase tracking-wider text-[11px] font-bold">
+                    <Activity size={12} /> Reconciled
+                  </span>
+                </>
               )}
               {trade.strategy_config?.is_nominal_overshoot && (
-                <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. This forces a higher actual risk percentage than configured. Exercise caution.">
-                  <div className="bg-amber/15 text-amber border border-amber/35 px-3.5 py-1.5 rounded-full text-xs font-black uppercase tracking-widest shadow-md flex items-center gap-1.5 cursor-help">
-                    SCALED RISK
-                  </div>
-                </Tooltip>
+                <>
+                  <span className="text-dim/40">·</span>
+                  <Tooltip content="SCALED RISK: The position notional size was scaled up to meet Binance's minimum order requirements. This forces a higher actual risk percentage than configured. Exercise caution.">
+                    <span className="text-amber uppercase tracking-wider text-[11px] font-bold cursor-help underline decoration-dotted">
+                      Scaled Risk
+                    </span>
+                  </Tooltip>
+                </>
               )}
             </div>
           </div>
@@ -2029,11 +2033,11 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Primary Metrics Grid */}
-       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 md:gap-3">
-         <StatCard label="Mark" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} compact />
-         <StatCard label="Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" compact />
-         <StatCard label="Risk" value={riskFormatted} color="text-red" compact />
-         <StatCard label="Entry" value={price(entry)} color="text-dim" compact />
+       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 gap-y-4">
+         <StatCard label="Mark Price" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} compact tooltipText="Latest traded mark price from Binance WebSocket" />
+         <StatCard label="Position Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" compact tooltipText="Contract size currently allocated to this trade" />
+         <StatCard label="Stop Distance (Live)" value={riskFormatted} subValue={`${slDistPct.toFixed(2)}% distance`} color="text-red" compact tooltipText="Current dollar risk and percentage distance to the active stop-loss level" />
+         <StatCard label="Entry Price" value={price(entry)} color="text-dim" compact tooltipText="Weighted execution fill price at trade open" />
       </div>
 
       {/* Entry Signal & Technical Context */}

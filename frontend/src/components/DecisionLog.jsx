@@ -119,11 +119,15 @@ const VariantGatingSummary = React.memo(() => {
                     <div className="flex items-center justify-between gap-2 min-w-0">
                       <span className="text-[10px] font-bold text-text break-words whitespace-normal text-left flex-1 min-w-0">{label}</span>
                       <span className={cn(
-                        "text-[8px] font-black px-1.5 py-0.5 rounded tracking-widest uppercase shrink-0 scale-95 origin-right",
-                        isPaused ? "bg-amber/10 text-amber border border-amber/20" :
-                        isGated ? "bg-red/10 text-red border border-red/20" :
-                        "bg-green/10 text-green border border-green/20"
+                        "text-[9px] font-mono font-bold tracking-wider uppercase shrink-0 flex items-center gap-1.5",
+                        isPaused ? "text-amber" :
+                        isGated ? "text-red" :
+                        "text-green"
                       )}>
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full shrink-0",
+                          isPaused ? "bg-amber" : isGated ? "bg-red animate-pulse" : "bg-green"
+                        )} />
                         {stateLabel}
                       </span>
                     </div>
@@ -447,11 +451,11 @@ export const DecisionLog = React.memo(() => {
                   aria-label={`Filter by ${filter.label} logs`}
                   onClick={() => toggleLogFilter(filter.level)}
                   className={cn(
-                    "px-3 py-1 rounded-full border text-[11px] font-bold transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                    active ? "bg-surface border-border opacity-100" : "bg-transparent border-border/50 opacity-55 hover:opacity-80",
-                    filter.level === 'warn' ? "text-amber" :
-                    filter.level === 'error' ? "text-red" :
-                    "text-text"
+                    "px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                    active ? "bg-surface-elevated border-border text-text shadow-xs" : "bg-transparent border-border/40 text-dim/60 hover:text-dim hover:border-border/60",
+                    active && filter.level === 'warn' && "text-amber border-amber/30 bg-amber/5",
+                    active && filter.level === 'error' && "text-red border-red/30 bg-red/5",
+                    active && filter.level === 'info' && "text-accent border-accent/30 bg-accent/5"
                   )}
                 >
                   {filter.label}

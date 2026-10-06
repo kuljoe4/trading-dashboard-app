@@ -1405,7 +1405,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
               Passing {regimeInfo.passingCount}/{regimeInfo.totalCount} &gt; {threshold}%
             </span>
             <span className="text-dim/40">•</span>
-            <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded font-mono">
+            <span className="text-accent font-mono text-[9px] uppercase tracking-wider">
               Weights {momW}:{volW}:{trendW}
             </span>
           </div>
@@ -2879,9 +2879,10 @@ export function DashboardView({ initialStrategy }) {
               )}
             </AnimatePresence>
             {!showTemporalRisk && (
-              <div className="flex gap-2 -mt-2 mb-4 animate-in fade-in slide-in-from-left-2 duration-500">
-                 {config.frequency_shaping_enabled && <div className="px-2 py-0.5 rounded bg-accent/5 border border-accent/10 text-[8px] font-black uppercase tracking-widest text-accent/60">Frequency Guard Active</div>}
-                 <div className="px-2 py-0.5 rounded bg-surface border border-border/40 text-[8px] font-black uppercase tracking-widest text-dim/60">{config.max_open_trades} Max Trades</div>
+              <div className="flex items-center gap-2 -mt-2 mb-4 animate-in fade-in slide-in-from-left-2 duration-500 text-[9px] font-mono font-bold uppercase tracking-wider text-dim">
+                 {config.frequency_shaping_enabled && <span className="text-accent">Frequency Guard Active</span>}
+                 {config.frequency_shaping_enabled && <span>·</span>}
+                 <span>{config.max_open_trades} Max Trades</span>
               </div>
             )}
           </motion.div>

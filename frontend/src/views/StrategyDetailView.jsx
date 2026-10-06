@@ -234,12 +234,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
            <div className="flex items-center gap-1 bg-surface-light/40 border border-border/40 rounded-xl px-2 py-1">
              <StatusBadge status={s.sessionActive} />
              {isVariant && (
-               <span className="px-1.5 py-0.5 rounded bg-purple/10 text-purple border border-purple/20 text-[9px] font-black uppercase tracking-wider">
-                 Variant
+               <span className="text-[10px] font-mono font-bold text-purple uppercase tracking-wider">
+                 · Variant
                </span>
              )}
-             <span className="px-1.5 py-0.5 rounded bg-zinc-500/10 text-zinc-400 border border-zinc-500/20 text-[9px] font-black uppercase tracking-wider opacity-80">
-               {activeTradeCount} ACTIVE
+             <span className="text-[10px] font-mono font-bold text-dim uppercase tracking-wider">
+               · {activeTradeCount} Active
              </span>
            </div>
 

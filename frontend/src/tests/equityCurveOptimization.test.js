@@ -1,7 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Helper simulating original multi-pass implementation of EquityCurve calculation
 function originalEquityCurveLogic(data = []) {
@@ -154,7 +157,7 @@ function optimizedEquityCurveLogic(data = []) {
 
 describe('EquityCurve Single-Pass Optimization Tests', () => {
   test('Analytics.jsx file contains single-pass fused EquityCurve optimization and no redundant declarations', () => {
-    const analyticsPath = path.resolve(process.cwd(), 'frontend/src/components/Analytics.jsx');
+    const analyticsPath = path.resolve(__dirname, '../components/Analytics.jsx');
     const content = fs.readFileSync(analyticsPath, 'utf8');
 
     // Verify single-pass optimization comment and destructured useMemo signature

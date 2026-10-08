@@ -1,10 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('ViewHeader Ultra-High-Density Auto-Collapsing Header Verification', () => {
-  const primitivesPath = path.resolve(process.cwd(), 'src/components/ui/primitives.jsx');
+  const primitivesPath = path.resolve(__dirname, '../components/ui/primitives.jsx');
   const primitivesCode = fs.readFileSync(primitivesPath, 'utf8');
 
   // Verify ViewHeader supports scroll detection and auto-collapsing

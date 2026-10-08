@@ -1,11 +1,14 @@
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('TradesView filter toolbar features ultra-dense mobile-optimized chip groups, aria-pressed attributes, and reset button', () => {
-  const p1 = path.join(process.cwd(), 'frontend/src/views/TradesView.jsx');
-  const p2 = path.join(process.cwd(), 'src/views/TradesView.jsx');
+  const p1 = path.resolve(__dirname, '../views/TradesView.jsx');
+  const p2 = path.resolve(__dirname, '../views/TradesView.jsx');
   const filePath = fs.existsSync(p1) ? p1 : p2;
   const fileContent = fs.readFileSync(filePath, 'utf8');
 

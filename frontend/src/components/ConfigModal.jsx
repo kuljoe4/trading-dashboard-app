@@ -864,6 +864,8 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             value={searchTerm}
             onFocus={() => setIsOpen(true)}
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setSearchTerm(''); setIsOpen(false); } }}
+            aria-label="Search symbols to add to watchlist"
             className="w-full bg-surface border border-border rounded-xl pl-10 pr-8 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm ? (
@@ -5126,6 +5128,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       placeholder="Search preset by name..."
                       value={presetSearch}
                       onChange={(e) => setPresetSearch(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Escape' && setPresetSearch('')}
+                      aria-label="Search presets by name"
                       className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
                     />
                     {presetSearch ? (

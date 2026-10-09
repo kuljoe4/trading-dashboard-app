@@ -1472,7 +1472,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.inFlightExchangeCloses.has(symbol) ||
       this.positionTracker.isClosing(symbol)
     ) {
-      this.logger.debug(
+      this.logger.warn(
         `[Idempotency] Dropping redundant exchange_close event for ${symbol} (Reason: ${reason}). Already in-flight or closing.`,
       );
       return;

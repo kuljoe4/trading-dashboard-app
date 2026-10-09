@@ -43,18 +43,19 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
   // 2. Guard Ladder & Milestone SL Target Alignment Check
   const triggers = trade.live_rr_sequence || trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || [];
   const exits = trade.exit_rr_sequence || trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || [];
-  const maxRR = Number(trade.max_rr ?? trade.max_rr_achieved ?? 0);
-  const activeIdx = Number(trade.rr_sequence_index ?? -1);
+  const liveRR = Number(trade.rr || 0);
+  const storedMaxRR = Number(trade.max_rr ?? trade.max_rr_achieved ?? 0);
+  const maxRR = Math.max(storedMaxRR, liveRR);
 
-  // Find the highest milestone index crossed by peak R:R
-  let achievedMilestoneIdx = -1;
+  // Find the highest milestone index crossed by max(peak, live R)
+  let expectedMilestoneIdx = -1;
   for (let i = 0; i < triggers.length; i++) {
     if (maxRR >= Number(triggers[i])) {
-      achievedMilestoneIdx = i;
+      expectedMilestoneIdx = i;
     }
   }
 
-  const evalIdx = activeIdx >= 0 ? activeIdx : achievedMilestoneIdx;
+  const evalIdx = expectedMilestoneIdx;
 
   let expectedSl = initialSl > 0 ? initialSl : sl;
   if (evalIdx >= 0 && exits[evalIdx] !== undefined) {
@@ -70,6 +71,16 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     return num.toFixed(5).replace(/\.?0+$/, '');
   };
 
+  const storedMilestoneIdx = Number(trade.rr_sequence_index ?? -1);
+  if (storedMilestoneIdx !== expectedMilestoneIdx && expectedMilestoneIdx >= 0) {
+    issues.push({
+      type: 'error',
+      code: 'SL_LADDER_STALE_INDEX',
+      title: 'Stale Milestone Index',
+      message: `The trade's milestone index (${storedMilestoneIdx}) disagrees with the ladder index (${expectedMilestoneIdx}) implied by max(peak, live R) at ${maxRR.toFixed(2)}R.`
+    });
+  }
+
   if (sl > 0 && expectedSl > 0 && Math.abs(sl - expectedSl) > entry * 0.0001) {
     const isSlBetterThanExpected = isLong ? sl > expectedSl + entry * 0.0001 : sl < expectedSl - entry * 0.0001;
     if (!isSlBetterThanExpected) {
@@ -77,7 +88,7 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
         type: 'warning',
         code: 'SL_LADDER_DISCREPANCY',
         title: 'Guard Ladder Discrepancy',
-        message: `Current SL (${formatPrice(sl)}) differs from the target milestone SL (${formatPrice(expectedSl)}) for active Guard R ${triggers[evalIdx] ?? 0}R.`
+        message: `Current SL (${formatPrice(sl)}) differs from the target milestone SL (${formatPrice(expectedSl)}) for expected Guard R ${triggers[evalIdx] ?? 0}R.`
       });
     }
   }

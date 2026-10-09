@@ -1,10 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('Navigation buttons include explicit type="button", cursor-pointer, focus rings, and dynamic ARIA labels', () => {
-  const filePath = path.join(process.cwd(), 'frontend/src/components/Navigation.jsx');
+  const filePath = path.resolve(__dirname, '../components/Navigation.jsx');
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
   // Verify type="button" presence on interactive controls

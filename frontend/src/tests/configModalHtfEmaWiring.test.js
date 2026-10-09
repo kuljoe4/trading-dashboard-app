@@ -1,10 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('ConfigModal HTF EMA Cross Ranking & SL Exceeds Max Form Wiring Verification', () => {
-  const configModalPath = path.resolve(process.cwd(), 'frontend/src/components/ConfigModal.jsx');
+  const configModalPath = path.resolve(__dirname, '../components/ConfigModal.jsx');
   const modalCode = fs.readFileSync(configModalPath, 'utf8');
 
   // Verify HTF EMA Cross fields are wired in ConfigModal

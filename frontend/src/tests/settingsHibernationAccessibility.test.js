@@ -1,10 +1,13 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('SettingsView Hibernation Mode buttons enforce aria-pressed, aria-label, and cursor-pointer', () => {
-  const filePath = path.resolve('frontend/src/views/SettingsView.jsx');
+  const filePath = path.resolve(__dirname, '../views/SettingsView.jsx');
   const fileContent = fs.readFileSync(filePath, 'utf8');
 
   // Verify isActive evaluation

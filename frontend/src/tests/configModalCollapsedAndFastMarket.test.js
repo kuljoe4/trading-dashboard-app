@@ -1,12 +1,15 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('Config Modal Default Collapsed State & Fast Market Indications Verification', () => {
-  const configModalPath = path.resolve('frontend/src/components/ConfigModal.jsx');
-  const dashboardPath = path.resolve('frontend/src/views/DashboardView.jsx');
-  const scannerOverlayPath = path.resolve('frontend/src/components/ScannerOverlay.jsx');
+  const configModalPath = path.resolve(__dirname, '../components/ConfigModal.jsx');
+  const dashboardPath = path.resolve(__dirname, '../views/DashboardView.jsx');
+  const scannerOverlayPath = path.resolve(__dirname, '../components/ScannerOverlay.jsx');
 
   const configModalCode = fs.readFileSync(configModalPath, 'utf8');
   const dashboardCode = fs.readFileSync(dashboardPath, 'utf8');

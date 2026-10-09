@@ -158,7 +158,7 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     `- **Current SL:** $${formatPrice(sl)} (Initial SL: $${formatPrice(initialSl)})`,
     `- **Exchange Order ID:** ${trade.binance_stop_order_id || 'None'} (${trade.binance_stop_order_type || 'standard'})`,
     `- **Active Risk USDT:** $${trade.risk_usdt ?? '0.00'} (Initial Risk: $${trade.initial_risk_usdt ?? '0.00'})`,
-    `- **Milestone Index:** ${activeIdx} (Target Milestone SL: $${formatPrice(expectedSl)})`,
+    `- **Milestone Index:** ${expectedMilestoneIdx} (Target Milestone SL: $${formatPrice(expectedSl)})`,
     ``,
     `#### Guard Ladder Configuration:`,
     `- **Triggers (R):** [${triggers.join(', ')}]`,

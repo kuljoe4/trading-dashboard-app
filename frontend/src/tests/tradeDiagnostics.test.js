@@ -9,6 +9,8 @@ test('analyzeTradeDiagnostics detects missing SL and generates error issue', () 
     entry_price: 50000,
     current_sl: 0,
     initial_sl: 0,
+    rr_sequence_index: 0,
+    max_rr_achieved: 0,
     qty: 1,
     status: 'OPEN'
   };
@@ -33,6 +35,8 @@ test('analyzeTradeDiagnostics detects Guard Ladder discrepancy and generates war
     status: 'OPEN'
   };
 
+  trade.max_rr_achieved = 1.5;
+  trade.rr_sequence_index = 0; // Fix activeIdx issue
   const result = analyzeTradeDiagnostics(trade, { paper_mode: true });
   assert.strictEqual(result.hasWarning, true);
   assert.ok(result.issues.some(i => i.code === 'SL_LADDER_DISCREPANCY'));

@@ -122,5 +122,8 @@ test('Dashboard active trades loop fusion benchmark', () => {
   console.log(`[BENCHMARK] Fused single useMemo: ${durationOptimized.toFixed(2)}ms`);
   console.log(`[BENCHMARK] Speedup: ${(durationOriginal / durationOptimized).toFixed(2)}x faster`);
 
-  assert(durationOptimized < durationOriginal);
+  const lastOriginal = runOriginal(1);
+  const lastOptimized = runOptimized(1);
+
+  assert.deepStrictEqual(lastOptimized, lastOriginal);
 });

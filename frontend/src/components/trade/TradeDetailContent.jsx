@@ -43,8 +43,9 @@ Metric.displayName = 'Metric'
 const RRLadder = memo(({ trade, interactiveEnabled }) => {
   const triggers = trade.live_rr_sequence || []
   const exits = trade.exit_rr_sequence || []
-  const maxRR = Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)
   const liveRR = trade.rr || 0
+  const storedMaxRR = Number(trade.max_rr ?? trade.max_rr_achieved ?? 0)
+  const maxRR = Math.max(storedMaxRR, liveRR)
   const risk = Math.abs(trade.entry_price - (trade.initial_sl || trade.sl_price))
   const activeIdx = triggers.reduce((idx, trigger, i) => maxRR >= trigger ? i : idx, -1)
 

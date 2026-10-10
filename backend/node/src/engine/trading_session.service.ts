@@ -212,7 +212,9 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     this.hotLoopInterval = setInterval(() => this.hotLoop(), hotMs);
+    if (this.hotLoopInterval.unref) this.hotLoopInterval.unref();
     this.mainLoopInterval = setInterval(() => this.mainLoop(), mainMs);
+    if (this.mainLoopInterval.unref) this.mainLoopInterval.unref();
   }
 
   setBalanceUpdateCallback(cb: (b: number, p: number) => void) {
@@ -282,8 +284,10 @@ export class TradingSessionService implements OnApplicationShutdown {
 
     const hot = config.hot_loop_interval_ms || 5000;
     this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
+    if (this.hotLoopInterval.unref) this.hotLoopInterval.unref();
     const main = config.main_loop_interval_ms || 15000;
     this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
+    if (this.mainLoopInterval.unref) this.mainLoopInterval.unref();
 
     this.broadcastSnapshot("started");
     return { status: "started" };

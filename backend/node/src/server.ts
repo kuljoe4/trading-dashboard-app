@@ -292,6 +292,7 @@ async function bootstrap() {
       ws.ping();
     });
   }, ENGINE_CONSTANTS.WS_HEARTBEAT_INTERVAL_MS);
+  if (heartbeatInterval.unref) heartbeatInterval.unref();
 
   wss.on("close", () => {
     clearInterval(heartbeatInterval);

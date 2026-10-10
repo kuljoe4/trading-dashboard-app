@@ -472,7 +472,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             <div
               className={cn(
                 "absolute top-0 bottom-0 z-20 pointer-events-none transition-all duration-300 -ml-[1px]",
-                slHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" : "w-0.5 bg-red"
+                slHighlight ? "w-1 bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]" : (trade.pnl < 0 ? "w-0.5 bg-text shadow-[0_0_2px_rgba(0,0,0,0.8)]" : "w-0.5 bg-red")
               )}
               style={{ left: `${slPos}%` }}
             />

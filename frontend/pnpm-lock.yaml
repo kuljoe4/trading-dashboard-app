@@ -66,7 +66,7 @@ importers:
         specifier: ^1.1.2
         version: 1.1.2(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       zustand:
-        specifier: ^4.5.5
+        specifier: 4.5.5
         version: 4.5.5(@types/react@18.3.31)(react@18.3.1)
     devDependencies:
       '@playwright/test':

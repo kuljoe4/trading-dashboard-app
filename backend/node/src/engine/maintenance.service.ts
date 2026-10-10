@@ -222,7 +222,7 @@ export class MaintenanceService {
 
           if (!pos || Math.abs(parseFloat(pos.positionAmt)) === 0) {
               this.logger.error(`[Watchdog] CRITICAL: ${trade.symbol} is active locally but NO position found on Binance. Triggering Sync Closure.`);
-              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC, feesAlreadyAccounted: false });
+              this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, { symbol: trade.symbol, exitPrice: 0, reason: EXIT_REASONS.EXCHANGE_SYNC, feesAlreadyAccounted: false, needsMarketClose: false });
               continue;
           }
 
@@ -501,6 +501,7 @@ export class MaintenanceService {
             reason: EXIT_REASONS.EXCHANGE_SYNC,
             isReconciliation: true,
             feesAlreadyAccounted: false,
+            needsMarketClose: false,
           });
         }
       }

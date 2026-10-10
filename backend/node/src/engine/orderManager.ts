@@ -915,11 +915,30 @@ export class OrderManagerService {
           let response;
           try {
             response = await this.binanceClient.restAPI.newOrder(entryOrder as any);
-          } catch (e) {
-            // CHRONOS: DO NOT clear in-flight on catch here.
-            // We must keep the symbol in in-flight registry during the entire retry window
-            // so UDS events can still find and promote it.
-            throw e;
+          } catch (e: any) {
+            const errMsg = e instanceof Error ? e.message : String(e);
+            const lowerMsg = errMsg.toLowerCase();
+            // Handle Duplicate ID via exception (some SDK variants throw instead of returning code)
+            if (lowerMsg.includes('duplicate') && (lowerMsg.includes('clientorderid') || lowerMsg.includes('ordersent') || lowerMsg.includes('order'))) {
+              this.logger.log(`[${symbol}] [Sync] Duplicate ID exception on entry. Recovering...`);
+              const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: entryOrderId });
+              this.updateWeight(queryRes?.headers);
+              const orderData = (await queryRes.data()) as BinanceOrderReceipt;
+              if (orderData && orderData.orderId) {
+                // Fake a successful response object so the downstream logic can process it normally
+                response = {
+                   headers: queryRes?.headers || {},
+                   data: async () => orderData
+                };
+              } else {
+                 throw e;
+              }
+            } else {
+              // CHRONOS: DO NOT clear in-flight on catch here.
+              // We must keep the symbol in in-flight registry during the entire retry window
+              // so UDS events can still find and promote it.
+              throw e;
+            }
           }
 
           this.updateWeight(response?.headers);
@@ -955,7 +974,8 @@ export class OrderManagerService {
             this.logger.warn(`[${symbol}] Entry order failed. Code: ${code}, Message: ${msg}, Raw: ${JSON.stringify(entryReceipt)}`);
 
             // Handle Duplicate Order ID specifically to recover state
-            if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId')) {
+            const lowerMsg = msg.toLowerCase();
+            if (code === -2011 || (lowerMsg.includes('duplicate') && (lowerMsg.includes('order')))) {
                this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on entry retry. Recovering order state...`);
                const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: entryOrderId });
                const queryData = (await queryRes.data()) as BinanceOrderReceipt;
@@ -1389,7 +1409,8 @@ export class OrderManagerService {
             this.logger.warn(`[${symbol}] SL placement failed. Code: ${code}, Message: ${msg}, Raw: ${JSON.stringify(orderData)}`);
 
           // Handle Duplicate Order ID specifically to recover state after timeout
-          if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate clientAlgoId')) {
+          const lowerMsg = msg.toLowerCase();
+          if (code === -2011 || (lowerMsg.includes('duplicate') && (lowerMsg.includes('order')))) {
             this.logger.log(`[${symbol}] [Sync] Detected duplicate clientAlgoId on SL retry. Recovering SL state...`);
             // Algo orders might need a different query endpoint or different parameters
             const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({ symbol, clientAlgoId: slOrderParams.clientAlgoId });
@@ -1568,7 +1589,7 @@ export class OrderManagerService {
              feesAlreadyAccounted: false
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: Number(trade.entry_price) };
-        } else if (msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate clientAlgoId')) {
+        } else if (msg.toLowerCase().includes('duplicate') && (msg.toLowerCase().includes('order'))) {
           this.logger.log(`[${symbol}] [Sync] Detected duplicate client ID (via exception) on SL retry. Recovering SL state...`);
           let queryData;
           if (slOrderParams.clientAlgoId) {
@@ -3034,7 +3055,8 @@ export class OrderManagerService {
                 const code = orderData.code;
                 const msg = orderData.msg || '';
 
-                if (code === -2011 || msg.includes('Duplicate orderSent') || msg.includes('Duplicate clientOrderId') || msg.includes('Duplicate order')) {
+                const lowerMsg = msg.toLowerCase();
+                if (code === -2011 || (lowerMsg.includes('duplicate') && (lowerMsg.includes('order')))) {
                   this.logger.log(`[${symbol}] [Sync] Detected duplicate clientOrderId on close retry. Recovering close state...`);
                   const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
                   this.updateWeight(queryRes?.headers);
@@ -3074,7 +3096,8 @@ export class OrderManagerService {
               }
 
               // Handle Duplicate ID via exception (some SDK variants throw instead of returning code)
-              if (errMsg.includes('Duplicate orderSent') || errMsg.includes('Duplicate clientOrderId')) {
+              const lowerErrMsg = errMsg.toLowerCase();
+              if (lowerErrMsg.includes('duplicate') && (lowerErrMsg.includes('order'))) {
                 this.logger.log(`[${symbol}] [Sync] Duplicate ID exception on close. Recovering...`);
                 const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: clientOrderId });
                 this.updateWeight(queryRes?.headers);

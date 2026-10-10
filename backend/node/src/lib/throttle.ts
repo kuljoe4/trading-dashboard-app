@@ -14,7 +14,7 @@ const RATE_WINDOW_MS = 60000; // 1 minute
 
 // PERIODIC CLEANUP: Evict stale records every 10 minutes to prevent memory leaks
 if (process.env.NODE_ENV !== 'test') {
-  setInterval(() => {
+  const throttleInterval = setInterval(() => {
     const now = Date.now();
     for (const [ip, record] of FAILURES.entries()) {
       if (now - record.lastFailure > FAILURE_WINDOW_MS * 5) {
@@ -28,6 +28,7 @@ if (process.env.NODE_ENV !== 'test') {
       }
     }
   }, 600000);
+  if (throttleInterval.unref) throttleInterval.unref();
 }
 
 export function isThrottled(ip: string): boolean {

@@ -523,6 +523,25 @@ export class MaintenanceService {
         });
       }
 
+      // 3. Sweep Orphan Orders (No position, local or exchange, but orders exist)
+      // Note: paper_mode check is handled at the start of the method
+      const positionSymbols = new Set(activeExPositions.map(p => p.symbol));
+      const orphanOrders = allOpenOrders.filter(o => !positionSymbols.has(o.symbol) && !localSymbols.has(o.symbol));
+
+      if (orphanOrders.length > 0) {
+         const orphanSymbols = Array.from(new Set(orphanOrders.map(o => o.symbol)));
+         this.logger.warn(`[Reconciliation] Found orphan orders on symbols without active positions: ${orphanSymbols.join(', ')}. Canceling...`);
+
+         for (const symbol of orphanSymbols) {
+           try {
+             await this.orderManager.exhaustiveSymbolFlush(symbol);
+             this.logger.log(`[Reconciliation] Successfully swept orphan orders for ${symbol}`);
+           } catch (e: any) {
+             this.logger.error(`[Reconciliation] Failed to sweep orphan orders for ${symbol}: ${e.message}`);
+           }
+         }
+      }
+
       this.logger.log(`[SRE] Periodic reconciliation complete. State verified.`);
     } catch (e) {
       this.logger.error(

@@ -58,24 +58,24 @@ export const ActiveTradeBar = React.memo(() => {
       className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-[45] w-[95%] max-w-[800px]"
     >
       <div className={cn(
-        "bg-surface/90 backdrop-blur-xl border rounded-2xl p-4 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between gap-6 transition-colors duration-500 overflow-hidden relative",
-        showResumingFeedback ? "border-accent/30 shadow-[0_0_30px_rgba(91,111,255,0.1)]" : "border-white/10"
+        "bg-surface/95 backdrop-blur-xl border border-border rounded-xl p-3 sm:p-4 shadow-xl flex items-center justify-between gap-4 sm:gap-6 transition-colors duration-500 overflow-hidden relative",
+        showResumingFeedback ? "border-accent/30 shadow-[0_0_30px_rgba(79,70,229,0.1)]" : "border-border"
       )}>
         {showResumingFeedback && (
            <div className="absolute inset-0 bg-accent/[0.03] animate-pulse pointer-events-none" />
         )}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
           <div className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center transition-colors",
-            showResumingFeedback ? "bg-accent text-white animate-pulse" : "bg-accent/20 text-accent"
+            "w-9 h-9 sm:w-10 sm:h-10 rounded-lg flex items-center justify-center transition-colors shrink-0",
+            showResumingFeedback ? "bg-accent text-white animate-pulse" : "bg-accent/15 text-accent"
           )}>
-            {showResumingFeedback ? <RefreshCw size={20} className="animate-spin" /> : <ArrowLeftRight size={20} />}
+            {showResumingFeedback ? <RefreshCw size={18} className="animate-spin" /> : <ArrowLeftRight size={18} />}
           </div>
           <div>
-            <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2">
+            <div className="text-[9.5px] text-dim font-bold uppercase tracking-wider flex items-center gap-1.5">
                {showResumingFeedback ? 'Resuming Feed...' : 'Active Positions'}
             </div>
-            <div className={cn("text-sm font-bold flex items-center gap-2 transition-all", showResumingFeedback && "opacity-40 blur-[1px]")}>
+            <div className={cn("text-xs sm:text-sm font-bold font-mono tabular-nums flex items-center gap-2 transition-all", showResumingFeedback && "opacity-40 blur-[1px]")}>
               {activeTrades.length} Trades · <span style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
             </div>
           </div>
@@ -92,7 +92,7 @@ export const ActiveTradeBar = React.memo(() => {
                     onClick={() => setClosingSymbol(t.symbol)}
                     aria-label={`Close ${t.symbol} ${t.direction || ''} position (${fmtUSD(t.pnl)})`}
                     className={cn(
-                      "px-3 py-2 rounded-xl border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none bg-white/5 border-white/10 hover:bg-white/10 hover:border-red/40 cursor-pointer"
+                      "px-3 py-1.5 rounded-lg border text-[10px] font-bold font-mono transition-all flex items-center gap-2 shrink-0 focus-visible:ring-2 focus-visible:ring-red outline-none bg-surface-elevated border-border hover:border-red/40 cursor-pointer"
                     )}
                   >
                     <div className="flex items-center gap-1.5">

@@ -1,12 +1,15 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('Active Trade Runway Card Dual Indicators & Global 24h Market Range Verification', () => {
-  const cardPath = path.resolve('frontend/src/components/ActiveTradeCard.jsx');
-  const overlayPath = path.resolve('frontend/src/components/ScannerOverlay.jsx');
-  const regimePath = path.resolve('frontend/src/utils/marketRegime.js');
+  const cardPath = path.resolve(__dirname, '../components/ActiveTradeCard.jsx');
+  const overlayPath = path.resolve(__dirname, '../components/ScannerOverlay.jsx');
+  const regimePath = path.resolve(__dirname, '../utils/marketRegime.js');
 
   const cardCode = fs.readFileSync(cardPath, 'utf8');
   const overlayCode = fs.readFileSync(overlayPath, 'utf8');

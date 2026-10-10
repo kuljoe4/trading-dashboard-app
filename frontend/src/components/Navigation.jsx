@@ -42,26 +42,31 @@ export const Sidebar = ({ selected }) => {
         isExpanded ? "w-[260px]" : "w-[80px]"
       )}
     >
-      <div className={cn("flex-1 flex flex-col p-6 overflow-hidden", !isExpanded && "px-4")}>
+      <div className={cn("flex-1 flex flex-col p-4 sm:p-5 overflow-hidden", !isExpanded && "px-3")}>
         <button
           type="button"
           onClick={() => { window.location.hash = '#/'; }}
           onMouseEnter={() => preloadView('/')}
           aria-label="Momentum Cockpit Home"
-          className={cn("flex items-center gap-3 mb-12 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl cursor-pointer transition-opacity hover:opacity-90 relative", !isExpanded && "justify-center")}
+          className={cn("flex items-center gap-3 mb-8 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer transition-opacity hover:opacity-95 relative", !isExpanded && "justify-center")}
         >
-          <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg shadow-accent/20 shrink-0 group-hover/brand:scale-105 transition-transform">
-            <LayoutDashboard size={24} className="text-white" />
+          <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shadow-sm shrink-0 group-hover/brand:scale-105 transition-transform">
+            <LayoutDashboard size={20} className="text-white" />
           </div>
-          {isExpanded && <span className="text-xl font-black tracking-tighter uppercase italic text-text whitespace-nowrap">Momentum</span>}
+          {isExpanded && (
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-extrabold tracking-tight uppercase text-text whitespace-nowrap">Momentum</span>
+              <span className="text-[9px] font-mono font-medium text-dim tracking-wider uppercase">Trading Terminal</span>
+            </div>
+          )}
           {isSyncing && (
-            <div className="absolute top-0 left-0 right-0 h-1 overflow-hidden">
-              <div className="h-full bg-accent animate-progress-fast shadow-[0_0_10px_var(--color-accent)]" />
+            <div className="absolute top-0 left-0 right-0 h-0.5 overflow-hidden rounded-full">
+              <div className="h-full bg-accent animate-progress-fast" />
             </div>
           )}
         </button>
 
-      <nav className="flex-1 flex flex-col gap-2">
+      <nav className="flex-1 flex flex-col gap-1.5">
         {NAV_ITEMS.map(item => (
           <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
             <button
@@ -71,15 +76,15 @@ export const Sidebar = ({ selected }) => {
               aria-label={`${item.label}${item.path === '/trades' && activeTrades?.length > 0 ? ` (${activeTrades.length} active position${activeTrades.length === 1 ? '' : 's'})` : ''}${item.shortcut ? ` [${item.shortcut}]` : ''}`}
               aria-current={isActive(item.path) ? 'page' : undefined}
               className={cn(
-                "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0",
-                isActive(item.path) ? "bg-accent text-white shadow-lg shadow-accent/20" : "text-dim hover:bg-white/5 hover:text-text"
+                "group w-full flex flex-col items-center gap-1 py-2.5 rounded-lg font-semibold text-xs tracking-wide transition-all relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                isExpanded ? "flex-row px-3 gap-3" : "justify-center px-0",
+                isActive(item.path) ? "bg-accent text-white shadow-sm" : "text-dim hover:bg-white/[0.04] hover:text-text"
               )}
             >
               <div className="relative">
-                <item.icon size={20} className="shrink-0" />
+                <item.icon size={18} className="shrink-0" />
                 {item.path === '/trades' && activeTrades?.length > 0 && (
-                  <span className="absolute -top-1.5 -right-1.5 bg-accent text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center border-2 border-surface shadow-sm animate-in zoom-in duration-300">
+                  <span className="absolute -top-1.5 -right-1.5 bg-accent text-white text-[8.5px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-surface shadow-xs">
                     {activeTrades.length}
                   </span>
                 )}
@@ -87,7 +92,7 @@ export const Sidebar = ({ selected }) => {
               {isExpanded && (
                 <span className="flex-1 flex items-center justify-between">
                   <span>{item.label}</span>
-                  <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[{item.shortcut}]</span>
+                  <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[{item.shortcut}]</span>
                 </span>
               )}
             </button>
@@ -100,15 +105,15 @@ export const Sidebar = ({ selected }) => {
             onClick={triggerScanner}
             aria-label="Market Scanner [S]"
             className={cn(
-              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-accent hover:bg-accent/10 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-              isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
+              "group w-full flex flex-col items-center gap-1 py-2.5 rounded-lg font-semibold text-xs tracking-wide transition-all text-accent hover:bg-accent/10 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+              isExpanded ? "flex-row px-3 gap-3" : "justify-center px-0"
             )}
           >
-            <Zap size={20} className="shrink-0" />
+            <Zap size={18} className="shrink-0" />
             {isExpanded && (
               <span className="flex-1 flex items-center justify-between">
                 <span>Scanner</span>
-                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[S]</span>
+                <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[S]</span>
               </span>
             )}
           </button>
@@ -120,21 +125,20 @@ export const Sidebar = ({ selected }) => {
             onClick={() => window.dispatchEvent(new Event('toggle-shortcuts'))}
             aria-label="Keyboard Shortcuts [?]"
             className={cn(
-              "group w-full flex flex-col items-center gap-1 py-3 rounded-xl font-bold text-[13px] transition-all text-dim hover:text-text hover:bg-white/5 relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-              isExpanded ? "flex-row px-4 gap-3" : "justify-center px-0"
+              "group w-full flex flex-col items-center gap-1 py-2.5 rounded-lg font-semibold text-xs tracking-wide transition-all text-dim hover:text-text hover:bg-white/[0.04] relative focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+              isExpanded ? "flex-row px-3 gap-3" : "justify-center px-0"
             )}
           >
-            <Keyboard size={20} className="shrink-0" />
+            <Keyboard size={18} className="shrink-0" />
             {isExpanded && (
               <span className="flex-1 flex items-center justify-between">
                 <span>Shortcuts</span>
-                <span className="ml-auto text-[10px] font-mono text-dim/50 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[?]</span>
+                <span className="ml-auto text-[9.5px] font-mono text-dim/60 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 transition-opacity">[?]</span>
               </span>
             )}
           </button>
         </Tooltip>
       </nav>
-
 
         <div className={cn(
           "pt-6 border-t border-border/50",

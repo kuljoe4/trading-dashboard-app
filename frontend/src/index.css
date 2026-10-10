@@ -1,24 +1,26 @@
 @import "tailwindcss";
 
 @theme {
-  --color-background: var(--color-background-theme, #080b0f);
-  --color-surface: var(--color-surface-theme, #0d1117);
-  --color-accent: var(--color-accent-theme, #5b6fff);
-  --color-green: var(--color-green-theme, #00e5a0);
-  --color-red: var(--color-red-theme, #ff4466);
-  --color-amber: var(--color-amber-theme, #f5a623);
-  --color-text: var(--color-text-theme, #f0f3f8);
-  --color-dim: var(--color-dim-theme, #8ba1c1);
-  --color-border: var(--color-border-theme, #1e293b);
-  --color-border-hover: var(--color-border-hover-theme, #334155);
+  --color-background: var(--color-background-theme, #080b12);
+  --color-surface: var(--color-surface-theme, #0d121f);
+  --color-surface-elevated: #141b2d;
+  --color-accent: var(--color-accent-theme, #4f46e5);
+  --color-accent-light: #6366f1;
+  --color-green: var(--color-green-theme, #10b981);
+  --color-red: var(--color-red-theme, #f43f5e);
+  --color-amber: var(--color-amber-theme, #f59e0b);
+  --color-text: var(--color-text-theme, #f8fafc);
+  --color-dim: var(--color-dim-theme, #94a3b8);
+  --color-border: var(--color-border-theme, #1c2436);
+  --color-border-hover: var(--color-border-hover-theme, #2e3a54);
 
-  --font-sans: 'Inter', 'Inter var', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Monaco, Consolas, monospace;
 
-  --radius-2xl: 1.5rem;
-  --radius-xl: 1rem;
-  --radius-lg: 0.75rem;
-  --radius-md: 0.5rem;
+  --radius-2xl: 1rem;
+  --radius-xl: 0.75rem;
+  --radius-lg: 0.5rem;
+  --radius-md: 0.375rem;
   --radius-sm: 0.25rem;
 }
 
@@ -27,6 +29,7 @@
     @apply bg-background text-text font-sans antialiased selection:bg-accent/30 selection:text-white;
     background-color: var(--color-background);
     -webkit-tap-highlight-color: transparent;
+    letter-spacing: -0.01em;
   }
 
   :focus-visible {
@@ -34,7 +37,7 @@
   }
 
   h1, h2, h3, h4, h5, h6 {
-    @apply tracking-tight font-bold;
+    @apply tracking-tight font-bold text-text;
   }
 
   input, button, select, textarea {
@@ -45,7 +48,7 @@
     @apply transition-all duration-150 ease-out;
   }
   button:not(:disabled):active {
-    @apply scale-[0.97];
+    @apply scale-[0.98];
   }
 
   /* Global Standardized Scrollbars */
@@ -55,8 +58,8 @@
   }
 
   ::-webkit-scrollbar {
-    width: 3px;
-    height: 3px;
+    width: 4px;
+    height: 4px;
   }
 
   ::-webkit-scrollbar-track {
@@ -65,7 +68,7 @@
 
   ::-webkit-scrollbar-thumb {
     background: var(--color-border);
-    border-radius: 10px;
+    border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
@@ -83,28 +86,14 @@
 }
 
 @layer utilities {
-  .neon-glow-accent {
-    box-shadow: 0 0 20px rgba(91, 111, 255, 0.2);
+  .subtle-glass {
+    @apply bg-surface/90 backdrop-blur-md border border-white/5;
   }
-  .neon-glow-green {
-    box-shadow: 0 0 20px rgba(0, 229, 160, 0.2);
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
-  .neon-glow-red {
-    box-shadow: 0 0 20px rgba(255, 68, 102, 0.2);
-  }
-  .glass-morphism {
-    @apply bg-surface/80 backdrop-blur-md border border-white/5;
-  }
-  .text-shadow-sm {
-    text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-  }
-  .no-scrollbar::-webkit-scrollbar {
-    display: none;
-  }
-  .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-    overflow-anchor: none;
+  .text-balance {
+    text-wrap: balance;
   }
   @keyframes move-stripe {
     from { background-position: 0 0; }
@@ -122,7 +111,7 @@
   }
   @keyframes pulse-slow {
     0%, 100% { opacity: 1; }
-    50% { opacity: 0.8; }
+    50% { opacity: 0.7; }
   }
   .animate-pulse-slow {
     animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;

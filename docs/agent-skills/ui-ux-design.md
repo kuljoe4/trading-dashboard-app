@@ -39,4 +39,9 @@ When creating UI components meant to be used as children of Radix UI primitives 
 - **Avoid** wrapping `forwardRef` components with `React.memo` unless necessary. If `React.memo` is required, the `React.memo(React.forwardRef(...))` pattern *should* work, but if you encounter runtime ref warnings, prioritize `React.forwardRef` alone, as it directly addresses the component's inability to receive refs.
 - **Always** set `displayName` explicitly for debugging and stack traces.
 
+### 6. Modern Financial Standards & Zero-Pill Discipline
+- **Zero-Pill Architecture:** Prohibit static colored capsules and rounded bordered chips for passive metadata. Display trade direction, timeframe intervals, and status flags as clean unboxed text with subtle typographic separators (`·`).
+- **StatCard Hierarchy:** Strictly follow the vertical sequence: `Label (Title)` -> `Value` -> `Sub-Value`. Use top alignment (`items-start`), prevent title clipping, and ensure `gap-1` element spacing with `gap-y-4` in grid parents.
+- **Tabular Alignment:** Guarantee all financial values and metrics use `tabular-nums font-mono` for stable columnar scanning without layout jitter during price ticks.
+
 

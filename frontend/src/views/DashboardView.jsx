@@ -62,7 +62,7 @@ const TemporalRiskGrid = React.memo(() => {
     : null;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 mb-8 lg:mb-10">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 md:gap-4 gap-y-4 mb-8 lg:mb-10">
       <InteractiveLimitCard
         label="Period Limit"
         subValue={tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining${isAdaptiveTightened ? ' (x0.5)' : ''}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
@@ -145,31 +145,30 @@ const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 // --- Custom Reference Design KPI Card ---
 const ReferenceKPICard = React.memo(({ title, value, changePct, isPositive, icon: Icon, iconBg = "bg-accent/15 text-accent", subtext }) => {
   return (
-    <div className="bg-surface border border-border rounded-2xl p-5 shadow-md shadow-black/20 hover:border-accent/40 transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
+    <div className="bg-surface border border-border rounded-xl p-4 sm:p-5 shadow-xs hover:border-border-hover transition-all flex flex-col justify-between min-h-[110px] relative overflow-hidden group">
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-black uppercase tracking-widest text-dim">{title}</span>
-          <h3 className="text-xl md:text-2xl font-black font-mono tracking-tight text-text leading-tight">{value}</h3>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-dim">{title}</span>
+          <h3 className="text-xl md:text-2xl font-bold font-mono tabular-nums tracking-tight text-text leading-tight">{value}</h3>
         </div>
-        <div className={cn("w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-inner transition-transform group-hover:scale-110", iconBg)}>
-          <Icon size={20} />
+        <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-transform group-hover:scale-105", iconBg)}>
+          <Icon size={18} />
         </div>
       </div>
 
-      <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/10">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between mt-3 pt-2 border-t border-border/20">
+        <div className="flex items-center gap-1.5">
           <span className={cn(
-            "text-[10px] font-black font-mono px-2 py-0.5 rounded-full flex items-center gap-0.5",
-            isPositive
-              ? "bg-green/15 text-green border border-green/20"
-              : "bg-red/15 text-red border border-red/20"
+            "text-[10px] font-bold font-mono tabular-nums flex items-center gap-0.5",
+            isPositive ? "text-green" : "text-red"
           )}>
             {isPositive ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
             {isPositive ? '+' : ''}{changePct}%
           </span>
-          <span className="text-[9px] font-bold text-dim/70 uppercase tracking-wider ml-1">vs last period</span>
+          <span className="text-dim/40 text-[9px]">·</span>
+          <span className="text-[9px] font-medium text-dim uppercase tracking-wider">vs last period</span>
         </div>
-        {subtext && <span className="text-[9px] font-mono font-bold text-dim/60 truncate max-w-[120px]">{subtext}</span>}
+        {subtext && <span className="text-[9px] font-mono font-medium text-dim/70 truncate max-w-[120px]">{subtext}</span>}
       </div>
     </div>
   );
@@ -224,7 +223,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
   }, [tradeHistory, activeTrades]);
 
   return (
-    <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
+    <div className="bg-surface border border-border rounded-xl p-4 sm:p-5 shadow-xs flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
       <div
         role="button"
         tabIndex={0}
@@ -232,17 +231,17 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setIsRecentExpanded(!isRecentExpanded))}
         aria-expanded={isRecentExpanded}
         aria-controls="recent-transactions-content"
-        className="flex items-center justify-between cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-xl"
+        className="flex items-center justify-between cursor-pointer select-none group min-w-0 outline-none focus-visible:ring-2 focus-visible:ring-accent rounded-lg"
       >
         <div className="flex items-center gap-3 min-w-0 flex-1">
-          <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
             <History size={16} />
           </div>
           <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <h3 className="text-xs sm:text-sm md:text-base font-black uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
+            <h3 className="text-xs sm:text-sm md:text-base font-bold uppercase tracking-tight text-text truncate group-hover:text-accent transition-colors">
               Recent Transactions
             </h3>
-            <span className="text-[10px] text-dim font-bold uppercase tracking-widest truncate">Live Execution Feed ({allTransactions.length})</span>
+            <span className="text-[9.5px] text-dim font-medium uppercase tracking-wider truncate">Live Execution Feed ({allTransactions.length})</span>
           </div>
         </div>
 
@@ -250,12 +249,12 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); window.location.hash = '#/history'; }}
-            className="text-[10px] font-black text-accent hover:text-accent/80 uppercase tracking-widest transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
+            className="text-[9.5px] font-bold text-accent hover:text-accent-light uppercase tracking-wider transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent rounded px-1"
           >
             See All
           </button>
           <div className={cn(
-            "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
+            "p-1.5 rounded-lg border border-border/60 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
             isRecentExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
           )}>
             <ChevronLeft size={14} className="-rotate-90" />
@@ -271,7 +270,7 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
-            className="overflow-hidden pt-2 border-t border-border/20 flex flex-col gap-2.5"
+            className="overflow-hidden pt-2 border-t border-border/20 flex flex-col gap-2"
           >
         {allTransactions.length === 0 ? (
           <div className="p-8 text-center text-dim font-mono text-[10px] uppercase tracking-widest border border-dashed border-border/30 rounded-xl">
@@ -285,12 +284,12 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
             return (
               <div
                 key={tx.id}
-                className="flex items-center justify-between p-3 rounded-xl bg-background/30 hover:bg-white/5 border border-border/20 transition-all group"
+                className="flex items-center justify-between p-3 rounded-lg bg-surface-elevated/40 hover:bg-surface-elevated border border-border/40 transition-all group"
               >
                 {/* Symbol Avatar & Info */}
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={cn(
-                    "w-9 h-9 rounded-full flex items-center justify-center font-black text-xs font-mono shrink-0 shadow-inner border border-white/5",
+                    "w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs font-mono shrink-0 border border-white/5",
                     tx.amount >= 0 ? "bg-accent/10 text-accent" : "bg-red/10 text-red"
                   )}>
                     {tx.symbol.substring(0, 3)}
@@ -298,40 +297,40 @@ const RecentTransactionsList = React.memo(({ tradeHistory = [], activeTrades = [
 
                   <div className="flex flex-col min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-black font-mono uppercase truncate text-text group-hover:text-accent transition-colors">
+                      <span className="text-xs font-bold font-mono uppercase truncate text-text group-hover:text-accent transition-colors">
                         {tx.symbol.replace('USDT', '')}
                       </span>
                       {tx.isKnife && (
-                        <span className="text-[8px] bg-red/20 text-red border border-red/30 font-black px-1.5 py-0.2 rounded uppercase">🗡️ Knife</span>
+                        <span className="text-[8px] text-amber font-mono font-bold uppercase tracking-wider">🗡️ Knife</span>
                       )}
                     </div>
-                    <span className="text-[9px] text-dim font-bold font-mono">
+                    <span className="text-[9px] text-dim font-mono">
                       {formatTimeAgo(tx.timestamp)} · {tx.type}
                     </span>
                   </div>
                 </div>
 
-                {/* Amount & Status Badge */}
+                {/* Amount & Status (Zero-Pill Discipline) */}
                 <div className="flex items-center gap-4 shrink-0">
                   <div className="flex flex-col items-end">
-                    <span className={cn("text-xs font-mono font-black", pnlClass(tx.amount))}>
+                    <span className={cn("text-xs font-mono font-bold tabular-nums", pnlClass(tx.amount))}>
                       {tx.amount >= 0 ? '+' : ''}{fmtUSD(tx.amount)}
                     </span>
-                    <span className="text-[8px] font-mono text-dim/60">
+                    <span className="text-[8px] font-mono text-dim/60 tabular-nums">
                       ${tx.notional.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                     </span>
                   </div>
 
-                  {/* Status Badge Matching Domain Terminology */}
+                  {/* Status Indicator (Clean Unboxed Typography) */}
                   <span className={cn(
-                    "px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border flex items-center gap-1.5 shrink-0",
-                    isClosed && "bg-green/10 border-green/30 text-green",
-                    isOpen && "bg-amber/10 border-amber/30 text-amber animate-pulse"
+                    "text-[9px] font-mono font-semibold uppercase tracking-wider flex items-center gap-1.5 shrink-0",
+                    isClosed && "text-green",
+                    isOpen && "text-amber"
                   )}>
                     <span className={cn(
-                      "w-1.5 h-1.5 rounded-full",
+                      "w-1.5 h-1.5 rounded-full shrink-0",
                       isClosed && "bg-green",
-                      isOpen && "bg-amber"
+                      isOpen && "bg-amber animate-pulse"
                     )} />
                     {tx.status}
                   </span>
@@ -1406,7 +1405,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
               Passing {regimeInfo.passingCount}/{regimeInfo.totalCount} &gt; {threshold}%
             </span>
             <span className="text-dim/40">•</span>
-            <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.2 rounded font-mono">
+            <span className="text-accent font-mono text-[9px] uppercase tracking-wider">
               Weights {momW}:{volW}:{trendW}
             </span>
           </div>
@@ -2880,9 +2879,10 @@ export function DashboardView({ initialStrategy }) {
               )}
             </AnimatePresence>
             {!showTemporalRisk && (
-              <div className="flex gap-2 -mt-2 mb-4 animate-in fade-in slide-in-from-left-2 duration-500">
-                 {config.frequency_shaping_enabled && <div className="px-2 py-0.5 rounded bg-accent/5 border border-accent/10 text-[8px] font-black uppercase tracking-widest text-accent/60">Frequency Guard Active</div>}
-                 <div className="px-2 py-0.5 rounded bg-surface border border-border/40 text-[8px] font-black uppercase tracking-widest text-dim/60">{config.max_open_trades} Max Trades</div>
+              <div className="flex items-center gap-2 -mt-2 mb-4 animate-in fade-in slide-in-from-left-2 duration-500 text-[9px] font-mono font-bold uppercase tracking-wider text-dim">
+                 {config.frequency_shaping_enabled && <span className="text-accent">Frequency Guard Active</span>}
+                 {config.frequency_shaping_enabled && <span>·</span>}
+                 <span>{config.max_open_trades} Max Trades</span>
               </div>
             )}
           </motion.div>

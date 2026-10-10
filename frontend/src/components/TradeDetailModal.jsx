@@ -87,24 +87,24 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
                       </span>
                     ) : (
                       <>
-                        <span className={cn("px-1 py-0.5 rounded-full", isLong ? 'bg-green/10 text-green' : 'bg-red/10 text-red')}>
+                        <span className={cn("font-bold font-mono tracking-wider", isLong ? 'text-green' : 'text-red')}>
                           {trade.direction}
                         </span>
                         {trade.strategy_label && (
-                          <span className="text-dim/80 font-bold lowercase tracking-normal">
-                            via {trade.strategy_label}
-                          </span>
+                          <>
+                            <span className="text-dim/40 font-mono">·</span>
+                            <span className="text-dim/80 font-mono tracking-normal">
+                              via {trade.strategy_label}
+                            </span>
+                          </>
                         )}
                         {trade.strategy_label && config && (
-                          trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? (
-                            <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
-                              Base
+                          <>
+                            <span className="text-dim/40 font-mono">·</span>
+                            <span className="text-dim/60 font-mono text-[8px] uppercase tracking-wider">
+                              {trade.strategy_label === (config.strategy_label || 'Momentum Strategy') ? 'Base' : 'Variant'}
                             </span>
-                          ) : (
-                            <span className="bg-purple/10 text-purple border border-purple/20 text-[7px] md:text-[8px] font-black px-1 py-0.5 rounded uppercase tracking-tighter shrink-0 normal-case">
-                              Variant
-                            </span>
-                          )
+                          </>
                         )}
                       </>
                     )}

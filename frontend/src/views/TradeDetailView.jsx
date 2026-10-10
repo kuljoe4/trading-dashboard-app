@@ -94,12 +94,12 @@ const TradeDetailView = ({ tradeId }) => {
           {tradingMode === 'testnet' && <DemoBadge />}
           {tradingMode === 'live' && <LiveBadge />}
           {isVariant && (
-            <span className="px-2.5 py-1 rounded-full bg-purple/10 text-purple border border-purple/20 text-[10px] font-bold uppercase tracking-wider">
-              Variant
+            <span className="text-[10px] font-mono font-bold text-purple uppercase tracking-wider">
+              · Variant
             </span>
           )}
-          <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider", trade.direction === 'LONG' ? 'bg-green/10 text-green border border-green/20' : 'bg-red/10 text-red border border-red/20')}>
-            {trade.direction}
+          <span className={cn("text-[10px] font-mono font-bold tracking-wider", trade.direction === 'LONG' ? 'text-green' : 'text-red')}>
+            · {trade.direction}
           </span>
           <div className="hidden sm:flex items-center gap-1.5 text-[10px] text-dim font-bold font-mono">
             ID: {trade.id?.substring(0, 8)}

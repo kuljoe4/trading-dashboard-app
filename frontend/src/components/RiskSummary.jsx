@@ -19,8 +19,8 @@ export const RiskSummary = React.memo(({ cfg, balance }) => {
   return (
     <div className="px-5 py-4 bg-accent/5 border-t border-accent/10 flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 duration-500">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent">
-          <ShieldCheck size={12} /> Live Risk Projection
+        <div className="flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-wider text-accent font-mono">
+          <ShieldCheck size={13} /> Live Risk Projection
         </div>
         {isAggressive && (
           <Tooltip content="Risk per trade exceeds 4% or Stop Loss distance exceeds 5%">
@@ -28,9 +28,9 @@ export const RiskSummary = React.memo(({ cfg, balance }) => {
               tabIndex={0}
               role="region"
               aria-label="Aggressive Risk Profile: Risk per trade exceeds 4% or Stop Loss distance exceeds 5%"
-              className="flex items-center gap-1.5 px-2 py-0.5 bg-amber/10 border border-amber/20 rounded text-[8px] font-black text-amber uppercase tracking-tighter cursor-help focus-visible:ring-2 focus-visible:ring-amber focus-visible:outline-none"
+              className="flex items-center gap-1 text-[8.5px] font-bold text-amber font-mono uppercase tracking-wider cursor-help focus-visible:ring-2 focus-visible:ring-amber focus-visible:outline-none"
             >
-              <AlertTriangle size={10} /> Aggressive Profile
+              <AlertTriangle size={11} /> Aggressive Profile
             </div>
           </Tooltip>
         )}
@@ -38,18 +38,18 @@ export const RiskSummary = React.memo(({ cfg, balance }) => {
 
       <div className="grid grid-cols-3 gap-4">
         <div className="flex flex-col gap-0.5">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Risk / Trade</span>
-          <span className="text-xs font-mono font-black text-text">{fmtUSD(riskAmount)}</span>
+          <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider">Risk / Trade</span>
+          <span className="text-xs font-mono font-bold tabular-nums text-text">{fmtUSD(riskAmount)}</span>
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Est. Notional</span>
-          <span className={cn("text-xs font-mono font-black", isTooSmall ? "text-amber" : "text-text")}>
+          <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider">Est. Notional</span>
+          <span className={cn("text-xs font-mono font-bold tabular-nums", isTooSmall ? "text-amber" : "text-text")}>
             {fmtUSD(isTooSmall ? 5.05 : notional)}
           </span>
         </div>
         <div className="flex flex-col gap-0.5 text-right">
-          <span className="text-[8px] text-dim font-bold uppercase tracking-widest">Max Exposure</span>
-          <span className="text-xs font-mono font-black text-accent">{fmtUSD(totalExposure)}</span>
+          <span className="text-[8.5px] text-dim font-bold uppercase tracking-wider">Max Exposure</span>
+          <span className="text-xs font-mono font-bold tabular-nums text-accent">{fmtUSD(totalExposure)}</span>
         </div>
       </div>
 

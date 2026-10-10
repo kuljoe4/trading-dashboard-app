@@ -140,31 +140,32 @@ const TradesView = () => {
           backAction={() => window.location.hash = '#/'}
         />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-8 lg:mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4 mb-8 lg:mb-12">
         <StatCard
           label="Active P&L"
           value={fmtUSD(activePnl)}
           color={pnlClass(activePnl)}
-          subValue={
-            <div className="flex flex-col gap-0.5 mt-1 min-w-[130px]">
-              <div className="flex items-center justify-between text-[10px] text-dim/60">
-                <span>Session Return:</span>
-                <span className="font-bold font-mono" style={{ color: pnlColor(totalPnl) }}>{fmtUSD(totalPnl)}</span>
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-dim/60">
-                <span>Est. Target:</span>
-                <span className="font-bold font-mono" style={{ color: pnlColor(activeEstPnl) }}>≈ {fmtUSD(activeEstPnl)}</span>
-              </div>
-              <div className="flex items-center justify-between text-[10px] text-dim/80 pt-0.5 border-t border-border/20">
-                <span>Projected:</span>
-                <span className="font-bold font-mono" style={{ color: pnlColor(trueProjectedPnl) }}>≈ {fmtUSD(trueProjectedPnl)}</span>
-              </div>
-            </div>
-          }
+          subValue={`Session: ${fmtUSD(totalPnl)} · Est: ${fmtUSD(activeEstPnl)}`}
+          tooltipText={`Session Return: ${fmtUSD(totalPnl)} | Est. Target: ${fmtUSD(activeEstPnl)} | Projected: ${fmtUSD(trueProjectedPnl)}`}
         />
-        <StatCard label="Active Risk" value={`${Number(totalRiskPct || 0).toFixed(2)}%`} color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"} />
-        <StatCard label="Peak RR" value={`+${Number(peakRr || 0).toFixed(2)}`} color="text-accent" />
-        <StatCard label="Positions" value={activeTrades.length.toString()} color="text-accent" />
+        <StatCard
+          label="Active Risk"
+          value={`${Number(totalRiskPct || 0).toFixed(2)}%`}
+          color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
+          tooltipText="Combined stop-loss risk across all active trades relative to account balance."
+        />
+        <StatCard
+          label="Peak RR"
+          value={`+${Number(peakRr || 0).toFixed(2)}`}
+          color="text-accent"
+          tooltipText="Maximum Reward-to-Risk ratio achieved across currently open positions."
+        />
+        <StatCard
+          label="Positions"
+          value={activeTrades.length.toString()}
+          color="text-accent"
+          tooltipText={`Currently open trade slots: ${activeTrades.length} / ${config.max_open_trades || 5}`}
+        />
       </div>
 
       {/* Extract unique strategy labels from active positions */}
@@ -195,16 +196,16 @@ const TradesView = () => {
         return (
           <div className="flex flex-col gap-6">
             {/* Ultra-Dense Mobile-Optimized Filter Bar */}
-            <div id="active-trades-filter-toolbar" className="bg-background/95 border border-border/40 rounded-2xl p-2.5 sm:p-3 shadow-sm flex flex-col gap-2 w-full">
+            <div id="active-trades-filter-toolbar" className="bg-surface border border-border rounded-xl p-2.5 sm:p-3 shadow-xs flex flex-col gap-2 w-full">
               <div className="flex items-center justify-between gap-2 w-full">
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
                     <Filter size={12} className="text-accent" />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-text">Tactical Filters</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-text">Tactical Filters</span>
                   {hasActiveFilters && (
-                    <span className="px-1.5 py-0.2 rounded-full bg-accent/20 text-accent border border-accent/30 text-[8px] font-mono font-black">
-                      ACTIVE
+                    <span className="text-[9px] font-mono font-bold text-accent tracking-wider">
+                      · ACTIVE
                     </span>
                   )}
                 </div>
@@ -214,7 +215,7 @@ const TradesView = () => {
                     <button
                       type="button"
                       onClick={resetAllFilters}
-                      className="px-2 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
+                      className="px-2 py-1 rounded-lg text-[8.5px] font-bold uppercase tracking-wider text-red hover:bg-red/10 border border-red/20 transition-all flex items-center gap-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-red outline-none"
                       aria-label="Reset position filters"
                     >
                       <RotateCcw size={10} />
@@ -227,10 +228,10 @@ const TradesView = () => {
                     aria-expanded={filtersExpanded}
                     aria-label={filtersExpanded ? "Collapse active trade filters" : "Expand active trade filters"}
                     className={cn(
-                      "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
+                      "px-2.5 py-1 rounded-lg text-[8.5px] font-bold uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
                       filtersExpanded
                         ? "bg-accent/15 border-accent/40 text-accent"
-                        : "bg-surface border-border/40 text-dim hover:text-text hover:border-accent/30"
+                        : "bg-surface-elevated border-border text-dim hover:text-text hover:border-accent/30"
                     )}
                   >
                     <SlidersHorizontal size={11} className={cn(filtersExpanded ? "text-accent" : "text-dim")} />

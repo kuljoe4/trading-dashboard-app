@@ -182,8 +182,8 @@ export function SettingsView() {
             >
               <div className="flex items-center gap-3">
                 <SectionLabel className="mb-0">Dashboard Visual Theme</SectionLabel>
-                <span className="text-[9px] font-mono font-bold px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent uppercase">
-                  {THEMES[currentTheme]?.name || currentTheme}
+                <span className="text-[10px] font-mono font-bold text-accent uppercase tracking-wider">
+                  · {THEMES[currentTheme]?.name || currentTheme}
                 </span>
               </div>
               <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('theme') && "rotate-180")} />
@@ -242,7 +242,8 @@ export function SettingsView() {
             >
               <div className="flex items-center gap-3">
                 <SectionLabel className="mb-0">Dashboard Security</SectionLabel>
-                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", adminApiKey ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber")}>
+                <span className={cn("text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5", adminApiKey ? "text-green" : "text-amber")}>
+                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", adminApiKey ? "bg-green" : "bg-amber")} />
                   {adminApiKey ? "Key Configured" : "Unprotected Local"}
                 </span>
               </div>
@@ -324,7 +325,8 @@ export function SettingsView() {
             >
               <div className="flex items-center gap-3">
                 <SectionLabel className="mb-0">Exchange Integration (Live)</SectionLabel>
-                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", maskedKey ? "bg-green/10 border-green/20 text-green" : "bg-border/40 text-dim")}>
+                <span className={cn("text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5", maskedKey ? "text-green" : "text-dim")}>
+                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", maskedKey ? "bg-green" : "bg-dim/40")} />
                   {maskedKey ? "Live Key Set" : "Unconfigured"}
                 </span>
               </div>
@@ -428,7 +430,8 @@ export function SettingsView() {
             >
               <div className="flex items-center gap-3">
                 <SectionLabel className="mb-0 text-purple">Binance Demo (Testnet)</SectionLabel>
-                <span className={cn("text-[9px] font-mono font-bold px-2 py-0.5 rounded border uppercase", maskedTestnetKey ? "bg-purple/10 border-purple/20 text-purple" : "bg-border/40 text-dim")}>
+                <span className={cn("text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5", maskedTestnetKey ? "text-purple" : "text-dim")}>
+                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", maskedTestnetKey ? "bg-purple" : "bg-dim/40")} />
                   {maskedTestnetKey ? "Demo Key Set" : "Unconfigured"}
                 </span>
               </div>

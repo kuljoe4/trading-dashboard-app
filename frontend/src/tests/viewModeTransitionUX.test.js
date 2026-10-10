@@ -1,12 +1,15 @@
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('View Mode Switch Standard - DashboardView and Analytics remove FLIP stretch', () => {
-  const dashboardPath = path.join(process.cwd(), 'src/views/DashboardView.jsx');
-  const analyticsPath = path.join(process.cwd(), 'src/components/Analytics.jsx');
-  const detailPath = path.join(process.cwd(), 'src/views/StrategyDetailView.jsx');
+  const dashboardPath = path.resolve(__dirname, '../views/DashboardView.jsx');
+  const analyticsPath = path.resolve(__dirname, '../components/Analytics.jsx');
+  const detailPath = path.resolve(__dirname, '../views/StrategyDetailView.jsx');
 
   const dashboardCode = fs.readFileSync(dashboardPath, 'utf8');
   const analyticsCode = fs.readFileSync(analyticsPath, 'utf8');

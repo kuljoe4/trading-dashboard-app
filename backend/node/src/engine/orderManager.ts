@@ -2835,7 +2835,7 @@ export class OrderManagerService {
     // SRE: Per-symbol concurrency lock to prevent overlapping closure attempts
     // BOLT: Lock is now universal to prevent race conditions during localOnly syncs (Issue 2)
     if (this.closureLocks.get(symbol)) {
-       this.logger.debug(`[${symbol}] Closure already in progress. Skipping redundant request.`);
+       this.logger.warn(`[${symbol}] Closure already in progress. Skipping redundant request.`);
        return { trade, exitOccurred: false };
     }
 
@@ -2864,7 +2864,7 @@ export class OrderManagerService {
       const lastAttempt = trade.last_close_attempt_ts || 0;
       const MAX_CLOSE_ATTEMPTS = 5;
 
-      if (!paperMode && attempts > 0) {
+      if (!paperMode && attempts > 0 && !localOnly && !options.ignoreBlocked) {
          const backoffMs = Math.min(300000, 5000 * Math.pow(2, attempts - 1));
          if (nowTs - lastAttempt < backoffMs) {
             // BOLT: Throttle this log to once per minute per symbol to prevent 5-second spam
@@ -3107,6 +3107,9 @@ export class OrderManagerService {
           }
           
           if (closeSuccess) {
+            // SRE: Reset close attempts on successful recovery or standard close
+            trade.close_attempts = 0;
+
             // IDEMPOTENCY: Mark close as executed to avoid duplicate UDS processing
             if (orderData.status === 'FILLED' || orderData.executedQty === orderData.origQty) {
                this.markAsExecuted(symbol, String(orderData.orderId));
@@ -3256,6 +3259,7 @@ export class OrderManagerService {
                   // Forcing liquidation when there's no position on the exchange should be treated as a successful closure
                   // without re-sending any stop-loss orders to the exchange.
                   closeSuccess = true;
+                  trade.close_attempts = 0; // SRE: Reset on successful sync recovery
 
                   const context = await this.recoverClosingContext(symbol, trade, exitPrice, stopOrderId);
                   exitPrice = context.price;

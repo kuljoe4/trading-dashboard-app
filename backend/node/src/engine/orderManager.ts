@@ -339,7 +339,8 @@ export class OrderManagerService {
               reason: `${EXIT_REASONS.SL_HIT}_${slType}`,
               orderId, // DATA-ACCURACY: Pass orderId for authoritative recovery
               feesAlreadyAccounted: true, // CHRONOS: Signal that commissions were already handled via UDS 'n' events
-              alreadyRealized: true // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
+              alreadyRealized: true, // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
+              needsMarketClose: false,
             });
           }
         }
@@ -475,7 +476,8 @@ export class OrderManagerService {
                reason,
                orderId, // DATA-ACCURACY: Pass orderId to allow authoritative recovery
                feesAlreadyAccounted: true, // CHRONOS: Signal that commissions were already handled via UDS 'n' events
-               alreadyRealized: true // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
+               alreadyRealized: true, // CHRONOS: Signal that PnL was already accumulated via UDS 'rp' events
+               needsMarketClose: false,
              });
            } else if (status === 'PARTIALLY_FILLED' && isRecognizedExit) {
              // SYNC: Update trade.qty to remaining exchange quantity (q - z)

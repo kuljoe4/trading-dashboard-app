@@ -704,6 +704,7 @@ export class SessionLifecycleService {
                 exitPrice: 0, // Will use ticker fallback
                 reason: EXIT_REASONS.EXCHANGE_SYNC,
                 isReconciliation: true,
+                needsMarketClose: false,
               });
             };
 

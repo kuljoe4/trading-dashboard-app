@@ -297,10 +297,19 @@ export class OrderManagerService {
           if (status === 'PARTIALLY_FILLED') {
             const totalQty = parseFloat(order.q || '0');
             const filledQty = parseFloat(order.z || '0');
-            const remainingQty = roundEight(totalQty - filledQty);
+            let remainingQty = 0;
+
+            if (totalQty === 0 && order.cp === true) {
+              // Edge Case: For closePosition=true orders, Binance user data stream sets q='0'.
+              // We must compute remainingQty using trade.qty - order.l (last filled quantity).
+              const lastFillQty = parseFloat(order.l || '0');
+              remainingQty = roundEight(trade.qty - lastFillQty);
+            } else {
+              remainingQty = roundEight(totalQty - filledQty);
+            }
 
             if (remainingQty >= 0 && Math.abs(trade.qty - remainingQty) > 0.00000001) {
-              this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${filledQty}/${totalQty}. Remaining: ${remainingQty}`);
+              this.logger.log(`[${tradeIdShort8}] [Sync] Partial SL fill for ${symbol}: ${filledQty}/${totalQty === 0 ? 'cp=true' : totalQty}. Remaining: ${remainingQty}`);
               trade.qty = remainingQty;
 
               // SRE: Update real-time position cache to match exchange
@@ -480,10 +489,20 @@ export class OrderManagerService {
                needsMarketClose: false,
              });
            } else if (status === 'PARTIALLY_FILLED' && isRecognizedExit) {
-             // SYNC: Update trade.qty to remaining exchange quantity (q - z)
-             const remainingQty = parseFloat(order.q || '0') - parseFloat(order.z || '0');
-             if (remainingQty > 0) {
-                this.logger.log(`[${tradeIdShort8}] [Sync] Partial recognized exit fill for ${symbol}: ${order.z}/${order.q}. Updating remaining qty to ${remainingQty}`);
+             // SYNC: Update trade.qty to remaining exchange quantity
+             const totalQty = parseFloat(order.q || '0');
+             let remainingQty = 0;
+
+             if (totalQty === 0 && order.cp === true) {
+               // Edge Case: For closePosition=true orders, Binance sets q='0'.
+               const lastFillQty = parseFloat(order.l || '0');
+               remainingQty = roundEight(trade.qty - lastFillQty);
+             } else {
+               remainingQty = roundEight(totalQty - parseFloat(order.z || '0'));
+             }
+
+             if (remainingQty >= 0 && Math.abs(trade.qty - remainingQty) > 0.00000001) {
+                this.logger.log(`[${tradeIdShort8}] [Sync] Partial recognized exit fill for ${symbol}: ${order.z}/${totalQty === 0 ? 'cp=true' : order.q}. Updating remaining qty to ${remainingQty}`);
                 trade.qty = remainingQty;
 
                 // Update real-time position cache

@@ -648,6 +648,7 @@ export class SessionLifecycleService {
           (t) => t.symbol === symbol,
         );
         if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade)) {
+          this.logger.warn(`[UDS] Edge Case: Position reached zero for ${symbol} via ACCOUNT_UPDATE. If no ORDER_TRADE_UPDATE immediately precedes or follows this, it was closed externally (e.g., 'Close All' UI, Liquidation, ADL, or Settlement).`);
           let tEntity = this.sessionState.activeTrades?.find(
             (t) => t.symbol === symbol,
           );

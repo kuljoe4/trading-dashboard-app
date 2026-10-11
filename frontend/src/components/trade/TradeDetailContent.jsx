@@ -1837,12 +1837,19 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           <div className="flex flex-col gap-0.5">
             <span className={cn(
               "text-[8px] md:text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
-              trade.strategy_config?.trailing_stop_enabled ? "text-purple-400 font-extrabold" : "text-red"
+              trade.strategy_config?.trailing_stop_enabled
+                ? (trade.pnl < 0 ? "text-red font-extrabold" : "text-purple-400 font-extrabold")
+                : "text-red"
             )}>
-              <ShieldAlert size={8} className={cn(trade.strategy_config?.trailing_stop_enabled && "animate-pulse")} />
+              <ShieldAlert size={8} className={cn(trade.strategy_config?.trailing_stop_enabled && trade.pnl >= 0 && "animate-pulse")} />
               {trade.strategy_config?.trailing_stop_enabled ? 'Trailing SL' : 'SL'}
               {trade.strategy_config?.trailing_stop_enabled && (
-                <span className="text-[7.5px] font-mono text-purple-300/90 font-semibold lowercase bg-purple-400/10 px-1 py-0.2 rounded border border-purple-400/20 ml-0.5">
+                <span className={cn(
+                  "text-[7.5px] font-mono font-semibold lowercase px-1 py-0.2 rounded border ml-0.5",
+                  trade.pnl < 0
+                    ? "text-red-400/90 bg-red-400/10 border-red-400/20"
+                    : "text-purple-300/90 bg-purple-400/10 border-purple-400/20"
+                )}>
                   {trade.strategy_config.trailing_stop_type === 'rr'
                     ? `${trade.strategy_config.trailing_stop_rr || 1.0}R`
                     : `${trade.strategy_config.trailing_stop_distance_pct || 1.0}%`}
@@ -1965,10 +1972,16 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                   className="absolute top-0 bottom-0 z-25 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
                   style={{ left: `${trailingSlPos}%` }}
                 >
-                  <div className="px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-[0_0_8px_rgba(168,85,247,0.8)] mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 bg-purple text-white animate-pulse">
+                  <div className={cn(
+                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5 text-white animate-pulse",
+                    trade.pnl < 0 ? "bg-red shadow-[0_0_8px_rgba(255,0,0,0.8)]" : "bg-purple shadow-[0_0_8px_rgba(168,85,247,0.8)]"
+                  )}>
                     🛡️ TRAIL
                   </div>
-                  <div className="flex-1 w-0.5 bg-purple shadow-[0_0_8px_#a855f7]" />
+                  <div className={cn(
+                    "flex-1 w-0.5",
+                    trade.pnl < 0 ? "bg-red shadow-[0_0_8px_#ff0000]" : "bg-purple shadow-[0_0_8px_#a855f7]"
+                  )} />
                 </div>
               </Tooltip>
             );

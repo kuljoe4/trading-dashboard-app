@@ -637,7 +637,13 @@ export class SessionLifecycleService {
         }
 
         // ZERO-WEIGHT RECONCILIATION: If position reaches 0 and we have an active trade,
-        // it means it was closed on exchange (SL, TP, or manual).
+        // it means it was closed on exchange (SL, TP, manual, liquidation, or delivery).
+        // EDGE CASE DOCUMENTATION: Binance will NOT send an ORDER_TRADE_UPDATE for trade closure when:
+        // 1. A position is manually closed via the Binance website/app UI using the 'Close All' button.
+        // 2. The position is liquidated by the exchange risk engine (sometimes only ACCOUNT_UPDATE arrives).
+        // 3. ADL (Auto-Deleveraging) occurs.
+        // 4. Contract delivery/settlement occurs.
+        // Therefore, this ACCOUNT_UPDATE handler acts as the ultimate fallback/source of truth.
         const hasActiveTrade = this.sessionState.activeTrades?.some(
           (t) => t.symbol === symbol,
         );

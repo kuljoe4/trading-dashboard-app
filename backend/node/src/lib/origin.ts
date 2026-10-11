@@ -15,13 +15,23 @@ export const checkOrigin = (origin: any, allowedOrigins: string[]): boolean => {
       .replace(/^['"]/, "")
       .replace(/['"]$/, "");
 
+    let hasProtocol = /^https?:\/\//i.test(normalizedPattern);
+
     if (normalizedPattern.includes("*")) {
       const regexPattern = normalizedPattern
         .split("*")
         .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
         .join("[^/?#]+");
-      return new RegExp(`^${regexPattern}$`, "i").test(normalizedOrigin);
+
+      const finalRegex = hasProtocol ? `^${regexPattern}$` : `^(https?:\\/\\/)?${regexPattern}$`;
+      return new RegExp(finalRegex, "i").test(normalizedOrigin);
     }
-    return normalizedPattern.toLowerCase() === normalizedOrigin.toLowerCase();
+
+    if (hasProtocol) {
+      return normalizedPattern.toLowerCase() === normalizedOrigin.toLowerCase();
+    } else {
+      const originWithoutProtocol = normalizedOrigin.replace(/^https?:\/\//i, '');
+      return normalizedPattern.toLowerCase() === originWithoutProtocol.toLowerCase();
+    }
   });
 };

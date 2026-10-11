@@ -157,6 +157,10 @@ export class MarketFeedService {
     if (runMode !== 'paper') {
        setTimeout(() => {
           if (this.running && this.tickerCache.getCacheSize() === 0) {
+             if (this.sessionState.isBanned()) {
+               this.logger.warn(`[MarketFeed] Startup Self-Test bypassed: IP is currently banned.`);
+               return;
+             }
              const alertMsg = `CRITICAL: Market Feed Startup Failure - TickerCache remains empty after ${MarketFeedService.STARTUP_SELFTEST_MS / 1000}s. Activating raw WebSocket fallback and REST seed. Mode=${runMode}`;
              this.logger.error(alertMsg);
              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: alertMsg, level: 'error' });

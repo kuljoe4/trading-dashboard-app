@@ -82,4 +82,11 @@ describe('checkOrigin', () => {
     const extremelyLongOrigin = 'https://' + 'a'.repeat(600) + '.example.com';
     expect(checkOrigin(extremelyLongOrigin, allowedOrigins)).toBe(false);
   });
+
+  it('should support schemaless patterns', () => {
+    const schemalessPatterns = ['*.up.railway.app', 'example.com'];
+    expect(checkOrigin('https://frontend-staging.up.railway.app', schemalessPatterns)).toBe(true);
+    expect(checkOrigin('http://example.com', schemalessPatterns)).toBe(true);
+    expect(checkOrigin('https://example.com', schemalessPatterns)).toBe(true);
+  });
 });

@@ -664,7 +664,7 @@ export class ExecutionService {
             tpPrice,
             {
               strategy_label: currentStrategyLabel,
-              strategy_config: sizeResult.isNominalOvershoot ? { ...resolvedConfig, is_nominal_overshoot: true } : resolvedConfig,
+              strategy_config: { ...resolvedConfig, ...(sizeResult.isNominalOvershoot ? { is_nominal_overshoot: true } : {}), ...(sizeResult.martingaleActive ? { is_martingale: true, martingale_multiplier: sizeResult.activeMultiplier, martingale_step: sizeResult.consecutiveLosses } : {}) },
               entry_daily_change_pct: dailyChangeAtEntry,
               entry_reason: signalResult.reason,
               entry_signal_type: signalResult.firedSignals?.join(', ') || 'combo',

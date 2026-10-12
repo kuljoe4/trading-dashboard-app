@@ -1,0 +1,10 @@
+
+> momentum-engine-frontend@0.0.0 dev /app/frontend
+> vite
+
+Port 3000 is in use, trying another one...
+
+  VITE v4.5.14  ready in 327 ms
+
+  ➜  Local:   http://localhost:3001/
+  ➜  Network: http://192.168.0.2:3001/

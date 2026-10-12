@@ -1,0 +1,54 @@
+
+> trading-dashboard-node@1.0.0 dev /app/backend/node
+> ts-node-dev --respawn --transpile-only src/server.ts
+
+[INFO] 08:07:12 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.3)
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mTypeOrmModule dependencies initialized[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigHostModule dependencies initialized[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDiscoveryModule dependencies initialized[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mEventEmitterModule dependencies initialized[39m
+[32m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuthModule dependencies initialized[39m
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:17 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (1)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:20 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (2)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:23 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (3)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:26 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (4)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:29 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (5)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:32 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (6)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:35 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (7)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:38 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (8)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:41 AM [31m  ERROR[39m [38;5;3m[TypeOrmModule] [39m[31mUnable to connect to the database. Retrying (9)...[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[31m[Nest] 27396  - [39m10/12/2026, 8:07:41 AM [31m  ERROR[39m [38;5;3m[ExceptionHandler] [39m[31m[39m
+AggregateError:
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)

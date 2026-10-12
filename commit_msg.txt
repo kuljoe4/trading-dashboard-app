@@ -1,0 +1,9 @@
+feat(ui): add Martingale badge and tooltips to active and historical trades
+
+This commit adds a visual indicator for trades that were opened under a Martingale recovery strategy.
+
+* Backend (`execution.service.ts` & `riskEngine.ts`): RiskEngine now explicitly returns the current martingale step. ExecutionService embeds this step and multiplier into the `trade.strategy_config` (`is_martingale`, `martingale_multiplier`, `martingale_step`).
+* Frontend (`ActiveTradeCard.jsx`): Shows a distinct 'MARTINGALE (Nx)' badge with tooltips showing the current recovery step.
+* Frontend (`HistoryView.jsx` & `TradeDetailContent.jsx`): Adds clear martingale indicator badges for historical records.
+
+Resolves user request for martingale visibility.

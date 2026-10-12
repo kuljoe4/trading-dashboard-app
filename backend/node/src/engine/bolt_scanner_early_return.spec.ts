@@ -29,7 +29,7 @@ describe('MomentumScannerService Bolt Optimization', () => {
       open: 100,
       high: 101,
       low: 99,
-      close: idx === 19 ? 101 : 100, // 1% momentum
+      close: idx === 18 ? 101 : 100, // 1% momentum
       volume: 1,
     }))
 

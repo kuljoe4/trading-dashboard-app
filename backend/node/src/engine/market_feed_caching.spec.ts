@@ -99,7 +99,7 @@ describe('MarketFeedService - Watchlist Caching and Stabilization', () => {
     // Second call with config2: should invalidate cache and trigger rebuild
     await service.executeWatchlistUpdate(config2);
 
-    expect(captured.stopCount).toBeGreaterThan(stopCountAfterFirst); // stop() was called to teardown and rebuild
+    expect(captured.stopCount).toEqual(stopCountAfterFirst); // stop() is NO LONGER called due to dynamic subscription optimization
   });
 
   it('bypasses cache dynamically for manual monitors and active trades', async () => {
@@ -115,7 +115,7 @@ describe('MarketFeedService - Watchlist Caching and Stabilization', () => {
     // Second call: the active trade symbol should bypass cache and trigger an immediate stream rebuild
     await service.executeWatchlistUpdate(config);
 
-    expect(captured.stopCount).toBeGreaterThan(stopCountAfterFirst); // Stream rebuilt immediately
+    expect(captured.stopCount).toEqual(stopCountAfterFirst); // Stream dynamically updated immediately without stop
     expect(captured.topics).toContain('adausdt@ticker'); // ADA stream is monitored
   });
 });

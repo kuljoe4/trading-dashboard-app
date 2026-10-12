@@ -141,7 +141,7 @@ Open `http://localhost:5173`.
 | `ADMIN_API_KEY` | backend | unset | Optional key required by REST guard and WebSocket token validation when set. |
 | `VITE_API_URL` | frontend build | localhost backend in dev, same-origin otherwise | REST API base URL. |
 | `VITE_WS_URL` | frontend build | derived from current host | WebSocket URL; `/session/ws` is appended if omitted. |
-| `VITE_ADMIN_API_KEY` | frontend build | unset | Adds `X-API-Key` and WS token for protected deployments. |
+
 | `KLINE_MAX_CANDLES` | backend | `200` | Per symbol/interval candle retention, clamped between `50` and `500`. |
 | `NODE_OPTIONS` | backend container | `--max-old-space-size=256` | Production V8 heap cap. |
 

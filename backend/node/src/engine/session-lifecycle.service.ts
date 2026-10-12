@@ -221,13 +221,18 @@ export class SessionLifecycleService {
           this.sessionState.balancePaper = b;
           this.sessionState.lastExchangeBalance = b;
           if (b === 0) {
-            const zeroBalMsg = `CRITICAL: Binance ${mode.toUpperCase()} balance is 0. Initialization halted. Please fund your account.`;
-            this.logger.error(zeroBalMsg);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-              msg: zeroBalMsg,
-              level: "error",
-            });
-            throw new ConfigValidationException(zeroBalMsg);
+            // SRE: If we're banned, a 0 balance might just be a rejected API call.
+            if (this.sessionState.isBanned()) {
+              this.logger.warn(`Binance ${mode.toUpperCase()} balance fetch returned 0 during active API ban. Bypassing critical check.`);
+            } else {
+              const zeroBalMsg = `CRITICAL: Binance ${mode.toUpperCase()} balance is 0. Initialization halted. Please fund your account.`;
+              this.logger.error(zeroBalMsg);
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+                msg: zeroBalMsg,
+                level: "error",
+              });
+              throw new ConfigValidationException(zeroBalMsg);
+            }
           }
         }
       } catch (e) {
@@ -242,13 +247,18 @@ export class SessionLifecycleService {
         try {
           await this.startUserDataStream(bc);
         } catch (err) {
-          const errMsg = `CRITICAL: Failed to establish real-time account stream: ${err instanceof Error ? err.message : String(err)}. Polling fallback is disabled for safety.`;
-          this.logger.error(errMsg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-            msg: errMsg,
-            level: "error",
-          });
-          throw new ConfigValidationException(errMsg);
+          // If we're banned, the API limit exception is expected and should not halt initialization permanently
+          if (this.sessionState.isBanned()) {
+             this.logger.warn(`User Data Stream connection bypassed due to active API ban.`);
+          } else {
+             const errMsg = `CRITICAL: Failed to establish real-time account stream: ${err instanceof Error ? err.message : String(err)}. Polling fallback is disabled for safety.`;
+             this.logger.error(errMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+               msg: errMsg,
+               level: "error",
+             });
+             throw new ConfigValidationException(errMsg);
+          }
         }
       }
     }

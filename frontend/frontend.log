@@ -1,0 +1,356 @@
+
+> momentum-engine-frontend@0.0.0 dev /app/frontend
+> vite
+
+
+  VITE v4.5.14  ready in 305 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://192.168.0.2:3000/
+(node:38401) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+8:12:13 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:12:13 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:12:27 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:12:27 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:12:41 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:12:41 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:12:45 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:12:45 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:02 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:02 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:17 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:17 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:28 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:28 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:29 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:29 AM [vite] http proxy error at /session/lifetime-analytics?mode=paper:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:43 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:43 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:46 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:46 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:53 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:53 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:57 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:13:57 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:13 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:13 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:16 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:16 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:29 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:29 AM [vite] http proxy error at /session/list:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:34 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:34 AM [vite] http proxy error at /session/list:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:55 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:56 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:58 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:58 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:59 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:59 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:59 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:14:59 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:18 AM [vite] http proxy error at /session/list:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:18 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:22 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:22 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:27 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:27 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:27 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:27 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:39 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:39 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:52 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:15:52 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:06 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:06 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:13 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:13 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:15 AM [vite] http proxy error at /session/lifetime-analytics?mode=paper:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:15 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:28 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:28 AM [vite] http proxy error at /session/lifetime-analytics?mode=paper:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:57 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:16:57 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:17:10 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:17:10 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:17:40 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:17:40 AM [vite] http proxy error at /auth/config:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:18:00 AM [vite] http proxy error at /session/history?sessionId=all&limit=1000:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:18:16 AM [vite] http proxy error at /session/analytics:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)
+8:18:41 AM [vite] http proxy error at /session/status:
+AggregateError [ECONNREFUSED]:
+    at internalConnectMultiple (node:net:1134:18)
+    at internalConnectMultiple (node:net:1210:5)
+    at afterConnectMultiple (node:net:1715:7)

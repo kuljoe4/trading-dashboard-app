@@ -370,6 +370,14 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
                   </span>
                 </>
               )}
+              {trade.strategy_config?.is_martingale && (
+                <>
+                  <span className="text-dim/40 text-[8.5px]">·</span>
+                  <span className="text-[8.5px] text-purple font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none" title={`Martingale active: Step ${trade.strategy_config.martingale_step || 1}`}>
+                    🎲 MARTINGALE ({trade.strategy_config.martingale_multiplier}x)
+                  </span>
+                </>
+              )}
               {showStrategy && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-dim/40 text-[8.5px]">·</span>

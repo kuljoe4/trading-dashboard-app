@@ -1,5 +1,4 @@
 import { BacktestService, BacktestTradeDto } from './backtest.service';
-import { SessionConfig } from '../models/SessionConfig';
 
 describe('BacktestSymbolPerformance Unit Tests', () => {
   test('aggregates per-symbol performance and marks top recommendations correctly', () => {

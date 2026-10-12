@@ -43,7 +43,7 @@ describe('Bolt BacktestService Performance Benchmark & Parity', () => {
     service = module.get<BacktestService>(BacktestService);
 
     // Mock fetch to simulate 500 candles across 5 symbols
-    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+    global.fetch = jest.fn().mockImplementation(async (_url: string) => {
       const now = Date.now();
       const rawCandles: any[][] = [];
       for (let i = 0; i < 500; i++) {

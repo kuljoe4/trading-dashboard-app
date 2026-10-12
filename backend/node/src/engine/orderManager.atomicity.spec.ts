@@ -56,7 +56,7 @@ describe('OrderManagerService Atomicity', () => {
       mockMarketFeed,
       { getTicker: jest.fn(), getPrice: jest.fn() } as any, // tickerCache
       { incrementApiRequests: jest.fn() } as any, // monitoringService
-      { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn() } as any, // positionTracker
+      { getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: jest.fn(), removeTrade: jest.fn(), addTrade: jest.fn() } as any, // positionTracker
       mockSessionState,
       { broadcast: jest.fn() } as any, // broadcastService
       mockAuditLog,

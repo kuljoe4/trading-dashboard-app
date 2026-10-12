@@ -124,7 +124,7 @@ describe('Bolt Optimizations: Hot-Path Performance', () => {
       let est1 = 0;
       for (let i = 0; i < iterations; i++) {
         let maxEstPnl: number | undefined = 100;
-        for (const [key, status] of Object.entries(exitSignalsStatus)) {
+        for (const [, status] of Object.entries(exitSignalsStatus)) {
           const sigStatus = status as any;
           if (!sigStatus || sigStatus.remaining_delay > 0) continue;
           if (sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {

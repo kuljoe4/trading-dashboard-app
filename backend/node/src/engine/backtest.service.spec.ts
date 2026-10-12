@@ -9,8 +9,6 @@ import { SessionConfig } from '../models/SessionConfig';
 
 describe('BacktestService', () => {
   let service: BacktestService;
-  let signalEngine: SignalEngineService;
-  let klineStore: KlineStoreService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -45,11 +43,9 @@ describe('BacktestService', () => {
     }).compile();
 
     service = module.get<BacktestService>(BacktestService);
-    signalEngine = module.get<SignalEngineService>(SignalEngineService);
-    klineStore = module.get<KlineStoreService>(KlineStoreService);
 
     // Mock fetch for historical candles
-    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+    global.fetch = jest.fn().mockImplementation(async (_url: string) => {
       const now = Date.now();
       const rawCandles: any[][] = [];
       for (let i = 0; i < 20; i++) {

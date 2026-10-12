@@ -179,7 +179,7 @@ describe('Chronos Authoritative Synchronization', () => {
 
     await orderManager.setBinanceClient(mockClient as any, false);
 
-    const result = await orderManager.enter(
+    const enterPromise = orderManager.enter(
       'session-1',
       'BNBUSDT',
       'LONG',
@@ -189,7 +189,7 @@ describe('Chronos Authoritative Synchronization', () => {
       110
     );
 
-    expect(result.status).toBe(ExecutionStatus.SL_FAILED);
+    await expect(enterPromise).rejects.toThrow();
     // EXPECTED BEHAVIOR: Trade IS added because it exists on the exchange.
     expect(positionTracker.addTrade).toHaveBeenCalled();
   });

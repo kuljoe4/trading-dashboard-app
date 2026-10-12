@@ -74,7 +74,7 @@ describe('SignalEngineService Optimization Benchmark', () => {
 
     const iterations = 50000;
 
-    // @ts-ignore - Trigger initial calculation and populate stable cache
+    // @ts-expect-error accessing private property for tests - Trigger initial calculation and populate stable cache
     signalEngine.calculateEMA(candles, period, interval, symbol);
 
     // 1. Measure O(1) Path (Stable Update)
@@ -82,7 +82,7 @@ describe('SignalEngineService Optimization Benchmark', () => {
     const start1 = performance.now();
     for (let i = 0; i < iterations; i++) {
         candles[candles.length - 1].close = 100 + (i % 10);
-        // @ts-ignore
+        // @ts-expect-error accessing private property for tests
         signalEngine.calculateEMA(candles, period, interval, symbol);
     }
     const end1 = performance.now();
@@ -95,7 +95,7 @@ describe('SignalEngineService Optimization Benchmark', () => {
     for (let i = 0; i < iterations; i++) {
         candles[candles.length - 2].time = now - 50000 - i;
         candles[candles.length - 1].close = 100 + (i % 10);
-        // @ts-ignore
+        // @ts-expect-error accessing private property for tests
         signalEngine.calculateEMA(candles, period, interval, symbol);
     }
     const end2 = performance.now();
@@ -146,20 +146,20 @@ describe('SignalEngineService Optimization Benchmark', () => {
     // Fill the cache up to 1000 entries with unique keys (different times)
     for (let i = 0; i < 1000; i++) {
       const candles = [{ time: i, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 }];
-      // @ts-ignore - calculateEMAAt populates emaCache
+      // @ts-expect-error accessing private property for tests - calculateEMAAt populates emaCache
       signalEngine.calculateEMAAt(candles, 0, period, interval, symbol);
     }
 
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     expect(signalEngine.emaCache.size).toBe(1000);
 
     // Trigger one more entry to cause eviction of 100
     const nextCandle = [{ time: 1000, open: 100, high: 105, low: 95, close: 1100, volume: 1000 }];
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     signalEngine.calculateEMAAt(nextCandle, 0, period, interval, symbol);
 
     // Should be 1000 - 100 + 1 = 901
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     expect(signalEngine.emaCache.size).toBe(901);
 
     // 2. Test emaDualCache
@@ -169,34 +169,34 @@ describe('SignalEngineService Optimization Benchmark', () => {
     for (let i = 0; i < 1000; i++) {
         // Change the last candle to create unique cache keys
         dualCandles[dualCandles.length - 1] = { time: 1000000 + i, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 };
-        // @ts-ignore - calculateEMALastTwoAt populates emaDualCache
+        // @ts-expect-error accessing private property for tests - calculateEMALastTwoAt populates emaDualCache
         signalEngine.calculateEMALastTwoAt(dualCandles, dualCandles.length - 1, period, interval, symbol);
     }
 
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     expect(signalEngine.emaDualCache.size).toBe(1000);
 
     // Trigger eviction
     dualCandles[dualCandles.length - 1] = { time: 2000000, open: 100, high: 105, low: 95, close: 1100, volume: 1000 };
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     signalEngine.calculateEMALastTwoAt(dualCandles, dualCandles.length - 1, period, interval, symbol);
 
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     expect(signalEngine.emaDualCache.size).toBe(901);
   });
 
   it('correctness: multiplierCache is used', () => {
     const period = 12;
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     expect(signalEngine.multiplierCache.has(period)).toBe(false);
 
     const candles = Array.from({ length: 30 }, (_, i) => ({ time: i, open: 100, high: 105, low: 95, close: 100 + i, volume: 1000 }));
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     signalEngine.calculateEMA(candles, period, '1m', 'BTCUSDT');
 
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     expect(signalEngine.multiplierCache.has(period)).toBe(true);
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     expect(signalEngine.multiplierCache.get(period)).toBe(2 / (period + 1));
   });
 

@@ -72,7 +72,7 @@ describe('GatingService Functional', () => {
     // First call populates cache
     gatingService.isInsideTradingWindow(config);
 
-    // @ts-ignore
+    // @ts-expect-error accessing private property for tests
     const cached = gatingService.tradingWindowCache.get(config);
     expect(cached).toBeDefined();
     if (cached) {

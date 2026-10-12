@@ -1178,13 +1178,15 @@ export class OrderManagerService {
             try {
               const unwindResult = await this.closeTrade(symbol, trade, entryPrice, EXIT_REASONS.SL_PLACEMENT_FAILURE);
               if (unwindResult.exitOccurred) {
+                this.positionTracker.removeTrade(symbol);
+                this.sessionState.realTimePositions.delete(symbol);
                 return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
               } else {
                 // CHRONOS: If unwind fails, the trade is STILL OPEN on exchange.
                 // We must add it to tracking so the Watchdog can find and protect/close it.
                 this.logger.error(`[${symbol}] Emergency unwind failed after SL error. Adding trade to tracking for Watchdog recovery.`);
                 this.positionTracker.addTrade(trade);
-                return { status: ExecutionStatus.SL_FAILED, data: trade, error: slError };
+                throw new ExchangeExecutionException(`SL placement failed (${slError}) and emergency unwind also failed for ${symbol}`);
               }
             } catch (unwindErr) {
               this.logger.error(`CRITICAL: Emergency unwind failed for ${symbol}: ${unwindErr instanceof Error ? unwindErr.message : String(unwindErr)}`);

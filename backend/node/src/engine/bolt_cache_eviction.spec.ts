@@ -24,12 +24,12 @@ describe('SignalEngineService Cache Eviction', () => {
     // Fill the cache
     for (let i = 0; i < 1100; i++) {
       const symbol = `SYM${i}`;
-      // @ts-ignore
+      // @ts-expect-error
       signalEngine.calculateEMAAt(candles, candles.length - 1, period, interval, symbol);
     }
 
     // Access internal cache for verification
-    // @ts-ignore
+    // @ts-expect-error
     const cacheSize = signalEngine.emaCache.size;
 
     // It should have hit 1001, then evicted 100, so 901.
@@ -51,11 +51,11 @@ describe('SignalEngineService Cache Eviction', () => {
     // Fill the cache
     for (let i = 0; i < 1100; i++) {
       const symbol = `SYM${i}`;
-      // @ts-ignore
+      // @ts-expect-error
       signalEngine.calculateEMALastTwoAt(candles, 1, period, interval, symbol);
     }
 
-    // @ts-ignore
+    // @ts-expect-error
     const cacheSize = signalEngine.emaDualCache.size;
 
     expect(cacheSize).toBeLessThanOrEqual(1000);

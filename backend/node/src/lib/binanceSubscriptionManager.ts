@@ -224,13 +224,6 @@ export class BinanceSubscriptionManager {
     const toUnsubscribe = streams.filter(s => this.activeSubscriptions.has(s));
     if (toUnsubscribe.length === 0) return;
 
-    // If the URL already contains the stream subscriptions directly (raw stream fallback),
-    // we do not need to send post-connection UNSUBSCRIBE frames.
-    if (this.wsUrl.includes('?streams=')) {
-      toUnsubscribe.forEach(s => this.activeSubscriptions.delete(s));
-      return;
-    }
-
     const CHUNK_SIZE = 200;
     const chunks = [];
     for (let i = 0; i < toUnsubscribe.length; i += CHUNK_SIZE) {
@@ -242,6 +235,11 @@ export class BinanceSubscriptionManager {
       chunk.forEach(s => this.activeSubscriptions.delete(s));
     }
   }
+
+  public getActiveSubscriptions(): Set<string> {
+    return this.activeSubscriptions;
+  }
+
 
   private async sendRequest(method: SubscriptionRequest['method'], params: string[]): Promise<any> {
     if (this.isStopped) return Promise.reject(new Error('Stopped'));

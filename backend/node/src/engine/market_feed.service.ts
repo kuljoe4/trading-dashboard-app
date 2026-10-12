@@ -1032,6 +1032,8 @@ export class MarketFeedService {
 
     const mode = this.sessionState.config?.trading_mode || (this.sessionState.config?.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
+
+    // We will use the standard `/stream` endpoint to support live SUBSCRIBE/UNSUBSCRIBE payload and avoid connection drops
     const wsBaseMarket = isTestnet
         ? 'wss://fstream.binancefuture.com/stream'
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
@@ -1050,48 +1052,63 @@ export class MarketFeedService {
       }
     }
 
-    // Stop all existing kline managers
+    if (allStreams.length === 0) {
+        for (const manager of this.klineManagers) {
+            await manager.stop();
+        }
+        this.klineManagers = [];
+        return;
+    }
+
+
+    // Rather than dropping the socket every time the watchlist changes, we dynamically subscribe/unsubscribe.
+    if (this.klineManagers.length > 0) {
+      // Just use the first manager and subscribe/unsubscribe dynamically
+      const manager = this.klineManagers[0];
+      const currentActive = (manager as any).activeSubscriptions || new Set();
+      const newSet = new Set(allStreams);
+
+      const toSubscribe = allStreams.filter(s => !currentActive.has(s));
+      const toUnsubscribe = Array.from(currentActive).filter(s => !newSet.has(s as string)) as string[];
+
+      if (toSubscribe.length > 0) await manager.subscribe(toSubscribe);
+      if (toUnsubscribe.length > 0 && typeof manager.unsubscribe === 'function') await manager.unsubscribe(toUnsubscribe);
+      return;
+    }
+
+
+    // Stop all existing kline managers just in case we are resetting from empty
     for (const manager of this.klineManagers) {
         await manager.stop();
     }
     this.klineManagers = [];
 
-    if (allStreams.length === 0) return;
-
-    // Industry 2026: Chunk into separate connections of max 200 streams each
-    const CHUNK_SIZE = 200;
-    for (let i = 0; i < allStreams.length; i += CHUNK_SIZE) {
-        const chunk = allStreams.slice(i, i + CHUNK_SIZE);
-        this.logger.debug(`[MarketFeed] Initializing kline manager for chunk of ${chunk.length} streams...`);
-        // Live: embed streams in the URL (?streams=) since /market/stream does not serve the
-        // SUBSCRIBE method. Testnet keeps method-based subscription on /stream.
-        const managerWsUrl = isTestnet ? wsBaseMarket : `${wsBaseMarket}?streams=${chunk.join('/')}`;
-        const manager = new BinanceSubscriptionManager(
-            managerWsUrl,
-            {
-                isTestnet,
-                onMessage: (data) => this.processStreamMessage(data),
-                isBanned: () => this.sessionState.isBanned(),
-                onBan: (msg) => {
-                   this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
-                   const banMatch = msg.match(/banned until (\d+)/i);
-                   let until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
-                   if (banMatch && until < 9999999999) {
-                     until *= 1000;
-                   }
-                   BinanceRequestQueue.setCooldownUntil(until);
-                   this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
-                   this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
-                }
+    // Initialize one single manager
+    const manager = new BinanceSubscriptionManager(
+        wsBaseMarket,
+        {
+            isTestnet,
+            onMessage: (data) => this.processStreamMessage(data),
+            isBanned: () => this.sessionState.isBanned(),
+            onBan: (msg) => {
+               this.logger.fatal(`[MarketFeed] WebSocket rate-limit/ban status detected: ${msg}. Propagating ban...`);
+               const banMatch = msg.match(/banned until (\d+)/i);
+               let until = banMatch ? parseInt(banMatch[1], 10) : Date.now() + (24 * 60 * 60 * 1000);
+               if (banMatch && until < 9999999999) {
+                 until *= 1000;
+               }
+               BinanceRequestQueue.setCooldownUntil(until);
+               this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
+               this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
             }
-        );
-        this.klineManagers.push(manager);
-        try {
-          await manager.connect();
-          await manager.subscribe(chunk);
-        } catch (err) {
-          this.logger.error(`[MarketFeed] Failed to connect/subscribe kline manager chunk (${chunk.length} streams): ${err instanceof Error ? err.message : String(err)}`);
         }
+    );
+    this.klineManagers.push(manager);
+    try {
+      await manager.connect();
+      await manager.subscribe(allStreams);
+    } catch (err) {
+      this.logger.error(`[MarketFeed] Failed to connect/subscribe kline manager: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

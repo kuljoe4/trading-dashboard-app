@@ -106,7 +106,7 @@ export class MaintenanceService {
       // SRE: Zero-Weight WebSocket-First Audit. Check if real-time UDS cache contains entries for all symbols.
       // If cached, perform targeted zero-weight audit (0 REST calls). Revert to bulk REST audit only if cache missing or targetSymbol specified.
       const hasAllCached = uniqueSymbols.every(s => this.sessionState.realTimePositions.has(s) && this.sessionState.realTimeOrders.has(s));
-      const useBulkAudit = tradesToAudit.length > 5 && !targetSymbol && !hasAllCached;
+      const useBulkAudit = !hasAllCached && !targetSymbol;
 
       if (hasAllCached) {
         this.monitoringService?.recordCacheHit('uds_positions');

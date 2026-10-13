@@ -258,6 +258,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
         <select
           id={id}
           value={localValue ?? ''}
+          {...attrs}
           onChange={handleSelectChange}
           className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         >
@@ -4684,15 +4685,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                 {cfg.martingale_enabled && (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-surface/20 border border-border/20 rounded-xl">
-                    {renderField('Multiplier', 'martingale_multiplier', 'number', 'e.g. 2.0 = double risk per loss', { min: 1.0, max: 10.0, step: 0.1 })}
-                    {renderField('Max Steps', 'martingale_max_steps', 'number', 'Maximum consecutive loss multipliers', { min: 1, max: 20, step: 1 })}
-                    {renderField('Hard Reset Risk %', 'martingale_reset_threshold_pct', 'number', 'Reset multiplier if new risk exceeds this %', { min: 0.1, max: 100.0, step: 0.1 })}
-                    {renderField('Post-Reset Behavior', 'martingale_post_reset_behavior', 'select', 'Action to take when capped', {
-                      options: [
+                    {renderField('Multiplier', 'martingale_multiplier', 'number', null, { title: 'e.g. 2.0 = double risk per loss', min: 1.0, max: 10.0, step: 0.1 })}
+                    {renderField('Max Steps', 'martingale_max_steps', 'number', null, { title: 'Maximum consecutive loss multipliers', min: 1, max: 20, step: 1 })}
+                    {renderField('Hard Reset Risk %', 'martingale_reset_threshold_pct', 'number', null, { title: 'Reset multiplier if new risk exceeds this %', min: 0.1, max: 100.0, step: 0.1 })}
+                    {renderField('Post-Reset Behavior', 'martingale_post_reset_behavior', 'text', [
                         { value: 'wait', label: 'Wait for Win (No Multiplier)' },
                         { value: 'restart', label: 'Restart Sequence' }
-                      ]
-                    })}
+                      ], { title: 'Action to take when capped' })}
                   </div>
                 )}
               </div>

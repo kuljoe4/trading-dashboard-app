@@ -1284,6 +1284,63 @@ export class OrderManagerService {
   /**
    * Place a STOP_MARKET order on Binance for stop loss protection
    */
+  /**
+   * Switch the trade's protection to a native Binance trailing stop market order.
+   * Native trailing stops on Binance track price internally.
+   */
+  async switchToNativeTrailingStop(trade: Trade, callbackRate: number): Promise<{ success: boolean; orderId?: string }> {
+    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true };
+
+    const symbol = trade.symbol;
+    const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+
+    try {
+      // Cancel any existing local tracked SL order
+      if (trade.binance_stop_order_id) {
+         this.logger.debug(`[Native Trailing] Canceling existing SL ${trade.binance_stop_order_id} before native trailing placement.`);
+         await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type === 'algo' ? 'algo' : 'standard');
+         trade.binance_stop_order_id = undefined;
+         trade.binance_stop_order_type = undefined;
+      }
+
+      const clientOrderId = `ts-${(trade.id || uuid()).substring(0, 8)}`;
+
+      const orderParams = {
+        symbol,
+        side: closeDirection,
+        type: 'TRAILING_STOP_MARKET',
+        callbackRate: Number(callbackRate).toFixed(1), // API expects 0.1 to 5.0 with 1 decimal precision typically
+        reduceOnly: true,
+        closePosition: true,
+        newClientOrderId: clientOrderId
+      };
+
+      this.logger.log(`[Native Trailing] Placing native trailing stop: ${JSON.stringify(orderParams)}`);
+
+      const response = await this.binanceClient.restAPI.newOrder(orderParams as any);
+      this.updateWeight(response?.headers);
+      const orderData = (await response.data()) as BinanceOrderReceipt;
+
+      if (orderData.orderId) {
+         const stopLossId = String(orderData.orderId);
+         trade.binance_stop_order_id = stopLossId;
+         trade.binance_stop_order_type = 'native_trailing';
+         trade.updated_at = new Date();
+
+         const msgTs = `Binance Native Trailing SL order placed: ${trade.symbol} (Rate: ${callbackRate}%, ID: ${stopLossId})`;
+         this.logger.log(msgTs);
+         this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: msgTs, level: 'info' });
+
+         return { success: true, orderId: stopLossId };
+      }
+
+      return { success: false };
+    } catch (err: any) {
+       this.logger.error(`[Native Trailing] Failed to place native trailing stop for ${trade.symbol}: ${err.message}`);
+       return { success: false };
+    }
+  }
+
   async placeStopLoss(trade: Trade, slPrice: number, fillPrice?: number): Promise<{ orderId: string; price: number, error?: string } | null> {
     if (isNaN(slPrice) || !isFinite(slPrice) || slPrice <= 0) {
       this.logger.error(`[placeStopLoss] ${trade.symbol}: CRITICAL - Requested SL price ${slPrice} is invalid or non-positive. Skipping stop loss placement.`);
@@ -1922,7 +1979,7 @@ export class OrderManagerService {
   /**
    * Cancel an order on Binance
    */
-  async cancelBinanceOrder(symbol: string, orderId: string, orderType: 'standard' | 'algo' = 'standard'): Promise<boolean> {
+  async cancelBinanceOrder(symbol: string, orderId: string, orderType: 'standard' | 'algo' | 'native_trailing' = 'standard'): Promise<boolean> {
     if (this.paperMode || !this.binanceClient) return true;
 
     try {

@@ -1223,7 +1223,7 @@ export class PositionTrackerService {
       ? currentPrice <= newSl
       : currentPrice >= newSl;
 
-    if (isBreached) {
+    if (isBreached && trade.binance_stop_order_type !== 'native_trailing') {
       const prevSl = Number(trade.current_sl);
       const isLong = trade.direction === 'LONG';
       const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
@@ -1395,7 +1395,7 @@ export class PositionTrackerService {
       ? currentPrice <= newSl
       : currentPrice >= newSl;
 
-    if (isBreached) {
+    if (isBreached && trade.binance_stop_order_type !== 'native_trailing') {
       const prevSl = Number(trade.current_sl);
       const isLong = trade.direction === 'LONG';
       const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);

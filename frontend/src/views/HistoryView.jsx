@@ -370,11 +370,19 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
                   </span>
                 </>
               )}
-              {trade.strategy_config?.is_martingale && (
+              {trade.is_martingale && (
                 <>
                   <span className="text-dim/40 text-[8.5px]">·</span>
-                  <span className="text-[8.5px] text-purple font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none" title={`Martingale active: Step ${trade.strategy_config.martingale_step || 1}`}>
-                    🎲 MARTINGALE ({trade.strategy_config.martingale_multiplier}x)
+                  <span className="text-[8.5px] text-purple font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none" title={`Martingale active: Step ${trade.martingale_step || 1}`}>
+                    🎲 MARTINGALE ({trade.martingale_multiplier}x)
+                  </span>
+                </>
+              )}
+              {trade.martingale_threshold_reset && (
+                <>
+                  <span className="text-dim/40 text-[8.5px]">·</span>
+                  <span className="text-[8.5px] text-red font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none" title="Martingale limit reached, sequence reset or capped">
+                    ⚠️ MARTINGALE CAPPED
                   </span>
                 </>
               )}

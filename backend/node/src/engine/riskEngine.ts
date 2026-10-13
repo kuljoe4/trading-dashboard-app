@@ -767,7 +767,7 @@ export class RiskEngineService {
     config: SessionConfig,
     symbol?: string,
     closedTrades: Trade[] = []
-  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean; martingaleActive?: boolean; activeMultiplier?: number, consecutiveLosses?: number } {
+  ): { qty: number; rejected?: boolean; reason?: string; isNominalOvershoot?: boolean; martingaleActive?: boolean; activeMultiplier?: number, consecutiveLosses?: number, martingaleThresholdReset?: boolean } {
     this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
     if (balance <= 0 || entryPrice <= 0) return { qty: 0 };
 
@@ -776,14 +776,20 @@ export class RiskEngineService {
     let activeMultiplier = 1.0;
     let currentConsecutiveLosses = 0;
 
+    let isMartingaleThresholdReset = false;
+
     if (config.martingale_enabled) {
       const strategyLabel = config.strategy_label || 'default';
+      const postResetBehavior = config.martingale_post_reset_behavior || 'wait';
       currentConsecutiveLosses = 0;
 
       for (const trade of closedTrades) {
          if ((trade.strategy_label || 'default') === strategyLabel) {
             const pnl = Number(trade.pnl) || 0;
             if (pnl < 0) {
+               if (trade.martingale_threshold_reset && postResetBehavior === 'restart') {
+                  break;
+               }
                currentConsecutiveLosses++;
             } else if (pnl > 0) {
                break;
@@ -803,6 +809,7 @@ export class RiskEngineService {
          if (newRiskPct > resetThreshold) {
             this.logger.warn(`[RiskEngine] Martingale risk ${newRiskPct.toFixed(2)}% exceeds reset threshold ${resetThreshold.toFixed(2)}%. Resetting to base risk ${riskPct}%.`);
             activeMultiplier = 1.0;
+            isMartingaleThresholdReset = true;
          } else {
             riskPct = newRiskPct;
             martingaleActive = true;
@@ -871,7 +878,7 @@ export class RiskEngineService {
        }
     }
 
-    return { qty, isNominalOvershoot, martingaleActive, activeMultiplier, consecutiveLosses: currentConsecutiveLosses };
+    return { qty, isNominalOvershoot, martingaleActive, activeMultiplier, consecutiveLosses: currentConsecutiveLosses, martingaleThresholdReset: isMartingaleThresholdReset };
   }
 
   /**

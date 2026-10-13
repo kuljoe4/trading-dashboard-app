@@ -604,7 +604,9 @@ export class RiskEngineService {
       let rawDistance: number;
       let usingMacdPbcSl = false;
 
-      const extremesAvailable = !(minLow === undefined || maxHigh === undefined || minLow === 0 || maxHigh === 0 || minLow === Infinity || maxHigh === -Infinity);
+      const extremesAvailable = direction === 'LONG'
+        ? !(minLow === undefined || minLow === 0 || minLow === Infinity || minLow === -Infinity)
+        : !(maxHigh === undefined || maxHigh === 0 || maxHigh === Infinity || maxHigh === -Infinity);
 
       if (!extremesAvailable) {
         if (macdPbcSlPrice && macdPbcSlPrice > 0) {
@@ -631,10 +633,10 @@ export class RiskEngineService {
         }
       } else {
         if (direction === 'LONG') {
-          structuralSl = minLow;
+          structuralSl = minLow!;
           rawDistance = Math.abs(entryPrice - structuralSl);
         } else {
-          structuralSl = maxHigh;
+          structuralSl = maxHigh!;
           rawDistance = Math.abs(structuralSl - entryPrice);
         }
       }

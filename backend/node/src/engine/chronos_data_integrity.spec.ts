@@ -43,7 +43,7 @@ describe('Chronos: Data Integrity and PnL Synchronization', () => {
         { provide: PositionTrackerService, useValue: { activeList: () => sessionState.activeTrades, activeCount: () => sessionState.activeTrades.length, getInFlightEntry: jest.fn(), setInFlight: jest.fn(), clearInFlight: jest.fn(), isRatcheting: () => false, isEntering: () => false, isClosing: () => false, addTrade: jest.fn(), isClosingSymbol: () => false } },
         { provide: SignalEngineService, useValue: { checkEntry: jest.fn() } },
         { provide: RiskEngineService, useValue: { canEnter: jest.fn() } },
-        { provide: MarketFeedService, useValue: { getSymbolFilters: jest.fn().mockReturnValue({ tickSize: 0.01, stepSize: 0.001, pricePrecision: 2, qtyPrecision: 3 }), setCandleCloseCallback: jest.fn() } },
+        { provide: MarketFeedService, useValue: { resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn().mockReturnValue({ tickSize: 0.01, stepSize: 0.001, pricePrecision: 2, qtyPrecision: 3 }), setCandleCloseCallback: jest.fn() } },
         { provide: TickerCacheService, useValue: { getPrice: jest.fn().mockReturnValue(50000), getTicker: jest.fn(), clear: jest.fn() } },
         { provide: KlineStoreService, useValue: { cleanupOldKlines: jest.fn(), clear: jest.fn() } },
         { provide: MonitoringService, useValue: { recordHotLoop: jest.fn(), incrementApiRequests: jest.fn(), recordUdsPing: jest.fn(), setUdsStatus: jest.fn(), clearAppMetrics: jest.fn(), setLoopStage: jest.fn() } },

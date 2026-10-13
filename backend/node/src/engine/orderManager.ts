@@ -1757,6 +1757,14 @@ export class OrderManagerService {
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean, price?: number }> {
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true, price: newSlPrice };
 
+    const filteredNewSl = this.applyFilters(trade.symbol, newSlPrice, trade.qty, { skipNotionalCheck: true, clampToPercentPrice: true });
+
+    // Prevent duplicate placement if tick-rounded price matches existing SL exactly
+    if (Number(trade.current_sl) === filteredNewSl.price) {
+      this.logger.debug(`[SL Ratchet] Skipped replacement for ${trade.symbol}: Filtered new SL (${filteredNewSl.price}) is identical to current SL.`);
+      return { success: true, price: filteredNewSl.price };
+    }
+
     // SRE: Mutex guard to prevent concurrent overlapping ratchets
     if (this.ratchetLocks.has(trade.symbol)) {
        this.logger.warn(`[SL Ratchet] Concurrent update blocked for ${trade.symbol}. Ratchet already in progress.`);

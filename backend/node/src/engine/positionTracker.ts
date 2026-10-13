@@ -299,13 +299,16 @@ export class PositionTrackerService {
     this._activeListCache = null;
 
     // DIAGNOSTIC LOGGING: Emit trailing stop persistence diagnostic log
-    const slAdjCount = trade.sl_adjustments ? trade.sl_adjustments.length : 0;
-    const diagMsg = `[Trailing Stop State] Active trade ${trade.symbol} initialized: Entry=${Number(trade.entry_price)}, Current SL=${Number(trade.current_sl) || Number(trade.initial_sl)}, Peak R:R=${trade.max_rr_achieved || 0}R, Milestone Index=${trade.rr_sequence_index ?? -1}, Adjustments=${slAdjCount}`;
-    this.logger.log(diagMsg);
-    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-      msg: diagMsg,
-      level: 'info',
-    });
+    // Only log if it's a new trade (not an overwrite) to prevent double-logging during promotion.
+    if (!existing) {
+      const slAdjCount = trade.sl_adjustments ? trade.sl_adjustments.length : 0;
+      const diagMsg = `[Trailing Stop State] Active trade ${trade.symbol} initialized: Entry=${Number(trade.entry_price)}, Current SL=${Number(trade.current_sl) || Number(trade.initial_sl)}, Peak R:R=${trade.max_rr_achieved || 0}R, Milestone Index=${trade.rr_sequence_index ?? -1}, Adjustments=${slAdjCount}`;
+      this.logger.log(diagMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+        msg: diagMsg,
+        level: 'info',
+      });
+    }
 
     this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
   }
@@ -455,12 +458,17 @@ export class PositionTrackerService {
 
       // Calculate new SL based on target RR
       let targetSl: number;
+      // BOLT/FEE: Breakeven must account for round-trip taker fees (approx 0.04% * 2 = 0.08%).
+      // We apply a minimal offset so a 0 RR milestone actually covers the fee drag.
+      const FEE_OFFSET_PCT = 0.001; // 0.1% fee offset buffer
+      const feeOffset = Number(trade.entry_price) * FEE_OFFSET_PCT;
+
       if (trade.direction === 'LONG') {
-        // For LONG: breakeven is entry; positive exit RR locks profit above entry.
-        targetSl = Number(trade.entry_price) + risk * exitRr;
+        // For LONG: breakeven is entry + fee offset; positive exit RR locks profit above entry.
+        targetSl = Number(trade.entry_price) + feeOffset + risk * exitRr;
       } else {
-        // For SHORT: breakeven is entry; positive exit RR locks profit below entry.
-        targetSl = Number(trade.entry_price) - risk * exitRr;
+        // For SHORT: breakeven is entry - fee offset; positive exit RR locks profit below entry.
+        targetSl = Number(trade.entry_price) - feeOffset - risk * exitRr;
       }
 
       // SRE/DEBUG: Catch-up evaluation. Check if current SL is lagging behind targetSl for the achieved milestone.

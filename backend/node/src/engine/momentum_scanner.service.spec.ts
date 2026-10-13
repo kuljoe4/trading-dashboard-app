@@ -17,7 +17,8 @@ describe('MomentumScannerService', () => {
     }
 
     const marketFeed = {
-        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
+        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] }),
+        resolveInterval: jest.fn().mockImplementation((val) => val || "1m")
     }
 
     service = new MomentumScannerService(klineStore, tickerCache, marketFeed as any)
@@ -73,6 +74,7 @@ describe('MomentumScannerService', () => {
     klineStore.getRawCandles.mockReturnValueOnce(validCandles)
     tickerCache.getTicker.mockReturnValue({ price: 60, volume_24h: 1000 })
 
+    klineStore.getRawCandles.mockReturnValue(validCandles)
     const result = (service as any).scanSymbol('BTCUSDT', '1m', { scan_lookback: 1 })
 
     expect(result).not.toBeNull()

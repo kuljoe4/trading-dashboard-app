@@ -92,6 +92,10 @@ describe('Paused & Gated Strategy Resource Savings Spec', () => {
       mockEngineBroadcaster,
       mockEventEmitter,
       mockAnalyticsService,
+      {
+        resolveInterval: jest.fn().mockImplementation((val) => val || "1m"),
+        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
+      } as any,
     );
   });
 

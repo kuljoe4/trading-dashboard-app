@@ -1756,6 +1756,9 @@ export const HistoryView = () => {
       const t = arr[i];
       if (!t) continue;
 
+      // SRE: Exclude CLOSED_ORPHANED from mode trades (which feed top wins/losses and general stats)
+      if (t.status === 'CLOSED_ORPHANED') continue;
+
       const mode = t.paperMode || t.paper_mode ? 'paper' : (t.trading_mode || 'live');
       if (mode !== lifetimeMode) continue;
 

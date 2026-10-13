@@ -1842,53 +1842,19 @@ export class SessionService implements OnModuleInit {
     contextPrice?: number,
     contextReason?: string
   ): Promise<Partial<TradeEntity>> {
-    const isPaper = mode === "paper";
-    const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
-    const exitPriceToUse = contextPrice || tickerPrice || Number(trade.current_sl || trade.entry_price || 0);
+    const exitPriceToUse = contextPrice || Number(trade.entry_price || 0);
 
-    let finalPnl = Number(trade.pnl || 0);
-    let finalPnlPct = Number(trade.pnl_pct || 0);
-    let initialQty = Number(trade.qty || 1);
-    let realizedFee = Number(trade.realized_fee || 0);
+    const initialQty = Number(trade.qty || 1);
+    const realizedFee = Number(trade.realized_fee || 0);
 
-    if (!isPaper) {
-      const riskDist = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
-      initialQty = (riskDist > 0 && trade.initial_risk_usdt) ? (trade.initial_risk_usdt / riskDist) : (Number(trade.qty) || 1);
-
-      const totalPnlPoints = trade.direction === 'LONG'
-        ? exitPriceToUse - Number(trade.entry_price)
-        : Number(trade.entry_price) - exitPriceToUse;
-
-      const totalGrossPnl = totalPnlPoints * initialQty;
-      finalPnl = roundEight(totalGrossPnl - realizedFee - (Number(trade.funding_fee) || 0));
-
-      const notional = Number(trade.entry_price) * initialQty;
-      const computedPnlPct = (notional !== 0) ? (finalPnl / notional) * 100 : 0;
-      finalPnlPct = roundEight(Number.isFinite(computedPnlPct) ? computedPnlPct : 0);
-    } else {
-      // Paper mode
-      const exitFee = roundEight(exitPriceToUse * Number(trade.qty) * ENGINE_CONSTANTS.SIMULATED_FEE_RATE);
-      realizedFee = roundEight((Number(trade.realized_fee) || 0) + exitFee);
-
-      const finalPnlPoints = trade.direction === 'LONG'
-        ? exitPriceToUse - Number(trade.entry_price)
-        : Number(trade.entry_price) - exitPriceToUse;
-
-      const finalGrossPnl = finalPnlPoints * (Number(trade.qty) || 0);
-      finalPnl = roundEight(finalGrossPnl - realizedFee - (Number(trade.funding_fee) || 0));
-
-      const notional = Number(trade.entry_price) * (Number(trade.qty) || 0);
-      const computedPnlPct = (notional !== 0) ? (finalPnl / notional) * 100 : 0;
-      finalPnlPct = roundEight(Number.isFinite(computedPnlPct) ? computedPnlPct : 0);
-    }
-
+    // SRE: Fix History inaccuracy by not fabricating PnL for orphaned trades
     return {
       status: "CLOSED_ORPHANED",
       exit_price: exitPriceToUse,
       exit_ts: new Date(),
       is_reconciliation: true,
-      pnl: finalPnl,
-      pnl_pct: finalPnlPct,
+      pnl: 0,
+      pnl_pct: 0,
       qty: initialQty,
       realized_fee: realizedFee,
       exit_reason: contextReason || trade.exit_reason || "CLOSED_ORPHANED",

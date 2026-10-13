@@ -117,7 +117,7 @@ export class Trade {
 
   binance_stop_order_id?: string;
 
-  binance_stop_order_type?: 'standard' | 'algo';
+  binance_stop_order_type?: 'standard' | 'algo' | 'native_trailing';
 
   close_attempts?: number;
 

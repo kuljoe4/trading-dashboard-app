@@ -67,6 +67,7 @@ export class SessionService implements OnModuleInit {
 
   // SENTINEL: In-memory tracking to prevent database-heavy count() and log spamming
   private logRateLimits = new Map<string, { count: number; resetAt: number }>();
+  private recentLogs = new Map<string, { hash: string, timestamp: number }>();
   private sessionLogCounts = new Map<string, number>();
   private adoptingSymbols: Set<string> = new Set();
 
@@ -3260,12 +3261,41 @@ export class SessionService implements OnModuleInit {
     if (!this.currentSessionId) return;
 
     // SENTINEL: Truncate message to prevent excessive database growth from oversized logs
+    const safeMsg = typeof msg === 'string' ? msg : String(msg || '');
     const sanitizedMsg =
-      msg && msg.length > 4000
-        ? msg.substring(0, 4000) + "... [truncated]"
-        : msg;
+      safeMsg.length > 4000
+        ? safeMsg.substring(0, 4000) + "... [truncated]"
+        : safeMsg;
 
+    // Deduplicate repeating identical logs within a short timeframe (e.g. 5 seconds)
+    const now = Date.now();
     const sid = this.currentSessionId;
+
+    // Efficient hashing to prevent string allocation memory spikes
+    let hash = 0;
+    for (let i = 0; i < sanitizedMsg.length; i++) {
+        hash = ((hash << 5) - hash) + sanitizedMsg.charCodeAt(i);
+        hash |= 0;
+    }
+    const msgHash = hash.toString(16);
+
+    const recentLogKey = `${sid}-${msgHash}`;
+    const recentLog = this.recentLogs.get(recentLogKey);
+    if (recentLog && now - recentLog.timestamp < 5000) {
+        // Skip logging if identical message was sent in the last 5 seconds
+        return;
+    }
+
+    // Periodically clean up the recentLogs map
+    if (this.recentLogs.size > 1000) {
+      for (const [key, data] of this.recentLogs.entries()) {
+        if (now - data.timestamp > 5000) {
+          this.recentLogs.delete(key);
+        }
+      }
+    }
+
+    this.recentLogs.set(recentLogKey, { hash: msgHash, timestamp: now });
 
     // Broadcast to UI immediately for real-time visibility
     this.broadcastEvent("log", {
@@ -3273,8 +3303,6 @@ export class SessionService implements OnModuleInit {
       level,
       ts: new Date().toISOString(),
     });
-
-    const now = Date.now();
 
     // SENTINEL: Per-session log rate limiting (max 60 logs per minute) to prevent resource exhaustion
     const rateLimit = this.logRateLimits.get(sid) || {

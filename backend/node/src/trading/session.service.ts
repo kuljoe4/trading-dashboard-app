@@ -2963,7 +2963,12 @@ export class SessionService implements OnModuleInit {
         "entry_daily_change_pct",
         "sessionId",
         "strategy_label",
-        "is_reconciliation"
+        "is_reconciliation",
+        "is_knife",
+        "is_martingale",
+        "martingale_multiplier",
+        "martingale_step",
+        "martingale_threshold_reset"
       ],
       where: {
         status: In(TERMINAL_STATUSES as any),
@@ -3399,6 +3404,11 @@ export class SessionService implements OnModuleInit {
         "trade.initial_sl",
         "trade.qty",
         "trade.strategy_label",
+        "trade.is_knife",
+        "trade.is_martingale",
+        "trade.martingale_multiplier",
+        "trade.martingale_step",
+        "trade.martingale_threshold_reset",
       ])
       .where("trade.status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
       .andWhere("session.tradingMode = :mode", { mode })

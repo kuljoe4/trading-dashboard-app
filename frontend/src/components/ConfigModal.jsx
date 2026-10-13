@@ -53,6 +53,7 @@ const TAB_ERROR_MAP = {
   martingale_multiplier: 'risk',
   martingale_reset_threshold_pct: 'risk',
   martingale_max_steps: 'risk',
+  martingale_post_reset_behavior: 'risk',
   max_open_trades: 'risk',
   sl_distance_pct: 'risk',
   scanner_weights_momentum: 'scan',
@@ -4686,6 +4687,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     {renderField('Multiplier', 'martingale_multiplier', 'number', 'e.g. 2.0 = double risk per loss', { min: 1.0, max: 10.0, step: 0.1 })}
                     {renderField('Max Steps', 'martingale_max_steps', 'number', 'Maximum consecutive loss multipliers', { min: 1, max: 20, step: 1 })}
                     {renderField('Hard Reset Risk %', 'martingale_reset_threshold_pct', 'number', 'Reset multiplier if new risk exceeds this %', { min: 0.1, max: 100.0, step: 0.1 })}
+                    {renderField('Post-Reset Behavior', 'martingale_post_reset_behavior', 'select', 'Action to take when capped', {
+                      options: [
+                        { value: 'wait', label: 'Wait for Win (No Multiplier)' },
+                        { value: 'restart', label: 'Restart Sequence' }
+                      ]
+                    })}
                   </div>
                 )}
               </div>

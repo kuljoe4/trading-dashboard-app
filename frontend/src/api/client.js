@@ -120,6 +120,7 @@ const sessionConfigAllowedKeys = [
   'martingale_multiplier',
   'martingale_reset_threshold_pct',
   'martingale_max_steps',
+  'martingale_post_reset_behavior',
   'max_open_trades',
   'max_open_trades_per_symbol',
   'auto_adjust_max_trades_enabled',

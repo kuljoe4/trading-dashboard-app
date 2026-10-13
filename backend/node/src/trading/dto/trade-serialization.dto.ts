@@ -32,6 +32,10 @@ export interface TradeSerializationDto {
   exit_signal_logic?: 'any' | 'all' | 'combo';
   strategy_config?: Partial<SessionConfig>;
   is_knife?: boolean;
+  is_martingale?: boolean;
+  martingale_multiplier?: number;
+  martingale_step?: number;
+  martingale_threshold_reset?: boolean;
   entry_daily_change_pct?: number;
   initial_risk_usdt?: number;
   risk_usdt?: number;
@@ -72,6 +76,10 @@ export interface TickTradeDto {
   entry_price: number;
   qty: number;
   is_knife?: boolean;
+  is_martingale?: boolean;
+  martingale_multiplier?: number;
+  martingale_step?: number;
+  martingale_threshold_reset?: boolean;
   entry_daily_change_pct?: number;
   close_attempts?: number;
   close_blocked?: boolean;

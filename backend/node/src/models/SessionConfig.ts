@@ -614,6 +614,10 @@ export class SessionConfig {
   @Max(CONFIG_LIMITS.TRAILING_GUARD_MAX)
   trailing_guard_buffer_pct?: number = CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
 
+  @IsEnum(['exchange', 'local', 'native'])
+  @IsOptional()
+  trailing_execution_mode?: 'exchange' | 'local' | 'native' = 'local';
+
   @IsBoolean()
   @IsOptional()
   trailing_stop_enabled?: boolean = false;

@@ -45,7 +45,7 @@ describe('Funding PnL Sync Investigation', () => {
         { provide: KlineStoreService, useValue: { clear: jest.fn() } },
         { provide: SignalEngineService, useValue: { checkEntry: jest.fn() } },
         { provide: RiskEngineService, useValue: { canEnter: jest.fn() } },
-        { provide: MarketFeedService, useValue: { setCandleCloseCallback: jest.fn(), start: jest.fn(), stop: jest.fn(), fetchExchangeInfo: jest.fn(), getSymbolFilters: jest.fn() } },
+        { provide: MarketFeedService, useValue: { setCandleCloseCallback: jest.fn(), start: jest.fn(), stop: jest.fn(), fetchExchangeInfo: jest.fn(), resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn() } },
         { provide: MomentumScannerService, useValue: { start: jest.fn(), stop: jest.fn() } },
         { provide: MonitoringService, useValue: { recordHotLoop: jest.fn(), recordMainLoop: jest.fn(), incrementApiRequests: jest.fn(), setLoopStage: jest.fn(), clearAppMetrics: jest.fn(), getMetrics: jest.fn().mockReturnValue({ application: {} }), recordUdsPing: jest.fn(), setUdsStatus: jest.fn(), setUdsStatusLagging: jest.fn() } },
         { provide: AnalyticsService, useValue: { calculateAnalytics: jest.fn() } },

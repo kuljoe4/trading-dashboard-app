@@ -19,7 +19,7 @@ describe('MomentumScannerService Environment Filtering', () => {
     }
 
     marketFeed = {
-        getSymbolFilters: jest.fn((symbol: string) => {
+        resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn((symbol: string) => {
             if (symbol === 'TRADABLEUSDT') return { filters: [] };
             return null;
         })

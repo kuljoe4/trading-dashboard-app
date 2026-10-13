@@ -23,7 +23,7 @@ describe('MomentumScannerService - Configurable Boost Points & R:R Performance S
     } as any;
 
     marketFeed = {
-      getSymbolFilters: jest.fn().mockReturnValue({
+      resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn().mockReturnValue({
         minQty: 0.001,
         maxQty: 1000,
         stepSize: 0.001,

@@ -45,7 +45,7 @@ describe('Real-time Quantity Synchronization', () => {
         },
         {
           provide: MarketFeedService,
-          useValue: { getSymbolFilters: () => ({ tickSize: 0.01, stepSize: 0.01 }) },
+          useValue: { resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: () => ({ tickSize: 0.01, stepSize: 0.01 }) },
         },
         {
           provide: TickerCacheService,

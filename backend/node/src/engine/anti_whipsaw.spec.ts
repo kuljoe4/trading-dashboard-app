@@ -97,6 +97,10 @@ describe('Anti-Whipsaw Protection Unit Tests', () => {
       engineBroadcaster,
       eventEmitter,
       analyticsService,
+      {
+        resolveInterval: jest.fn().mockImplementation((val) => val || "1m"),
+        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
+      } as any,
     );
   });
 

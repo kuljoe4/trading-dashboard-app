@@ -89,23 +89,25 @@ describe('PositionTrackerService', () => {
       // 1. Price hits 1.1R (51100) -> Milestone 0 (BE)
       await service.checkRrSequenceAdjustments('BTCUSDT', 51100, config);
 
-      expect(trade.current_sl).toBe(50000); // Entry price (BE)
-      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 50000, 49000);
+      const bePrice = 50050; // 50000 + (50000 * 0.001) fee offset
+      expect(trade.current_sl).toBe(bePrice); // Entry price (BE)
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, bePrice, 49000);
 
       // 2. Price hits 2.1R (52100) -> Milestone 1 (1R)
       await service.checkRrSequenceAdjustments('BTCUSDT', 52100, config);
 
-      expect(trade.current_sl).toBe(51000); // 1R profit
-      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 51000, 50000);
+      expect(trade.current_sl).toBe(51050); // 1R profit + fee offset
+      expect(mockOrderManager.updateStopLoss).toHaveBeenCalledWith(trade, 51050, bePrice);
     });
 
     it('does not ratchet SL if price moves back', async () => {
+      const bePrice = 50050;
       const trade = {
         symbol: 'BTCUSDT',
         direction: 'LONG',
         entry_price: 50000,
         initial_sl: 49000,
-        current_sl: 50000, // already at BE
+        current_sl: bePrice, // already at BE
         status: 'OPEN',
         max_rr_achieved: 1.5,
         sl_adjustments: [],
@@ -122,7 +124,7 @@ describe('PositionTrackerService', () => {
       // Price drops to 50500 (0.5R)
       await service.checkRrSequenceAdjustments('BTCUSDT', 50500, config);
 
-      expect(trade.current_sl).toBe(50000); // No change
+      expect(trade.current_sl).toBe(bePrice); // No change
       expect(mockOrderManager.updateStopLoss).not.toHaveBeenCalled();
     });
 
@@ -181,8 +183,8 @@ describe('PositionTrackerService', () => {
 
       // Update max_rr first by calling with high price
       await service.checkRrSequenceAdjustments('ETHUSDT', 2110, config2);
-      // current_sl should be 2050.
-      expect(trade2.current_sl).toBe(2050);
+      // current_sl should be 2050 + fee offset (2).
+      expect(trade2.current_sl).toBe(2052);
 
       // Now milestone 2: target 2080. Market at 2081.
       const config3 = {
@@ -321,10 +323,10 @@ describe('PositionTrackerService', () => {
       service.addTrade(trade);
       expect(service.totalRisk()).toBe(100);
 
-      // Hit milestone 1 (1.0R = 110) -> Ratchet to BE (100)
+      // Hit milestone 1 (1.0R = 110) -> Ratchet to BE (100.1)
       await service.checkRrSequenceAdjustments('RISK_BE', 110, config);
 
-      expect(trade.current_sl).toBe(100);
+      expect(trade.current_sl).toBe(100.1);
       // Risk should now be released
       expect(trade.risk_usdt).toBe(0);
       expect(service.totalRisk()).toBe(0);

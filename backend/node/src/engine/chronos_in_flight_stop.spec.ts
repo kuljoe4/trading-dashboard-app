@@ -58,7 +58,7 @@ describe('Chronos: In-Flight Stop Abandonment Protection', () => {
         },
         { provide: SignalEngineService, useValue: {} },
         { provide: RiskEngineService, useValue: {} },
-        { provide: MarketFeedService, useValue: { getSymbolFilters: jest.fn(), setCandleCloseCallback: jest.fn() } },
+        { provide: MarketFeedService, useValue: { resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn(), setCandleCloseCallback: jest.fn() } },
         { provide: TickerCacheService, useValue: { getPrice: jest.fn().mockReturnValue(50000), clear: jest.fn() } },
         { provide: KlineStoreService, useValue: { clear: jest.fn() } },
         { provide: MonitoringService, useValue: { recordHotLoop: jest.fn(), incrementApiRequests: jest.fn(), recordUdsPing: jest.fn(), setUdsStatus: jest.fn(), clearAppMetrics: jest.fn(), setLoopStage: jest.fn() } },

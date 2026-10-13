@@ -15,6 +15,8 @@ export class RiskEngineService {
     @Optional() @Inject(EventEmitter2) private readonly eventEmitter?: EventEmitter2,
   ) {}
 
+  private loggedExtremesMap: Map<string, number> = new Map();
+
   // BOLT OPTIMIZATION: Cache for closed trade aggregates to avoid redundant O(N) scans
   private _closedStatsCache: {
     key: string;
@@ -616,9 +618,15 @@ export class RiskEngineService {
           this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable. Using MACD PBC SL price: ${macdPbcSlPrice} as structural SL.`);
         } else if (action === 'reject') {
           const reason = `Lookback extremes unavailable for ${symbol || 'Trade'} and sl_out_of_bounds_action is 'reject'. Rejecting entry.`;
-          this.logger.warn(`[RiskEngine] ${reason}`);
-          if (this.eventEmitter) {
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: reason, level: 'warn' });
+          const nowTs = Date.now();
+          const logKey = `lookback_unavailable_reject:${symbol || 'global'}`;
+          const lastLogged = this.loggedExtremesMap.get(logKey) || 0;
+          if (nowTs - lastLogged > 60000) {
+            this.logger.warn(`[RiskEngine] ${reason}`);
+            if (this.eventEmitter) {
+              this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: reason, level: 'warn' });
+            }
+            this.loggedExtremesMap.set(logKey, nowTs);
           }
           return { slPrice: 0, rejected: true, reason };
         } else {

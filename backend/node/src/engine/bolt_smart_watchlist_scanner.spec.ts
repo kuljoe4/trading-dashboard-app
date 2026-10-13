@@ -39,7 +39,7 @@ describe('Bolt - Smart Watchlist Scanner Optimization', () => {
     } as any;
 
     marketFeedService = {
-      getSymbolFilters: jest.fn().mockReturnValue({
+      resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn().mockReturnValue({
         minQty: 0.001,
         maxQty: 100000,
         stepSize: 0.001,

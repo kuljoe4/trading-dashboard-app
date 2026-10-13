@@ -89,6 +89,10 @@ describe('Bolt Optimization: Anti-Whipsaw Performance & Correctness', () => {
       engineBroadcaster,
       eventEmitter,
       analyticsService,
+      {
+        resolveInterval: jest.fn().mockImplementation((val) => val || "1m"),
+        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
+      } as any,
     );
   });
 

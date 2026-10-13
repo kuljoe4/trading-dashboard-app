@@ -162,7 +162,11 @@ describe('Trade Lifecycle Integration', () => {
       mockMonitoringService,
       mockEngineBroadcaster,
       new EventEmitter2(),
-      mockAnalyticsService
+      mockAnalyticsService,
+      {
+        resolveInterval: jest.fn().mockImplementation((val) => val || "1m"),
+        getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
+      } as any
     );
 
     tradingSession = new TradingSessionService(

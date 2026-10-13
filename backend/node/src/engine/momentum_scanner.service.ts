@@ -200,7 +200,7 @@ export class MomentumScannerService {
       const results: { opp: Opportunity; candles: Candle[] }[] = [];
       for (const [symbol, task] of tasks) {
         try {
-          const interval = task.config.scan_interval || '1m';
+          const interval = this.marketFeed.resolveInterval(task.config.scan_interval || '1m', task.config) || '1m';
           const res = this.scanSymbol(symbol, interval, task.config);
           if (res) {
             if (task.volume_rank) res.opp.volume_rank = task.volume_rank;
@@ -380,8 +380,10 @@ export class MomentumScannerService {
 
     let calculatedDistPct = slDistancePct;
 
-    const slTf = config.sl_lookback_timeframe || config.scan_interval || '5m';
-    const targetCandles = (slTf !== (config.scan_interval || '5m'))
+    const rawSlTf = config.sl_lookback_timeframe || config.scan_interval || '5m';
+    const slTf = this.marketFeed.resolveInterval(rawSlTf, config) || '5m';
+    const scanInterval = this.marketFeed.resolveInterval(config.scan_interval || '1m', config) || '1m';
+    const targetCandles = (slTf !== scanInterval)
       ? this.klineStore.getRawCandles(symbol, slTf)
       : candles;
 

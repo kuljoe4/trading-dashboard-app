@@ -192,13 +192,13 @@ export class KlineStoreService {
     symbol: string,
     interval: string,
     period: number,
-  ): { minLow: number; maxHigh: number } {
+  ): { minLow: number; maxHigh: number; reason?: string } {
     const effectiveInterval = (!interval || interval === 'default') ? '1m' : interval;
     const key = `${symbol}_${effectiveInterval}`;
     const candles = this.klines.get(key) || [];
 
     if (candles.length <= 1) {
-      return { minLow: 0, maxHigh: 0 };
+      return { minLow: 0, maxHigh: 0, reason: 'too_few_candles' };
     }
 
     const endIdx = candles.length - 1;
@@ -215,13 +215,13 @@ export class KlineStoreService {
 
     if (stable && stable.time === targetCandle.time && stable.count === period) {
       if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, effectiveInterval)) {
-        return { minLow: 0, maxHigh: 0 };
+        return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
       }
       return { minLow: stable.minLow, maxHigh: stable.maxHigh };
     }
 
     if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, interval)) {
-      return { minLow: 0, maxHigh: 0 };
+      return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
     }
 
     // 2. Gap Detection: Scan consecutive completed candles within the lookback window for any time gaps.
@@ -233,7 +233,7 @@ export class KlineStoreService {
         this.logger.warn(
           `[Lookback Validation] TIME_GAP: Detected data gap of ${Math.round(delta / 1000)}s between consecutive candles at times ${prevCandle.time} and ${currentCandle.time} for ${symbol} (${interval}). Expected Interval: ${Math.round(expectedIntervalMs / 1000)}s (Threshold: ${Math.round(expectedIntervalMs * 1.5 / 1000)}s). Lookback period: ${period}. Triggering fallback to Pct SL.`,
         );
-        return { minLow: 0, maxHigh: 0 };
+        return { minLow: 0, maxHigh: 0, reason: 'time_gap' };
       }
     }
 

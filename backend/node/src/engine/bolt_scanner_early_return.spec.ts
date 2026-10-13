@@ -17,7 +17,7 @@ describe('MomentumScannerService Bolt Optimization', () => {
     }
 
     const marketFeed = {
-      getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
+      resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn().mockReturnValue({ filters: [] })
     }
 
     service = new MomentumScannerService(klineStore, tickerCache, marketFeed as any)

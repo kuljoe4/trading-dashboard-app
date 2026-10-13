@@ -21,7 +21,7 @@ describe('MomentumScannerService USDT Quote Pair Filtering', () => {
       topByChangePct: jest.fn().mockReturnValue([]),
     };
     mockMarketFeed = {
-      getSymbolFilters: jest.fn().mockReturnValue({ minNotional: 5 }),
+      resolveInterval: jest.fn().mockImplementation((val) => val || "1m"), getSymbolFilters: jest.fn().mockReturnValue({ minNotional: 5 }),
     };
 
     service = new MomentumScannerService(

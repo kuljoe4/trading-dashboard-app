@@ -15,6 +15,7 @@ import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ENGINE_EVENTS } from './events';
 import { AnalyticsService } from './analytics.service';
+import { MarketFeedService } from './market_feed.service';
 import { v4 as uuid } from 'uuid';
 import { roundTo, roundEight } from '../lib/math';
 import { ExecutionStatus } from '../models/ExecutionResult';
@@ -42,6 +43,8 @@ export class ExecutionService {
     private readonly engineBroadcaster: EngineBroadcasterService,
     private readonly eventEmitter: EventEmitter2,
     private readonly analyticsService: AnalyticsService,
+    @Inject(forwardRef(() => MarketFeedService))
+    private readonly marketFeedService: MarketFeedService,
   ) {}
 
   public setCooldown(symbol: string, mode: string, minutes: number) {
@@ -117,7 +120,8 @@ export class ExecutionService {
         const requiredWarmup = this.signalEngine.getRequiredWarmup(activeConfig);
         for (const exitSig of exitSignals) {
           const rawTf = activeConfig.signal_timeframes?.[exitSig];
-          const exitInterval = (!rawTf || rawTf === 'default') ? (activeConfig.scan_interval || '1m') : rawTf;
+          const rawExitInterval = (!rawTf || rawTf === 'default') ? (activeConfig.scan_interval || '1m') : rawTf;
+          const exitInterval = this.marketFeedService.resolveInterval(rawExitInterval, activeConfig) || '1m';
           const candles = this.klineStore.getRawCandles(trade.symbol, exitInterval);
 
           if (candles.length < requiredWarmup) {
@@ -169,7 +173,7 @@ export class ExecutionService {
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkTrailingStop(trade.symbol, currentPrice, tradeConfig);
 
-        const exitInterval = tradeConfig.scan_interval || '1m';
+        const exitInterval = this.marketFeedService.resolveInterval(tradeConfig.scan_interval || '1m', tradeConfig) || '1m';
         const exitCondition = this.positionTracker.checkExitConditions(trade.symbol, currentPrice, tradeConfig, exitInterval);
 
         if (exitCondition?.exitOccurred) {
@@ -320,12 +324,15 @@ export class ExecutionService {
 
         // Anti-whipsaw / same-candle re-entry protection
         const uniqueTimeframes = new Set<string>();
-        uniqueTimeframes.add(symbolConfig.scan_interval || '1m');
+        const resolvedScan = this.marketFeedService.resolveInterval(symbolConfig.scan_interval || '1m', symbolConfig);
+        if (resolvedScan) uniqueTimeframes.add(resolvedScan);
+
         if (symbolConfig.enabled_signals) {
           for (const sig of symbolConfig.enabled_signals) {
             const tf = symbolConfig.signal_timeframes?.[sig];
             if (tf && tf !== 'default') {
-              uniqueTimeframes.add(tf);
+              const resolvedTf = this.marketFeedService.resolveInterval(tf, symbolConfig);
+              if (resolvedTf) uniqueTimeframes.add(resolvedTf);
             }
           }
         }
@@ -472,7 +479,8 @@ export class ExecutionService {
         // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
         // GATED: Only apply if engulfing is actually enabled.
         if (symbolConfig.engulfing_timing === 'after_opportunity' && symbolConfig.enabled_signals?.includes('engulfing')) {
-           const candles = this.klineStore.getRawCandles(opp.symbol, symbolConfig.scan_interval || '1m');
+           const scanInterval = this.marketFeedService.resolveInterval(symbolConfig.scan_interval || '1m', symbolConfig) || '1m';
+           const candles = this.klineStore.getRawCandles(opp.symbol, scanInterval);
            if (candles.length < 2) continue;
 
            const prevCandle = candles[candles.length - 2];
@@ -491,7 +499,8 @@ export class ExecutionService {
 
         // BOLT OPTIMIZATION: Enable minimal mode (6th arg) to trigger early-return in signal engine.
         // This avoids expensive metadata/description construction during the high-frequency entry scan.
-        let signalResult = this.signalEngine.checkEntry(opp.symbol, resolvedConfig, resolvedConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
+        const entryScanInterval = this.marketFeedService.resolveInterval(resolvedConfig.scan_interval || '1m', resolvedConfig) || '1m';
+        let signalResult = this.signalEngine.checkEntry(opp.symbol, resolvedConfig, entryScanInterval, opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', true);
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
@@ -501,7 +510,7 @@ export class ExecutionService {
 
         // If signal fired, re-check with minimal=false to get technical details (e.g. engulfing boundaries)
         // required for structural Stop Loss calculations and full telemetry.
-        signalResult = this.signalEngine.checkEntry(opp.symbol, resolvedConfig, resolvedConfig.scan_interval || '1m', opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
+        signalResult = this.signalEngine.checkEntry(opp.symbol, resolvedConfig, entryScanInterval, opp.direction.toUpperCase() as 'LONG' | 'SHORT', 'entry', false);
 
         const price = this.tickerCache.getPrice(opp.symbol);
         if (!price) continue;
@@ -519,10 +528,17 @@ export class ExecutionService {
         // Pass the effective SL distance pct explicitly instead of mutating the config
         const overriddenConfig = { ...symbolConfig, sl_distance_pct: effectiveSlDistancePct };
 
-        const slTimeframe = (!symbolConfig.sl_lookback_timeframe || symbolConfig.sl_lookback_timeframe === 'default')
+        const rawSlTimeframe = (!symbolConfig.sl_lookback_timeframe || symbolConfig.sl_lookback_timeframe === 'default')
           ? (symbolConfig.scan_interval || '1m')
           : symbolConfig.sl_lookback_timeframe;
+        const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, symbolConfig) || '5m';
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
+
+        // Auto-heal missing data chunks if lookback failed due to a time gap or stale data
+        if (lookback.reason === 'time_gap' || lookback.reason === 'stale_data') {
+          this.logger.debug(`[Lookback Auto-heal] Requesting backfill for ${opp.symbol} ${slTimeframe} due to ${lookback.reason}`);
+          this.marketFeedService.queueBackfill(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
+        }
 
         // Extract engulfing pattern details if available
         const engulfingDetail = signalResult.details?.engulfing;
@@ -571,6 +587,15 @@ export class ExecutionService {
           priceRounding: opp.direction.toUpperCase() === 'LONG' ? 'floor' : 'ceil',
           skipNotionalCheck: true
         });
+
+        // Ticking filtering: Reject if a single price tick represents more than 10% of the SL distance
+        const tickSize = this.marketFeedService.getSymbolFilters(opp.symbol)?.tickSize || 0;
+        const rawSlDistance = Math.abs(price - slPrice);
+        if (tickSize > 0 && rawSlDistance > 0 && (tickSize / rawSlDistance) > 0.1) {
+           this.logger.debug(`${opp.symbol}: Entry skipped - tick size granularity (${tickSize}) is too large relative to SL distance (${rawSlDistance}).`);
+           continue;
+        }
+
         slPrice = slFiltered.price;
 
         const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol, closedTrades);
@@ -615,6 +640,17 @@ export class ExecutionService {
 
         const prospectiveRiskUsdt = Math.abs(price - slPrice) * qty;
         const prospectiveRiskPct = balance > 0 ? (prospectiveRiskUsdt / balance) * 100 : 0;
+
+        // BOLT: Fee Drag Gate for Small Accounts
+        // Reject entries where the round-trip fee eats a massive chunk of 1R.
+        // Assuming ~0.04% taker fee each way -> 0.08% round trip total notional fee.
+        const notional = price * qty;
+        const estimatedFeeUsdt = notional * 0.0008;
+        if (prospectiveRiskUsdt > 0 && (estimatedFeeUsdt / prospectiveRiskUsdt) > 0.05) {
+           const feeDragReason = `Fee drag too high (${((estimatedFeeUsdt / prospectiveRiskUsdt) * 100).toFixed(1)}% of 1R risk).`;
+           this.logger.debug(`${opp.symbol}: Entry skipped - ${feeDragReason}`);
+           continue;
+        }
 
         this.monitoringService.setLoopStage('RISK_CHECK', opp.symbol);
         const activeTrades = this.positionTracker.activeList();

@@ -727,6 +727,11 @@ export class MarketFeedService {
             if (!newWatchlist.has(ssc.symbol)) newWatchlist.set(ssc.symbol, new Set());
             const interval = ssc.use_custom_config && ssc.custom_config?.scan_interval ? ssc.custom_config.scan_interval : sc.scan_interval || '1m';
             newWatchlist.get(ssc.symbol)!.add(interval);
+
+            if (ssc.use_custom_config && ssc.custom_config?.sl_lookback_timeframe) {
+              const customSlInterval = this.resolveInterval(ssc.custom_config.sl_lookback_timeframe, sc);
+              if (customSlInterval) newWatchlist.get(ssc.symbol)!.add(customSlInterval);
+            }
           }
         }
       }
@@ -1126,7 +1131,7 @@ export class MarketFeedService {
    * Replaces "default" with the configured scan_interval or "5m".
    * Returns null if the interval is invalid and cannot be resolved.
    */
-  private resolveInterval(interval: string, config?: SessionConfig | null): string | null {
+  public resolveInterval(interval: string, config?: SessionConfig | null): string | null {
     if (!interval || typeof interval !== 'string') {
       return config?.scan_interval || '5m';
     }
@@ -1158,6 +1163,17 @@ export class MarketFeedService {
       case 'w': return value * 7 * 24 * 60 * 60 * 1000;
       case 'M': return value * 30 * 24 * 60 * 60 * 1000;
       default: return 60 * 1000;
+    }
+  }
+
+  public queueBackfill(symbol: string, interval: string, requiredWarmup?: number) {
+    const key = `${symbol}_${interval}`;
+    const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
+    if (!alreadyQueued) {
+      this.backfillQueue.push({ symbol, interval });
+      this.processBackfillQueue().catch(err => {
+        this.logger.error(`[MarketFeed] Backfill queue execution failed: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
   }
 

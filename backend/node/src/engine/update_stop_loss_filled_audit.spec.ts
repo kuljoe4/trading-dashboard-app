@@ -90,7 +90,9 @@ describe('updateStopLoss FILLED status audit check regression test', () => {
         },
         {
           provide: OrderFilterService,
-          useValue: {},
+          useValue: {
+            applyFilters: jest.fn().mockImplementation((sym, price, qty, opts) => ({ price, qty }))
+          },
         },
         {
           provide: MarketFeedService,

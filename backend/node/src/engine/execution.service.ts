@@ -664,7 +664,7 @@ export class ExecutionService {
             tpPrice,
             {
               strategy_label: currentStrategyLabel,
-              strategy_config: { ...resolvedConfig, ...(sizeResult.isNominalOvershoot ? { is_nominal_overshoot: true } : {}), ...(sizeResult.martingaleActive ? { is_martingale: true, martingale_multiplier: sizeResult.activeMultiplier, martingale_step: sizeResult.consecutiveLosses } : {}) },
+              strategy_config: { ...resolvedConfig, ...(sizeResult.isNominalOvershoot ? { is_nominal_overshoot: true } : {}) },
               entry_daily_change_pct: dailyChangeAtEntry,
               entry_reason: signalResult.reason,
               entry_signal_type: signalResult.firedSignals?.join(', ') || 'combo',
@@ -700,6 +700,16 @@ export class ExecutionService {
             if (isKnifeTrade) {
               trade.is_knife = true;
               this.logger.log(`[Knife Engine] ${opp.symbol} tagged as IS_KNIFE trade on entry. High-frequency velocity trailing & auto-ratchet engaged.`);
+            }
+
+            if (sizeResult.martingaleActive) {
+              trade.is_martingale = true;
+              trade.martingale_multiplier = sizeResult.activeMultiplier;
+              trade.martingale_step = sizeResult.consecutiveLosses;
+            }
+
+            if (sizeResult.martingaleThresholdReset) {
+              trade.martingale_threshold_reset = true;
             }
 
             this.positionTracker.addTrade(trade);

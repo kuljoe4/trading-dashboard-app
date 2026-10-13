@@ -481,6 +481,11 @@ export class SessionConfig {
   @IsOptional()
   martingale_max_steps?: number = 3;
 
+  @IsString()
+  @IsIn(['restart', 'wait'])
+  @IsOptional()
+  martingale_post_reset_behavior?: 'restart' | 'wait' = 'wait';
+
   @IsNumber()
   @Min(0)
   @IsOptional()

@@ -139,6 +139,14 @@ export class Trade {
 
   is_knife?: boolean;
 
+  is_martingale?: boolean;
+
+  martingale_multiplier?: number;
+
+  martingale_step?: number;
+
+  martingale_threshold_reset?: boolean;
+
   illiquid_blocked?: boolean;
 
   _sig_json?: string;

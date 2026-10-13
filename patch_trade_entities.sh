@@ -1,0 +1,2 @@
+#!/bin/bash
+sed -i '/illiquid_blocked: boolean;/i \  @Column({ default: false })\n  is_knife: boolean;\n\n  @Column({ default: false })\n  is_martingale: boolean;\n\n  @Column('\''decimal'\'', { precision: 10, scale: 4, nullable: true })\n  martingale_multiplier: number | null;\n\n  @Column({ type: '\''int'\'', nullable: true })\n  martingale_step: number | null;\n\n  @Column({ default: false })\n  martingale_threshold_reset: boolean;\n' backend/node/src/models/entities/Trade.entity.ts

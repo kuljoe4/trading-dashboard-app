@@ -291,6 +291,33 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               {isLong ? 'LONG' : 'SHORT'}
             </span>
 
+            {trade.is_martingale && (
+              <>
+                <span className="text-dim/40 text-[8.5px] leading-none shrink-0 hidden sm:inline">·</span>
+                <span className="text-[8.5px] text-purple font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none bg-purple/10 px-1 py-0.5 rounded" title={`Martingale active: Step ${trade.martingale_step || 1}`}>
+                  🎲 M-GALE ({trade.martingale_multiplier}x)
+                </span>
+              </>
+            )}
+
+            {trade.martingale_threshold_reset && (
+              <>
+                <span className="text-dim/40 text-[8.5px] leading-none shrink-0 hidden sm:inline">·</span>
+                <span className="text-[8.5px] text-red font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none bg-red/10 px-1 py-0.5 rounded" title="Martingale limit reached, sequence reset or capped">
+                  ⚠️ M-CAPPED
+                </span>
+              </>
+            )}
+
+            {trade.is_knife && (
+              <>
+                <span className="text-dim/40 text-[8.5px] leading-none shrink-0 hidden sm:inline">·</span>
+                <span className="text-[8.5px] text-amber font-mono font-bold uppercase tracking-wider flex items-center gap-0.5 shrink-0 leading-none bg-amber/10 px-1 py-0.5 rounded">
+                  🔪 KNIFE
+                </span>
+              </>
+            )}
+
             <span className="text-dim/40 text-[8.5px]">·</span>
 
             <span className="text-[8.5px] font-mono text-dim tracking-tight shrink-0 leading-none">

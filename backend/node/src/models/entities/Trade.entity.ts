@@ -147,6 +147,21 @@ export class TradeEntity {
   @Column({ default: false })
   illiquid_blocked: boolean;
 
+  @Column({ default: false })
+  is_knife: boolean;
+
+  @Column({ default: false })
+  is_martingale: boolean;
+
+  @Column('decimal', { precision: 10, scale: 4, nullable: true })
+  martingale_multiplier: number | null;
+
+  @Column({ type: 'int', nullable: true })
+  martingale_step: number | null;
+
+  @Column({ default: false })
+  martingale_threshold_reset: boolean;
+
   @UpdateDateColumn()
   updated_at: Date;
 

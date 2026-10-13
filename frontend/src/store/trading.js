@@ -342,6 +342,7 @@ const defaultConfig = {
   martingale_multiplier: 2.0,
   martingale_reset_threshold_pct: 4.0,
   martingale_max_steps: 3,
+  martingale_post_reset_behavior: 'wait',
   max_open_trades: CONFIG_LIMITS.MAX_OPEN_TRADES_DEFAULT,
   max_trades_per_period: 10,
   trades_period_min: 60,

@@ -796,6 +796,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().fetchLogs();
     };
     let lsu = 0;
+        let logBuffer = [];
+    let logBufferTimeout = null;
     ws.onmessage = (e) => {
       if (get().isThrottled) return;
       const nowTs = Date.now();
@@ -945,26 +947,84 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           lastAuthoritativeUpdateTs: nowTs,
           balance: resolveNonZeroMetric(d.balance, st.balance, st.isSyncingOnResume)
         }));
-      } else if (d.type === 'log') set(st => {
+      } else if (d.type === 'log') {
         const n = normalizeLog(d);
-        if (!n) return st;
-        const logs = st.logs || [];
-        const m = n.msg || '';
-        let udsReason = st.lastUdsBalanceReason;
-        let udsTs = st.lastUdsBalanceTs;
-        if (m.includes('Reason:') || m.includes('[UDS]')) {
-          let matched = false;
-          if (m.includes('FUNDING_FEE')) { udsReason = 'FUNDING_FEE'; matched = true; }
-          else if (m.includes('REALIZED_PNL')) { udsReason = 'REALIZED_PNL'; matched = true; }
-          else if (m.includes('DEPOSIT')) { udsReason = 'DEPOSIT'; matched = true; }
-          else if (m.includes('WITHDRAW')) { udsReason = 'WITHDRAW'; matched = true; }
-          else if (m.includes('COMMISSION')) { udsReason = 'COMMISSION'; matched = true; }
-          else if (m.includes('TRANSFER')) { udsReason = 'TRANSFER'; matched = true; }
-          if (matched) udsTs = nowTs;
+        if (n) {
+          logBuffer.push(n);
+          // Only set timeout if there isn't one pending for this buffer
+          if (!logBufferTimeout) {
+            logBufferTimeout = setTimeout(() => {
+              logBufferTimeout = null;
+              if (logBuffer.length === 0) return;
+
+              set(st => {
+                const logs = st.logs || [];
+                let udsReason = st.lastUdsBalanceReason;
+                let udsTs = st.lastUdsBalanceTs;
+
+                const incoming = [];
+                for (const log of logBuffer) {
+                  const m = log.msg || '';
+                  if (m.includes('Reason:') || m.includes('[UDS]')) {
+                    let matched = false;
+                    if (m.includes('FUNDING_FEE')) { udsReason = 'FUNDING_FEE'; matched = true; }
+                    else if (m.includes('REALIZED_PNL')) { udsReason = 'REALIZED_PNL'; matched = true; }
+                    else if (m.includes('DEPOSIT')) { udsReason = 'DEPOSIT'; matched = true; }
+                    else if (m.includes('WITHDRAW')) { udsReason = 'WITHDRAW'; matched = true; }
+                    else if (m.includes('COMMISSION')) { udsReason = 'COMMISSION'; matched = true; }
+                    else if (m.includes('TRANSFER')) { udsReason = 'TRANSFER'; matched = true; }
+                    if (matched) udsTs = Date.now();
+                  }
+
+                  // Deduplicate against existing logs and other incoming logs
+                  const exactKey = log.id || `${log.ts}-${log.msg}`;
+                  const isExactDuplicate = logs.some(ex => (ex.id || `${ex.ts}-${ex.msg}`) === exactKey) ||
+                                           incoming.some(ex => (ex.id || `${ex.ts}-${ex.msg}`) === exactKey);
+
+                  if (isExactDuplicate) continue;
+
+
+                  const logTsMs = log.ts_ms || Date.now();
+
+                  let isFuzzyDuplicate = false;
+
+                  // Check against existing logs
+                  for (let i = 0; i < Math.min(logs.length, 50); i++) {
+                    const ex = logs[i];
+                    if (ex.msg === log.msg) {
+                      const exTsMs = ex.ts_ms || Date.now();
+                      if (Math.abs(exTsMs - logTsMs) < 2000) {
+                        isFuzzyDuplicate = true;
+                        break;
+                      }
+                    }
+                  }
+
+                  // Check against new incoming buffer
+                  if (!isFuzzyDuplicate) {
+                    for (let i = 0; i < incoming.length; i++) {
+                      const ex = incoming[i];
+                      if (ex.msg === log.msg) {
+                        const exTsMs = ex.ts_ms || Date.now();
+                        if (Math.abs(exTsMs - logTsMs) < 2000) {
+                          isFuzzyDuplicate = true;
+                          break;
+                        }
+                      }
+                    }
+                  }
+
+                  if (!isFuzzyDuplicate) {
+                    incoming.unshift(log); // Unshift so newer logs are at the front
+                  }
+                }
+                logBuffer = [];
+                return { lastAuthoritativeUpdateTs: Date.now(), lastUdsBalanceReason: udsReason, lastUdsBalanceTs: udsTs, logs: [...incoming, ...logs].slice(0, MAX_LOG_LINES) };
+              });
+            }, 250);
+          }
         }
-        return { lastAuthoritativeUpdateTs: nowTs, lastUdsBalanceReason: udsReason, lastUdsBalanceTs: udsTs, logs: [n, ...logs].slice(0, MAX_LOG_LINES) };
-      });
-      else if (d.type === 'scanner') {
+      } else if (d.type === 'scanner') {
         if (nowTs - lsu < 200) return; lsu = nowTs;
         set(st => {
           const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];

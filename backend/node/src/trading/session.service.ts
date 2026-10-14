@@ -170,7 +170,9 @@ export class SessionService implements OnModuleInit {
         ),
       12 * 60 * 60 * 1000,
     );
-    if (cleanupInterval && cleanupInterval.unref) cleanupInterval.unref();
+
+    if (cleanupInterval?.unref) cleanupInterval.unref();
+    if (cleanupInterval && cleanupInterval?.unref) cleanupInterval.unref();
     this.logger.log("Checking security configurations...");
     // DEPLOY-02: Check ENCRYPTION_KEY and ADMIN_API_KEY in production
     // Note: We only log errors here to avoid boot loops. Enforcement happens at the operation level.

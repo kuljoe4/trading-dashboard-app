@@ -28,7 +28,7 @@ if (process.env.NODE_ENV !== 'test') {
       }
     }
   }, 600000);
-  if (throttleInterval.unref) throttleInterval.unref();
+  if (throttleInterval?.unref) throttleInterval.unref();
 }
 
 export function isThrottled(ip: string): boolean {

@@ -446,6 +446,8 @@ export class MarketFeedService {
     this.watchlistInterval = setInterval(() => {
       this.updateWatchlist(config);
 
+    if (this.watchlistInterval?.unref) this.watchlistInterval.unref();
+
       if (this.activeWatchlist.size === 0) {
         this.zeroWatchlistCycles++;
         if (this.zeroWatchlistCycles >= 2) {

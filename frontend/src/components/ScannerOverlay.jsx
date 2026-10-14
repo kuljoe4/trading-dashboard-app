@@ -710,26 +710,27 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       };
     });
 
-    // 2. Filter by search
-    if (search) {
-      const term = search.toLowerCase().trim()
-      results = results.filter(r => r.symbol.toLowerCase().includes(term))
+    // BOLT OPTIMIZATION: Combine search and range filters into a single-pass loop
+    // Replaces multiple chained .filter() allocations with O(1) transient allocations
+    const term = search ? search.toLowerCase().trim() : '';
+    const filtered = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+
+      if (term && !r.symbol.toLowerCase().includes(term)) continue;
+
+      if (rangeFilter === 'usdt' && !(r.symbol || '').toUpperCase().endsWith('USDT')) continue;
+      if (rangeFilter === 'non_usdt' && (r.symbol || '').toUpperCase().endsWith('USDT')) continue;
+      if (rangeFilter === 'pos' && (r.pct || 0) <= 0) continue;
+      if (rangeFilter === 'neg' && (r.pct || 0) >= 0) continue;
+      if (rangeFilter === 'movers' && Math.abs(r.pct || 0) < 2.0) continue;
+      if (rangeFilter === 'extreme' && Math.abs(r.pct || 0) < 5.0) continue;
+
+      filtered.push(r);
     }
 
-    // 3. Filter by range and quote asset
-    if (rangeFilter === 'usdt') {
-      results = results.filter(r => (r.symbol || '').toUpperCase().endsWith('USDT'))
-    } else if (rangeFilter === 'non_usdt') {
-      results = results.filter(r => !(r.symbol || '').toUpperCase().endsWith('USDT'))
-    } else if (rangeFilter === 'pos') {
-      results = results.filter(r => (r.pct || 0) > 0)
-    } else if (rangeFilter === 'neg') {
-      results = results.filter(r => (r.pct || 0) < 0)
-    } else if (rangeFilter === 'movers') {
-      results = results.filter(r => Math.abs(r.pct || 0) >= 2.0)
-    } else if (rangeFilter === 'extreme') {
-      results = results.filter(r => Math.abs(r.pct || 0) >= 5.0)
-    }
+    results = filtered;
 
     // 4. Apply Discovery Mode Slicing (Top 24)
     if (discoveryMode === 'volume') {

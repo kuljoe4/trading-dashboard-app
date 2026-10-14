@@ -25,6 +25,7 @@ export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
   // BOLT: Mode-aware cooldowns to ensure Live mode failures don't block Paper mode testing
   private entryCooldowns: Map<string, number> = new Map();
+  private consecutiveFailures: Map<string, number> = new Map();
   private loggedAntiWhipsawMap: Map<string, number> = new Map();
 
   constructor(
@@ -773,16 +774,37 @@ export class ExecutionService {
               stats: this.sessionState.stats
             });
           } else {
-            // Entry failed but didn't throw (e.g. ORDER_REJECTED)
+            // Entry failed but didn't throw (e.g. ORDER_REJECTED or SL_FAILED)
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+
+            // Handle ghost row tracking: If UDS already saved the trade to DB before unwind,
+            // we must mark it as ENTRY_FAILED so history & stats ignore it.
+            if (result.data) {
+              const trade = result.data;
+              trade.status = 'ENTRY_FAILED';
+              trade.exit_signal_reason = result.error || 'Entry Failed';
+              // Update DB
+              if (onTradeUpdate) {
+                await onTradeUpdate(trade, balance);
+              }
+            }
 
             // BOLT: Only apply symbol-specific cooldown if it wasn't a global circuit breaker trip (e.g. ban/weight)
             const isCircuitOpen = result.status === ExecutionStatus.CIRCUIT_OPEN;
-            const cooldownMinutes = isCircuitOpen ? 0 : 5;
 
-            if (cooldownMinutes > 0) {
-              this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
-              this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
+            if (isCircuitOpen) {
+              this.logger.warn(`${opp.symbol}: Entry blocked (${mode}) due to global circuit breaker (${result.status}). Error: ${result.error}`);
+            } else {
+              const cooldownKey = `${mode}:${opp.symbol}`;
+              const failures = (this.consecutiveFailures.get(cooldownKey) || 0) + 1;
+              this.consecutiveFailures.set(cooldownKey, failures);
+
+              let cooldownMinutes = 5;
+              if (failures === 2) cooldownMinutes = 15;
+              else if (failures >= 3) cooldownMinutes = 60;
+
+              this.entryCooldowns.set(cooldownKey, Date.now() + cooldownMinutes * 60 * 1000);
+              this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Consecutive failures: ${failures}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
 
               this.broadcastService.broadcast('alert', {
                 level: 'warn',
@@ -790,9 +812,13 @@ export class ExecutionService {
                 message: `${opp.symbol}: ${result.error || 'Order rejected by exchange'}. Skipping for ${cooldownMinutes}m.`,
                 symbol: opp.symbol
               });
-            } else {
-              this.logger.warn(`${opp.symbol}: Entry blocked (${mode}) due to global circuit breaker (${result.status}). Error: ${result.error}`);
             }
+          }
+
+          // Reset consecutive failures on success
+          if (result.status === ExecutionStatus.SUCCESS) {
+            const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+            this.consecutiveFailures.delete(`${mode}:${opp.symbol}`);
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);

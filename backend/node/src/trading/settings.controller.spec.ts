@@ -7,6 +7,8 @@ import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { AuditLogService } from './audit-log.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { encrypt } from '../lib/crypto';
+import * as throttle from '../lib/throttle';
+import { HttpException } from '@nestjs/common';
 
 describe('Sentinel: maskApiKey helper security verification', () => {
   it('should return empty string for non-string, empty, or falsy values', () => {
@@ -86,6 +88,21 @@ describe('SettingsController: updateKeys masked key bypass prevention', () => {
   it('should be defined', () => {
     expect(controller).toBeDefined();
   });
+
+  it('should throttle updateKeys if rate limit is exceeded', async () => {
+    jest.spyOn(throttle, 'isAuthRateLimited').mockReturnValueOnce(true);
+    const dto = {} as any;
+    const req = { ip: '127.0.0.1', headers: {} } as any;
+    await expect(controller.updateKeys(dto, req)).rejects.toThrow(HttpException);
+  });
+
+  it('should throttle validateKeys if rate limit is exceeded', async () => {
+    jest.spyOn(throttle, 'isAuthRateLimited').mockReturnValueOnce(true);
+    const dto = {} as any;
+    const req = { ip: '127.0.0.1', headers: {} } as any;
+    await expect(controller.validateKeys(dto, req)).rejects.toThrow(HttpException);
+  });
+
 
   it('should skip updating fields that contain "..." but correctly encrypt and update valid fields', async () => {
     const existingSettings = {
@@ -210,7 +227,7 @@ describe('SettingsController: validateKeys error sanitization', () => {
       api_secret: 'valid_live_api_secret_test_12345',
     };
 
-    const result = await controller.validateKeys(dto);
+    const result = await controller.validateKeys(dto, { ip: '127.0.0.1', headers: {} } as any);
 
     expect(result.valid).toBe(false);
     expect(result.checks).toHaveLength(1);
@@ -279,7 +296,7 @@ describe('SettingsController: defense-in-depth DTO whitelist validation', () => 
       unauthorized_extra_field: 'malicious_payload',
     } as any;
 
-    await expect(controller.validateKeys(invalidDto)).rejects.toThrow(BadRequestException);
+    await expect(controller.validateKeys(invalidDto, { ip: '127.0.0.1', headers: {} } as any)).rejects.toThrow(BadRequestException);
   });
 
   it('should throw BadRequestException when API key contains invalid characters (e.g. script injection)', async () => {

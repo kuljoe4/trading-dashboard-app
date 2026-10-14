@@ -1756,8 +1756,8 @@ export const HistoryView = () => {
       const t = arr[i];
       if (!t) continue;
 
-      // SRE: Exclude CLOSED_ORPHANED from mode trades (which feed top wins/losses and general stats)
-      if (t.status === 'CLOSED_ORPHANED') continue;
+      // SRE: Exclude CLOSED_ORPHANED and ENTRY_FAILED from mode trades (which feed top wins/losses and general stats)
+      if (t.status === 'CLOSED_ORPHANED' || t.status === 'ENTRY_FAILED') continue;
 
       const mode = t.paperMode || t.paper_mode ? 'paper' : (t.trading_mode || 'live');
       if (mode !== lifetimeMode) continue;
@@ -1813,7 +1813,7 @@ export const HistoryView = () => {
     const trades = tradeHistory || [];
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
-      if (t && t.sessionId) {
+      if (t && t.sessionId && t.status !== 'CLOSED_ORPHANED' && t.status !== 'ENTRY_FAILED') {
         if (!tradesBySession[t.sessionId]) {
           tradesBySession[t.sessionId] = [];
         }

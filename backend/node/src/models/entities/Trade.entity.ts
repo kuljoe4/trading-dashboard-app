@@ -63,7 +63,7 @@ export class TradeEntity {
 
   @Index()
   @Column()
-  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED';
+  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' | 'ENTRY_FAILED';
 
   @Index()
   @Column({ type: 'timestamp', nullable: true })

@@ -1482,12 +1482,14 @@ export class OrderManagerService {
       }
     }
 
-    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return null;
+    if (this.paperMode) return { orderId: 'PAPER_SL', price: currentSlPrice };
+    if (!this.binanceClient) return { orderId: '', price: 0, error: 'Binance client is not initialized.' };
+    if (!trade.binance_order_id) return { orderId: '', price: 0, error: 'Trade missing binance_order_id.' };
 
     // BOLT: Fail early if no filters found for live mode to prevent "Invalid symbol"
     if (!this.marketFeed.getSymbolFilters(trade.symbol)) {
       this.logger.error(`Live SL rejected: No exchange filters found for ${trade.symbol} in current environment.`);
-      return null;
+      return { orderId: '', price: 0, error: 'No exchange filters found in current environment.' };
     }
 
     // PERFORMANCE: Implement retry for network errors

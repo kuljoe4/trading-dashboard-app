@@ -2091,6 +2091,7 @@ const flattenConfig = (config) => {
       sl_out_of_bounds_action: config.sl_out_of_bounds_action !== undefined ? config.sl_out_of_bounds_action : 'clamp',
       trailing_stop_enabled: !!config.trailing_stop_enabled,
       trailing_stop_type: config.trailing_stop_type || 'pct',
+      trailing_execution_mode: config.trailing_execution_mode || 'local',
       trailing_stop_distance_pct: config.trailing_stop_distance_pct || 1.0,
       trailing_stop_rr: config.trailing_stop_rr !== undefined ? Number(config.trailing_stop_rr) : 1.0,
       trailing_activation_rr: config.trailing_activation_rr !== undefined ? Number(config.trailing_activation_rr) : 0.0,
@@ -4814,6 +4815,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                  {cfg.trailing_stop_enabled && (
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
+                       <div className="mb-6">
+                          {renderField("Trailing Execution Mode", "trailing_execution_mode", "text", [{ value: "local", label: "Local" }, { value: "exchange", label: "Exchange" }, { value: "native", label: "Native" }])}
+                       </div>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {renderField('Trailing Method', 'trailing_stop_type', 'text', [
                             { value: 'pct', label: 'Percentage Distance (%)' },

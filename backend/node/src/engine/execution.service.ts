@@ -534,8 +534,8 @@ export class ExecutionService {
         const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, symbolConfig) || '5m';
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
 
-        // Auto-heal missing data chunks if lookback failed due to a time gap or stale data
-        if (lookback.reason === 'time_gap' || lookback.reason === 'stale_data') {
+        // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles
+        if (lookback.reason === 'time_gap' || lookback.reason === 'stale_data' || lookback.reason === 'too_few_candles') {
           this.logger.debug(`[Lookback Auto-heal] Requesting backfill for ${opp.symbol} ${slTimeframe} due to ${lookback.reason}`);
           this.marketFeedService.queueBackfill(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
         }

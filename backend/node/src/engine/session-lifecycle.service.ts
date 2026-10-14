@@ -168,8 +168,10 @@ export class SessionLifecycleService {
             const errMsg = modeErr.message || "";
             const errCode = modeErr.data?.code || modeErr.code;
 
-            // Error -4059 means it's already in that mode
-            if (errMsg.includes("-4059") || errCode === -4059) {
+            if (this.sessionState.isBanned() || errMsg.includes('451') || errMsg.toLowerCase().includes('restricted location')) {
+              this.logger.warn(`Binance position mode sync bypassed due to active API ban.`);
+            } else if (errMsg.includes("-4059") || errCode === -4059) {
+              // Error -4059 means it's already in that mode
               this.logger.debug("Binance position mode is already One-Way.");
             } else if (
               errMsg.includes("-4068") ||

@@ -1066,6 +1066,7 @@ export class SessionService implements OnModuleInit {
           "binance_api_secret",
           "binance_testnet_api_key",
           "binance_testnet_api_secret",
+          "proxy_url"
         ],
       });
       if (!settings)
@@ -1100,6 +1101,7 @@ export class SessionService implements OnModuleInit {
         decryptedKey,
         decryptedSecret,
         isTestnet,
+        settings.proxy_url || undefined
       );
     }
 

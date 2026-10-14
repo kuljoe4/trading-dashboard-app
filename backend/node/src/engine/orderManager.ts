@@ -2301,6 +2301,7 @@ export class OrderManagerService {
   public async fetchAllPositions(retries = 3): Promise<BinancePositionV3[]> {
     if (!this.binanceClient) return [];
     if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
+    if (!this.paperMode && this.sessionState.isBanned()) return [];
     
     for (let i = 0; i < retries; i++) {
         try {

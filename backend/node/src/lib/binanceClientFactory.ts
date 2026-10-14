@@ -583,7 +583,7 @@ export class BinanceRequestQueue {
           const duration = Date.now() - startTs;
           const msg = error.message || '';
           const code = error.code || (error.data ? error.data.code : null);
-          const isBan = msg.includes('418') || code === -1003 || msg.includes('banned');
+          const isBan = msg.includes('418') || code === -1003 || msg.includes('banned') || msg.toLowerCase().includes('restricted location');
           const isRateLimit = msg.includes('429') || code === -1015;
 
           if (this.sessionState?.config?.track_binance_rate_limits !== false) {

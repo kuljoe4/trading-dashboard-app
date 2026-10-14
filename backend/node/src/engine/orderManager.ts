@@ -1866,6 +1866,10 @@ export class OrderManagerService {
    * Update an existing stop loss without protection gaps (Ratcheting)
    */
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean, price?: number }> {
+    const activeConfig = trade.strategy_config || this.sessionState.config;
+    if (activeConfig?.trailing_execution_mode === "local") {
+      return { success: true, price: newSlPrice };
+    }
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true, price: newSlPrice };
 
     const filteredNewSl = this.applyFilters(trade.symbol, newSlPrice, trade.qty, { skipNotionalCheck: true, clampToPercentPrice: true });

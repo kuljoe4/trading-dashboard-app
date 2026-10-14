@@ -177,6 +177,7 @@ const sessionConfigAllowedKeys = [
   'smart_watchlist_sensitivity',
   'trailing_stop_enabled',
   'trailing_stop_type',
+  'trailing_execution_mode',
   'trailing_stop_distance_pct',
   'trailing_stop_rr',
   'trailing_activation_rr',

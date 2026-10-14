@@ -1697,7 +1697,50 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       targetProjectedPnl = initialRiskUsdt * tpRatio
     }
 
-    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty: qtyVal, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals, estPnlToRealize, targetProjectedPnl }
+
+    let indicatorEstPrice = null;
+    let indicatorEstPos = 0;
+
+    if (trade.exit_estimation?.signalEstimations) {
+      // Find the most relevant estimation (e.g. closest to current price, or just the first valid one)
+      // or composite estimation if present
+      const composite = trade.exit_estimation;
+      if (composite && composite.estimatedExitPrice) {
+        indicatorEstPrice = composite.estimatedExitPrice;
+      } else {
+        // Fallback to highest confidence or first valid
+        let bestEst = null;
+        for (const key of Object.keys(trade.exit_estimation.signalEstimations)) {
+          const est = trade.exit_estimation.signalEstimations[key];
+          if (est && est.estimatedExitPrice) {
+            if (!bestEst || (est.confidence || 0) > (bestEst.confidence || 0)) {
+              bestEst = est;
+            }
+          }
+        }
+        if (bestEst) {
+          indicatorEstPrice = bestEst.estimatedExitPrice;
+        }
+      }
+    }
+
+    if (indicatorEstPrice !== null && sl > 0) {
+      if (tp > 0) {
+        const totalRange = isLong ? (tp - sl) : (sl - tp);
+        const distFromSl = isLong ? (indicatorEstPrice - sl) : (sl - indicatorEstPrice);
+        indicatorEstPos = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100));
+      } else {
+        // compute based on RR
+        const risk = Math.abs(entry - initialSl);
+        if (risk > 0) {
+          const estPnl = (indicatorEstPrice - entry) * qtyVal * (isLong ? 1 : -1);
+          const estRr = estPnl / (risk * qtyVal);
+          indicatorEstPos = Math.min(100, Math.max(0, 50 + (estRr / 3) * 50));
+        }
+      }
+    }
+
+    return { isLong, pnlPct, progress, entry, mark, sl, initialSl, tp, qty: qtyVal, qtyFormatted, riskFormatted, slDistPct, slInitialDistPct, enhancedExitSignals, estPnlToRealize, targetProjectedPnl, indicatorEstPrice, indicatorEstPos }
   }, [trade])
 
   if (!trade) return null
@@ -1944,6 +1987,36 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                </div>
             </div>
           </div>
+
+
+          {/* Indicator Estimation Marker */}
+          {indicatorEstPrice !== null && (() => {
+            return (
+              <Tooltip content={
+                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
+                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Indicator Exit Estimation</div>
+                  <div className="text-dim">Est. Exit Price: <span className="text-amber font-mono font-semibold">{fmtUSD(indicatorEstPrice)}</span></div>
+                  <div className="text-dim">Status: <span className="text-amber font-mono font-semibold">Projected Target</span></div>
+                </div>
+              }>
+                <div
+                  className="absolute top-0 bottom-0 z-15 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  style={{ left: `${indicatorEstPos}%` }}
+                >
+                  <div className={cn(
+                    "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
+                    "bg-surface/90 border border-amber/40 text-amber/80"
+                  )}>
+                    🎯 EST
+                  </div>
+                  <div className={cn(
+                    "flex-1 w-px border-l border-dashed",
+                    "border-amber/40"
+                  )} />
+                </div>
+              </Tooltip>
+            );
+          })()}
 
           {/* Active Trailing Stop Loss Flag Marker on Runway Track */}
           {(trade.strategy_config?.trailing_stop_enabled || trade.strategy_config?.sl_type === 'trailing') && sl > 0 && (() => {

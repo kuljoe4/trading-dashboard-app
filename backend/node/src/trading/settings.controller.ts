@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards, Logger, Req, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, Logger, Req, BadRequestException, HttpException, HttpStatus } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Request } from 'express';
@@ -9,7 +9,7 @@ import { UpdateKeysDto } from './dto/update-keys.dto';
 import { ValidateKeysDto } from './dto/validate-keys.dto';
 import { encrypt, decrypt } from '../lib/crypto';
 import { ApiKeyGuard } from '../lib/api-key.guard';
-import { extractIp } from '../lib/throttle';
+import { extractIp, isAuthRateLimited } from '../lib/throttle';
 import { AuditLogService } from './audit-log.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { formatValidationErrors, sanitize } from '../lib/logger';
@@ -69,7 +69,11 @@ export class SettingsController {
   }
 
   @Post('keys/validate')
-  async validateKeys(@Body() body: ValidateKeysDto) {
+  async validateKeys(@Body() body: ValidateKeysDto, @Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    if (isAuthRateLimited(clientIp)) {
+      throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
+    }
     // SEC-SENTINEL: Defense-in-depth validation of ValidateKeysDto payload
     const keysDto = plainToInstance(ValidateKeysDto, body || {});
     const dtoErrors = await validate(keysDto, { whitelist: true, forbidNonWhitelisted: true });
@@ -194,6 +198,10 @@ export class SettingsController {
 
   @Post('keys')
   async updateKeys(@Body() body: UpdateKeysDto, @Req() req: Request) {
+    const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
+    if (isAuthRateLimited(clientIp)) {
+      throw new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS);
+    }
     // SEC-SENTINEL: Defense-in-depth validation of UpdateKeysDto payload
     const keysDto = plainToInstance(UpdateKeysDto, body || {});
     const dtoErrors = await validate(keysDto, { whitelist: true, forbidNonWhitelisted: true });

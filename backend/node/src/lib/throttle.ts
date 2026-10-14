@@ -56,6 +56,27 @@ export function recordFailure(ip: string): number {
   return record.count;
 }
 
+export function isAuthRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const record = RATE_LIMITS.get("auth:" + ip);
+
+  if (record && now < record.resetTime) {
+    if (record.count >= 10) {
+      return true;
+    }
+    record.count++;
+    RATE_LIMITS.set("auth:" + ip, record);
+  } else {
+    if (!RATE_LIMITS.has("auth:" + ip) && RATE_LIMITS.size >= MAX_TRACKED_IPS) {
+      const oldestIp = RATE_LIMITS.keys().next().value;
+      if (oldestIp) RATE_LIMITS.delete(oldestIp);
+    }
+    RATE_LIMITS.set("auth:" + ip, { count: 1, resetTime: now + RATE_WINDOW_MS });
+  }
+
+  return false;
+}
+
 export function isGeneralRateLimited(ip: string): boolean {
   const now = Date.now();
   const record = RATE_LIMITS.get(ip);

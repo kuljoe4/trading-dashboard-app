@@ -47,7 +47,7 @@ export class Trade {
 
   initial_risk_usdt?: number | null;
 
-  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' = 'OPEN';
+  status: 'OPEN' | 'CLOSED' | 'CLOSED_SL' | 'CLOSED_TP' | 'CLOSED_SIGNAL' | 'CLOSED_ORPHANED' | 'ENTRY_FAILED' = 'OPEN';
 
   exit_ts?: Date;
 

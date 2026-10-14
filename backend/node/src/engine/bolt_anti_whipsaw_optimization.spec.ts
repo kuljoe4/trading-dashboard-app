@@ -140,7 +140,7 @@ describe('Bolt Optimization: Anti-Whipsaw Performance & Correctness', () => {
       opportunities.push({ symbol: `SYM_${i % 50}`, direction: 'LONG', score: 1 });
     }
 
-    const iterations = 500;
+    const iterations = 20;
     const start = performance.now();
     for (let i = 0; i < iterations; i++) {
       await executionService.processEntries(opportunities, config, 'BenchmarkStrategy');

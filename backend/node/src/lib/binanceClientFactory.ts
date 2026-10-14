@@ -195,6 +195,8 @@ export class BinanceClientFactory implements OnModuleInit {
             const pingInterval = setInterval(() => {
               if (ws.readyState === WebSocket.OPEN) {
                 ws.ping();
+
+            if (pingInterval?.unref) pingInterval.unref();
               }
             }, 20000);
 
@@ -334,6 +336,8 @@ export class BinanceRequestQueue {
     // at minute boundaries so other services (MarketFeed) can resume.
     BinanceRequestQueue.rolloverInterval = setInterval(() => {
       const now = Date.now();
+
+    if (BinanceRequestQueue.rolloverInterval?.unref) BinanceRequestQueue.rolloverInterval.unref();
       if (this.shouldRollover(now)) {
         this.executeRollover(now);
       }

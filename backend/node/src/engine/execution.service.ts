@@ -243,6 +243,26 @@ export class ExecutionService {
   }
 
   private lastBanLogTs = 0;
+
+
+
+  private toTimestampMs(val: any): number {
+    if (!val) return 0;
+    if (typeof val === 'number') return val;
+    if (val instanceof Date) return val.getTime();
+    if (typeof val === 'string') {
+      const parsed = Date.parse(val);
+      if (!isNaN(parsed)) return parsed;
+      const trimmed = val.trim();
+      if (!trimmed) return 0;
+      const normalized = trimmed.includes(' ') ? trimmed.replace(' ', 'T') : trimmed;
+      const iso = (!normalized.endsWith('Z') && !normalized.includes('+') && !normalized.includes(' -')) ? normalized + 'Z' : normalized;
+      const parsedFallback = Date.parse(iso);
+      return isNaN(parsedFallback) ? 0 : parsedFallback;
+    }
+    return 0;
+  }
+
   async processEntries(opportunities: any[], config: SessionConfig, strategyLabel: string, onTradeUpdate?: (t: Trade, b: number) => Promise<void>, globalSlGuardOverride?: number) {
     const symbolConfigs = config.single_symbol_configs;
     const symbolConfigMap = (symbolConfigs && symbolConfigs.length > 0) ? new Map(symbolConfigs.map(sc => [sc.symbol, sc])) : null;
@@ -342,10 +362,12 @@ export class ExecutionService {
         // with a single-pass traversal over closedTrades using numeric timestamps.
         const closedTrades = this.sessionState.closedTrades;
         let hasClosedForSymbol = false;
+
+        const symbolClosedTrades = [];
         for (let i = 0; i < closedTrades.length; i++) {
           if (closedTrades[i].symbol === opp.symbol) {
             hasClosedForSymbol = true;
-            break;
+            symbolClosedTrades.push(closedTrades[i]);
           }
         }
 
@@ -373,6 +395,8 @@ export class ExecutionService {
           let gatedTimeframe = '';
           let gateReason = '';
 
+
+
           for (const tf of uniqueTimeframes) {
             const tfCandles = this.klineStore.getRawCandles(opp.symbol, tf);
             const tfDurationMs = this.getTimeframeMs(tf);
@@ -380,9 +404,17 @@ export class ExecutionService {
             if (tfCandles.length > 0) {
               const currentCandleStart = tfCandles[tfCandles.length - 1].time;
 
-              for (let i = 0; i < closedTrades.length; i++) {
-                const t = closedTrades[i];
-                if (t.symbol === opp.symbol) {
+              const candleDelay = symbolConfig.anti_whipsaw_candle_delay ?? 1;
+              const tfDelayMin = symbolConfig.anti_whipsaw_tf_delay_min ?? 0;
+              const effectiveDelayMs = Math.max(candleDelay * tfDurationMs, tfDelayMin * 60 * 1000);
+
+              if (effectiveDelayMs > 0) {
+                const nowMs = Date.now();
+                const cooldownMins = Math.ceil(effectiveDelayMs / 60000);
+
+                for (let i = 0; i < symbolClosedTrades.length; i++) {
+                  const t = symbolClosedTrades[i];
+
                   // If anti_whipsaw_allow_knife is active, candidate is knife, and closed trade was a knife trade, bypass gating
                   if (symbolConfig.anti_whipsaw_allow_knife && isCandidateKnife && t.is_knife) {
                     const bypassMsg = `[Anti-Whipsaw Bypass] ${opp.symbol}: Knife re-entry allowed for closed knife trade.`;
@@ -397,55 +429,30 @@ export class ExecutionService {
                     continue;
                   }
 
-                  const toTimestampMs = (val: any): number => {
-                    if (!val) return 0;
-                    if (typeof val === 'number') return val;
-                    if (val instanceof Date) return val.getTime();
-                    if (typeof val === 'string') {
-                      const trimmed = val.trim();
-                      if (!trimmed) return 0;
-                      const normalized = trimmed.includes(' ') ? trimmed.replace(' ', 'T') : trimmed;
-                      const iso = (!normalized.endsWith('Z') && !normalized.includes('+') && !normalized.includes(' -')) ? normalized + 'Z' : normalized;
-                      const parsed = new Date(iso).getTime();
-                      return isNaN(parsed) ? 0 : parsed;
+                  if (t.entry_ts) {
+                    const entryTsMs = this.toTimestampMs(t.entry_ts);
+                    if (entryTsMs > 0 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
+                      sameCandleGated = true;
+                      gatedTimeframe = tf;
+                      gateReason = `entered during the current ${tf} candle period`;
+                      break;
                     }
-                    return 0;
-                  };
+                  }
 
-                  const candleDelay = symbolConfig.anti_whipsaw_candle_delay ?? 1;
-                  const tfDelayMin = symbolConfig.anti_whipsaw_tf_delay_min ?? 0;
-                  const effectiveDelayMs = Math.max(candleDelay * tfDurationMs, tfDelayMin * 60 * 1000);
-
-                  if (effectiveDelayMs > 0) {
-                    if (t.entry_ts) {
-                      const entryTsMs = toTimestampMs(t.entry_ts);
-                      const nowMs = Date.now();
-                      if (entryTsMs > 0 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
-                        sameCandleGated = true;
-                        gatedTimeframe = tf;
-                        gateReason = `entered during the current ${tf} candle period`;
-                        break;
-                      }
-                    }
-
-                    if (t.exit_ts) {
-                      const exitTsMs = toTimestampMs(t.exit_ts);
-                      const nowMs = Date.now();
-                      const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
-                      if (validExitTsMs > 0 && (validExitTsMs >= currentCandleStart || nowMs < validExitTsMs + effectiveDelayMs)) {
-                        sameCandleGated = true;
-                        gatedTimeframe = tf;
-                        const cooldownMins = Math.ceil(effectiveDelayMs / 60000);
-                        gateReason = validExitTsMs >= currentCandleStart
-                          ? `exited during the active ${tf} candle`
-                          : `exited within the ${cooldownMins}m timeframe cooldown window`;
-                        break;
-                      }
+                  if (t.exit_ts) {
+                    const exitTsMs = this.toTimestampMs(t.exit_ts);
+                    const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
+                    if (validExitTsMs > 0 && (validExitTsMs >= currentCandleStart || nowMs < validExitTsMs + effectiveDelayMs)) {
+                      sameCandleGated = true;
+                      gatedTimeframe = tf;
+                      gateReason = validExitTsMs >= currentCandleStart
+                        ? `exited during the active ${tf} candle`
+                        : `exited within the ${cooldownMins}m timeframe cooldown window`;
+                      break;
                     }
                   }
                 }
               }
-
               if (sameCandleGated) break;
             }
           }

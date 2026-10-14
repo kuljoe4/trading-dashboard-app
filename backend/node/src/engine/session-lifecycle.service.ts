@@ -1000,6 +1000,8 @@ export class SessionLifecycleService {
       this.udsLivenessCheck = setInterval(() => {
         if (!this.running || !this.isUdsConnected) return;
 
+      if (this.udsLivenessCheck?.unref) this.udsLivenessCheck.unref();
+
         // SRE: Proactive WebSocket ping to confirm liveness on idle accounts
         try {
           if (
@@ -1050,6 +1052,8 @@ export class SessionLifecycleService {
       const startTime = Date.now();
       this.listenKeyKeepAlive = setInterval(async () => {
         if (!this.listenKey || !this.running) return;
+
+      if (this.listenKeyKeepAlive?.unref) this.listenKeyKeepAlive.unref();
 
         const ageMs = Date.now() - startTime;
         // Finding 9: Proactive 24h reconnect at 23h 50m

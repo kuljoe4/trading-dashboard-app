@@ -810,8 +810,18 @@ export class OrderManagerService {
     try {
       // PERF: Fetch filters once and reuse across all filter operations
       const filtered = this.applyFilters(symbol, entryPrice, qty, { cachedFilters: filters });
-      const filteredSl = this.applyFilters(symbol, slPrice, qty, { skipNotionalCheck: true, cachedFilters: filters }).price;
+      // SRE: Apply clampToPercentPrice up-front so we can reject entries where the SL is silently clamped,
+      // which would destroy risk/reward multi-R strategies.
+      const filteredSl = this.applyFilters(symbol, slPrice, qty, { skipNotionalCheck: true, clampToPercentPrice: true, cachedFilters: filters }).price;
       const filteredTp = tpPrice ? this.applyFilters(symbol, tpPrice, qty, { skipNotionalCheck: true, cachedFilters: filters }).price : null;
+
+      // SRE: Check if SL was clamped by PERCENT_PRICE. If it moved more than 0.5%, reject entry.
+      const slClampDiffPct = Math.abs(filteredSl - slPrice) / slPrice;
+      if (slClampDiffPct > 0.005) { // 0.5% tolerance
+        const reason = `SL price ${slPrice} was silently clamped to ${filteredSl} by Binance PERCENT_PRICE filter (${(slClampDiffPct * 100).toFixed(2)}% move). Rejecting entry to preserve risk/reward integrity.`;
+        this.logger.warn(`[OrderManager] ${symbol} entry rejected: ${reason}`);
+        return { status: ExecutionStatus.ORDER_REJECTED, error: reason };
+      }
 
       entryPrice = filtered.price;
       qty = filtered.qty;
@@ -1176,11 +1186,50 @@ export class OrderManagerService {
             const slError = slResult?.error || 'Unknown SL placement error';
             this.logger.warn(`SL placement failed for ${symbol}: ${slError}. Performing emergency unwind...`);
             try {
+              // SRE: Fetch the current exchange position size to ensure we unwind the actual filled amount,
+              // rather than relying on trade.qty which might be stale or altered.
+              if (this.binanceClient && !this.paperMode) {
+                 try {
+                    const posRes = await this.binanceClient.restAPI.positionInformationV3({ symbol });
+                    const posData = (await posRes.data()) as any[];
+                    const position = posData?.find((p: any) => p.symbol === symbol);
+                    if (position && parseFloat(position.positionAmt) !== 0) {
+                       trade.qty = Math.abs(parseFloat(position.positionAmt));
+                       this.logger.log(`[${symbol}] Syncing emergency unwind quantity to exchange position size: ${trade.qty}`);
+                    }
+                 } catch (posErr) {
+                    this.logger.warn(`[${symbol}] Failed to fetch position size for emergency unwind sync: ${posErr}`);
+                 }
+              }
+
               const unwindResult = await this.closeTrade(symbol, trade, entryPrice, EXIT_REASONS.SL_PLACEMENT_FAILURE);
+
               if (unwindResult.exitOccurred) {
-                this.positionTracker.removeTrade(symbol);
-                this.sessionState.realTimePositions.delete(symbol);
-                return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
+                // SRE: Verify position is actually flat on exchange after unwind
+                let isFlat = true;
+                if (this.binanceClient && !this.paperMode) {
+                   try {
+                      const posRes = await this.binanceClient.restAPI.positionInformationV3({ symbol });
+                      const posData = (await posRes.data()) as any[];
+                      const currentPos = posData?.find((p: any) => p.symbol === symbol);
+                      if (currentPos && parseFloat(currentPos.positionAmt) !== 0) {
+                         isFlat = false;
+                         this.logger.error(`[${symbol}] Emergency unwind reported success but exchange position is NOT flat (Amt: ${currentPos.positionAmt}). Watchdog will take over.`);
+                      }
+                   } catch (e) {
+                      this.logger.warn(`[${symbol}] Could not verify position flatness after emergency unwind.`);
+                   }
+                }
+
+                if (isFlat) {
+                   this.positionTracker.removeTrade(symbol);
+                   this.sessionState.realTimePositions.delete(symbol);
+                   return { status: ExecutionStatus.SL_FAILED, data: trade, unwindPerformed: true, error: slError };
+                } else {
+                   this.logger.error(`[${symbol}] Unwind failed to fully close position. Adding trade to tracking for Watchdog recovery.`);
+                   this.positionTracker.addTrade(trade);
+                   throw new ExchangeExecutionException(`SL placement failed (${slError}) and emergency unwind failed to fully flatten position for ${symbol}`);
+                }
               } else {
                 // CHRONOS: If unwind fails, the trade is STILL OPEN on exchange.
                 // We must add it to tracking so the Watchdog can find and protect/close it.
@@ -1460,6 +1509,11 @@ export class OrderManagerService {
       // INDUSTRY-BEST-PRACTICE (2026): Adaptive SL Placement Strategy.
       // We prioritize the Algo Order API (CONDITIONAL) as it is more reliable for certain accounts,
       // but fall back to standard STOP_MARKET with closePosition: true for universal compatibility.
+      // SRE: Append timestamp to ensure client ID is unique per placement attempt,
+      // avoiding collisions if we rapidly cancel and replace the SL (e.g. ratcheting vs entry race).
+      const shortId = (trade.id || uuid()).substring(0, 8);
+      const uniqueSuffix = Date.now().toString().substring(7); // Last 6 digits of ms timestamp
+
       const slOrderParams: any = {
         symbol,
         side: closeDirection as any,
@@ -1468,7 +1522,7 @@ export class OrderManagerService {
         quantity: Number(trade.qty || 0).toFixed(qtyPrecision),
         triggerPrice: Number(currentSlPrice || 0).toFixed(pricePrecision),
         workingType: 'MARK_PRICE',
-        clientAlgoId: `sl-${(trade.id || uuid()).substring(0, 8)}`,
+        clientAlgoId: `sl-${shortId}-${uniqueSuffix}`,
         reduceOnly: true,
         priceProtect: true
       };
@@ -1495,11 +1549,11 @@ export class OrderManagerService {
             // Algo orders might need a different query endpoint or different parameters
             const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({ symbol, clientAlgoId: slOrderParams.clientAlgoId });
             const queryData = (await queryRes.data()) as BinanceAlgoOrderReceipt;
-            if (queryData && (queryData.orderId || queryData.algoId)) {
+            if (queryData && (queryData.orderId || queryData.algoId) && queryData.status === 'NEW') {
               this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
               stopLossId = String(queryData.orderId);
             } else {
-              this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate detected but query failed or returned no data: ${msg}`);
+              this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate detected but query failed, returned no data, or was not NEW: ${msg}`);
               throw new Error(`SL Order ID duplicate but query failed: ${msg}`);
             }
           } else if (code === -2021) {
@@ -1582,7 +1636,7 @@ export class OrderManagerService {
           const standardParams = { ...slOrderParams };
           delete standardParams.algoType;
           delete (standardParams as any).clientAlgoId;
-          standardParams.newClientOrderId = `sl-${(trade.id || uuid()).substring(0, 8)}`;
+          standardParams.newClientOrderId = `sl-${shortId}-${uniqueSuffix}`;
 
           standardParams.type = 'STOP_MARKET';
           // COMPLIANCE: Standard API uses stopPrice, while Algo API used triggerPrice
@@ -1679,11 +1733,11 @@ export class OrderManagerService {
              const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, origClientOrderId: slOrderParams.newClientOrderId });
              queryData = await queryRes.data();
           }
-          if (queryData && queryData.orderId) {
+          if (queryData && queryData.orderId && queryData.status === 'NEW') {
             this.logger.log(`[${symbol}] [Sync] Successfully recovered existing SL order state: ${queryData.orderId}`);
             stopLossId = String(queryData.orderId);
           } else {
-            this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate (exception) but query failed or returned no data.`);
+            this.logger.error(`[${symbol}] [Sync] SL Order ID duplicate (exception) but query failed, returned no data, or was not NEW.`);
             throw err;
           }
         } else {
@@ -1797,7 +1851,7 @@ export class OrderManagerService {
          });
       }
 
-      return null;
+      return { orderId: '', price: 0, error: errMsg };
     }
     }
 
@@ -1805,7 +1859,7 @@ export class OrderManagerService {
     // Usually this is because network attempts were exhausted.
     break;
     }
-    return null;
+    return { orderId: '', price: 0, error: 'Maximum network attempts reached or placement failed.' };
   }
 
   /**
@@ -1852,6 +1906,13 @@ export class OrderManagerService {
       }
     }
 
+    // SRE: Block ratchets until the entry's first SL is confirmed to prevent entry race.
+    if (!trade.binance_stop_order_id) {
+       this.logger.warn(`[SL Ratchet] Ratchet blocked for ${trade.symbol}: Initial SL is not yet confirmed.`);
+       this.positionTracker.markDirty(trade.symbol, (trade.strategy_config || this.sessionState.config) as any, 'INITIAL_SL_PENDING');
+       return { success: false };
+    }
+
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window
     let lockAcquired = false;
     const oldSlPrice = prevSlPrice || Number(trade.current_sl);
@@ -1862,73 +1923,8 @@ export class OrderManagerService {
       this.ratchetLocks.set(trade.symbol, true);
       lockAcquired = true;
 
-      // 1. Explicitly cancel existing tracked SL order if it exists
-      if (trade.binance_stop_order_id) {
-         this.logger.debug(`[SL] Canceling existing tracked SL ${trade.binance_stop_order_id} before replacement.`);
-         const cancelSuccess = await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
-         if (!cancelSuccess) {
-            this.logger.error(`[SL Ratchet] Cancellation of ${oldStopOrderId} failed for ${trade.symbol}. Aborting ratchet to prevent ghost orders.`);
-            return { success: false };
-         }
-         trade.binance_stop_order_id = undefined;
-      }
-
-      // 2. Audit check for any untracked or duplicate deterministic SLs
-      const deterministicClientId = `sl-${(trade.id || uuid()).substring(0, 8)}`;
-      let exchangeState: any = null;
-
-      try {
-        // SRE: Algorithmic SL orders (sl-...) reside on Binance Algo endpoint.
-        // Query queryAlgoOrder first to avoid triggering "Order does not exist" (-2013) on standard queryOrder.
-        const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({
-          symbol: trade.symbol,
-          clientAlgoId: deterministicClientId
-        });
-        this.updateWeight(queryRes?.headers);
-        exchangeState = await queryRes.data();
-      } catch (e: any) {
-        // Fallback to standard queryOrder for legacy or non-algo SL orders
-        try {
-           const queryRes = await this.binanceClient.restAPI.queryOrder({
-             symbol: trade.symbol,
-             origClientOrderId: deterministicClientId
-           });
-           this.updateWeight(queryRes?.headers);
-           exchangeState = await queryRes.data();
-        } catch (stdErr) {
-           this.logger.debug(`[SL] No existing order with ID ${deterministicClientId} found via query.`);
-        }
-      }
-
-      if (exchangeState && exchangeState.orderId) {
-        const status = exchangeState.status?.toUpperCase();
-        if (status === 'FILLED') {
-           this.logger.log(`[SL Ratchet] Existing SL order ${exchangeState.orderId} is already FILLED. Short-circuiting to EXCHANGE_CLOSE.`);
-           const exitPrice = parseFloat(exchangeState.avgPrice || exchangeState.price || '0') || this.tickerCache.getPrice(trade.symbol) || Number(trade.current_sl);
-           this.eventEmitter.emit(ENGINE_EVENTS.EXCHANGE_CLOSE, {
-              symbol: trade.symbol,
-              exitPrice,
-              reason: EXIT_REASONS.EXCHANGE_SYNC,
-              orderId: String(exchangeState.orderId),
-              feesAlreadyAccounted: false
-           });
-           return { success: false };
-        }
-        if (status === 'NEW' || status === 'PARTIALLY_FILLED') {
-           const currentExchangeSl = parseFloat(exchangeState.stopPrice || exchangeState.triggerPrice || '0');
-
-           // If it already matches our target, we can adopt it instead of replacing
-           if (Math.abs(currentExchangeSl - newSlPrice) / newSlPrice < 0.0001) {
-              this.logger.log(`[SL] Adopted existing order ${exchangeState.orderId} matches target price ${newSlPrice}.`);
-              trade.binance_stop_order_id = String(exchangeState.orderId);
-              trade.binance_stop_order_type = exchangeState.algoType ? 'algo' : 'standard';
-              return { success: true, price: currentExchangeSl };
-           }
-
-           this.logger.debug(`[SL] Replacing untracked/duplicate SL ${exchangeState.orderId} at ${currentExchangeSl}.`);
-           await this.cancelBinanceOrder(trade.symbol, String(exchangeState.orderId), exchangeState.algoType ? 'algo' : 'standard');
-        }
-      }
+      // SRE: Place the new stop loss FIRST to ensure we never have a protection gap,
+      // and to avoid entering a state where we cancel the old SL but fail to place the new one.
 
       let result;
       try {
@@ -1938,27 +1934,18 @@ export class OrderManagerService {
       }
 
       if (!result || !result.orderId || result.orderId === '') {
-         // INDUSTRY-BEST-PRACTICE: Rollback to previous SL if new placement fails to ensure position remains protected
-         this.logger.error(`[SL Ratchet] Replacement failed for ${trade.symbol}. Attempting ROLLBACK to previous SL ${oldSlPrice}...`);
-
-         try {
-           const rollbackResult = await this.placeStopLoss(trade, oldSlPrice);
-
-           if (rollbackResult && rollbackResult.orderId && rollbackResult.orderId !== '') {
-              this.logger.log(`[SL Ratchet] Rollback successful for ${trade.symbol}. Position is protected at ${rollbackResult.price}.`);
-              // CHRONOS: Sync local state with rollback ID to maintain watchdog consistency
-              trade.binance_stop_order_id = rollbackResult.orderId;
-           } else {
-              throw new Error('Rollback placement returned empty');
-           }
-         } catch (rollbackErr: any) {
-            this.logger.error(`[FATAL] SL Rollback FAILED for ${trade.symbol}. Position is UNPROTECTED on exchange! Error: ${rollbackErr.message}`);
-            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-              msg: `FATAL: SL Ratchet failure for ${trade.symbol} and rollback also failed. Position UNPROTECTED!`,
-              level: 'error'
-            });
-         }
+         this.logger.error(`[SL Ratchet] Replacement failed for ${trade.symbol}. Old SL remains active at ${oldSlPrice}.`);
          return { success: false };
+      }
+
+      // If we got here, new placement succeeded. Now cancel the old SL.
+      if (oldStopOrderId) {
+         this.logger.debug(`[SL] Canceling old SL ${oldStopOrderId} after successful replacement.`);
+         try {
+            await this.cancelBinanceOrder(trade.symbol, oldStopOrderId, oldStopOrderType || 'standard');
+         } catch (cancelErr) {
+            this.logger.warn(`[SL Ratchet] Failed to cancel old SL ${oldStopOrderId} for ${trade.symbol}. It might have already filled or been canceled. Ignored.`);
+         }
       }
 
       trade.updated_at = new Date();

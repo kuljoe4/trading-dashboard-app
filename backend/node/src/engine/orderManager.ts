@@ -1279,8 +1279,8 @@ export class OrderManagerService {
           this.logger.error(agreementMsg);
           this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: agreementMsg, level: 'error' });
 
-          // CHRONOS: Emit specific rejection for PERCENT_PRICE to ensure the UI updates the gate status immediately.
-          if (errMsg.includes('PERCENT_PRICE')) {
+          // CHRONOS: Emit specific rejection for PERCENT_PRICE and position limits to ensure the UI updates the gate status immediately.
+          if (errMsg.includes('PERCENT_PRICE') || errMsg.includes('leverage') || errMsg.includes('position')) {
              this.broadcastService.broadcast('gate', {
                gateState: 'sl_out_of_bounds',
                reason: agreementMsg,

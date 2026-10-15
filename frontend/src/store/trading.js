@@ -378,7 +378,7 @@ const defaultConfig = {
 
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
-  activeTrades: [], logs: [], logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
+  activeTrades: [], logs: [], logLimit: 50, logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
   apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
@@ -586,6 +586,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       if (res.data && Array.isArray(res.data)) {
         const incoming = res.data.map(normalizeLog).filter(Boolean);
         set(st => {
+          const currentLimit = Math.max(MAX_LOG_LINES, limit);
           // Keep WS logs and DB logs deduplicated by id and fuzzy timestamp/msg matching
           const existingLogs = st.logs || [];
           const existingMap = new Map(existingLogs.map(l => [l.id || `${l.ts}-${l.msg}`, l]));
@@ -607,8 +608,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
           const mergedLogs = Array.from(existingMap.values())
             .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
-            .slice(0, MAX_LOG_LINES);
-          return { logs: mergedLogs };
+            .slice(0, currentLimit);
+          return { logs: mergedLogs, logLimit: currentLimit };
         });
       }
     } catch (e) {}
@@ -847,9 +848,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 existingMap.set(key, l);
               }
             });
+            const currentLimit = Math.max(MAX_LOG_LINES, st.logLimit || MAX_LOG_LINES);
             nextLogs = Array.from(existingMap.values())
               .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
-              .slice(0, MAX_LOG_LINES);
+              .slice(0, currentLimit);
           }
 
           // BOLT: Prevent flickering during config sync
@@ -1020,7 +1022,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                   }
                 }
                 logBuffer = [];
-                return { lastAuthoritativeUpdateTs: Date.now(), lastUdsBalanceReason: udsReason, lastUdsBalanceTs: udsTs, logs: [...incoming, ...logs].slice(0, MAX_LOG_LINES) };
+                const currentLimit = Math.max(MAX_LOG_LINES, st.logLimit || MAX_LOG_LINES);
+                return { lastAuthoritativeUpdateTs: Date.now(), lastUdsBalanceReason: udsReason, lastUdsBalanceTs: udsTs, logs: [...incoming, ...logs].slice(0, currentLimit) };
               });
             }, 250);
           }

@@ -906,7 +906,6 @@ export class SignalEngineService {
       const currSlow = slowRes.value;
 
       let fired = false;
-      const threshold = side === 'SHORT' ? Math.min(currFast, currSlow) : Math.max(currFast, currSlow);
 
       if (purpose === 'entry') {
         if (side === 'LONG') fired = currFast > currSlow;
@@ -959,7 +958,7 @@ export class SignalEngineService {
         threshold: currSlow,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
-        description: macdRejected ? `Rejected by MACD (${macdHistValue.toFixed(2)})` : `Fast (${fastPeriod}): ${currFast.toFixed(2)}, Slow (${slowPeriod}): ${currSlow.toFixed(2)}`,
+        description: macdRejected ? `EMA(${fastPeriod}) aligned with EMA(${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${purpose === 'exit' ? (side === 'SHORT' ? 'Green' : 'Red') : (side === 'SHORT' ? 'Red' : 'Green')})` : `EMA(${fastPeriod}) ${fired ? 'is' : 'is not'} favorably aligned with EMA(${slowPeriod})`,
         threshold_is_price: true,
       };
     } catch (error) {
@@ -1180,7 +1179,6 @@ export class SignalEngineService {
       }
 
       let fired = false;
-      const threshold = side === 'SHORT' ? Math.min(fastEma, slowEma) : Math.max(fastEma, slowEma);
 
       if (purpose === 'entry') {
         if (side === 'LONG') fired = fastEma > slowEma;
@@ -1228,18 +1226,18 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
-      let description = `Last closed candle (${completedClose.toFixed(2)}) ${fired ? 'is' : 'not'} favorably aligned with EMA(${fastPeriod}) and EMA(${slowPeriod})`;
+      let description = `EMA(${fastPeriod}) ${fired ? 'is' : 'is not'} favorably aligned with EMA(${slowPeriod}) at last closed candle`;
       if (macdRejected) {
         const expectedColor = purpose === 'exit'
           ? (side === 'SHORT' ? 'Green' : 'Red')
           : (side === 'SHORT' ? 'Red' : 'Green');
-        description = `Closed candle aligned with EMA(${fastPeriod}/${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
+        description = `EMA(${fastPeriod}) aligned with EMA(${slowPeriod}), but rejected by MACD histogram (${roundTo(macdHistValue, 6)} is ${macdHistValue >= 0 ? 'Green' : 'Red'}, expected ${expectedColor})`;
       }
 
       return {
         fired,
-        value: roundTo(completedClose, 8),
-        threshold: roundTo(threshold, 8),
+        value: roundTo(fastEma, 8),
+        threshold: roundTo(slowEma, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual Close' : 'Entry EMA Dual Close',

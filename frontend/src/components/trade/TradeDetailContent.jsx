@@ -334,7 +334,7 @@ const RRLadder = memo(({ trade, interactiveEnabled }) => {
 const getBaseSignalType = (key) => {
   const signalHandlers = [
     'momentum_pct', 'breakout_hl', 'engulfing', 'ma', 'ema', 'ema_cross',
-    'ema_price_cross', 'ema_dual_cross', 'ema_close', 'ema_dual_close',
+    'ema_price_cross', 'ema_dual', 'ema_dual_cross', 'ema_close', 'ema_dual_close',
     'macd_impulse', 'macd_fade', 'macd_pbc', 'supertrend'
   ];
   if (signalHandlers.includes(key)) return key;
@@ -466,6 +466,7 @@ const getSignalInfo = (key, config) => {
       params.push({ label: 'Period', value: period, key: 'exit_ema_period', type: 'number' });
       break;
     }
+    case 'ema_dual':
     case 'ema_dual_cross':
     case 'ema_dual_close': {
       const fast = resolve('exit_ema_fast', resolve('entry_ema_fast', 9));

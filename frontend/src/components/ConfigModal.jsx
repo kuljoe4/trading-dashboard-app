@@ -65,9 +65,10 @@ const SIGNALS = [
   ['momentum_pct', '% Momentum', 'Entry when momentum exceeds threshold.'],
   ['breakout_hl', 'Breakout H/L', 'Entry when price breaks highest high or lowest low.'],
   ['ema_price_cross', 'EMA Price Cross', 'Entry when price crosses EMA.'],
+  ['ema_dual', 'EMA Dual', 'Entry when fast EMA is favorable to slow EMA.'],
   ['ema_dual_cross', 'EMA Dual Cross', 'Entry when fast EMA crosses slow EMA.'],
   ['ema_close', 'EMA Close', 'Entry when candle closes favorable side of EMA.'],
-  ['ema_dual_close', 'EMA Dual Close', 'Entry when candle closes above both EMAs.'],
+  ['ema_dual_close', 'EMA Dual Close', 'Entry when fast EMA is favorable to slow EMA at candle close.'],
   ['ma', 'MA Cross', 'Entry when price crosses simple Moving Average.'],
   ['engulfing', 'Engulfing', 'Entry on bullish or bearish engulfing pattern.'],
   ['macd_impulse', 'MACD Impulse', 'Phase 4 momentum pullback entry.'],
@@ -119,7 +120,7 @@ const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) 
     addParam('ema_period', 'number', 12, null, { min: 1 }, 'EMA Period');
     if (isEntry || (!isEntry && !isExit)) addParam('entry_ema_period', 'number', 12, null, { min: 1 }, 'Entry Period');
     if (isExit || (!isEntry && !isExit)) addParam('exit_ema_period', 'number', 12, null, { min: 1 }, 'Exit Period');
-  } else if (['ema_dual_cross', 'ema_dual_close'].includes(baseType)) {
+  } else if (['ema_dual', 'ema_dual_cross', 'ema_dual_close'].includes(baseType)) {
     if (isEntry || (!isEntry && !isExit)) {
       addParam('entry_ema_fast', 'number', 9, null, { min: 1 }, 'Entry Fast');
       addParam('entry_ema_slow', 'number', 21, null, { min: 1 }, 'Entry Slow');
@@ -3853,30 +3854,30 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 })()}
               </div>
 
-              {(cfg.enabled_signals || []).includes('ema_dual_close') && (
+              {(cfg.enabled_signals || []).some(s => s === 'ema_dual' || s === 'ema_dual_close') && (
                 <div className="mt-8 p-5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-500 shadow-[0_4px_24px_rgba(var(--accent-rgb),0.04)]">
                    <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
                       <div className="p-1.5 bg-accent/10 rounded-lg">
                         <Zap size={14} className="fill-accent/20" />
                       </div>
-                      EMA Dual Close Logic
+                      EMA Dual Logic
                    </div>
                    <div className="flex flex-col gap-2.5">
                       <p className="text-[11px] text-dim leading-relaxed font-medium">
-                         An authoritative trend-following strategy that requires absolute alignment across two time horizons.
+                         An authoritative trend-following strategy that requires absolute alignment across two time horizons. {cfg.enabled_signals.includes('ema_dual_close') ? 'This variant strictly evaluates at the completed candle close.' : ''}
                       </p>
                       <div className="grid grid-cols-2 gap-3">
                          <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
                             <div className="text-[9px] font-black text-green uppercase tracking-wider mb-1">Long Entry</div>
-                            <div className="text-[10px] font-mono text-text/80">Price {'>'} Fast EMA<br/>Price {'>'} Slow EMA</div>
+                            <div className="text-[10px] font-mono text-text/80">Fast EMA {'>'} Slow EMA</div>
                          </div>
                          <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
                             <div className="text-[9px] font-black text-red uppercase tracking-wider mb-1">Short Entry</div>
-                            <div className="text-[10px] font-mono text-text/80">Price {'<'} Fast EMA<br/>Price {'<'} Slow EMA</div>
+                            <div className="text-[10px] font-mono text-text/80">Fast EMA {'<'} Slow EMA</div>
                          </div>
                       </div>
                       <p className="text-[10px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
-                         The engine interprets this as a "one-way door": if the price crosses back through <span className="text-text font-bold">either</span> EMA, the trend is considered broken and the position is closed.
+                         The engine interprets this as a "one-way door": if the fast EMA crosses back through the slow EMA, the trend is considered broken and the position is closed.
                       </p>
                    </div>
                 </div>
@@ -3957,7 +3958,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                             if (rec.signalType === 'ema_close') {
                               setField('signal_params_exit_ema_period', rec.recommendedValue);
                               addAlert({ level: 'success', title: 'Applied EMA Period', message: `Set exit EMA period to ${rec.recommendedValue}.` });
-                            } else if (rec.signalType === 'ema_dual_close') {
+                            } else if (rec.signalType === 'ema_dual_close' || rec.signalType === 'ema_dual') {
                               const [fast, slow] = rec.recommendedValue.split(' / ').map(Number);
                               setField('signal_params_exit_ema_fast', fast);
                               setField('signal_params_exit_ema_slow', slow);

@@ -47,6 +47,9 @@ importers:
       express:
         specifier: ^4.18.2
         version: 4.22.3
+      https-proxy-agent:
+        specifier: ^5.0.1
+        version: 5.0.1
       pg:
         specifier: ^8.11.3
         version: 8.23.1

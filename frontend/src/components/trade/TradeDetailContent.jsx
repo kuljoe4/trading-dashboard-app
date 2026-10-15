@@ -16,6 +16,7 @@ import { ConfirmationModal } from '../ConfirmationModal'
 
 const FRIENDLY_SIGNAL_NAMES = {
   ema_close: 'EMA Close',
+  ema_dual: 'EMA Dual',
   ema_dual_close: 'EMA Dual Close',
   macd_fade: 'MACD Fade',
   macd_impulse: 'MACD Impulse',

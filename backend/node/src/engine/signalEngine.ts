@@ -66,6 +66,7 @@ export class SignalEngineService {
     ema: this.emaSignal.bind(this),
     ema_cross: this.emaSignal.bind(this),
     ema_price_cross: this.emaSignal.bind(this),
+    ema_dual: this.emaDualSignal.bind(this),
     ema_dual_cross: this.emaDualCrossSignal.bind(this),
     ema_close: this.emaCloseSignal.bind(this),
     ema_dual_close: this.emaDualCloseSignal.bind(this),
@@ -168,7 +169,7 @@ export class SignalEngineService {
         const period = Math.max(exitPeriod, entryPeriod);
 
         maxReq = Math.max(maxReq, period * 2);
-      } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close') {
+      } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close' || baseType === 'ema_dual') {
         const entryFastVal = resolveParam(signalType, baseType, 'entry_ema_fast', null);
         const exitFastVal = resolveParam(signalType, baseType, 'exit_ema_fast', null);
         const entrySlowVal = resolveParam(signalType, baseType, 'entry_ema_slow', null);
@@ -863,6 +864,110 @@ export class SignalEngineService {
     }
   }
 
+  private emaDualSignal(
+    symbol: string,
+    config: any,
+    interval: string,
+    side?: 'LONG' | 'SHORT',
+    purpose: 'entry' | 'exit' = 'entry',
+    passedCandles?: Candle[],
+    minimal?: boolean,
+    signalType?: string,
+  ): boolean | SignalDetail {
+    try {
+      const params = config.signal_params || {};
+      const signalTypeKey = signalType || arguments[7] || 'ema_dual';
+      const baseType = 'ema_dual';
+
+      const fastVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', '9'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', '9'));
+      const slowVal = purpose === 'exit'
+        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', '21'))
+        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', '21'));
+
+      const fastPeriod = parseInt(String(fastVal || '9'), 10) || 9;
+      const slowPeriod = parseInt(String(slowVal || '21'), 10) || 21;
+
+      const maxPeriod = Math.max(fastPeriod, slowPeriod);
+      const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
+      if (candles.length < maxPeriod + 1) {
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient data', insufficientData: true, threshold_is_price: true };
+      }
+
+      const fastRes = this.calculateEMAAt(candles, candles.length - 1, fastPeriod, interval, symbol);
+      const slowRes = this.calculateEMAAt(candles, candles.length - 1, slowPeriod, interval, symbol);
+
+      if (fastRes.insufficientData || slowRes.insufficientData) {
+        return { fired: false, value: candles[candles.length - 1]?.close || 0, threshold: 0, unit: 'price', metric: 'EMA Dual', description: 'Insufficient EMA data', insufficientData: true, threshold_is_price: true };
+      }
+
+      const currFast = fastRes.value;
+      const currSlow = slowRes.value;
+
+      let fired = false;
+      const threshold = side === 'SHORT' ? Math.min(currFast, currSlow) : Math.max(currFast, currSlow);
+
+      if (purpose === 'entry') {
+        if (side === 'LONG') fired = currFast > currSlow;
+        else if (side === 'SHORT') fired = currFast < currSlow;
+        else fired = true;
+      } else {
+        if (side === 'LONG') fired = currFast < currSlow;
+        else if (side === 'SHORT') fired = currFast > currSlow;
+        else fired = false;
+      }
+
+      const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'ema_dual_macd_filter', false);
+      let macdRejected = false;
+      let macdHistValue = 0;
+
+      if (fired && (macdFilter === true || macdFilter === 'true')) {
+        const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'macd_fast', '12')), 10);
+        const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'macd_slow', '26')), 10);
+        const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'macd_signal', '9')), 10);
+
+        const macdRes = this.calculateMACDLast(candles, mFast, mSlow, mSig, symbol, interval, 0);
+        if (!macdRes.insufficientData) {
+          macdHistValue = macdRes.histogram;
+          const isExit = purpose === 'exit';
+          if (!isExit) {
+            if (side === 'SHORT' && macdHistValue >= 0) {
+              fired = false;
+              macdRejected = true;
+            } else if (side === 'LONG' && macdHistValue <= 0) {
+              fired = false;
+              macdRejected = true;
+            }
+          } else {
+            if (side === 'SHORT' && macdHistValue <= 0) {
+              fired = false;
+              macdRejected = true;
+            } else if (side === 'LONG' && macdHistValue >= 0) {
+              fired = false;
+              macdRejected = true;
+            }
+          }
+        }
+      }
+
+      if (minimal) return fired;
+
+      return {
+        fired,
+        value: currFast,
+        threshold: currSlow,
+        unit: 'price',
+        metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
+        description: macdRejected ? `Rejected by MACD (${macdHistValue.toFixed(2)})` : `Fast (${fastPeriod}): ${currFast.toFixed(2)}, Slow (${slowPeriod}): ${currSlow.toFixed(2)}`,
+        threshold_is_price: true,
+      };
+    } catch (error) {
+      this.logger.debug(`EMA Dual signal error: ${error instanceof Error ? error.message : String(error)}`);
+      return { fired: false, value: passedCandles?.[passedCandles.length - 1]?.close || 0, threshold: 0, unit: 'error', metric: 'EMA Dual', description: 'Signal error', threshold_is_price: true };
+    }
+  }
+
   private emaDualCrossSignal(
     symbol: string,
     config: any,
@@ -1078,13 +1183,13 @@ export class SignalEngineService {
       const threshold = side === 'SHORT' ? Math.min(fastEma, slowEma) : Math.max(fastEma, slowEma);
 
       if (purpose === 'entry') {
-        if (side === 'LONG') fired = completedClose > fastEma && completedClose > slowEma;
-        else if (side === 'SHORT') fired = completedClose < fastEma && completedClose < slowEma;
+        if (side === 'LONG') fired = fastEma > slowEma;
+        else if (side === 'SHORT') fired = fastEma < slowEma;
         else fired = true;
       } else {
-        // Exit: price closed opposite of entry trend
-        if (side === 'LONG') fired = completedClose < fastEma || completedClose < slowEma;
-        else if (side === 'SHORT') fired = completedClose > fastEma || completedClose > slowEma;
+        // Exit: EMA trend inverted
+        if (side === 'LONG') fired = fastEma < slowEma;
+        else if (side === 'SHORT') fired = fastEma > slowEma;
         else fired = false;
       }
 

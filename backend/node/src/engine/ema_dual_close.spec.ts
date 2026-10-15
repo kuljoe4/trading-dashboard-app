@@ -35,8 +35,9 @@ describe('SignalEngineService - ema_dual_close', () => {
     }));
   };
 
-  it('should fire LONG entry if price is above both EMAs', () => {
+  it('should fire LONG entry if fast EMA is above slow EMA', () => {
     // Provide 40 candles to satisfy 2*period warmup (period=10 -> 20 candles)
+    // Trending up: Fast EMA > Slow EMA
     const prices = Array(60).fill(10).map((v, i) => v + i);
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
@@ -54,11 +55,9 @@ describe('SignalEngineService - ema_dual_close', () => {
     expect(result.details?.ema_dual_close.fired).toBe(true);
   });
 
-  it('should NOT fire LONG entry if price is between EMAs', () => {
-    // Price was 100 for a long time, then jumps to 110.
-    // EMA(5) will move faster towards 110 than EMA(10).
-    // If we then drop to 105, 105 might be below EMA(5) but above EMA(10).
-    const prices = [...Array(80).fill(100), 110, 110, 110, 105, 105];
+  it('should NOT fire LONG entry if fast EMA is below slow EMA', () => {
+    // Trending down: Fast EMA < Slow EMA
+    const prices = Array(60).fill(100).map((v, i) => v - i);
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -73,7 +72,7 @@ describe('SignalEngineService - ema_dual_close', () => {
     expect(result.allFired).toBe(false);
   });
 
-  it('should fire SHORT entry if price is below both EMAs', () => {
+  it('should fire SHORT entry if fast EMA is below slow EMA', () => {
     const prices = Array(60).fill(100).map((v, i) => v - i);
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
@@ -90,10 +89,10 @@ describe('SignalEngineService - ema_dual_close', () => {
     expect(result.details?.ema_dual_close.fired).toBe(true);
   });
 
-  it('should fire LONG exit if price crosses below either EMA in the last COMPLETED candle', () => {
-    // Price 100 for a long time, then we drop to 90 (completed), then 90 again (live).
-    // Both EMAs will be > 90 for the completed candle.
-    const prices = [...Array(80).fill(100), 90, 90];
+  it('should fire LONG exit if fast EMA crosses below slow EMA in the last COMPLETED candle', () => {
+    // Price 100 for a long time, then we drop to 80 (completed), then 80 again (live).
+    // Fast EMA will pull below Slow EMA.
+    const prices = [...Array(80).fill(100), 80, 80, 80, 80, 80, 80];
     const candles = mockCandles(prices);
     (klineStore.getRawCandles as jest.Mock).mockReturnValue(candles);
 
@@ -102,7 +101,7 @@ describe('SignalEngineService - ema_dual_close', () => {
     config.exit_signals = ['ema_dual_close'];
     config.signal_params = {
       exit_ema_fast: 5,
-      exit_ema_slow: 10,
+      exit_ema_slow: 20,
     };
 
     const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'exit');

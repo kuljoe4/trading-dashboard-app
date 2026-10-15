@@ -14,6 +14,7 @@ import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { SessionStateService } from '../engine/session_state.service';
 import { MonitoringService } from '../engine/monitoring.service';
 import { ENGINE_CONSTANTS } from '../models/constants';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 @Injectable()
 export class BinanceClientFactory implements OnModuleInit {
@@ -109,7 +110,7 @@ export class BinanceClientFactory implements OnModuleInit {
     }, label, isEmergency);
   }
 
-  createClient(apiKey: string, apiSecret: string, isTestnet: boolean): DerivativesTradingUsdsFutures {
+  createClient(apiKey: string, apiSecret: string, isTestnet: boolean, proxyUrl?: string): DerivativesTradingUsdsFutures {
     const restURL = isTestnet
       ? DERIVATIVES_TRADING_USDS_FUTURES_REST_API_TESTNET_URL
       : DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL;
@@ -118,14 +119,26 @@ export class BinanceClientFactory implements OnModuleInit {
       ? DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL
       : DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL;
 
-    this.logger.log(`Initializing Binance USDS-M Futures Client | mode=${isTestnet ? 'TESTNET' : 'PROD'} | rest=${restURL} | ws=${wsURL}`);
+    this.logger.log(`Initializing Binance USDS-M Futures Client | mode=${isTestnet ? 'TESTNET' : 'PROD'} | rest=${restURL} | ws=${wsURL} | proxy=${proxyUrl ? 'ENABLED' : 'NONE'}`);
+
+    const configRestAPI: any = {
+      apiKey,
+      apiSecret,
+      basePath: restURL
+    };
+
+    if (proxyUrl) {
+      try {
+        configRestAPI.baseOptions = {
+          httpsAgent: new HttpsProxyAgent(proxyUrl)
+        };
+      } catch (err) {
+        this.logger.error(`Failed to initialize proxy agent with URL: ${proxyUrl}. Error: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
 
     const client = new DerivativesTradingUsdsFutures({
-      configurationRestAPI: {
-        apiKey,
-        apiSecret,
-        basePath: restURL
-      },
+      configurationRestAPI: configRestAPI,
       configurationWebsocketStreams: {
         wsURL
       }

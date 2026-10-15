@@ -24,4 +24,10 @@ export class ValidateKeysDto {
   @MaxLength(500)
   @Matches(/^[a-zA-Z0-9_\-\.\+/= ]*$/, { message: 'Testnet API secret contains invalid characters' })
   testnet_api_secret?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  @Matches(/^https?:\/\/[a-zA-Z0-9_\-\.:@]*$/, { message: 'Proxy URL must start with http:// or https:// and contain valid characters' })
+  proxy_url?: string;
 }

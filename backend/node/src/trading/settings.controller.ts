@@ -45,7 +45,7 @@ export class SettingsController {
   async getKeys(@Req() req: Request) {
     const settings = await this.settingsRepository.findOne({
       where: { id: 'default' },
-      select: ['id', 'binance_api_key', 'binance_testnet_api_key']
+      select: ['id', 'binance_api_key', 'binance_testnet_api_key', 'proxy_url']
     });
 
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
@@ -65,6 +65,7 @@ export class SettingsController {
     return {
       api_key: maskApiKey(apiKey),
       testnet_api_key: maskApiKey(testnetApiKey),
+      proxy_url: settings?.proxy_url || '',
     };
   }
 
@@ -111,7 +112,8 @@ export class SettingsController {
 
     if (liveKeyToTest && liveSecretToTest) {
       try {
-        const client = this.binanceClientFactory.createClient(liveKeyToTest.trim(), liveSecretToTest.trim(), false);
+        const proxyToUse = body.proxy_url !== undefined ? body.proxy_url : settings?.proxy_url;
+        const client = this.binanceClientFactory.createClient(liveKeyToTest.trim(), liveSecretToTest.trim(), false, proxyToUse || undefined);
         const res = await client.restAPI.futuresAccountBalanceV3({ asset: 'USDT' } as any);
         if (res && (res.status === 200 || res.status === 201)) {
           results.checks.push({
@@ -158,7 +160,8 @@ export class SettingsController {
 
     if (testnetKeyToTest && testnetSecretToTest) {
       try {
-        const client = this.binanceClientFactory.createClient(testnetKeyToTest.trim(), testnetSecretToTest.trim(), true);
+        const proxyToUse = body.proxy_url !== undefined ? body.proxy_url : settings?.proxy_url;
+        const client = this.binanceClientFactory.createClient(testnetKeyToTest.trim(), testnetSecretToTest.trim(), true, proxyToUse || undefined);
         const res = await client.restAPI.futuresAccountBalanceV3({ asset: 'USDT' } as any);
         if (res && (res.status === 200 || res.status === 201)) {
           results.checks.push({
@@ -216,7 +219,7 @@ export class SettingsController {
     try {
       let settings = await this.settingsRepository.findOne({
         where: { id: 'default' },
-        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret']
+        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret', 'proxy_url']
       });
       
       if (!settings) {
@@ -275,6 +278,12 @@ export class SettingsController {
             updatedFields.push('binance_testnet_api_secret');
           }
         }
+      }
+
+      if (body.proxy_url !== undefined) {
+        const trimmedProxy = body.proxy_url.trim();
+        settings.proxy_url = trimmedProxy || null;
+        updatedFields.push('proxy_url');
       }
 
       if (updatedFields.length > 0) {

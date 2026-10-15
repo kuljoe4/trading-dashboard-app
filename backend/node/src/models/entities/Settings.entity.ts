@@ -44,6 +44,9 @@ export class Settings {
   @Column({ type: 'varchar', nullable: true })
   api_ban_reason: string | null;
 
+  @Column({ type: 'varchar', nullable: true })
+  proxy_url: string | null;
+
   @Column({ type: 'boolean', nullable: true })
   is_one_way_mode: boolean;
 

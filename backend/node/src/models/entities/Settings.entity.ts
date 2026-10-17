@@ -38,12 +38,6 @@ export class Settings {
   @Column({ type: 'bigint', nullable: true })
   taker_fee_ts: number;
 
-  @Column({ type: 'bigint', nullable: true })
-  api_ban_until: number | null;
-
-  @Column({ type: 'varchar', nullable: true })
-  api_ban_reason: string | null;
-
   @Column({ type: 'varchar', nullable: true })
   proxy_url: string | null;
 

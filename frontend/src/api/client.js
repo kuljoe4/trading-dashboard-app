@@ -273,6 +273,7 @@ export const createSessionAPI = (apiInstance = api) => ({
   getUntrackedPositions: () => apiInstance.get('/session/untracked-positions'),
   adoptPosition: (symbol, strategyLabel, initialSl, currentSl) => apiInstance.post('/session/adopt-position', { symbol, strategyLabel, initialSl, currentSl }),
   backfillKlines: (symbol, interval) => apiInstance.post('/session/backfill-klines', { symbol, interval }),
+  clearBan: () => apiInstance.post('/session/clear-ban'),
   backtest: (payload) => apiInstance.post('/session/backtest', {
     ...payload,
     config: sanitizeSessionConfig(payload.config || {}),

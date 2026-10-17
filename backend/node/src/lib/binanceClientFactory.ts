@@ -478,6 +478,7 @@ export class BinanceRequestQueue {
 
   public static setCooldownUntil(until: number) {
     BinanceRequestQueue.lastRequestTs = until;
+    if (until === 0) BinanceRequestQueue.currentWeight1m = 0;
   }
 
   private async process() {

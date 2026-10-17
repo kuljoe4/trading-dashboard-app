@@ -33,6 +33,7 @@ export interface TradeSerializationDto {
   strategy_config?: Partial<SessionConfig>;
   is_knife?: boolean;
   is_martingale?: boolean;
+  is_reconciliation?: boolean;
   martingale_multiplier?: number;
   martingale_step?: number;
   martingale_threshold_reset?: boolean;
@@ -77,6 +78,7 @@ export interface TickTradeDto {
   qty: number;
   is_knife?: boolean;
   is_martingale?: boolean;
+  is_reconciliation?: boolean;
   martingale_multiplier?: number;
   martingale_step?: number;
   martingale_threshold_reset?: boolean;

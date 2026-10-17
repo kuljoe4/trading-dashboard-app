@@ -110,7 +110,7 @@ export class SessionService implements OnModuleInit {
 
   public clearBan() {
     this.logger.log(`Manual request to clear Binance API ban.`);
-    (this.binanceClientFactory.constructor as any).setCooldownUntil(0);
+    (BinanceClientFactory as any).setCooldownUntil(0);
     this.eventEmitter.emit('binance.api_limit_cleared');
   }
 
@@ -140,31 +140,9 @@ export class SessionService implements OnModuleInit {
 
     // RESEARCH: Load persistent API ban status on startup to prevent immediate retry cycles
     try {
-      const settings = await this.settingsRepository.findOne({
-        where: { id: "default" },
-      });
-      if (
-        settings &&
-        settings.api_ban_until &&
-        Number(settings.api_ban_until) > Date.now()
-      ) {
-        const remaining = Math.round(
-          (Number(settings.api_ban_until) - Date.now()) / 60000,
-        );
-        this.logger.warn(
-          `Resuming with active API Ban/Cooldown. Remaining: ${remaining}m. Reason: ${settings.api_ban_reason}`,
-        );
-
-        // Push to trading session service if it's already instantiated
-        this.tradingSessionService.handleApiLimitReached({
-          type: "BAN",
-          message: settings.api_ban_reason || "Persistent Ban",
-          until: Number(settings.api_ban_until),
-        });
-      }
     } catch (e) {
       this.logger.error(
-        `Failed to load persistent ban status: ${e instanceof Error ? e.message : String(e)}`,
+        `Failed to execute onModuleInit setup: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
     // SEC-02: Cleanup old data on startup and periodically

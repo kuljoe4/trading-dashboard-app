@@ -887,7 +887,6 @@ export class MarketFeedService {
                  until *= 1000;
                }
                BinanceRequestQueue.setCooldownUntil(until);
-               this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
                this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
             }
         }
@@ -1105,7 +1104,6 @@ export class MarketFeedService {
                  until *= 1000;
                }
                BinanceRequestQueue.setCooldownUntil(until);
-               this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
                this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
             }
         }

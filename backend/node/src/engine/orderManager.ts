@@ -1936,8 +1936,16 @@ export class OrderManagerService {
       this.ratchetLocks.set(trade.symbol, true);
       lockAcquired = true;
 
-      // SRE: Place the new stop loss FIRST to ensure we never have a protection gap,
-      // and to avoid entering a state where we cancel the old SL but fail to place the new one.
+      // SRE: Cancel the old SL FIRST. Placing the new one first causes Binance to reject
+      // it with REDUCE_ONLY errors if the combined quantity exceeds the open position size.
+      if (oldStopOrderId) {
+         this.logger.debug(`[SL Ratchet] Canceling old SL ${oldStopOrderId} before replacement.`);
+         try {
+            await this.cancelBinanceOrder(trade.symbol, oldStopOrderId, oldStopOrderType || 'standard');
+         } catch (cancelErr) {
+            this.logger.warn(`[SL Ratchet] Failed to cancel old SL ${oldStopOrderId} for ${trade.symbol}. It might have already filled or been canceled. Proceeding to place new SL.`);
+         }
+      }
 
       let result;
       try {
@@ -1947,18 +1955,21 @@ export class OrderManagerService {
       }
 
       if (!result || !result.orderId || result.orderId === '') {
-         this.logger.error(`[SL Ratchet] Replacement failed for ${trade.symbol}. Old SL remains active at ${oldSlPrice}.`);
-         return { success: false };
-      }
+         this.logger.error(`[SL Ratchet] Replacement failed for ${trade.symbol}. Trade is temporarily unprotected! Re-arming original SL...`);
 
-      // If we got here, new placement succeeded. Now cancel the old SL.
-      if (oldStopOrderId) {
-         this.logger.debug(`[SL] Canceling old SL ${oldStopOrderId} after successful replacement.`);
+         // ROLLBACK: Re-place old SL since new one failed
          try {
-            await this.cancelBinanceOrder(trade.symbol, oldStopOrderId, oldStopOrderType || 'standard');
-         } catch (cancelErr) {
-            this.logger.warn(`[SL Ratchet] Failed to cancel old SL ${oldStopOrderId} for ${trade.symbol}. It might have already filled or been canceled. Ignored.`);
+            const rollbackResult = await this.placeStopLoss(trade, oldSlPrice);
+            if (rollbackResult && rollbackResult.orderId) {
+                this.logger.log(`[SL Ratchet] Successfully rolled back to old SL at ${oldSlPrice}`);
+            } else {
+                this.logger.error(`[SL Ratchet] FATAL: Failed to rollback to old SL for ${trade.symbol}. Position is UNPROTECTED.`);
+            }
+         } catch (rollbackErr: any) {
+            this.logger.error(`[SL Ratchet] FATAL: Exception during rollback to old SL for ${trade.symbol}: ${rollbackErr.message}`);
          }
+
+         return { success: false };
       }
 
       trade.updated_at = new Date();
@@ -3115,10 +3126,20 @@ export class OrderManagerService {
           }
 
           if (!localOnly) {
+          // BINANCE BEST PRACTICE: Cancel SL FIRST, then place close order.
+          // Reversing this causes REDUCE_ONLY rejection when the pending SL is already taking up the position's reduce-only capacity.
+          if (trade.binance_stop_order_id) {
+             this.logger.debug(`[${symbol}] [Sync] Canceling SL ${trade.binance_stop_order_id} prior to market close order to free reduce-only capacity.`);
+             try {
+                await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+             } catch (cancelErr) {
+                this.logger.debug(`[${symbol}] [Sync] Failed to cancel SL before market close: ${cancelErr instanceof Error ? cancelErr.message : String(cancelErr)}`);
+             }
+             // We intentionally do not clear trade.binance_stop_order_id yet in case close fails and we need to rollback/re-arm
+          }
+
           // HARDENING: Idempotent Closure Loop. Handles network timeouts and Duplicate clientOrderId
           // by querying exchange state to verify if the close order was accepted.
-          // BINANCE BEST PRACTICE: Place close order FIRST (consumes reduce-only capacity),
-          // THEN cancel SL. Reversing this causes REDUCE_ONLY rejection when ghost SL exists.
           let orderData: any = null;
           let closeAttempts = 0;
           const MAX_INTERNAL_CLOSE_ATTEMPTS = 3;
@@ -3211,10 +3232,9 @@ export class OrderManagerService {
             }
           }
 
-          // AFTER successful close order placement (or duplicate recovery), cancel SL
+          // AFTER successful close order placement (or duplicate recovery), clear the SL reference
+          // since we already cancelled it before placing the close order.
           if (closeSuccess && trade.binance_stop_order_id) {
-             this.logger.debug(`[${symbol}] [Sync] Close order placed successfully. Now cancelling SL ${trade.binance_stop_order_id} to clear reduce-only capacity.`);
-             await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
              trade.binance_stop_order_id = undefined;
           }
           

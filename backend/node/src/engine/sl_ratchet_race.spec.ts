@@ -114,11 +114,11 @@ describe('SL Ratchet Race Conditions & Protection Gaps', () => {
     const result = await orderManager.updateStopLoss(trade, 95);
 
     expect(result.success).toBe(false);
-    // Should have kept the old SL ID because we didn't cancel it yet
-    expect(trade.binance_stop_order_id).toBe('12345');
-    // Ensure placement was called for 95 (fail) but NO rollback (since new SL didn't cancel the old one)
-    expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledTimes(1);
-    expect(mockBinanceClient.restAPI.cancelOrder).not.toHaveBeenCalled();
+    // Trade should now have the rollback SL ID
+    expect(trade.binance_stop_order_id).toBe('rollback-sl-id');
+    // Ensure placement was called for 95 (fail) and then rollback placement for 90
+    expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalledTimes(2);
+    expect(mockBinanceClient.restAPI.cancelOrder).toHaveBeenCalled();
   });
 
   it('should block concurrent ratchets for the same symbol (Mutex Guard)', async () => {

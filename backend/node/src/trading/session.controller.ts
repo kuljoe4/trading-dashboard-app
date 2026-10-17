@@ -145,6 +145,12 @@ export class SessionController {
     return { success: true };
   }
 
+  @Post("clear-ban")
+  async clearBan() {
+    this.sessionService.clearBan();
+    return { success: true };
+  }
+
   @Post("backtest")
   async runBacktest(@Body() body: RunBacktestDto) {
     // SEC-SENTINEL: Defense-in-depth validation of outer RunBacktestDto payload

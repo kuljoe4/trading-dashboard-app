@@ -798,6 +798,21 @@ const BanBanner = ({ apiStatus }) => {
             <span className="text-[9px] font-bold uppercase tracking-tighter">Ends at {cooldownEnd}</span>
           </div>
         )}
+        {isBan && (
+           <Btn
+             onClick={async () => {
+               try {
+                 await sessionAPI.clearBan();
+               } catch (e) {
+                 console.error('Failed to clear ban:', e);
+               }
+             }}
+             className="w-full mt-2"
+             variant="outline"
+             size="sm">
+               Unlock
+           </Btn>
+        )}
       </div>
     </motion.div>
   );

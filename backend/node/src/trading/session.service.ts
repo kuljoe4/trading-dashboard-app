@@ -108,6 +108,12 @@ export class SessionService implements OnModuleInit {
     private configService: ConfigService,
   ) {}
 
+  public clearBan() {
+    this.logger.log(`Manual request to clear Binance API ban.`);
+    (this.binanceClientFactory.constructor as any).setCooldownUntil(0);
+    this.eventEmitter.emit('binance.api_limit_cleared');
+  }
+
   async onModuleInit() {
     this.logger.log("SessionService initializing...");
 

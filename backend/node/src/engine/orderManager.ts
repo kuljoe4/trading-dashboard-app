@@ -863,6 +863,11 @@ export class OrderManagerService {
       if (!bracketCheck.isAllowed) {
          const error = `Leverage cap breach for ${symbol}: Max allowable notional is ${bracketCheck.maxNotional} USDT.`;
          this.logger.error(error);
+         this.broadcastService.broadcast('gate', {
+           gateState: 'sl_out_of_bounds',
+           reason: error,
+           scannerPaused: false
+         });
          return { status: ExecutionStatus.ORDER_REJECTED, error };
       }
 
@@ -1614,7 +1619,8 @@ export class OrderManagerService {
                symbol,
                exitPrice: this.tickerCache.getPrice(symbol) || Number(trade.entry_price),
                reason: EXIT_REASONS.EXCHANGE_SYNC,
-               feesAlreadyAccounted: false
+               feesAlreadyAccounted: false,
+               needsMarketClose: false
             });
             return { orderId: 'TRIGGERED_LOCALLY', price: Number(trade.entry_price) };
           } else {
@@ -1722,7 +1728,8 @@ export class OrderManagerService {
              symbol,
              exitPrice: this.tickerCache.getPrice(symbol) || Number(trade.entry_price),
              reason: EXIT_REASONS.EXCHANGE_SYNC,
-             feesAlreadyAccounted: false
+             feesAlreadyAccounted: false,
+             needsMarketClose: false
           });
           return { orderId: 'TRIGGERED_LOCALLY', price: Number(trade.entry_price) };
         } else if (msg.toLowerCase().includes('duplicate') && (msg.toLowerCase().includes('order'))) {
@@ -1934,7 +1941,7 @@ export class OrderManagerService {
 
       let result;
       try {
-        result = await this.placeStopLoss(trade, newSlPrice);
+        result = await this.placeStopLoss(trade, filteredNewSl.price);
       } catch (placeErr: any) {
         this.logger.error(`[SL Ratchet] Exception during placement for ${trade.symbol}: ${placeErr.message}`);
       }

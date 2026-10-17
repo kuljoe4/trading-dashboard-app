@@ -31,26 +31,6 @@ export class BinanceClientFactory implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // SRE: Load persistent ban status on startup to prevent immediate retry cycles after crash/restart
-    // This MUST happen before any network requests to respect existing IP reputation blocks.
-    try {
-      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
-      if (settings && settings.api_ban_until && Number(settings.api_ban_until) > Date.now()) {
-        const remaining = Math.round((Number(settings.api_ban_until) - Date.now()) / 60000);
-        this.logger.warn(`Resuming with active API Ban/Cooldown. Remaining: ${remaining}m. Reason: ${settings.api_ban_reason}`);
-
-        BinanceRequestQueue.setCooldownUntil(Number(settings.api_ban_until));
-
-        this.eventEmitter.emit('binance.api_limit_reached', {
-          type: 'BAN',
-          message: settings.api_ban_reason || 'Persistent Ban',
-          until: Number(settings.api_ban_until)
-        });
-      }
-    } catch (e) {
-      this.logger.error(`Failed to load persistent ban status: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
     // SRE: Proactive Clock Synchronization Check (Citadel Vector 6).
     // Drift of >1000ms makes signed requests invalid or vulnerable to replay.
     try {
@@ -237,7 +217,6 @@ export class BinanceClientFactory implements OnModuleInit {
                 }
 
                 BinanceRequestQueue.setCooldownUntil(until);
-                this.settingsRepository.update('default', { api_ban_until: until, api_ban_reason: msg }).catch(() => {});
                 this.eventEmitter.emit('binance.api_limit_reached', { type: 'BAN', message: msg, until });
               }
               cleanup();
@@ -395,12 +374,6 @@ export class BinanceRequestQueue {
 
       if (wasBanned) {
         this.logger.log(`[BinanceQueue] Terminal Lock lifted. System resuming normal execution.`);
-
-        // SRE Overwatch: Clear persistent ban status in DB
-        this.settingsRepository.update('default', {
-          api_ban_until: null,
-          api_ban_reason: null
-        }).catch(err => this.logger.error(`Failed to clear persistent ban status: ${err.message}`));
 
         this.eventEmitter.emit('binance.api_limit_cleared');
       }
@@ -633,12 +606,6 @@ export class BinanceRequestQueue {
                }
             }
             BinanceRequestQueue.setCooldownUntil(until);
-
-            // SRE Overwatch: Persist ban status to DB to survive restarts
-            this.settingsRepository.update('default', {
-                api_ban_until: until,
-                api_ban_reason: msg
-            }).catch(err => this.logger.error(`Failed to persist ban status: ${err.message}`));
 
             this.eventEmitter.emit('binance.api_limit_reached', {
                 type: isBan ? 'BAN' : 'RATE_LIMIT',

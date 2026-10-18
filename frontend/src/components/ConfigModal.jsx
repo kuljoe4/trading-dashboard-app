@@ -2118,6 +2118,12 @@ const flattenConfig = (config) => {
       engulfing_sequential: config.engulfing_sequential !== false,
       required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
       required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
+      exit_signals: Array.isArray(config.exit_signals) ? config.exit_signals : [],
+      enabled_signals: Array.isArray(config.enabled_signals) ? config.enabled_signals : [],
+      symbols: Array.isArray(config.symbols) ? config.symbols : [],
+      trading_windows: Array.isArray(config.trading_windows) ? config.trading_windows : [],
+      single_symbol_configs: Array.isArray(config.single_symbol_configs) ? config.single_symbol_configs : [],
+      strategy_variants: Array.isArray(config.strategy_variants) ? config.strategy_variants : [],
       reject_entry_if_sl_exceeds_max: config.reject_entry_if_sl_exceeds_max !== false,
       htf_ema_cross_boost_enabled: config.htf_ema_cross_boost_enabled !== false,
       htf_ema_cross_interval: config.htf_ema_cross_interval || '4h',
@@ -2542,7 +2548,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleToggleRequiredEntry = React.useCallback((sigKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentReq = prev.required_signals || [];
+      const currentReq = Array.isArray(prev.required_signals) ? prev.required_signals : [];
       const isReq = currentReq.includes(sigKey);
       const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
       return { ...prev, required_signals: nextReq };
@@ -2552,7 +2558,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleToggleRequiredExit = React.useCallback((sigKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentReq = prev.required_exit_signals || [];
+      const currentReq = Array.isArray(prev.required_exit_signals) ? prev.required_exit_signals : [];
       const isReq = currentReq.includes(sigKey);
       const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
       return { ...prev, required_exit_signals: nextReq };
@@ -2563,7 +2569,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev };
-      const currentExitSignals = prev.exit_signals || [];
+      const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
 
       if (active) {
         // Toggling OFF: remove base signal AND all its chained layers
@@ -2607,7 +2613,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleAddLayer = React.useCallback((baseKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentExitSignals = prev.exit_signals || [];
+      const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
       let suffixNum = 2;
       while (currentExitSignals.includes(`${baseKey}_${suffixNum}`)) {
         suffixNum++;
@@ -2638,7 +2644,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       return {
         ...prev,
-        exit_signals: (prev.exit_signals || []).filter(sig => sig !== layerKey),
+        exit_signals: (Array.isArray(prev.exit_signals) ? prev.exit_signals : []).filter(sig => sig !== layerKey),
         exit_signal_delays: nextDelays,
         exit_signal_actions: nextActions,
         signal_timeframes: nextTimeframes
@@ -2671,7 +2677,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev };
-      const currentEntrySignals = prev.enabled_signals || [];
+      const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
 
       if (active) {
         next.enabled_signals = currentEntrySignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
@@ -2694,7 +2700,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleAddEntryLayer = React.useCallback((baseKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentEntrySignals = prev.enabled_signals || [];
+      const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
       let suffixNum = 2;
       while (currentEntrySignals.includes(`${baseKey}_${suffixNum}`)) {
         suffixNum++;

@@ -618,8 +618,6 @@ export class PositionTrackerService {
     }
     return false;
   }
-  return false;
-}
 
   private recordActiveTradeEvent(
     trade: Trade,

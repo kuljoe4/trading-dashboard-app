@@ -474,7 +474,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     return { logFilters: { ...safeFilters, [level]: !safeFilters[level] } };
   }),
   setSyncing: (s) => set({ isSyncing: s }),
-  sync: async () => {
+  sync: async (retryCount = 0) => {
     try {
       const res = await sessionAPI.status();
       const st = get();
@@ -511,7 +511,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().fetchTradeHistory('all');
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
-      console.error("Manual sync failed", e);
+      if (retryCount < 5) {
+        setTimeout(() => get().sync(retryCount + 1), 1500);
+      } else {
+        console.error("Manual sync failed", e);
+      }
     }
   },
   setThrottled: (t) => {

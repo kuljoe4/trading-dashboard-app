@@ -513,8 +513,20 @@ setInterval(() => {
 
 // WebSocket handling
 const wss = new WebSocketServer({
-  server,
-  path: '/session/ws',
+  noServer: true,
+});
+
+server.on('upgrade', (req, socket, head) => {
+  try {
+    const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname === '/session/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    }
+  } catch (err) {
+    console.warn('[Upgrade warning]:', err);
+  }
 });
 
 wss.on('error', (err: any) => {
@@ -888,7 +900,9 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: false,
+        hmr: {
+          server,
+        },
       },
       appType: 'spa',
       root: path.resolve(__dirname, 'frontend'),

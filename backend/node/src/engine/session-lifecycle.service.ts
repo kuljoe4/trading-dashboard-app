@@ -659,7 +659,12 @@ export class SessionLifecycleService {
         const hasActiveTrade = this.sessionState.activeTrades?.some(
           (t) => t.symbol === symbol,
         );
-        if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade)) {
+
+        // GATE: Only process zero-weight logic if reason is ORDER, FUNDING_FEE, or MARGIN_CALL, and position is BOTH
+        const isActionableReason = ['ORDER', 'FUNDING_FEE', 'MARGIN_CALL'].includes(data.a.m);
+        const isCorrectPositionSide = pos.ps === 'BOTH' || pos.ps === undefined; // Fallback to BOTH if ps is omitted by exchange or mock
+
+        if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade) && isActionableReason && isCorrectPositionSide) {
           this.logger.warn(`[UDS] Edge Case: Position reached zero for ${symbol} via ACCOUNT_UPDATE. If no ORDER_TRADE_UPDATE immediately precedes or follows this, it was closed externally (e.g., 'Close All' UI, Liquidation, ADL, or Settlement).`);
           let tEntity = this.sessionState.activeTrades?.find(
             (t) => t.symbol === symbol,
@@ -667,12 +672,6 @@ export class SessionLifecycleService {
           if (!tEntity && this.sessionState.closedTrades) {
             tEntity = this.sessionState.closedTrades.find(
               (t) => t.symbol === symbol && t.status !== "OPEN",
-            );
-          }
-          if (tEntity) {
-            this.sessionState.udsConfirmedClosedTrades.add(tEntity.id);
-            this.logger.debug(
-              `[UDS] Marked trade ${tEntity.id} for ${symbol} as UDS-confirmed closed.`,
             );
           }
 
@@ -689,8 +688,8 @@ export class SessionLifecycleService {
           }
 
           const trade = activeTradesBySymbol.get(symbol);
-          if (trade) {
-            const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
+          if (trade || tEntity) {
+            const tradeIdShort8 = ((trade || tEntity)!.id || "N/A").substring(0, 8);
 
             // CHRONOS/Race: When a position hits zero on exchange, an SL hit (with an attached
             // stop order) usually arrives its ORDER_TRADE_UPDATE slightly AFTER the
@@ -704,14 +703,29 @@ export class SessionLifecycleService {
             const executeSyncClose = () => {
               if (!this.running) return;
 
-              const currentTrade = this.sessionState.activeTradesBySymbol ? this.sessionState.activeTradesBySymbol.get(symbol) : this.sessionState.activeTrades.find(t => t.symbol === symbol);
-              if (!currentTrade) {
-                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} already removed. Skipping zero-weight closure.`);
+              // RE-VERIFY: Check realTimePositions again after delay to ensure it wasn't a transient ghost read
+              const currentPos = this.sessionState.realTimePositions.get(symbol);
+              if (currentPos && Math.abs(currentPos.amount) > 0.00000001) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Position for ${symbol} recovered to ${currentPos.amount} during delay. Aborting zero-weight closure.`);
                 return;
               }
 
-              if (this.positionTracker.isClosing(symbol)) {
-                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} is already closing. Skipping zero-weight closure.`);
+              // Defer marking udsConfirmedClosedTrades until we are certain it's a zero-fill closure
+              if (tEntity) {
+                this.sessionState.udsConfirmedClosedTrades.add(tEntity.id);
+                this.logger.debug(
+                  `[UDS] Marked trade ${tEntity.id} for ${symbol} as UDS-confirmed closed after delay check.`,
+                );
+              }
+
+              const currentTrade = this.sessionState.activeTradesBySymbol ? this.sessionState.activeTradesBySymbol.get(symbol) : this.sessionState.activeTrades.find(t => t.symbol === symbol);
+              if (!currentTrade) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} already removed or closed by ORDER_TRADE_UPDATE. Skipping zero-weight fallback closure.`);
+                return;
+              }
+
+              if (this.positionTracker.isClosing(symbol) || this.orderManager.isRatcheting(symbol)) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} is actively closing or ratcheting. Skipping zero-weight fallback closure.`);
                 return;
               }
 

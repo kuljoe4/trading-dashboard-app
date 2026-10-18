@@ -1352,7 +1352,11 @@ export class OrderManagerService {
       // Cancel any existing local tracked SL order
       if (trade.binance_stop_order_id) {
          this.logger.debug(`[Native Trailing] Canceling existing SL ${trade.binance_stop_order_id} before native trailing placement.`);
-         await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type === 'algo' ? 'algo' : 'standard');
+         const canceled = await this.cancelBinanceOrder(trade.symbol, trade.binance_stop_order_id, trade.binance_stop_order_type === 'algo' ? 'algo' : 'standard');
+         if (!canceled) {
+            this.logger.warn(`[Native Trailing] Failed to cancel existing SL for ${trade.symbol}. Aborting native trailing switch.`);
+            return { success: false };
+         }
          trade.binance_stop_order_id = undefined;
          trade.binance_stop_order_type = undefined;
       }
@@ -1940,10 +1944,10 @@ export class OrderManagerService {
       // it with REDUCE_ONLY errors if the combined quantity exceeds the open position size.
       if (oldStopOrderId) {
          this.logger.debug(`[SL Ratchet] Canceling old SL ${oldStopOrderId} before replacement.`);
-         try {
-            await this.cancelBinanceOrder(trade.symbol, oldStopOrderId, oldStopOrderType || 'standard');
-         } catch (cancelErr) {
-            this.logger.warn(`[SL Ratchet] Failed to cancel old SL ${oldStopOrderId} for ${trade.symbol}. It might have already filled or been canceled. Proceeding to place new SL.`);
+         const canceled = await this.cancelBinanceOrder(trade.symbol, oldStopOrderId, oldStopOrderType || 'standard');
+         if (!canceled) {
+            this.logger.warn(`[SL Ratchet] Failed to cancel old SL ${oldStopOrderId} for ${trade.symbol}. Aborting ratchet to prevent duplicate orders.`);
+            return { success: false };
          }
       }
 
@@ -1954,19 +1958,39 @@ export class OrderManagerService {
         this.logger.error(`[SL Ratchet] Exception during placement for ${trade.symbol}: ${placeErr.message}`);
       }
 
-      if (!result || !result.orderId || result.orderId === '') {
+      if (!result || !result.orderId || result.orderId === '' || result.error || result.orderId.startsWith('FAILED_')) {
          this.logger.error(`[SL Ratchet] Replacement failed for ${trade.symbol}. Trade is temporarily unprotected! Re-arming original SL...`);
 
-         // ROLLBACK: Re-place old SL since new one failed
-         try {
-            const rollbackResult = await this.placeStopLoss(trade, oldSlPrice);
-            if (rollbackResult && rollbackResult.orderId) {
-                this.logger.log(`[SL Ratchet] Successfully rolled back to old SL at ${oldSlPrice}`);
-            } else {
-                this.logger.error(`[SL Ratchet] FATAL: Failed to rollback to old SL for ${trade.symbol}. Position is UNPROTECTED.`);
+         // ROLLBACK: Re-place old SL since new one failed, with exponential backoff and emergency market exit
+         let rollbackSuccess = false;
+         for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+               const rollbackResult = await this.placeStopLoss(trade, oldSlPrice);
+               if (rollbackResult && rollbackResult.orderId && rollbackResult.orderId !== '' && !rollbackResult.error && !rollbackResult.orderId.startsWith('FAILED_')) {
+                   this.logger.log(`[SL Ratchet] Successfully rolled back to old SL at ${oldSlPrice}`);
+                   rollbackSuccess = true;
+                   break;
+               } else {
+                   this.logger.warn(`[SL Ratchet] Rollback attempt ${attempt} failed for ${trade.symbol}.`);
+               }
+            } catch (rollbackErr: any) {
+               this.logger.error(`[SL Ratchet] Exception during rollback to old SL for ${trade.symbol} on attempt ${attempt}: ${rollbackErr.message}`);
             }
-         } catch (rollbackErr: any) {
-            this.logger.error(`[SL Ratchet] FATAL: Exception during rollback to old SL for ${trade.symbol}: ${rollbackErr.message}`);
+            if (attempt < 3) {
+               await new Promise(res => setTimeout(res, attempt * 1000));
+            }
+         }
+
+         if (!rollbackSuccess) {
+            this.logger.error(`[SL Ratchet] FATAL: Failed to rollback to old SL for ${trade.symbol} after 3 attempts. Position is UNPROTECTED. Initiating aggressive limit close...`);
+            trade.close_blocked = true;
+            this.eventEmitter.emit('engine.alert', { level: 'CRITICAL', message: `Unprotected position on ${trade.symbol}. Emergency closing.` });
+
+            // Fire and forget the emergency close to not block the thread
+            const exitPrice = this.tickerCache.getPrice(trade.symbol) || Number(trade.entry_price);
+            this.attemptAggressiveLimitClose(trade.symbol, trade, exitPrice).catch(e => {
+               this.logger.error(`[SL Ratchet] Emergency close failed for ${trade.symbol}: ${e.message}`);
+            });
          }
 
          return { success: false };
@@ -1995,6 +2019,9 @@ export class OrderManagerService {
   }
 
 
+  /**
+   * Cancel an order on Binance
+   */
   /**
    * Cancel an order on Binance
    */
@@ -2042,6 +2069,18 @@ export class OrderManagerService {
                          errMsg.includes('-1003') ||
                          errMsg.includes('-2015');
       if (isSystemic) this.recordFailure(true);
+
+      // Verification query loop if cancel returned false
+      try {
+          this.logger.debug(`[cancelBinanceOrder] Querying active exchange orders to confirm if ${orderId} still exists...`);
+          const openStatus = await this.queryOrderStatus(symbol, orderId, orderType === 'algo' ? 'algo' : 'standard');
+          if (!openStatus || ['CANCELED', 'FILLED', 'REJECTED'].includes(openStatus.status)) {
+              this.logger.debug(`[cancelBinanceOrder] Order ${orderId} is no longer active despite cancel error. Returning true.`);
+              return true;
+          }
+      } catch (queryErr) {
+          this.logger.warn(`[cancelBinanceOrder] Validation query for ${orderId} failed: ${queryErr}`);
+      }
 
       return false;
     }
@@ -3130,10 +3169,9 @@ export class OrderManagerService {
           // Reversing this causes REDUCE_ONLY rejection when the pending SL is already taking up the position's reduce-only capacity.
           if (trade.binance_stop_order_id) {
              this.logger.debug(`[${symbol}] [Sync] Canceling SL ${trade.binance_stop_order_id} prior to market close order to free reduce-only capacity.`);
-             try {
-                await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
-             } catch (cancelErr) {
-                this.logger.debug(`[${symbol}] [Sync] Failed to cancel SL before market close: ${cancelErr instanceof Error ? cancelErr.message : String(cancelErr)}`);
+             const canceled = await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+             if (!canceled) {
+                this.logger.warn(`[${symbol}] [Sync] Failed to cancel SL before market close. Continuing anyway, but may encounter REDUCE_ONLY error.`);
              }
              // We intentionally do not clear trade.binance_stop_order_id yet in case close fails and we need to rollback/re-arm
           }
@@ -3346,10 +3384,8 @@ export class OrderManagerService {
 
             // Cleanup remaining SL if it survived the MARKET close
             if (trade.binance_stop_order_id) {
-               try {
-                  await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
-                  trade.binance_stop_order_id = undefined;
-               } catch (e) {}
+               await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type as any);
+               trade.binance_stop_order_id = undefined;
             }
           }
           } // end if (!localOnly)
@@ -3487,11 +3523,10 @@ export class OrderManagerService {
           if (!closeSuccess && !localOnly && trade.status === 'OPEN' && !this.paperMode && !trade.close_blocked) {
              this.logger.warn(`[${symbol}] Close sequence finished without success. Re-arming protection SL...`);
              if (trade.binance_stop_order_id) {
-                try {
-                   this.logger.log(`[${symbol}] Proactively cancelling old SL ${trade.binance_stop_order_id} before re-arming...`);
-                   await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
-                } catch (cancelErr) {
-                   this.logger.debug(`[${symbol}] Failed to cancel old SL during re-arm: ${cancelErr instanceof Error ? cancelErr.message : String(cancelErr)}`);
+                this.logger.log(`[${symbol}] Proactively cancelling old SL ${trade.binance_stop_order_id} before re-arming...`);
+                const canceled = await this.cancelBinanceOrder(symbol, trade.binance_stop_order_id, trade.binance_stop_order_type || 'standard');
+                if (!canceled) {
+                   this.logger.warn(`[${symbol}] Failed to cancel old SL during re-arm. It may duplicate.`);
                 }
                 trade.binance_stop_order_id = undefined;
              }

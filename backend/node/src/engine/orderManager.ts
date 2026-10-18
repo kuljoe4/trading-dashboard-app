@@ -1990,7 +1990,7 @@ export class OrderManagerService {
              title: 'Emergency SL Protection Failure',
              message: `Position ${trade.symbol} was left unprotected after SL replacement & rollback failure. Emergency exit initiated.`
            });
-           const currentPrice = Number(trade.current_price || trade.entry_price || filteredNewSl.price);
+           const currentPrice = Number((trade as any).current_price || trade.entry_price || filteredNewSl.price);
            this.closeTrade(trade.symbol, trade, currentPrice, EXIT_REASONS.SL_PLACEMENT_FAILURE).catch(closeErr => {
              this.logger.error(`[SL Ratchet] Failed emergency close for ${trade.symbol}: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
            });

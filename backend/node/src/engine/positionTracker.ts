@@ -490,12 +490,12 @@ export class PositionTrackerService {
            this.markDirty(symbol, config, 'MUTEX_LOCKED');
            this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
            this.logger.debug(`[SL Ratchet] Mutex lock active for ${symbol}, deferring ratchet evaluation and recording skip audit.`);
-           return;
+           return false;
         }
 
         if (isNaN(targetSl) || !isFinite(targetSl) || targetSl <= 0) {
           this.logger.debug(`[RrSequence] Derived target SL ${targetSl} for ${symbol} is invalid or non-positive. Skipping adjustment.`);
-          return;
+          return false;
         }
 
       // DATA-07: Ensure the target SL is filtered/rounded to exchange tick size BEFORE comparison.

@@ -5,8 +5,8 @@ WORKDIR /app
 ENV NODE_ENV=development
 RUN corepack enable && corepack prepare pnpm@10 --activate
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install
 
 COPY . .
 ARG VITE_WS_URL

@@ -123,10 +123,12 @@ export class PositionTrackerService {
     const activeConfig = { ...baseSessionConfig, ...(config || {}), ...(trade.strategy_config || {}) } as SessionConfig;
     if (!activeConfig) return;
 
-    await this.checkRrSequenceAdjustments(symbol, currentPrice, activeConfig);
-    await this.checkTrailingStop(symbol, currentPrice, activeConfig);
-    if (trade.is_knife) {
-      await this.checkKnifeTrailingStop(symbol, currentPrice, activeConfig);
+    const slAdjusted = await this.checkRrSequenceAdjustments(symbol, currentPrice, activeConfig);
+    if (!slAdjusted) {
+      await this.checkTrailingStop(symbol, currentPrice, activeConfig);
+      if (trade.is_knife) {
+        await this.checkKnifeTrailingStop(symbol, currentPrice, activeConfig);
+      }
     }
   }
 
@@ -383,17 +385,17 @@ export class PositionTrackerService {
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const trade = this.trades.get(symbol);
-    if (!trade || trade.status !== 'OPEN') return;
+    if (!trade || trade.status !== 'OPEN') return false;
 
     if (await this.handleExitSignalOverrideIfNeeded(trade, config)) {
-      return;
+      return false;
     }
 
     // Calculate current R:R metrics
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
-    if (risk <= 0) return;
+    if (risk <= 0) return false;
 
     const reward = trade.direction === 'LONG'
       ? currentPrice - Number(trade.entry_price)
@@ -578,6 +580,7 @@ export class PositionTrackerService {
 
            // Notify of trade state change for persistence
            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+           return true;
         } else {
            this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
            this.recordActiveTradeEvent(
@@ -613,6 +616,7 @@ export class PositionTrackerService {
         }
       }
     }
+    return false;
   }
   }
 
@@ -1022,7 +1026,17 @@ export class PositionTrackerService {
       trade.est_pnl_to_realize = estPnl;
     }
 
-    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0) {
+    // SRE / Capital Safety: Only release risk on est_pnl_be if current SL guarantees breakeven
+    // (at or past entry price covering round-trip fee drag)
+    const isTradeLong = trade.direction === 'LONG';
+    const feeOffset = Number(trade.entry_price) * 0.0008; // 0.08% taker fee drag
+    const slGuaranteesBreakeven = Number(trade.current_sl) > 0 && (
+      isTradeLong
+        ? Number(trade.current_sl) >= Number(trade.entry_price) + feeOffset
+        : Number(trade.current_sl) <= Number(trade.entry_price) - feeOffset
+    );
+
+    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0 && slGuaranteesBreakeven) {
       isBreakevenOrBetter = true;
       lockReason = 'EST_PNL_BREAKEVEN';
     }

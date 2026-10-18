@@ -517,6 +517,10 @@ const wss = new WebSocketServer({
   path: '/session/ws',
 });
 
+wss.on('error', (err: any) => {
+  console.warn('[WebSocketServer warning]:', err?.message || err);
+});
+
 function broadcast(data: any) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
@@ -560,6 +564,10 @@ function broadcastTick() {
 wss.on('connection', (ws: any) => {
   ws.isAlive = true;
   ws.isActive = true;
+
+  ws.on('error', (err: any) => {
+    console.warn('[Client WebSocket warning]:', err?.message || err);
+  });
 
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -878,7 +886,10 @@ async function startServer() {
 
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: 'spa',
       root: path.resolve(__dirname, 'frontend'),
     });
@@ -890,6 +901,18 @@ async function startServer() {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
   }
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Server] Port ${port} is in use; retrying in 1s...`);
+      setTimeout(() => {
+        server.close();
+        server.listen(port, '0.0.0.0');
+      }, 1000);
+    } else {
+      console.error('[Server Error]:', err);
+    }
+  });
 
   server.listen(port, '0.0.0.0', () => {
     console.log(`✨ Momentum Engine server listening on http://0.0.0.0:${port}`);

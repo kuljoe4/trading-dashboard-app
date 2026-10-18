@@ -1877,6 +1877,17 @@ export class OrderManagerService {
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean, price?: number }> {
     const activeConfig = trade.strategy_config || this.sessionState.config;
     if (activeConfig?.trailing_execution_mode === "local") {
+      // SL-04: If local trailing mode is active and an exchange stop-order exists, cancel it so it doesn't trigger at an outdated price
+      if (trade.binance_stop_order_id && !this.paperMode && this.binanceClient) {
+        this.logger.log(`[SL Ratchet] Local trailing mode active for ${trade.symbol}. Canceling exchange SL ${trade.binance_stop_order_id} to prevent desync trigger.`);
+        const oldStopId = trade.binance_stop_order_id;
+        const oldStopType = trade.binance_stop_order_type || 'standard';
+        trade.binance_stop_order_id = undefined;
+        trade.binance_stop_order_type = undefined;
+        this.cancelBinanceOrder(trade.symbol, oldStopId, oldStopType).catch(err => {
+          this.logger.warn(`[SL Ratchet] Failed to cancel exchange SL on transition to local mode: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
       return { success: true, price: newSlPrice };
     }
     if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true, price: newSlPrice };
@@ -1958,15 +1969,31 @@ export class OrderManagerService {
          this.logger.error(`[SL Ratchet] Replacement failed for ${trade.symbol}. Trade is temporarily unprotected! Re-arming original SL...`);
 
          // ROLLBACK: Re-place old SL since new one failed
+         let rollbackSucceeded = false;
          try {
             const rollbackResult = await this.placeStopLoss(trade, oldSlPrice);
             if (rollbackResult && rollbackResult.orderId) {
                 this.logger.log(`[SL Ratchet] Successfully rolled back to old SL at ${oldSlPrice}`);
+                rollbackSucceeded = true;
             } else {
                 this.logger.error(`[SL Ratchet] FATAL: Failed to rollback to old SL for ${trade.symbol}. Position is UNPROTECTED.`);
             }
          } catch (rollbackErr: any) {
             this.logger.error(`[SL Ratchet] FATAL: Exception during rollback to old SL for ${trade.symbol}: ${rollbackErr.message}`);
+         }
+
+         if (!rollbackSucceeded && !this.paperMode) {
+           // SL-02 P0: Emergency close trade if both placement and rollback fail to prevent naked capital exposure
+           this.logger.error(`[SL Ratchet] EMERGENCY TRIGGER: Position for ${trade.symbol} is naked and unprotected after SL replacement & rollback failure. Initiating emergency closeTrade.`);
+           this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {
+             level: 'error',
+             title: 'Emergency SL Protection Failure',
+             message: `Position ${trade.symbol} was left unprotected after SL replacement & rollback failure. Emergency exit initiated.`
+           });
+           const currentPrice = Number(trade.current_price || trade.entry_price || filteredNewSl.price);
+           this.closeTrade(trade.symbol, trade, currentPrice, EXIT_REASONS.SL_PLACEMENT_FAILURE).catch(closeErr => {
+             this.logger.error(`[SL Ratchet] Failed emergency close for ${trade.symbol}: ${closeErr instanceof Error ? closeErr.message : String(closeErr)}`);
+           });
          }
 
          return { success: false };

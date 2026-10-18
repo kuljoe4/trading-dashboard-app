@@ -3212,14 +3212,22 @@ export class SessionService implements OnModuleInit {
 
   // Add log line
   async logMessage(msg: string, level: "info" | "warn" | "error" = "info") {
-    if (!this.currentSessionId) return;
-
     // SENTINEL: Truncate message to prevent excessive database growth from oversized logs
     const safeMsg = typeof msg === 'string' ? msg : String(msg || '');
     const sanitizedMsg =
       safeMsg.length > 4000
         ? safeMsg.substring(0, 4000) + "... [truncated]"
         : safeMsg;
+
+    if (!this.currentSessionId) {
+      // UX-01: Even without active sessionId, broadcast early engine logs to UI so startup transitions aren't lost
+      this.broadcastEvent("log", {
+        msg: sanitizedMsg,
+        level,
+        ts: new Date().toISOString(),
+      });
+      return;
+    }
 
     // Deduplicate repeating identical logs within a short timeframe (e.g. 5 seconds)
     const now = Date.now();
@@ -3270,10 +3278,19 @@ export class SessionService implements OnModuleInit {
     rateLimit.count++;
     this.logRateLimits.set(sid, rateLimit);
 
-    if (rateLimit.count > 60) {
+    // UX-01: Exempt critical transition, decision, SL, exit, and lifecycle events from the 60/min throttle
+    const isCriticalLog = level === 'error' || level === 'warn' ||
+      sanitizedMsg.includes('[Decision]') ||
+      sanitizedMsg.includes('[State]') ||
+      sanitizedMsg.includes('[SL Ratchet]') ||
+      sanitizedMsg.includes('[Exit]') ||
+      sanitizedMsg.includes('[Lifecycle]') ||
+      sanitizedMsg.includes('[Watchdog]');
+
+    if (!isCriticalLog && rateLimit.count > 60) {
       if (rateLimit.count === 61) {
         this.logger.warn(
-          `Log rate limit (60/min) exceeded for session ${sid}. Further logs suppressed.`,
+          `Log rate limit (60/min) exceeded for session ${sid}. Further routine logs suppressed.`,
         );
       }
       return;

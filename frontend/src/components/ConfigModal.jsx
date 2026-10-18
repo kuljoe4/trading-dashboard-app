@@ -844,15 +844,17 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
   }, [scannerResults, searchTerm, rangeFilter]);
 
   const handleSelect = (symbol) => {
-    if (symbol && !value.includes(symbol)) {
-      onChange([...value, symbol]);
+    const safeValue = Array.isArray(value) ? value : [];
+    if (symbol && !safeValue.includes(symbol)) {
+      onChange([...safeValue, symbol]);
     }
     setSearchTerm('');
     setIsOpen(false);
   };
 
   const handleRemove = (symbol) => {
-    onChange(value.filter(s => s !== symbol));
+    const safeValue = Array.isArray(value) ? value : [];
+    onChange(safeValue.filter(s => s !== symbol));
   };
 
   return (
@@ -993,11 +995,16 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
 WatchlistDropdownInput.displayName = 'WatchlistDropdownInput';
 
 const ListInput = React.memo(({ value, onChange, placeholder }) => {
-  const [localValue, setLocalValue] = useState(() => value?.join(', ') || '');
+  const getStr = (val) => {
+    if (Array.isArray(val)) return val.join(', ');
+    if (typeof val === 'string') return val;
+    return '';
+  };
+  const [localValue, setLocalValue] = useState(() => getStr(value));
 
   // Update local value when external value changes (e.g. on preset load)
   useEffect(() => {
-    setLocalValue(value?.join(', ') || '');
+    setLocalValue(getStr(value));
   }, [value]);
 
   const handleBlur = () => {
@@ -1555,7 +1562,7 @@ EnvironmentButton.displayName = 'EnvironmentButton'
 const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave }) => {
   const [days, setDays] = useState(14);
   const [startingBalance, setStartingBalance] = useState(10000);
-  const [symbolText, setSymbolSearchText] = useState(() => (cfg.symbols && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
+  const [symbolText, setSymbolSearchText] = useState(() => (Array.isArray(cfg?.symbols) && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : typeof cfg?.symbols === 'string' ? cfg.symbols : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
   const [useGlobalScanner, setUseGlobalScanner] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [progressPct, setProgressPct] = useState(0);

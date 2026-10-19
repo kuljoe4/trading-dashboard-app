@@ -58,6 +58,14 @@ describe('MonitoringController', () => {
     expect(monitoringService.getMetrics).toHaveBeenCalled();
   });
 
+  it('should return service operational info for getRoot (GET /)', () => {
+    const root = controller.getRoot();
+    expect(root.status).toBe('online');
+    expect(root.service).toBe('backend');
+    expect(root.endpoints.health).toBe('/health');
+    expect(root.endpoints.websocket).toBe('/session/ws');
+  });
+
   describe('healthz endpoints', () => {
     const mockRequest = (ip: string): Request => ({
       ip,

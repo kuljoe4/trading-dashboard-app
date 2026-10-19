@@ -60,6 +60,29 @@ export class MonitoringController {
     private readonly settingsRepository?: Repository<SettingsEntity>,
   ) {}
 
+  /**
+   * Root API status endpoint
+   * Avoids 404 when visiting the backend service root domain directly
+   */
+  @Get()
+  getRoot() {
+    return {
+      name: 'Momentum Trading Engine API',
+      status: 'online',
+      version: '1.0.0',
+      timestamp: new Date().toISOString(),
+      service: 'backend',
+      endpoints: {
+        health: '/health',
+        binance_health: '/healthz/binance',
+        readiness: '/healthz/readiness',
+        session_status: '/session/status',
+        websocket: '/session/ws',
+      },
+      message: 'Backend API is operational. Access the frontend dashboard via your frontend service domain.',
+    };
+  }
+
   @Get('monitoring/stats')
   @UseGuards(ApiKeyGuard)
   getStats() {

@@ -610,8 +610,7 @@ describe('SessionService Validation', () => {
 
     it('should rate limit logs per minute', async () => {
       (service as any).currentSessionId = 'session-123';
-      (service as any).logWriteQueue = [];
-      const flushSpy = jest.spyOn(service as any, 'flushLogQueue').mockResolvedValue(undefined);
+
 
       // Send 60 logs
       for (let i = 0; i < 60; i++) {
@@ -623,19 +622,19 @@ describe('SessionService Validation', () => {
 
       // Check total inserted in all calls to insert
       let totalInserted = 0;
-      for (const call of insertSpy.mock.calls) {
+      for (const call of mockLogRepository.insert.mock.calls) {
         totalInserted += call[0].length;
       }
       expect(totalInserted).toBe(60);
 
-      insertSpy.mockClear();
+      mockLogRepository.insert.mockClear();
 
       // Send 61st log - should be rate limited
       await (service as any).logMessage('log 61');
       await (service as any).flushLogQueue();
 
       let newInserted = 0;
-      for (const call of insertSpy.mock.calls) {
+      for (const call of mockLogRepository.insert.mock.calls) {
         newInserted += call[0].length;
       }
       expect(newInserted).toBe(0);
@@ -643,8 +642,6 @@ describe('SessionService Validation', () => {
 
     it('should use in-memory counter for 2000 log cap', async () => {
       (service as any).currentSessionId = 'session-cap';
-      (service as any).logWriteQueue = [];
-      const flushSpy = jest.spyOn(service as any, 'flushLogQueue').mockResolvedValue(undefined);
 
       // Mock initial count
       mockLogRepository.count.mockResolvedValue(1999);

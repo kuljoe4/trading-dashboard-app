@@ -275,6 +275,7 @@ export const createSessionAPI = (apiInstance = api) => ({
   adoptPosition: (symbol, strategyLabel, initialSl, currentSl) => apiInstance.post('/session/adopt-position', { symbol, strategyLabel, initialSl, currentSl }),
   backfillKlines: (symbol, interval) => apiInstance.post('/session/backfill-klines', { symbol, interval }),
   clearBan: () => apiInstance.post('/session/clear-ban'),
+  triggerBan: (reason, untilMs) => apiInstance.post('/session/trigger-ban', { reason, untilMs }),
   backtest: (payload) => apiInstance.post('/session/backtest', {
     ...payload,
     config: sanitizeSessionConfig(payload.config || {}),

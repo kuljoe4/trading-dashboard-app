@@ -19,6 +19,19 @@ export class MonitoringController {
   }
 
   /**
+   * SRE: Health check endpoint (Railway & orchestrators)
+   */
+  @Get('health')
+  getHealth(@Req() req: Request) {
+    return this.getLiveness(req);
+  }
+
+  @Get('healthz')
+  getHealthz(@Req() req: Request) {
+    return this.getLiveness(req);
+  }
+
+  /**
    * SRE: /healthz/liveness probe
    * Returns 200 OK as long as the NestJS application loop isn't deadlocked.
    */

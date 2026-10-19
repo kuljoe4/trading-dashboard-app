@@ -117,7 +117,7 @@ export class BinanceSubscriptionManager {
           : this.wsUrl;
         this.logger.error(`[SubscriptionManager] WebSocket error. URL: ${urlSnippet} | Msg: ${msg}`);
 
-        if (msg.includes('429') || msg.includes('418')) {
+        if (msg.includes('429') || msg.includes('418') || msg.includes('451') || msg.toLowerCase().includes('restricted')) {
           this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}).`);
           this.options.onBan?.(msg);
         }

@@ -115,6 +115,12 @@ const state = {
   totalPnl: 0,
   totalRiskPct: 0,
   totalSlUsed: 0,
+  apiStatus: {
+    isBanned: false,
+    isRateLimited: false,
+    banUntil: null as number | null,
+    lastErrorMessage: null as string | null,
+  },
   activeTrades: [] as any[],
   tradeHistory: [
     {
@@ -365,6 +371,7 @@ function getStatusSnapshot() {
     scannerResults: opps,
     logs: state.logs,
     config: state.config,
+    apiStatus: state.apiStatus,
     rateLimit: {
       used_weight_1m: 14,
       order_count_10s: 0,
@@ -631,7 +638,44 @@ app.get('/session/status', (req, res) => {
   res.json(getStatusSnapshot());
 });
 
+app.post('/session/clear-ban', (req, res) => {
+  state.apiStatus = {
+    isBanned: false,
+    isRateLimited: false,
+    banUntil: null,
+    lastErrorMessage: null,
+  };
+  addLog('API Ban / Rate limit restrictions cleared manually.');
+  const snapshot = getStatusSnapshot();
+  broadcast({ type: 'status', ...snapshot });
+  broadcast({ type: 'api_status', ...state.apiStatus });
+  res.json({ success: true, apiStatus: state.apiStatus });
+});
+
+app.post('/session/trigger-ban', (req, res) => {
+  const { reason, untilMs } = req.body || {};
+  const until = untilMs ? Date.now() + Number(untilMs) : Date.now() + 24 * 3600 * 1000;
+  state.apiStatus = {
+    isBanned: true,
+    isRateLimited: false,
+    banUntil: until,
+    lastErrorMessage: reason || "Service unavailable from a restricted location according to 'b. Eligibility' in https://www.binance.com/en/terms (HTTP 451)",
+  };
+  addLog(`API Ban / Geo-restriction triggered: ${state.apiStatus.lastErrorMessage}`);
+  const snapshot = getStatusSnapshot();
+  broadcast({ type: 'status', ...snapshot });
+  broadcast({ type: 'api_status', ...state.apiStatus });
+  res.json({ success: true, apiStatus: state.apiStatus });
+});
+
 app.post('/session/start', (req, res) => {
+  if (state.apiStatus.isBanned) {
+    return res.status(403).json({
+      success: false,
+      message: 'Cannot start session while API Ban / Geo-restriction is active. Automatic trading requests are disabled.',
+      apiStatus: state.apiStatus,
+    });
+  }
   const { config, sessionId } = req.body || {};
   state.sessionActive = true;
   state.sessionPaused = false;

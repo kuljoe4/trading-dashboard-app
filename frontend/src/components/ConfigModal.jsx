@@ -2243,14 +2243,15 @@ const coerceAndSanitizeConfig = (rawConfig) => {
   }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
     sessionActive: state.sessionActive,
     lifetimeAnalytics: state.lifetimeAnalytics,
-    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
+    apiStatus: state.apiStatus,
   }));
 
   const presetSearchInputRef = useRef(null);
@@ -5442,14 +5443,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
              </Tooltip>
            </div>
         </div>
-        <Btn variant="primary" loading={loading} onClick={() => {
-          if (validate(cfg)) {
-             onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
-             sessionStorage.removeItem('config_draft');
-             setIsDirty(false);
-          }
-        }} className="w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs">
-          {isEdit ? 'Apply Changes' : 'Start Session'}
+        <Btn
+          variant="primary"
+          loading={loading}
+          disabled={loading || (!isEdit && apiStatus?.isBanned)}
+          onClick={() => {
+            if (!isEdit && apiStatus?.isBanned) {
+              addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
+              return;
+            }
+            if (validate(cfg)) {
+               onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
+               sessionStorage.removeItem('config_draft');
+               setIsDirty(false);
+            }
+          }}
+          className={cn(
+            "w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs",
+            !isEdit && apiStatus?.isBanned && "opacity-50 cursor-not-allowed"
+          )}
+        >
+          {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : 'Start Session')}
           {isDirty && <span className="w-1 h-1 rounded-full bg-accent animate-pulse" />}
         </Btn>
       </div>

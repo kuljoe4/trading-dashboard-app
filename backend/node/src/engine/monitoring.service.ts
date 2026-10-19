@@ -27,11 +27,6 @@ export class MonitoringService {
     exchange_info: { hits: 0, misses: 0 }
   };
 
-  // Skipped REST call tracking metrics
-  private skippedRestCallsTotal = 0;
-  private skippedRestWeightSaved = 0;
-  private skippedRestBreakdown: Record<string, { count: number; weightSaved: number }> = {};
-
   // Loop Pipeline State tracking
   private loopPipeline: {
     stage: 'IDLE' | 'SCANNING' | 'EVALUATING' | 'RISK_CHECK' | 'EXECUTING' | 'COOLING_DOWN';
@@ -66,30 +61,6 @@ export class MonitoringService {
     this.cacheBreakdown[label].misses++;
   }
 
-  recordSkippedRestCall(label: string, weightSaved: number) {
-    if (!this.telemetryEnabled) return;
-    this.skippedRestCallsTotal++;
-    this.skippedRestWeightSaved += weightSaved;
-    if (!this.skippedRestBreakdown[label]) {
-      this.skippedRestBreakdown[label] = { count: 0, weightSaved: 0 };
-    }
-    this.skippedRestBreakdown[label].count++;
-    this.skippedRestBreakdown[label].weightSaved += weightSaved;
-
-    // Log as a 'shed' status in restTelemetryLogs so it appears in recent telemetry logs
-    this.restTelemetryLogs.push({
-      ts: Date.now(),
-      label,
-      duration: 0,
-      weight: 0,
-      status: 'shed',
-      errorMsg: `Skipped (Saved ${weightSaved} API weight via UDS/cache)`
-    });
-    if (this.restTelemetryLogs.length > this.MAX_LOGS) {
-      this.restTelemetryLogs.shift();
-    }
-  }
-
   clearAppMetrics() {
     this.hotLoopExecutionTime = 0;
     this.mainLoopExecutionTime = 0;
@@ -100,9 +71,6 @@ export class MonitoringService {
     this.restTelemetryLogs = [];
     this.cacheHitsTotal = 0;
     this.cacheMissesTotal = 0;
-    this.skippedRestCallsTotal = 0;
-    this.skippedRestWeightSaved = 0;
-    this.skippedRestBreakdown = {};
     this.cacheBreakdown = {
       uds_positions: { hits: 0, misses: 0 },
       uds_orders: { hits: 0, misses: 0 },
@@ -137,22 +105,12 @@ export class MonitoringService {
     const totalApiAttempts = this.apiSuccessCount + this.apiErrorCount;
     const apiSuccessRatePct = totalApiAttempts > 0 ? Math.round((this.apiSuccessCount / totalApiAttempts) * 1000) / 10 : 100;
 
-    // Skipped REST ratio
-    const totalPotentialCalls = this.apiRequestCount + this.skippedRestCallsTotal;
-    const skippedRatioPct = totalPotentialCalls > 0
-      ? Math.round((this.skippedRestCallsTotal / totalPotentialCalls) * 1000) / 10
-      : 0;
-
     // Compile Automated SRE Recommendations & Verification Guidance
     const recommendations: string[] = [];
     if (this.udsStatus === 'CONNECTED') {
       recommendations.push('UDS Active: Zero-weight WebSocket cache auditing in steady-state trading.');
     } else {
       recommendations.push('UDS Offline: Active REST reconciliation fallback engaged.');
-    }
-
-    if (this.skippedRestCallsTotal > 0) {
-      recommendations.push(`Zero-Weight Saver: ${this.skippedRestCallsTotal} REST calls skipped (${this.skippedRestWeightSaved} API weight saved, ${skippedRatioPct}% skip rate via UDS/cache).`);
     }
 
     if (cacheHitRatioPct >= 90) {
@@ -183,12 +141,6 @@ export class MonitoringService {
           misses_total: this.cacheMissesTotal,
           hit_ratio_pct: cacheHitRatioPct,
           breakdown: { ...this.cacheBreakdown }
-        },
-        skipped_rest_metrics: {
-          skipped_total: this.skippedRestCallsTotal,
-          weight_saved_total: this.skippedRestWeightSaved,
-          skipped_ratio_pct: skippedRatioPct,
-          breakdown: { ...this.skippedRestBreakdown }
         },
         resource_footprints: {
           heap_used_mb: heapUsedMb,

@@ -17,7 +17,6 @@ export class SessionStateService {
   public balanceLive = 0;
   public lastExchangeBalance = 0;
   public lastUdsBalanceUpdate = 0;
-  public udsConnected = false;
   public paused = false;
   public binanceRateLimit: { used_1m: number; limit: number } = { used_1m: 0, limit: 2400 };
   public binanceOrderLimit: {

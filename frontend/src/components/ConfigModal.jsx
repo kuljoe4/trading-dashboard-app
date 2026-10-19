@@ -3439,6 +3439,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
       </div>
       <ModalAlertTicker />
+      {apiStatus?.isBanned && (
+        <div className="mx-4 mt-3 p-3 rounded-xl bg-amber/15 border border-amber/30 flex items-center gap-3 text-xs shrink-0">
+          <AlertCircle size={16} className="text-amber shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="font-bold text-amber block">API Ban / Geo-restriction Active</span>
+            <span className="text-dim text-[11px] leading-relaxed block">
+              You can adjust strategy rules and manage presets. Execution on Binance is paused until unlocked or a proxy is configured in Settings.
+            </span>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto no-scrollbar p-3 md:p-4 pb-24 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (

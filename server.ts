@@ -962,11 +962,8 @@ async function startServer() {
 
   server.on('error', (err: any) => {
     if (err.code === 'EADDRINUSE') {
-      console.warn(`[Server] Port ${port} is in use; retrying in 1s...`);
-      setTimeout(() => {
-        server.close();
-        server.listen(port, '0.0.0.0');
-      }, 1000);
+      console.warn(`[Server] Port ${port} is already in use. Exiting process so manager can restart...`);
+      process.exit(1);
     } else {
       console.error('[Server Error]:', err);
     }

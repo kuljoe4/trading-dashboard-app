@@ -22,11 +22,9 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-RUN cat > /etc/nginx/conf.d/default.conf <<'EOF_NGINX'
+RUN cat > /etc/nginx/conf.d/default.conf.template <<'EOF_NGINX'
 server {
-    listen 80;
-    listen 3000;
-    listen 8080;
+    listen ${PORT};
     server_name localhost;
     root /usr/share/nginx/html;
     index index.html;
@@ -54,6 +52,6 @@ server {
 }
 EOF_NGINX
 
-EXPOSE 80 3000 8080
+EXPOSE 80
 
-CMD ["/bin/sh", "-c", "sed -i 's/^worker_processes.*/worker_processes 1;/' /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", ": ${PORT:=80}; envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && sed -i 's/^worker_processes.*/worker_processes 1;/' /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]

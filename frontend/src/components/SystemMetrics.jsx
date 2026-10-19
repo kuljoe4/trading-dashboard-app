@@ -1,6 +1,6 @@
 import React from 'react';
 import { Drawer } from 'vaul';
-import { Activity, Zap, Leaf, ShieldAlert, ShieldCheck, Cpu, Rocket, Search, CheckCircle2, Copy, Check, Info, X, Filter, Database, Server } from 'lucide-react';
+import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2, Copy, Check, Info, X, Filter, Database, Server } from 'lucide-react';
 import { cn, PulseDot, Tooltip, Btn, VisuallyHidden } from './ui/primitives';
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
@@ -95,7 +95,6 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
         `**WS Status:** ${wsStatus}`,
         `**API Weight:** ${rateLimit?.used_weight_1m ?? 0} / ${rateLimit?.limit ?? 2400}`,
         `**Total REST Calls:** ${app.api_requests_total ?? 0} (Success Rate: ${app.api_success_rate_pct ?? 100}%)`,
-        `**Zero-Weight Skips:** ${app.skipped_rest_metrics?.skipped_total ?? 0} calls skipped (${app.skipped_rest_metrics?.skipped_ratio_pct ?? 0}% skip rate | ${app.skipped_rest_metrics?.weight_saved_total ?? 0} API weight saved)`,
         `**Cache Hit Ratio:** ${cacheMetrics.hit_ratio_pct}% (${cacheMetrics.hits_total} hits / ${cacheMetrics.misses_total} misses)`,
         `**Memory Footprint:** ${resourceFootprints.heap_used_mb || 0}MB used / ${resourceFootprints.heap_total_mb || 0}MB heap`,
         `**Active Positions:** ${activeTrades.length}`,
@@ -184,14 +183,6 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
             <span className="text-dim">Cache Hit Ratio:</span>
             <span className="font-mono text-green font-bold">{cacheMetrics.hit_ratio_pct}%</span>
           </div>
-          {app.skipped_rest_metrics && (
-            <div className="flex justify-between gap-6 text-[10px]">
-              <span className="text-dim">Skipped REST (0-W):</span>
-              <span className="font-mono text-accent font-bold">
-                {app.skipped_rest_metrics.skipped_ratio_pct ?? 0}% ({app.skipped_rest_metrics.skipped_total ?? 0} skipped)
-              </span>
-            </div>
-          )}
           {breakdown && Object.keys(breakdown).length > 0 && (
             <div className="mt-1 pt-1 border-t border-border/30 flex flex-col gap-1">
               <span className="text-[8px] font-black text-dim uppercase tracking-widest">Active REST Calls</span>
@@ -319,19 +310,12 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
              </div>
            )}
 
-           <div className="grid grid-cols-3 gap-2 mt-2">
+           <div className="grid grid-cols-2 gap-4 mt-2">
               <SystemMetric
                 icon={Zap}
                 label="Calls"
                 value={app.api_requests_total ?? '---'}
                 colorClass="text-accent"
-                compact={compact}
-              />
-              <SystemMetric
-                icon={ShieldCheck}
-                label="Skipped %"
-                value={`${app.skipped_rest_metrics?.skipped_ratio_pct ?? 0}%`}
-                colorClass="text-green"
                 compact={compact}
               />
               <SystemMetric
@@ -342,30 +326,6 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
                 compact={compact}
               />
            </div>
-
-           {/* Zero-Weight Skip Telemetry Card */}
-           {app.skipped_rest_metrics && (
-             <div className="bg-surface/40 border border-border/50 rounded-xl p-2.5 flex flex-col gap-1.5 font-mono text-[9px]">
-               <div className="flex items-center justify-between text-[8px] font-black text-dim uppercase tracking-widest">
-                 <span className="flex items-center gap-1"><ShieldCheck size={10} className="text-green" /> Zero-Weight Skip Telemetry</span>
-                 <span className="text-green font-bold">{app.skipped_rest_metrics.skipped_ratio_pct ?? 0}% Skip Rate</span>
-               </div>
-               <div className="flex justify-between text-dim">
-                 <span>Skipped Macro Audits:</span>
-                 <span className="text-text font-bold">{app.skipped_rest_metrics.skipped_total || 0} ({app.skipped_rest_metrics.weight_saved_total || 0} Weight Saved)</span>
-               </div>
-               {app.skipped_rest_metrics.breakdown && Object.keys(app.skipped_rest_metrics.breakdown).length > 0 && (
-                 <div className="flex flex-col gap-0.5 pt-1 border-t border-border/20 text-[8px]">
-                   {Object.entries(app.skipped_rest_metrics.breakdown).map(([lbl, data]) => (
-                     <div key={lbl} className="flex justify-between">
-                       <span className="truncate max-w-[170px] text-dim" title={lbl}>{lbl.replace(/_/g, ' ')}:</span>
-                       <span className="text-accent font-bold">{data.count} skips ({data.weightSaved} W saved)</span>
-                     </div>
-                   ))}
-                 </div>
-               )}
-             </div>
-           )}
 
            {/* System Resource Footprints Audit Card */}
            <div className="bg-surface/40 border border-border/50 rounded-xl p-2.5 flex flex-col gap-1.5 font-mono text-[9px]">

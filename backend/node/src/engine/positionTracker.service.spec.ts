@@ -758,8 +758,8 @@ describe('PositionTrackerService', () => {
       };
       service.refreshTradeRisk(trade, false, 105, config);
 
-      expect(trade.risk_usdt).toBe(0);
-      expect(service.totalRisk()).toBe(0);
+      expect(trade.risk_usdt).toBe(100);
+      expect(service.totalRisk()).toBe(100);
 
       // Estimated PnL drops back to -50 (below breakeven 0)
       trade.exit_signals_status = {

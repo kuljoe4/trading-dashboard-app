@@ -84,6 +84,7 @@ export class BinanceClientFactory implements OnModuleInit {
         try {
           bodyMsg = await res.clone().text();
         } catch (_) {}
+        this.logger.error(`[BinanceClientFactory] [Diagnostic Error] Request failed | Label: ${label} | Status: ${res.status} | StatusText: ${res.statusText} | Body: ${bodyMsg}`);
         throw new Error(`HTTP ${res.status} (${res.statusText || 'Error'}): ${bodyMsg || res.statusText}`);
       }
       return result;
@@ -569,7 +570,8 @@ export class BinanceRequestQueue {
         } catch (error: any) {
           const duration = Date.now() - startTs;
           const msg = error.message || '';
-          const code = error.code || -1;
+          const code = error.code || (error.data ? error.data.code : null);
+          this.logger.error(`[BinanceClientFactory] [Task Error] Failed task | Label: ${item.label} | Code: ${code} | Message: ${msg}`);
           const isBan = msg.includes('418') || msg.includes('451') || code === -1003 || code === 451 || msg.includes('banned') || msg.toLowerCase().includes('restricted location') || msg.toLowerCase().includes('eligibility');
           const isRateLimit = msg.includes('429') || code === -1015;
 

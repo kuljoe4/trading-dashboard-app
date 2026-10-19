@@ -798,28 +798,37 @@ const BanBanner = ({ apiStatus }) => {
           </div>
         )}
         {isBan && (
-           <Btn
-             onClick={async () => {
-               try {
-                 await sessionAPI.clearBan();
-                 useTradingStore.setState(st => ({
-                   apiStatus: {
-                     ...st.apiStatus,
-                     isBanned: false,
-                     isRateLimited: false,
-                     banUntil: null,
-                     lastErrorMessage: null
-                   }
-                 }));
-               } catch (e) {
-                 console.error('Failed to clear ban:', e);
-               }
-             }}
-             className="w-full mt-2"
-             variant="outline"
-             size="sm">
-               Unlock
-           </Btn>
+           <div className="flex items-center gap-2 w-full mt-2">
+             <Btn
+               onClick={async () => {
+                 try {
+                   await sessionAPI.clearBan();
+                   useTradingStore.setState(st => ({
+                     apiStatus: {
+                       ...st.apiStatus,
+                       isBanned: false,
+                       isRateLimited: false,
+                       banUntil: null,
+                       lastErrorMessage: null
+                     }
+                   }));
+                 } catch (e) {
+                   console.error('Failed to clear ban:', e);
+                 }
+               }}
+               className="flex-1"
+               variant="outline"
+               size="sm">
+                 Unlock
+             </Btn>
+             <Btn
+               onClick={() => { window.location.hash = '#/settings'; }}
+               className="flex-1"
+               variant="secondary"
+               size="sm">
+                 Settings
+             </Btn>
+           </div>
         )}
       </div>
     </motion.div>
@@ -1568,8 +1577,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
   const [manualCurrentSl, setManualCurrentSl] = useState({});
 
   const strategyLabels = useMemo(() => {
-    const baseLabel = config.strategy_label || 'Momentum Strategy';
-    const variantLabels = (config.strategy_variants || [])
+    const baseLabel = config?.strategy_label || 'Momentum Strategy';
+    const variantLabels = (Array.isArray(config?.strategy_variants) ? config.strategy_variants : [])
       .filter(v => v && v.enabled !== false)
       .map((v, i) => v.strategy_label || `Variant ${i + 1}`);
     return [baseLabel, ...variantLabels];
@@ -3264,7 +3273,7 @@ export function DashboardView({ initialStrategy }) {
                 {sessionActive ? (
                   <>
                     {(() => {
-                      const activeVariants = (config.strategy_variants || []).filter(v => v.enabled !== false);
+                      const activeVariants = (Array.isArray(config?.strategy_variants) ? config.strategy_variants : []).filter(v => v && v.enabled !== false);
                       const totalCards = 1 + activeVariants.length;
                       return (
                         <>
@@ -3344,20 +3353,23 @@ export function DashboardView({ initialStrategy }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5 col-span-1 md:col-span-2">
                     <button
                       onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                      disabled={loading || isSyncing || apiStatus?.isBanned}
+                      disabled={loading || isSyncing}
                       aria-label="Create new trading strategy"
                       className={cn(
-                        "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full",
+                        "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full cursor-pointer",
                         lastSession ? "col-span-1" : "col-span-1 md:col-span-2",
-                        (loading || isSyncing || apiStatus?.isBanned) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                        (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                       )}
                     >
                       <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
                         <Plus size={20} />
                       </div>
-                      <span className="text-[11px] font-bold uppercase tracking-widest">
-                        {apiStatus?.isBanned ? 'Strategy Launch Disabled (API Ban)' : 'New Strategy'}
-                      </span>
+                      <span className="text-[11px] font-bold uppercase tracking-widest">New Strategy</span>
+                      {apiStatus?.isBanned && (
+                        <span className="text-[9px] text-amber/90 font-semibold uppercase tracking-wider">
+                          Configure Only (Launch Paused)
+                        </span>
+                      )}
                     </button>
 
                     {lastSession && (

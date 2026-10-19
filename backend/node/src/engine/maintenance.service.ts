@@ -111,6 +111,7 @@ export class MaintenanceService {
       if (hasAllCached) {
         this.monitoringService?.recordCacheHit('uds_positions');
         this.monitoringService?.recordCacheHit('uds_orders');
+        this.monitoringService?.recordSkippedRestCall('protectionWatchdog_cache_audit', 5);
         this.logger.log(`[Watchdog] Performing zero-weight WebSocket cache audit for ${uniqueSymbols.length} symbols...`);
         for (const symbol of uniqueSymbols) {
           const cachedPos = this.sessionState.realTimePositions.get(symbol);
@@ -416,11 +417,20 @@ export class MaintenanceService {
    * SRE: Performs a full audit of local state against Binance exchange state.
    * This logic was extracted from SessionService to decouple the engine from the persistence layer.
    */
-  async reconcileLiveState(running: boolean, config: SessionConfig | null) {
+  async reconcileLiveState(running: boolean, config: SessionConfig | null, forceRest = false) {
     if (!running || !config || config.paper_mode || this.isProcessingFullReconciliation) return;
 
     // SRE: Immunity check for ban status
     if (this.orderManager.isBanned()) return;
+
+    // RULE 8: Zero-Weight WebSocket-First Compliance.
+    // If UDS is connected and active during steady-state trading (forceRest is false),
+    // skip background REST polling for positionInformationV3 & openOrders.
+    if (!forceRest && this.sessionState.udsConnected) {
+      this.monitoringService?.recordSkippedRestCall('reconcileLiveState_macro_audit', 65);
+      this.logger.debug(`[Reconciliation] UDS active - skipping periodic REST macro audit (zero REST weight).`);
+      return;
+    }
 
     this.isProcessingFullReconciliation = true;
     try {

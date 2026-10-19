@@ -298,6 +298,7 @@ export class SessionLifecycleService {
   async stop(bc?: any, sid?: string, config?: SessionConfig) {
     this.running = false;
     this.isUdsConnected = false;
+    if (this.sessionState) this.sessionState.udsConnected = false;
     await this.progress("Initiating session shutdown...");
     if (this.listenKeyKeepAlive) clearInterval(this.listenKeyKeepAlive);
     if (this.udsLivenessCheck) clearInterval(this.udsLivenessCheck);
@@ -808,6 +809,7 @@ export class SessionLifecycleService {
         stream: this.listenKey,
       });
       this.isUdsConnected = true;
+      if (this.sessionState) this.sessionState.udsConnected = true;
       this.udsReconnectAttempts = 0;
       this.logger.log(`[UDS-DIAGNOSTIC] Successfully connected to stream with listenKey: ${this.listenKey?.substring(0, 5)}...`);
 
@@ -816,7 +818,7 @@ export class SessionLifecycleService {
       // SL-01: On reconnect, immediately run live state reconciliation to close any disconnect gap
       if (isReconnect && this.running && this.sessionState.config && this.maintenanceService) {
         this.logger.log("[UDS] Reconnected - executing immediate state reconciliation audit.");
-        this.maintenanceService.reconcileLiveState(this.running, this.sessionState.config).catch((err: any) => {
+        this.maintenanceService.reconcileLiveState(this.running, this.sessionState.config, true).catch((err: any) => {
           this.logger.error(`[UDS] Reconnect reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
@@ -826,6 +828,7 @@ export class SessionLifecycleService {
       currentWs.on("error", (err: any) => {
         if (this.userDataWs !== currentWs) return;
         this.isUdsConnected = false;
+        if (this.sessionState) this.sessionState.udsConnected = false;
         this.monitoringService.setUdsStatus("DISCONNECTED");
         this.logger.error(
           `User Data Stream error: ${err.message || String(err)}`,
@@ -838,6 +841,7 @@ export class SessionLifecycleService {
           return;
         }
         this.isUdsConnected = false;
+        if (this.sessionState) this.sessionState.udsConnected = false;
         this.monitoringService.setUdsStatus("DISCONNECTED");
         if (this.running) {
           this.udsReconnectAttempts++;

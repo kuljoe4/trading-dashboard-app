@@ -530,9 +530,12 @@ server.on('upgrade', (req, socket, head) => {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
       });
+    } else {
+      socket.destroy();
     }
   } catch (err) {
     console.warn('[Upgrade warning]:', err);
+    socket.destroy();
   }
 });
 
@@ -944,9 +947,7 @@ async function startServer() {
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
-        hmr: {
-          server,
-        },
+        hmr: false,
       },
       appType: 'spa',
       root: path.resolve(__dirname, 'frontend'),

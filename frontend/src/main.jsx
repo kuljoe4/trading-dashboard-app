@@ -76,6 +76,14 @@ const App = () => {
                           /failed to fetch dynamically imported module/i.test(error?.message) ||
                           /error loading dynamically imported module/i.test(error?.message);
 
+      const isWsHmrError = /createWebSocketModuleRunnerTransport/i.test(error?.message || error?.stack || '') ||
+                           /websocket/i.test(error?.message || '') ||
+                           /vite-hmr/i.test(error?.message || '');
+      if (isWsHmrError) {
+        event.preventDefault();
+        return;
+      }
+
       if (isChunkError) {
         console.error('Global chunk load error detected:', error);
         const lastReload = Number(sessionStorage.getItem('last-chunk-error-reload') || 0);

@@ -1568,8 +1568,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
   const [manualCurrentSl, setManualCurrentSl] = useState({});
 
   const strategyLabels = useMemo(() => {
-    const baseLabel = config.strategy_label || 'Momentum Strategy';
-    const variantLabels = (config.strategy_variants || [])
+    const baseLabel = config?.strategy_label || 'Momentum Strategy';
+    const variantLabels = (config?.strategy_variants || [])
       .filter(v => v && v.enabled !== false)
       .map((v, i) => v.strategy_label || `Variant ${i + 1}`);
     return [baseLabel, ...variantLabels];
@@ -1916,6 +1916,9 @@ export function DashboardView({ initialStrategy }) {
   const [confirmStop, setConfirmStop] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState(null)
   const [pausingMap, setPausingMap] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
+  const [scannerFocusLabel, setScannerFocusLabel] = useState(null)
 
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
@@ -2205,10 +2208,6 @@ export function DashboardView({ initialStrategy }) {
     return set;
   }, [config.single_symbol_configs]);
 
-
-  const [loading, setLoading] = useState(false)
-  const [showInsights, setShowInsights] = useState(false)
-
   const correlationData = useMemo(() => {
     // BOLT OPTIMIZATION: Loop-fused single-pass traversal over tradeHistory with O(1) direct branch-based
     // bucket sorting, utilizing pre-calculated numeric entry/exit milliseconds (t.entry_ts_ms, t.exit_ts_ms).
@@ -2461,7 +2460,6 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [sessionToDelete, addAlert, fetchSessions, setSyncing]);
 
-  const [scannerFocusLabel, setScannerFocusLabel] = useState(null)
   const handleOpenScanner = React.useCallback((label) => {
     setScannerFocusLabel(typeof label === 'string' ? label : null);
     setShowScanner(true);
@@ -3264,7 +3262,7 @@ export function DashboardView({ initialStrategy }) {
                 {sessionActive ? (
                   <>
                     {(() => {
-                      const activeVariants = (config.strategy_variants || []).filter(v => v.enabled !== false);
+                      const activeVariants = (config?.strategy_variants || []).filter(v => v && v.enabled !== false);
                       const totalCards = 1 + activeVariants.length;
                       return (
                         <>

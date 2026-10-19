@@ -1,0 +1,6 @@
+{
+  "summary": "Implementation plan for graceful offline fallback on Binance API ban / HTTP 451 geo-restriction without crashing backend server or blocking local API and WebSocket communications.",
+  "updatedAt": "2026-10-18T23:15:26.231395037Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

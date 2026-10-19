@@ -18,7 +18,8 @@ export const normalizeUrl = (url, forceProtocol = null) => {
 }
 
 const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_URL : undefined
-const baseURL = normalizeUrl(baseUrlEnv) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
+const isExternalStaging = baseUrlEnv && baseUrlEnv.includes('railway.app');
+const baseURL = (!isExternalStaging && normalizeUrl(baseUrlEnv)) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
 const api = axios.create({
   baseURL,
   timeout: 15000, // 15 seconds default timeout to prevent indefinite hangs
@@ -274,6 +275,7 @@ export const createSessionAPI = (apiInstance = api) => ({
   adoptPosition: (symbol, strategyLabel, initialSl, currentSl) => apiInstance.post('/session/adopt-position', { symbol, strategyLabel, initialSl, currentSl }),
   backfillKlines: (symbol, interval) => apiInstance.post('/session/backfill-klines', { symbol, interval }),
   clearBan: () => apiInstance.post('/session/clear-ban'),
+  triggerBan: (reason, untilMs) => apiInstance.post('/session/trigger-ban', { reason, untilMs }),
   backtest: (payload) => apiInstance.post('/session/backtest', {
     ...payload,
     config: sanitizeSessionConfig(payload.config || {}),

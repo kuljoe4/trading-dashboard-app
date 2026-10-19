@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
+  OnModuleDestroy,
   BadRequestException,
   NotFoundException,
   ConflictException,
@@ -46,12 +47,24 @@ import {
 } from "../models/constants";
 
 @Injectable()
-export class SessionService implements OnModuleInit {
+export class SessionService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SessionService.name);
 
   private sessionRunning = false;
   private currentSessionId: string | null = null;
   private wsBroadcaster: (data: any) => void = () => {};
+
+  // BOLT OPTIMIZATION: Non-blocking asynchronous log write queue & debounced flush
+  private logWriteQueue: Array<{
+    sessionId: string;
+    ts: string;
+    level: string;
+    msg: string;
+  }> = [];
+  private logFlushTimer: NodeJS.Timeout | null = null;
+  private isFlushingLogs = false;
+  private readonly LOG_FLUSH_INTERVAL_MS = 500;
+  private readonly LOG_FLUSH_BATCH_SIZE = 50;
 
   private analyticsCache: { data: any; ts: number } | null = null;
   private readonly CACHE_TTL_MS = 60000; // 1 minute
@@ -300,12 +313,24 @@ export class SessionService implements OnModuleInit {
     this.logger.log("SessionService initialization complete.");
   }
 
+  async onModuleDestroy() {
+    this.logger.log("SessionService destroying, flushing log queue...");
+    await this.flushLogQueue();
+  }
+
   @OnEvent(ENGINE_EVENTS.LOG_MESSAGE)
   async handleEngineLog(payload: {
     msg: string;
-    level: "info" | "warn" | "error";
+    level?: "info" | "warn" | "error";
+    channel?: string;
+    symbol?: string;
+    tradeId?: string;
   }) {
-    await this.logMessage(payload.msg, payload.level);
+    await this.logMessage(payload.msg, payload.level || "info", {
+      channel: payload.channel,
+      symbol: payload.symbol,
+      tradeId: payload.tradeId,
+    });
   }
 
   private validateTrade(trade: any): boolean {
@@ -2728,6 +2753,9 @@ export class SessionService implements OnModuleInit {
     // Reset log levels to default when session stops
     updateLogLevels(false);
 
+    // Flush any pending logs before session ends
+    await this.flushLogQueue();
+
     this.logger.log(`Stopping trading session.`);
     this.sessionRunning = false;
     this.currentSessionId = null;
@@ -2854,6 +2882,9 @@ export class SessionService implements OnModuleInit {
   }
 
   async getLogs(limit = 50) {
+    // Flush any pending logs so caller sees up-to-date entries
+    await this.flushLogQueue();
+
     let sid = this.currentSessionId;
     if (!sid) {
       const activeSession = await this.sessionRepository.findOne({
@@ -3210,16 +3241,96 @@ export class SessionService implements OnModuleInit {
     }
   }
 
-  // Add log line
-  async logMessage(msg: string, level: "info" | "warn" | "error" = "info") {
-    if (!this.currentSessionId) return;
+  // BOLT OPTIMIZATION: Non-blocking asynchronous log write buffer flush
+  async flushLogQueue(): Promise<void> {
+    if (this.logFlushTimer) {
+      clearTimeout(this.logFlushTimer);
+      this.logFlushTimer = null;
+    }
 
+    if (this.isFlushingLogs || this.logWriteQueue.length === 0) return;
+    this.isFlushingLogs = true;
+
+    try {
+      while (this.logWriteQueue.length > 0) {
+        const batch = this.logWriteQueue.splice(0, 100);
+        if (batch.length === 0) break;
+
+        await this.logRepository.insert(batch);
+
+        // Check if batch pruning is needed for any sessions in this batch
+        const uniqueSessionIds = Array.from(new Set(batch.map((b) => b.sessionId)));
+        for (const sid of uniqueSessionIds) {
+          const count = this.sessionLogCounts.get(sid) || 0;
+          if (count >= 2000) {
+            try {
+              const pruneCutoff = await this.logRepository.find({
+                select: ["id"],
+                where: { sessionId: sid },
+                order: { ts: "ASC" },
+                take: 200,
+              });
+
+              if (pruneCutoff.length > 0) {
+                const idsToDelete = pruneCutoff.map((l) => l.id);
+                await this.logRepository.delete(idsToDelete);
+                const newCount = Math.max(0, count - idsToDelete.length);
+                this.sessionLogCounts.set(sid, newCount);
+                this.logger.debug(
+                  `Batch pruned ${idsToDelete.length} oldest logs for session ${sid}. New count: ${newCount}`,
+                );
+              }
+            } catch (pruneErr: any) {
+              this.logger.error(
+                `Failed to batch prune logs for session ${sid}: ${pruneErr?.message || pruneErr}`,
+              );
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`Failed to flush log write queue: ${err?.message || err}`);
+    } finally {
+      this.isFlushingLogs = false;
+      if (this.logWriteQueue.length > 0 && !this.logFlushTimer) {
+        this.logFlushTimer = setTimeout(() => {
+          this.logFlushTimer = null;
+          void this.flushLogQueue();
+        }, this.LOG_FLUSH_INTERVAL_MS);
+        if (this.logFlushTimer.unref) this.logFlushTimer.unref();
+      }
+    }
+  }
+
+  // Add log line with optional structured context
+  async logMessage(
+    msg: string,
+    level: "info" | "warn" | "error" = "info",
+    context?: {
+      channel?: string;
+      symbol?: string;
+      tradeId?: string;
+    },
+  ) {
     // SENTINEL: Truncate message to prevent excessive database growth from oversized logs
     const safeMsg = typeof msg === 'string' ? msg : String(msg || '');
     const sanitizedMsg =
       safeMsg.length > 4000
         ? safeMsg.substring(0, 4000) + "... [truncated]"
         : safeMsg;
+
+    if (!this.currentSessionId) {
+      // UX-01: Even without active sessionId, broadcast early engine logs to UI so startup transitions aren't lost
+      this.broadcastEvent("log", {
+        msg: sanitizedMsg,
+        level,
+        channel: context?.channel,
+        symbol: context?.symbol,
+        tradeId: context?.tradeId,
+        ts: new Date().toISOString(),
+      });
+      return;
+    }
 
     // Deduplicate repeating identical logs within a short timeframe (e.g. 5 seconds)
     const now = Date.now();
@@ -3255,6 +3366,9 @@ export class SessionService implements OnModuleInit {
     this.broadcastEvent("log", {
       msg: sanitizedMsg,
       level,
+      channel: context?.channel,
+      symbol: context?.symbol,
+      tradeId: context?.tradeId,
       ts: new Date().toISOString(),
     });
 
@@ -3270,10 +3384,32 @@ export class SessionService implements OnModuleInit {
     rateLimit.count++;
     this.logRateLimits.set(sid, rateLimit);
 
-    if (rateLimit.count > 60) {
+    // UX-01: Exempt critical transition, decision, SL, exit, and lifecycle events from the 60/min throttle
+    const channel = context?.channel;
+    const isCriticalChannel =
+      channel === 'decision' ||
+      channel === 'state' ||
+      channel === 'sl_ratchet' ||
+      channel === 'exit' ||
+      channel === 'lifecycle' ||
+      channel === 'watchdog' ||
+      channel === 'order';
+
+    const isCriticalLog =
+      level === 'error' ||
+      level === 'warn' ||
+      isCriticalChannel ||
+      sanitizedMsg.includes('[Decision]') ||
+      sanitizedMsg.includes('[State]') ||
+      sanitizedMsg.includes('[SL Ratchet]') ||
+      sanitizedMsg.includes('[Exit]') ||
+      sanitizedMsg.includes('[Lifecycle]') ||
+      sanitizedMsg.includes('[Watchdog]');
+
+    if (!isCriticalLog && rateLimit.count > 60) {
       if (rateLimit.count === 61) {
         this.logger.warn(
-          `Log rate limit (60/min) exceeded for session ${sid}. Further logs suppressed.`,
+          `Log rate limit (60/min) exceeded for session ${sid}. Further routine logs suppressed.`,
         );
       }
       return;
@@ -3286,29 +3422,30 @@ export class SessionService implements OnModuleInit {
       this.sessionLogCounts.set(sid, logCount);
     }
 
-    if (logCount >= 2000) {
-      // If we already have many logs for this session, we only keep errors
-      if (level !== "error") return;
-      // For errors, we delete the oldest log before inserting a new one
-      const oldest = await this.logRepository.findOne({
-        select: ["id"],
-        where: { sessionId: sid },
-        order: { ts: "ASC" },
-      });
-      if (oldest) {
-        await this.logRepository.delete(oldest.id);
-        logCount--;
-      }
+    if (logCount >= 2000 && level !== "error") {
+      // If we already reached the cap for this session, we only keep errors
+      return;
     }
 
     this.sessionLogCounts.set(sid, logCount + 1);
 
-    await this.logRepository.insert({
+    // BOLT OPTIMIZATION: Non-blocking asynchronous log write buffer
+    this.logWriteQueue.push({
       sessionId: this.currentSessionId,
       ts: new Date().toISOString(),
       level,
       msg: sanitizedMsg,
     });
+
+    if (this.logWriteQueue.length >= this.LOG_FLUSH_BATCH_SIZE) {
+      void this.flushLogQueue();
+    } else if (!this.logFlushTimer) {
+      this.logFlushTimer = setTimeout(() => {
+        this.logFlushTimer = null;
+        void this.flushLogQueue();
+      }, this.LOG_FLUSH_INTERVAL_MS);
+      if (this.logFlushTimer.unref) this.logFlushTimer.unref();
+    }
   }
 
   /**

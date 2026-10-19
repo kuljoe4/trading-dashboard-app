@@ -844,15 +844,17 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
   }, [scannerResults, searchTerm, rangeFilter]);
 
   const handleSelect = (symbol) => {
-    if (symbol && !value.includes(symbol)) {
-      onChange([...value, symbol]);
+    const safeValue = Array.isArray(value) ? value : [];
+    if (symbol && !safeValue.includes(symbol)) {
+      onChange([...safeValue, symbol]);
     }
     setSearchTerm('');
     setIsOpen(false);
   };
 
   const handleRemove = (symbol) => {
-    onChange(value.filter(s => s !== symbol));
+    const safeValue = Array.isArray(value) ? value : [];
+    onChange(safeValue.filter(s => s !== symbol));
   };
 
   return (
@@ -993,11 +995,16 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
 WatchlistDropdownInput.displayName = 'WatchlistDropdownInput';
 
 const ListInput = React.memo(({ value, onChange, placeholder }) => {
-  const [localValue, setLocalValue] = useState(() => value?.join(', ') || '');
+  const getStr = (val) => {
+    if (Array.isArray(val)) return val.join(', ');
+    if (typeof val === 'string') return val;
+    return '';
+  };
+  const [localValue, setLocalValue] = useState(() => getStr(value));
 
   // Update local value when external value changes (e.g. on preset load)
   useEffect(() => {
-    setLocalValue(value?.join(', ') || '');
+    setLocalValue(getStr(value));
   }, [value]);
 
   const handleBlur = () => {
@@ -1555,7 +1562,7 @@ EnvironmentButton.displayName = 'EnvironmentButton'
 const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave }) => {
   const [days, setDays] = useState(14);
   const [startingBalance, setStartingBalance] = useState(10000);
-  const [symbolText, setSymbolSearchText] = useState(() => (cfg.symbols && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
+  const [symbolText, setSymbolSearchText] = useState(() => (Array.isArray(cfg?.symbols) && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : typeof cfg?.symbols === 'string' ? cfg.symbols : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
   const [useGlobalScanner, setUseGlobalScanner] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
@@ -2118,6 +2125,12 @@ const flattenConfig = (config) => {
       engulfing_sequential: config.engulfing_sequential !== false,
       required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
       required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
+      exit_signals: Array.isArray(config.exit_signals) ? config.exit_signals : [],
+      enabled_signals: Array.isArray(config.enabled_signals) ? config.enabled_signals : [],
+      symbols: Array.isArray(config.symbols) ? config.symbols : [],
+      trading_windows: Array.isArray(config.trading_windows) ? config.trading_windows : [],
+      single_symbol_configs: Array.isArray(config.single_symbol_configs) ? config.single_symbol_configs : [],
+      strategy_variants: Array.isArray(config.strategy_variants) ? config.strategy_variants : [],
       reject_entry_if_sl_exceeds_max: config.reject_entry_if_sl_exceeds_max !== false,
       htf_ema_cross_boost_enabled: config.htf_ema_cross_boost_enabled !== false,
       htf_ema_cross_interval: config.htf_ema_cross_interval || '4h',
@@ -2230,14 +2243,15 @@ const coerceAndSanitizeConfig = (rawConfig) => {
   }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
     sessionActive: state.sessionActive,
     lifetimeAnalytics: state.lifetimeAnalytics,
-    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
+    apiStatus: state.apiStatus,
   }));
 
   const presetSearchInputRef = useRef(null);
@@ -2542,7 +2556,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleToggleRequiredEntry = React.useCallback((sigKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentReq = prev.required_signals || [];
+      const currentReq = Array.isArray(prev.required_signals) ? prev.required_signals : [];
       const isReq = currentReq.includes(sigKey);
       const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
       return { ...prev, required_signals: nextReq };
@@ -2552,7 +2566,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleToggleRequiredExit = React.useCallback((sigKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentReq = prev.required_exit_signals || [];
+      const currentReq = Array.isArray(prev.required_exit_signals) ? prev.required_exit_signals : [];
       const isReq = currentReq.includes(sigKey);
       const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
       return { ...prev, required_exit_signals: nextReq };
@@ -2563,7 +2577,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev };
-      const currentExitSignals = prev.exit_signals || [];
+      const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
 
       if (active) {
         // Toggling OFF: remove base signal AND all its chained layers
@@ -2607,7 +2621,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleAddLayer = React.useCallback((baseKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentExitSignals = prev.exit_signals || [];
+      const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
       let suffixNum = 2;
       while (currentExitSignals.includes(`${baseKey}_${suffixNum}`)) {
         suffixNum++;
@@ -2638,7 +2652,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       return {
         ...prev,
-        exit_signals: (prev.exit_signals || []).filter(sig => sig !== layerKey),
+        exit_signals: (Array.isArray(prev.exit_signals) ? prev.exit_signals : []).filter(sig => sig !== layerKey),
         exit_signal_delays: nextDelays,
         exit_signal_actions: nextActions,
         signal_timeframes: nextTimeframes
@@ -2671,7 +2685,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev };
-      const currentEntrySignals = prev.enabled_signals || [];
+      const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
 
       if (active) {
         next.enabled_signals = currentEntrySignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
@@ -2694,7 +2708,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleAddEntryLayer = React.useCallback((baseKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentEntrySignals = prev.enabled_signals || [];
+      const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
       let suffixNum = 2;
       while (currentEntrySignals.includes(`${baseKey}_${suffixNum}`)) {
         suffixNum++;
@@ -5429,14 +5443,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
              </Tooltip>
            </div>
         </div>
-        <Btn variant="primary" loading={loading} onClick={() => {
-          if (validate(cfg)) {
-             onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
-             sessionStorage.removeItem('config_draft');
-             setIsDirty(false);
-          }
-        }} className="w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs">
-          {isEdit ? 'Apply Changes' : 'Start Session'}
+        <Btn
+          variant="primary"
+          loading={loading}
+          disabled={loading || (!isEdit && apiStatus?.isBanned)}
+          onClick={() => {
+            if (!isEdit && apiStatus?.isBanned) {
+              addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
+              return;
+            }
+            if (validate(cfg)) {
+               onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
+               sessionStorage.removeItem('config_draft');
+               setIsDirty(false);
+            }
+          }}
+          className={cn(
+            "w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs",
+            !isEdit && apiStatus?.isBanned && "opacity-50 cursor-not-allowed"
+          )}
+        >
+          {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : 'Start Session')}
           {isDirty && <span className="w-1 h-1 rounded-full bg-accent animate-pulse" />}
         </Btn>
       </div>

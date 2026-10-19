@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from "@nestjs/common";
+import { Injectable, Logger, Inject, forwardRef, Optional } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Settings as SettingsEntity } from "../models/entities/Settings.entity";
@@ -26,6 +26,7 @@ import {
 import { ENGINE_CONSTANTS, EXIT_REASONS } from "../models/constants";
 
 import { LifecycleDiagnosticService } from './lifecycle-diagnostic.service';
+import { MaintenanceService } from './maintenance.service';
 
 @Injectable()
 export class SessionLifecycleService {
@@ -59,6 +60,9 @@ export class SessionLifecycleService {
     private readonly broadcastService: BroadcastService,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
+    @Optional()
+    @Inject(forwardRef(() => MaintenanceService))
+    private readonly maintenanceService?: MaintenanceService,
   ) {}
 
   private async progress(msg: string, level: "info" | "warn" = "info") {
@@ -822,6 +826,14 @@ export class SessionLifecycleService {
       this.logger.log(`[UDS-DIAGNOSTIC] Successfully connected to stream with listenKey: ${this.listenKey?.substring(0, 5)}...`);
 
       this.monitoringService.setUdsStatus("CONNECTED");
+
+      // SL-01: On reconnect, immediately run live state reconciliation to close any disconnect gap
+      if (isReconnect && this.running && this.sessionState.config && this.maintenanceService) {
+        this.logger.log("[UDS] Reconnected - executing immediate state reconciliation audit.");
+        this.maintenanceService.reconcileLiveState(this.running, this.sessionState.config).catch((err: any) => {
+          this.logger.error(`[UDS] Reconnect reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
 
       const currentWs = this.userDataWs;
 

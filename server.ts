@@ -115,6 +115,12 @@ const state = {
   totalPnl: 0,
   totalRiskPct: 0,
   totalSlUsed: 0,
+  apiStatus: {
+    isBanned: false,
+    isRateLimited: false,
+    banUntil: null as number | null,
+    lastErrorMessage: null as string | null,
+  },
   activeTrades: [] as any[],
   tradeHistory: [
     {
@@ -365,6 +371,7 @@ function getStatusSnapshot() {
     scannerResults: opps,
     logs: state.logs,
     config: state.config,
+    apiStatus: state.apiStatus,
     rateLimit: {
       used_weight_1m: 14,
       order_count_10s: 0,
@@ -513,8 +520,24 @@ setInterval(() => {
 
 // WebSocket handling
 const wss = new WebSocketServer({
-  server,
-  path: '/session/ws',
+  noServer: true,
+});
+
+server.on('upgrade', (req, socket, head) => {
+  try {
+    const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+    if (url.pathname === '/session/ws') {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        wss.emit('connection', ws, req);
+      });
+    }
+  } catch (err) {
+    console.warn('[Upgrade warning]:', err);
+  }
+});
+
+wss.on('error', (err: any) => {
+  console.warn('[WebSocketServer warning]:', err?.message || err);
 });
 
 function broadcast(data: any) {
@@ -560,6 +583,10 @@ function broadcastTick() {
 wss.on('connection', (ws: any) => {
   ws.isAlive = true;
   ws.isActive = true;
+
+  ws.on('error', (err: any) => {
+    console.warn('[Client WebSocket warning]:', err?.message || err);
+  });
 
   ws.on('pong', () => {
     ws.isAlive = true;
@@ -611,7 +638,44 @@ app.get('/session/status', (req, res) => {
   res.json(getStatusSnapshot());
 });
 
+app.post('/session/clear-ban', (req, res) => {
+  state.apiStatus = {
+    isBanned: false,
+    isRateLimited: false,
+    banUntil: null,
+    lastErrorMessage: null,
+  };
+  addLog('API Ban / Rate limit restrictions cleared manually.');
+  const snapshot = getStatusSnapshot();
+  broadcast({ type: 'status', ...snapshot });
+  broadcast({ type: 'api_status', ...state.apiStatus });
+  res.json({ success: true, apiStatus: state.apiStatus });
+});
+
+app.post('/session/trigger-ban', (req, res) => {
+  const { reason, untilMs } = req.body || {};
+  const until = untilMs ? Date.now() + Number(untilMs) : Date.now() + 24 * 3600 * 1000;
+  state.apiStatus = {
+    isBanned: true,
+    isRateLimited: false,
+    banUntil: until,
+    lastErrorMessage: reason || "Service unavailable from a restricted location according to 'b. Eligibility' in https://www.binance.com/en/terms (HTTP 451)",
+  };
+  addLog(`API Ban / Geo-restriction triggered: ${state.apiStatus.lastErrorMessage}`);
+  const snapshot = getStatusSnapshot();
+  broadcast({ type: 'status', ...snapshot });
+  broadcast({ type: 'api_status', ...state.apiStatus });
+  res.json({ success: true, apiStatus: state.apiStatus });
+});
+
 app.post('/session/start', (req, res) => {
+  if (state.apiStatus.isBanned) {
+    return res.status(403).json({
+      success: false,
+      message: 'Cannot start session while API Ban / Geo-restriction is active. Automatic trading requests are disabled.',
+      apiStatus: state.apiStatus,
+    });
+  }
   const { config, sessionId } = req.body || {};
   state.sessionActive = true;
   state.sessionPaused = false;
@@ -878,7 +942,12 @@ async function startServer() {
 
   if (!isProd) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: {
+          server,
+        },
+      },
       appType: 'spa',
       root: path.resolve(__dirname, 'frontend'),
     });
@@ -890,6 +959,18 @@ async function startServer() {
       res.sendFile(path.resolve(distPath, 'index.html'));
     });
   }
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Server] Port ${port} is in use; retrying in 1s...`);
+      setTimeout(() => {
+        server.close();
+        server.listen(port, '0.0.0.0');
+      }, 1000);
+    } else {
+      console.error('[Server Error]:', err);
+    }
+  });
 
   server.listen(port, '0.0.0.0', () => {
     console.log(`✨ Momentum Engine server listening on http://0.0.0.0:${port}`);

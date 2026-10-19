@@ -94,15 +94,12 @@ const App = () => {
   useEffect(() => {
     let active = true;
 
-    async function initAuthWithRetry(attempt = 1, maxAttempts = 4, delay = 1000) {
+    async function initAuthWithRetry(attempt = 1, maxAttempts = 12, delay = 800) {
       if (!active) return;
-      console.log(`[Auth] Fetching auth config (Attempt ${attempt}/${maxAttempts})...`);
       try {
-        // Enforce a hard 5-second timeout on each config check
         const res = await api.get('/auth/config', { timeout: 5000 });
         if (!active) return;
 
-        console.log(`[Auth] Auth config fetched successfully on attempt ${attempt}`);
         if (res.data.adminApiKey) {
           setAdminApiKey(res.data.adminApiKey);
         } else {
@@ -112,20 +109,12 @@ const App = () => {
         if (!active) return;
         if (e.code === 'ERR_CANCELED') return;
 
-        const isTimeout = e.code === 'ECONNABORTED' || e.message?.toLowerCase().includes('timeout');
-        console.warn(
-          `[Auth] Attempt ${attempt}/${maxAttempts} failed. ` +
-          `Error: ${e.message || String(e)}. ` +
-          `Type: ${isTimeout ? 'Timeout' : 'Network/Server Error'}.`
-        );
-
         if (attempt < maxAttempts) {
-          console.log(`[Auth] Retrying in ${delay}ms...`);
+          const nextDelay = Math.min(delay, 2500);
           setTimeout(() => {
-            initAuthWithRetry(attempt + 1, maxAttempts, delay * 2);
-          }, delay);
+            initAuthWithRetry(attempt + 1, maxAttempts, Math.min(nextDelay * 1.5, 3000));
+          }, nextDelay);
         } else {
-          console.error(`[Auth] All ${maxAttempts} attempts exhausted. Proceeding with fallback resolution.`);
           initializeAuth();
         }
       }
@@ -235,7 +224,9 @@ const App = () => {
 
     const controller = new AbortController();
 
-    async function checkStatus() {
+    let retryTimer = null;
+
+    async function checkStatus(retryCount = 0) {
       try {
         const res = await sessionAPI.status({ signal: controller.signal });
         if (controller.signal.aborted) return;
@@ -248,8 +239,6 @@ const App = () => {
         } else if (currentState.sessionActive) {
           // BOLT: Defensive Termination Guard.
           // Only force clear if the backend is DEFINITIVELY stopped.
-          // If the backend request failed or returned empty but we were running, we trust our persisted state
-          // until the next polling cycle or WebSocket heartbeat confirm otherwise.
           if (res.data.status === 'stopped' || res.data.running === false) {
              console.log("[App] Backend confirmed session stopped. Clearing local session state.");
              setSessionActive(false, null);
@@ -268,7 +257,15 @@ const App = () => {
         });
       } catch (e) {
         if (!controller.signal.aborted && e.name !== 'CanceledError' && e.code !== 'ERR_CANCELED') {
-          console.error("Failed to fetch session status", e);
+          if (retryCount < 8) {
+            retryTimer = setTimeout(() => {
+              if (!controller.signal.aborted) {
+                checkStatus(retryCount + 1);
+              }
+            }, 1500);
+          } else {
+            console.error("Failed to fetch session status", e);
+          }
         }
       }
     }
@@ -329,8 +326,10 @@ const App = () => {
 
 const container = document.getElementById('root');
 if (container) {
-  const root = createRoot(container);
-  root.render(
+  if (!container._reactRoot) {
+    container._reactRoot = createRoot(container);
+  }
+  container._reactRoot.render(
     <ErrorBoundary>
       <App />
     </ErrorBoundary>

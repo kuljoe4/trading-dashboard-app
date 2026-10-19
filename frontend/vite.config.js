@@ -8,6 +8,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    hmr: false,
     proxy: {
       '/session': { target, ws: true, changeOrigin: true },
       '/settings': { target, changeOrigin: true },

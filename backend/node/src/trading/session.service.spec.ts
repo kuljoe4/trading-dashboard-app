@@ -592,45 +592,87 @@ describe('SessionService Validation', () => {
   });
 
   describe('logMessage rate limiting', () => {
+    beforeEach(() => {
+      mockLogRepository.insert.mockClear();
+      mockLogRepository.count.mockClear();
+      mockLogRepository.delete.mockClear();
+      mockLogRepository.find.mockClear();
+      (service as any).logRateLimits.clear();
+      (service as any).recentLogs.clear();
+      (service as any).sessionLogCounts.clear();
+      (service as any).logWriteQueue = [];
+      (service as any).isFlushingLogs = false;
+      if ((service as any).logFlushTimer) {
+        clearTimeout((service as any).logFlushTimer);
+        (service as any).logFlushTimer = null;
+      }
+    });
+
     it('should rate limit logs per minute', async () => {
       (service as any).currentSessionId = 'session-123';
-      const insertSpy = mockLogRepository.insert;
+      (service as any).logWriteQueue = [];
+      const flushSpy = jest.spyOn(service as any, 'flushLogQueue').mockResolvedValue(undefined);
 
       // Send 60 logs
       for (let i = 0; i < 60; i++) {
         await (service as any).logMessage(`log ${i}`);
       }
-      expect(insertSpy).toHaveBeenCalledTimes(60);
+
+      // Await flush
+      await (service as any).flushLogQueue();
+
+      // Check total inserted in all calls to insert
+      let totalInserted = 0;
+      for (const call of insertSpy.mock.calls) {
+        totalInserted += call[0].length;
+      }
+      expect(totalInserted).toBe(60);
+
+      insertSpy.mockClear();
 
       // Send 61st log - should be rate limited
       await (service as any).logMessage('log 61');
-      expect(insertSpy).toHaveBeenCalledTimes(60);
+      await (service as any).flushLogQueue();
+
+      let newInserted = 0;
+      for (const call of insertSpy.mock.calls) {
+        newInserted += call[0].length;
+      }
+      expect(newInserted).toBe(0);
     });
 
     it('should use in-memory counter for 2000 log cap', async () => {
       (service as any).currentSessionId = 'session-cap';
+      (service as any).logWriteQueue = [];
+      const flushSpy = jest.spyOn(service as any, 'flushLogQueue').mockResolvedValue(undefined);
 
       // Mock initial count
       mockLogRepository.count.mockResolvedValue(1999);
 
       // 1st log - should pass and increment to 2000
       await (service as any).logMessage('log 1');
+      await (service as any).flushLogQueue();
+
       expect(mockLogRepository.insert).toHaveBeenCalled();
       expect(mockLogRepository.count).toHaveBeenCalledTimes(1);
 
       // 2nd log (info) - should be blocked by cap
       jest.clearAllMocks();
       await (service as any).logMessage('log 2', 'info');
+      await (service as any).flushLogQueue();
       expect(mockLogRepository.insert).not.toHaveBeenCalled();
-      // Should NOT call count() again
+      // Should NOT call count() again since it's cached in memory
       expect(mockLogRepository.count).not.toHaveBeenCalled();
 
-      // 3rd log (error) - should trigger deletion and insertion
+      // 3rd log (error) - should pass and trigger pruning because logCount >= 2000
       jest.clearAllMocks();
-      mockLogRepository.findOne.mockResolvedValue({ id: 'old-log' });
+      mockLogRepository.find.mockResolvedValue([{ id: 'old-log-1' }]);
+
       await (service as any).logMessage('log 3', 'error');
-      expect(mockLogRepository.delete).toHaveBeenCalledWith('old-log');
+      await (service as any).flushLogQueue();
+
       expect(mockLogRepository.insert).toHaveBeenCalled();
+      expect(mockLogRepository.delete).toHaveBeenCalledWith(['old-log-1']);
       expect(mockLogRepository.count).not.toHaveBeenCalled();
     });
   });

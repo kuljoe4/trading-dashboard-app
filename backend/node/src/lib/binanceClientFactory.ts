@@ -568,6 +568,8 @@ export class BinanceRequestQueue {
           item.resolve(result);
         } catch (error: any) {
           const duration = Date.now() - startTs;
+          const msg = error.message || '';
+          const code = error.code || (error.data ? error.data.code : null);
           const isBan = msg.includes('418') || msg.includes('451') || code === -1003 || code === 451 || msg.includes('banned') || msg.toLowerCase().includes('restricted location') || msg.toLowerCase().includes('eligibility');
           const isRateLimit = msg.includes('429') || code === -1015;
 

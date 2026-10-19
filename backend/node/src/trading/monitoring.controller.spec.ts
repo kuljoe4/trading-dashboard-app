@@ -30,6 +30,8 @@ describe('MonitoringController', () => {
           useValue: {
             getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 100, weight_limit: 2400 }),
             config: {},
+            isBanned: jest.fn().mockReturnValue(false),
+            apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
           },
         },
         {
@@ -89,6 +91,97 @@ describe('MonitoringController', () => {
       const res = controller.getReadiness(mockRequest('127.0.0.1'));
       expect(res.status).toBe('READY');
       expect(res.uds).toBe('CONNECTED');
+    });
+
+    it('should throttle /healthz/binance if rate limit is exceeded', async () => {
+      jest.spyOn(throttle, 'isGeneralRateLimited').mockReturnValueOnce(true);
+      await expect(controller.getBinanceHealth(mockRequest('127.0.0.1'))).rejects.toThrow(
+        new HttpException('Too Many Requests', HttpStatus.TOO_MANY_REQUESTS)
+      );
+    });
+
+    it('should return healthy connection status when Binance endpoints respond with 200', async () => {
+      jest.spyOn(throttle, 'isGeneralRateLimited').mockReturnValue(false);
+      jest.spyOn(controller as any, 'probeBinanceEndpoint').mockImplementation(async (url: any) => ({
+        url,
+        accessible: true,
+        status_code: 200,
+        latency_ms: 35,
+        geo_restricted: false,
+        ip_banned: false,
+        rate_limited: false,
+        error: null,
+      }));
+
+      const res = await controller.getBinanceHealth(mockRequest('127.0.0.1'));
+      expect(res.status).toBe('ok');
+      expect(res.geo_restricted).toBe(false);
+      expect(res.live.accessible).toBe(true);
+      expect(res.testnet.accessible).toBe(true);
+      expect(res.diagnostics.some(d => d.includes('Binance Live Futures API is reachable'))).toBe(true);
+    });
+
+    it('should diagnose geo-restriction when Binance returns HTTP 451 or 403', async () => {
+      jest.spyOn(throttle, 'isGeneralRateLimited').mockReturnValue(false);
+      // Force fresh check to bypass cache
+      const freshRequest = { ...mockRequest('127.0.0.1'), query: { fresh: 'true' } } as any;
+
+      jest.spyOn(controller as any, 'probeBinanceEndpoint').mockImplementation(async (url: any) => {
+        if (url.includes('fapi.binance.com')) {
+          return {
+            url,
+            accessible: false,
+            status_code: 451,
+            latency_ms: 25,
+            geo_restricted: true,
+            ip_banned: false,
+            rate_limited: false,
+            error: 'HTTP 451: Service unavailable from a restricted location',
+          };
+        }
+        return {
+          url,
+          accessible: true,
+          status_code: 200,
+          latency_ms: 50,
+          geo_restricted: false,
+          ip_banned: false,
+          rate_limited: false,
+          error: null,
+        };
+      });
+
+      const res = await controller.getBinanceHealth(freshRequest);
+      expect(res.status).toBe('restricted');
+      expect(res.geo_restricted).toBe(true);
+      expect(res.live.geo_restricted).toBe(true);
+      expect(res.diagnostics.some(d => d.includes('Geo-restriction detected'))).toBe(true);
+      expect(res.diagnostics.some(d => d.includes('Configure a Proxy URL'))).toBe(true);
+      expect(res.diagnostics.some(d => d.includes('Testnet API is reachable'))).toBe(true);
+    });
+
+    it('should return cached result when within cache TTL', async () => {
+      jest.spyOn(throttle, 'isGeneralRateLimited').mockReturnValue(false);
+      const probeSpy = jest.spyOn(controller as any, 'probeBinanceEndpoint').mockImplementation(async (url: any) => ({
+        url,
+        accessible: true,
+        status_code: 200,
+        latency_ms: 40,
+        geo_restricted: false,
+        ip_banned: false,
+        rate_limited: false,
+        error: null,
+      }));
+
+      // First call (populates cache)
+      const res1 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: { fresh: 'true' } } as any);
+      expect(res1.cached).toBe(false);
+      expect(probeSpy).toHaveBeenCalledTimes(2); // live + testnet
+
+      // Second call (hits cache)
+      const res2 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: {} } as any);
+      expect(res2.cached).toBe(true);
+      expect(probeSpy).toHaveBeenCalledTimes(2); // no additional calls
     });
   });
 });

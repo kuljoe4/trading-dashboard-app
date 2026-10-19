@@ -95,6 +95,8 @@ describe('Session Logs & REST Endpoint Unit Tests', () => {
     });
 
     it('queues logs asynchronously and does not block with immediate insert', async () => {
+      // Stub flushLogQueue to test async queueing without executing the immediate test environment flush
+      const flushSpy = jest.spyOn(service as any, 'flushLogQueue').mockResolvedValue(undefined);
       await service.logMessage('Trade entered BTCUSDT', 'info', { channel: 'order', symbol: 'BTCUSDT' });
 
       // In-memory queue has 1 item
@@ -108,6 +110,7 @@ describe('Session Logs & REST Endpoint Unit Tests', () => {
       expect(mockLogRepo.insert).not.toHaveBeenCalled();
 
       // Flush queue manually
+      flushSpy.mockRestore();
       await service.flushLogQueue();
       expect(mockLogRepo.insert).toHaveBeenCalledTimes(1);
       expect(mockLogRepo.insert).toHaveBeenCalledWith(

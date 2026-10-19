@@ -816,7 +816,7 @@ export class SessionLifecycleService {
       // SL-01: On reconnect, immediately run live state reconciliation to close any disconnect gap
       if (isReconnect && this.running && this.sessionState.config && this.maintenanceService) {
         this.logger.log("[UDS] Reconnected - executing immediate state reconciliation audit.");
-        this.maintenanceService.reconcileLiveState(this.running, this.sessionState.config).catch((err: any) => {
+        this.maintenanceService.reconcileLiveState(this.running, this.sessionState.config, true).catch((err: any) => {
           this.logger.error(`[UDS] Reconnect reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
         });
       }

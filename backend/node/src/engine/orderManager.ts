@@ -2004,7 +2004,7 @@ export class OrderManagerService {
             });
          }
 
-         if (!rollbackSucceeded && !this.paperMode) {
+         if (!rollbackSuccess && !this.paperMode) {
            // SL-02 P0: Emergency close trade if both placement and rollback fail to prevent naked capital exposure
            this.logger.error(`[SL Ratchet] EMERGENCY TRIGGER: Position for ${trade.symbol} is naked and unprotected after SL replacement & rollback failure. Initiating emergency closeTrade.`);
            this.eventEmitter.emit(ENGINE_EVENTS.ALERT, {

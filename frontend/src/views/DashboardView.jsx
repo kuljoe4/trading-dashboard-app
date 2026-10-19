@@ -1577,8 +1577,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
   const [manualCurrentSl, setManualCurrentSl] = useState({});
 
   const strategyLabels = useMemo(() => {
-    const baseLabel = config.strategy_label || 'Momentum Strategy';
-    const variantLabels = (config.strategy_variants || [])
+    const baseLabel = config?.strategy_label || 'Momentum Strategy';
+    const variantLabels = (Array.isArray(config?.strategy_variants) ? config.strategy_variants : [])
       .filter(v => v && v.enabled !== false)
       .map((v, i) => v.strategy_label || `Variant ${i + 1}`);
     return [baseLabel, ...variantLabels];
@@ -3273,7 +3273,7 @@ export function DashboardView({ initialStrategy }) {
                 {sessionActive ? (
                   <>
                     {(() => {
-                      const activeVariants = (config.strategy_variants || []).filter(v => v.enabled !== false);
+                      const activeVariants = (Array.isArray(config?.strategy_variants) ? config.strategy_variants : []).filter(v => v && v.enabled !== false);
                       const totalCards = 1 + activeVariants.length;
                       return (
                         <>

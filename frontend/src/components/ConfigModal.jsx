@@ -2350,8 +2350,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const partitionedPresets = useMemo(() => {
     const searchLower = presetSearch.toLowerCase().trim();
-    const filtered = presets.filter(p =>
-      !searchLower || p.name.toLowerCase().includes(searchLower)
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const filtered = safePresets.filter(p =>
+      p && p.name && (!searchLower || p.name.toLowerCase().includes(searchLower))
     );
 
     const active = [];
@@ -2490,14 +2491,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     try {
       console.log('[ConfigModal] Loading presets...');
       const res = await presetsAPI.list();
-      if (res && res.data) {
-        setPresets(res.data);
-        console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
-      } else {
-        console.warn('[ConfigModal] No presets data returned from API.');
-      }
+      const rawList = Array.isArray(res?.data)
+        ? res.data
+        : (Array.isArray(res?.data?.presets) ? res.data.presets : (Array.isArray(res) ? res : []));
+      setPresets(rawList);
+      console.log(`[ConfigModal] Loaded ${rawList.length} presets.`);
     } catch (e) {
       console.error('[ConfigModal] Error loading presets:', e);
+      setPresets([]);
       if (addAlert) {
         addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
       }
@@ -2972,8 +2973,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const presetLabel = p.name || p.config?.strategy_label;
 
     // Deduplicate: If promoting preset "X" to base, strip any matching variant entry from strategy_variants
-    const existingVariants = cfg.strategy_variants || [];
-    const filteredVariants = existingVariants.filter(v => v.strategy_label !== p.name);
+    const existingVariants = Array.isArray(cfg?.strategy_variants) ? cfg.strategy_variants : [];
+    const filteredVariants = existingVariants.filter(v => v && v.strategy_label !== p.name);
     const wasDeduplicated = existingVariants.length !== filteredVariants.length;
 
     const cleanedConfig = {
@@ -3016,7 +3017,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     try {
       setIsDeleting(true);
       await presetsAPI.delete(name);
-      setPresets(prev => prev.filter(p => p.name !== name));
+      setPresets(prev => (Array.isArray(prev) ? prev : []).filter(p => p && p.name !== name));
 
       // Clear active preset/loaded references if the deleted preset was active/loaded
       if (loadedPresetName === name) {
@@ -3031,7 +3032,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       // Automatically prune this configuration from active variants to prevent it from bleeding into new sessions
       setCfg(prev => {
-        const variants = (prev.strategy_variants || []).filter(v => v.strategy_label !== name);
+        const variants = (Array.isArray(prev?.strategy_variants) ? prev.strategy_variants : []).filter(v => v && v.strategy_label !== name);
         return {
           ...prev,
           strategy_variants: variants
@@ -3203,15 +3204,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleSelectAllPresets = React.useCallback(() => {
-    if (selectedPresetNames.size === presets.length) {
+    const safePresets = Array.isArray(presets) ? presets : [];
+    if (selectedPresetNames.size === safePresets.length) {
       setSelectedPresetNames(new Set());
     } else {
-      setSelectedPresetNames(new Set(presets.map(p => p.name)));
+      setSelectedPresetNames(new Set(safePresets.map(p => p?.name).filter(Boolean)));
     }
   }, [presets, selectedPresetNames]);
 
   const handleCopySelectedPresets = React.useCallback(async () => {
-    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const selected = safePresets.filter(p => p && selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       await navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
@@ -3222,7 +3225,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [presets, selectedPresetNames, addAlert]);
 
   const handleExportSelectedPresets = React.useCallback(() => {
-    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const selected = safePresets.filter(p => p && selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected, null, 2));

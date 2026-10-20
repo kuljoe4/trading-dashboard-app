@@ -570,25 +570,29 @@ export class BinanceRequestQueue {
           const duration = Date.now() - startTs;
           const msg = error.message || '';
           const code = error.code || -1;
-          const isBan = msg.includes('418') || msg.includes('451') || code === -1003 || code === 451 || msg.includes('banned') || msg.toLowerCase().includes('restricted location') || msg.toLowerCase().includes('eligibility');
+          const isGeo = msg.includes('451') || code === 451 || msg.toLowerCase().includes('restricted location') || msg.toLowerCase().includes('eligibility');
+          const isBan = !isGeo && (msg.includes('418') || code === -1003 || msg.includes('banned'));
           const isRateLimit = msg.includes('429') || code === -1015;
 
           if (this.sessionState?.config?.track_binance_rate_limits !== false) {
             this.monitoringService?.recordRestCall(item.label, duration, BinanceRequestQueue.currentWeight1m, 'error', msg);
           }
 
-          // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418, -1003)
-          if (isBan || isRateLimit) {
-            this.logger.fatal(`[CRITICAL] API request failed with ${isBan ? 'BAN' : 'RATE_LIMIT'} status (${msg}). Entering Terminal Lock.`);
+          // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418, -1003) or Geo-Restriction (451)
+          if (isBan || isRateLimit || isGeo) {
+            if (isGeo) {
+              this.logger.error(`[CRITICAL] API request rejected due to Regional Geo-Restriction (HTTP 451). Host IP is in a blocked jurisdiction. Configure a Proxy URL or switch to Testnet/Paper mode.`);
+            } else {
+              this.logger.fatal(`[CRITICAL] API request failed with ${isBan ? 'BAN' : 'RATE_LIMIT'} status (${msg}). Entering Terminal Lock.`);
+            }
 
             // BOLT: Ensure wasBanned recovery logic in executeRollover works by setting sentinel weight
             if (isBan) {
                BinanceRequestQueue.currentWeight1m = 9999;
             }
 
-            // RESEARCH-01: Instead of process.exit(1), implement a long sleep to break boot loops and allow UI visibility.
-            // Exiting causes Railway to immediately restart, leading to a "hammering" effect that can prolong bans.
-            let until = Date.now() + 60000; // 1m default for rate limit
+            // Short 60s cooldown for rate limits or geo-restriction so proxy configuration can be tested promptly
+            let until = Date.now() + 60000;
 
             if (isBan) {
                // SRE: Attempt to extract absolute ban timestamp from message: "banned until (\d+)"
@@ -602,14 +606,14 @@ export class BinanceRequestQueue {
                } else if (error.headers && error.headers['retry-after']) {
                  until = Date.now() + (parseInt(error.headers['retry-after'], 10) * 1000);
                } else {
-                 until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for ban
+                 until = Date.now() + (24 * 60 * 60 * 1000); // 24h fallback for real IP ban
                }
             }
             BinanceRequestQueue.setCooldownUntil(until);
 
             this.eventEmitter.emit('binance.api_limit_reached', {
-                type: isBan ? 'BAN' : 'RATE_LIMIT',
-                message: msg,
+                type: isBan ? 'BAN' : (isGeo ? 'BAN' : 'RATE_LIMIT'),
+                message: isGeo ? `Regional Geo-Restriction (HTTP 451): Host IP is blocked by Binance. Configure a Proxy URL.` : msg,
                 until
             });
 

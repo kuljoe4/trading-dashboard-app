@@ -2350,8 +2350,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const partitionedPresets = useMemo(() => {
     const searchLower = presetSearch.toLowerCase().trim();
-    const filtered = presets.filter(p =>
-      !searchLower || p.name.toLowerCase().includes(searchLower)
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const filtered = safePresets.filter(p =>
+      p && typeof p.name === 'string' && (!searchLower || p.name.toLowerCase().includes(searchLower))
     );
 
     const active = [];
@@ -2490,14 +2491,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     try {
       console.log('[ConfigModal] Loading presets...');
       const res = await presetsAPI.list();
-      if (res && res.data) {
-        setPresets(res.data);
-        console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
+      let rawData = res?.data;
+      if (rawData && !Array.isArray(rawData)) {
+        if (Array.isArray(rawData.presets)) {
+          rawData = rawData.presets;
+        } else if (Array.isArray(rawData.data)) {
+          rawData = rawData.data;
+        }
+      }
+      if (Array.isArray(rawData)) {
+        const validPresets = rawData.filter(p => p && typeof p === 'object' && typeof p.name === 'string');
+        setPresets(validPresets);
+        console.log(`[ConfigModal] Loaded ${validPresets.length} presets.`);
       } else {
-        console.warn('[ConfigModal] No presets data returned from API.');
+        console.warn('[ConfigModal] Presets response is not an array:', res?.data);
+        setPresets([]);
       }
     } catch (e) {
       console.error('[ConfigModal] Error loading presets:', e);
+      setPresets([]);
       if (addAlert) {
         addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
       }
@@ -2928,8 +2940,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (res && res.data) {
         console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
         setPresets(prev => {
-          const nextPresets = [...prev.filter(p => p.name !== name), res.data];
-          return nextPresets.sort((a, b) => a.name.localeCompare(b.name));
+          const safePrev = Array.isArray(prev) ? prev : [];
+          const savedPreset = res.data?.preset || res.data;
+          if (!savedPreset || typeof savedPreset !== 'object' || !savedPreset.name) {
+            return safePrev;
+          }
+          const nextPresets = [...safePrev.filter(p => p && p.name !== name), savedPreset];
+          return nextPresets.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         });
         setPresetName('');
         setLoadedPresetName(name);
@@ -3016,7 +3033,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     try {
       setIsDeleting(true);
       await presetsAPI.delete(name);
-      setPresets(prev => prev.filter(p => p.name !== name));
+      setPresets(prev => (Array.isArray(prev) ? prev.filter(p => p && p.name !== name) : []));
 
       // Clear active preset/loaded references if the deleted preset was active/loaded
       if (loadedPresetName === name) {
@@ -3203,15 +3220,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleSelectAllPresets = React.useCallback(() => {
-    if (selectedPresetNames.size === presets.length) {
+    const safePresets = Array.isArray(presets) ? presets : [];
+    if (selectedPresetNames.size === safePresets.length && safePresets.length > 0) {
       setSelectedPresetNames(new Set());
     } else {
-      setSelectedPresetNames(new Set(presets.map(p => p.name)));
+      setSelectedPresetNames(new Set(safePresets.filter(p => p && p.name).map(p => p.name)));
     }
   }, [presets, selectedPresetNames]);
 
   const handleCopySelectedPresets = React.useCallback(async () => {
-    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const selected = safePresets.filter(p => p && p.name && selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       await navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
@@ -3222,7 +3241,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [presets, selectedPresetNames, addAlert]);
 
   const handleExportSelectedPresets = React.useCallback(() => {
-    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const selected = safePresets.filter(p => p && p.name && selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected, null, 2));
@@ -5199,7 +5219,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       onClick={handleSelectAllPresets}
                       className="px-2.5 py-2 text-[11px] font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
                     >
-                      <Check size={12} /> {selectedPresetNames.size === presets.length && presets.length > 0 ? "Deselect All" : "Select All"}
+                      <Check size={12} /> {selectedPresetNames.size === (Array.isArray(presets) ? presets.length : 0) && (Array.isArray(presets) ? presets.length : 0) > 0 ? "Deselect All" : "Select All"}
                     </Btn>
                   </Tooltip>
                 </div>
@@ -5240,7 +5260,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               )}
 
-              {presets.length === 0 ? (
+              {(!Array.isArray(presets) || presets.length === 0) ? (
                 <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
                   <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
                   <div className="text-xs font-bold text-dim uppercase">No saved presets</div>

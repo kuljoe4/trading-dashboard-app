@@ -79,19 +79,22 @@ export class ExecutionService {
     this.lastChecklistLogTs = now;
 
     const isLive = !config.paper_mode;
-    const isBanned = isLive && this.sessionState.isBanned();
+    const isBanned = isLive && (this.sessionState.isBanned() || this.sessionState.isGeoBlocked());
 
-    // 1. Active Ban Checklist Warning
+    // 1. Active Ban / Geo-Restriction Checklist Warning
     if (isBanned) {
+      const isGeo = this.sessionState.isGeoBlocked();
       const banUntilStr = this.sessionState.apiStatus.banUntil
         ? new Date(this.sessionState.apiStatus.banUntil).toLocaleTimeString()
         : 'unknown';
-      const banMsg = `⚠️ [Prerequisite Warning] Active Binance IP Ban detected until ${banUntilStr}! Exit monitoring and SL ratcheting are PAUSED in Live/Testnet mode. Active positions: ${activeTrades.map(t => t.symbol).join(', ')}`;
+      const banMsg = isGeo
+        ? `⚠️ [Prerequisite Warning] Binance Regional Geo-Restriction (HTTP 451) active! Entries and ratcheting are PAUSED. Configure proxy or switch mode. Active positions: ${activeTrades.map(t => t.symbol).join(', ')}`
+        : `⚠️ [Prerequisite Warning] Active Binance IP Ban detected until ${banUntilStr}! Exit monitoring and SL ratcheting are PAUSED in Live/Testnet mode. Active positions: ${activeTrades.map(t => t.symbol).join(', ')}`;
       this.logger.warn(banMsg);
       this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: banMsg, level: 'warn' });
       this.broadcastService.broadcast('alert', {
         level: 'warning',
-        title: 'Exit Monitoring Paused (IP Ban)',
+        title: isGeo ? 'Execution Paused (Geo-Restricted)' : 'Exit Monitoring Paused (IP Ban)',
         message: banMsg,
       });
     }
@@ -271,11 +274,12 @@ export class ExecutionService {
 
     const now = Date.now();
 
-    // BOLT: Global Ban Guard. If the system is banned, skip processing all entries
-    // to save CPU and avoid redundant signal/risk evaluations.
-    if (!config.paper_mode && this.sessionState.isBanned()) {
+    // BOLT: Global Ban / Geo-Restriction Guard. If the system is banned or geo-blocked, skip processing all entries
+    // to save CPU, avoid rejected orders, and fail closed safely.
+    if (!config.paper_mode && (this.sessionState.isBanned() || this.sessionState.isGeoBlocked())) {
       if (now - this.lastBanLogTs > 60000) {
-        this.logger.warn(`Execution pipeline gated: Active IP ban detected. Resuming in ${Math.ceil((this.sessionState.apiStatus.banUntil! - now) / 1000)}s.`);
+        const isGeo = this.sessionState.isGeoBlocked();
+        this.logger.warn(`Execution pipeline gated: ${isGeo ? 'Regional Geo-Restriction active (HTTP 451)' : 'Active IP ban detected'}. New entries are blocked.`);
         this.lastBanLogTs = now;
       }
       return;

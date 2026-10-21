@@ -79,14 +79,22 @@ async function bootstrap() {
   const { httpAdapter } = app.get(HttpAdapterHost);
   app.useGlobalFilters(new AllExceptionsFilter(app.get(HttpAdapterHost)));
 
-  const allowedOrigins = configService
+  const configuredOrigins = configService
     .get<string>("ALLOWED_ORIGINS")
     ?.split(",")
-    .map((o) => o.trim()) || [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "*.up.railway.app",
-  ];
+    .map((o) => o.trim())
+    .filter(Boolean);
+
+  const pinnedFrontend = configService.get<string>("FRONTEND_URL")
+    || (process.env.RAILWAY_STATIC_URL ? `https://${process.env.RAILWAY_STATIC_URL}` : undefined);
+
+  const allowedOrigins = configuredOrigins && configuredOrigins.length > 0
+    ? configuredOrigins
+    : [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        ...(pinnedFrontend ? [pinnedFrontend] : []),
+      ];
 
   const nodeEnv = configService.get<string>("NODE_ENV");
   const serverLogger = new Logger("Server");
@@ -168,8 +176,6 @@ async function bootstrap() {
   });
 
   await app.init();
-  // Enable graceful shutdown hooks for NestJS
-  app.enableShutdownHooks();
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);

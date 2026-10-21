@@ -1881,15 +1881,12 @@ export class OrderManagerService {
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean, price?: number }> {
     const activeConfig = trade.strategy_config || this.sessionState.config;
     if (activeConfig?.trailing_execution_mode === "local") {
-      // SL-04: If local trailing mode is active and an exchange stop-order exists, cancel it so it doesn't trigger at an outdated price
-      if (trade.binance_stop_order_id && !this.paperMode && this.binanceClient) {
-        this.logger.log(`[SL Ratchet] Local trailing mode active for ${trade.symbol}. Canceling exchange SL ${trade.binance_stop_order_id} to prevent desync trigger.`);
-        const oldStopId = trade.binance_stop_order_id;
-        const oldStopType = trade.binance_stop_order_type || 'standard';
-        trade.binance_stop_order_id = undefined;
-        trade.binance_stop_order_type = undefined;
-        this.cancelBinanceOrder(trade.symbol, oldStopId, oldStopType).catch(err => {
-          this.logger.warn(`[SL Ratchet] Failed to cancel exchange SL on transition to local mode: ${err instanceof Error ? err.message : String(err)}`);
+      // P0 Capital Safety: In local trailing mode, keep a wide disaster STOP_MARKET on the exchange at initial_sl
+      // so in-process crashes, redeploys, or bans never leave the position unprotected.
+      if (!trade.binance_stop_order_id && !this.paperMode && this.binanceClient && trade.initial_sl) {
+        this.logger.log(`[SL Ratchet] Placing disaster fallback exchange SL for ${trade.symbol} @ ${trade.initial_sl}`);
+        this.placeStopLoss(trade, Number(trade.initial_sl)).catch(err => {
+          this.logger.warn(`[SL Ratchet] Failed to place disaster exchange SL in local mode: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
       return { success: true, price: newSlPrice };
@@ -1899,9 +1896,19 @@ export class OrderManagerService {
     const filteredNewSl = this.applyFilters(trade.symbol, newSlPrice, trade.qty, { skipNotionalCheck: true, clampToPercentPrice: true });
 
     // Prevent duplicate placement if tick-rounded price matches existing SL exactly
-    if (Number(trade.current_sl) === filteredNewSl.price) {
+    const currentSlNum = Number(trade.current_sl);
+    if (currentSlNum === filteredNewSl.price) {
       this.logger.debug(`[SL Ratchet] Skipped replacement for ${trade.symbol}: Filtered new SL (${filteredNewSl.price}) is identical to current SL.`);
       return { success: true, price: filteredNewSl.price };
+    }
+
+    // Minimum-move guard: Apply a minimum 0.01% price delta guard before replacing SL orders to minimize order-count rate limit pressure
+    if (currentSlNum > 0) {
+      const priceDeltaPct = (Math.abs(filteredNewSl.price - currentSlNum) / currentSlNum) * 100;
+      if (priceDeltaPct < 0.01) {
+        this.logger.debug(`[SL Ratchet] Skipped replacement for ${trade.symbol}: Filtered new SL (${filteredNewSl.price}) delta from current SL (${currentSlNum}) is ${priceDeltaPct.toFixed(4)}%, below 0.01% guard.`);
+        return { success: true, price: currentSlNum };
+      }
     }
 
     // SRE: Mutex guard to prevent concurrent overlapping ratchets

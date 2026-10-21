@@ -616,7 +616,7 @@ export class SessionConfig {
 
   @IsEnum(['exchange', 'local', 'native'])
   @IsOptional()
-  trailing_execution_mode?: 'exchange' | 'local' | 'native' = 'local';
+  trailing_execution_mode?: 'exchange' | 'local' | 'native' = 'exchange';
 
   @IsBoolean()
   @IsOptional()

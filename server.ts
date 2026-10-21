@@ -624,15 +624,6 @@ setInterval(() => {
   });
 }, 30000);
 
-// API Endpoints
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-app.get('/healthz', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
 let cachedBinanceHealth: { result: any; ts: number } | null = null;
 const BINANCE_HEALTH_TTL_MS = 10000;
 
@@ -691,99 +682,133 @@ async function probeBinanceRest(url: string, timeoutMs = 4000) {
   }
 }
 
-app.get(['/healthz/binance', '/health/binance'], async (req, res) => {
-  try {
-    const isFresh = req.query?.fresh === 'true' || req.query?.fresh === '1';
-    if (!isFresh && cachedBinanceHealth && Date.now() - cachedBinanceHealth.ts < BINANCE_HEALTH_TTL_MS) {
-      return res.json({ ...cachedBinanceHealth.result, cached: true });
+async function getBinanceHealthStatus(isFresh = false) {
+  if (!isFresh && cachedBinanceHealth && Date.now() - cachedBinanceHealth.ts < BINANCE_HEALTH_TTL_MS) {
+    return { ...cachedBinanceHealth.result, cached: true };
+  }
+
+  const proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || null;
+  const [live, testnet] = await Promise.all([
+    probeBinanceRest('https://fapi.binance.com/fapi/v1/ping'),
+    probeBinanceRest('https://testnet.binancefuture.com/fapi/v1/ping'),
+  ]);
+
+  const isGeo = live.geo_restricted || testnet.geo_restricted;
+  const isBanned = !!state.apiStatus.isBanned;
+  const isRateLimited = !!state.apiStatus.isRateLimited;
+
+  let overallStatus: 'ok' | 'degraded' | 'restricted' | 'error' = 'ok';
+  if (isGeo) {
+    overallStatus = 'restricted';
+  } else if (!live.accessible && !testnet.accessible) {
+    overallStatus = 'error';
+  } else if (!live.accessible || !testnet.accessible || isBanned || isRateLimited) {
+    overallStatus = 'degraded';
+  }
+
+  const diagnostics: string[] = [];
+  if (live.geo_restricted) {
+    diagnostics.push(
+      `CRITICAL: Geo-restriction detected on Binance Live Futures API (HTTP ${live.status_code}). Host IP is located in a restricted jurisdiction.`
+    );
+    if (proxyUrl) {
+      diagnostics.push(
+        `Proxy is configured (${proxyUrl.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@')}), but live traffic is still restricted. Verify proxy exit node location.`
+      );
+    } else {
+      diagnostics.push(
+        'Fallback remedy: Configure a Proxy URL in Settings (or set PROXY_URL environment variable) to route requests via an allowed region.'
+      );
     }
+  } else if (live.accessible) {
+    diagnostics.push(`Binance Live Futures API is reachable (latency: ${live.latency_ms}ms).`);
+  } else {
+    diagnostics.push(`Binance Live Futures API unreachable: ${live.error || 'Connection failed'}.`);
+  }
 
-    const proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || null;
-    const [live, testnet] = await Promise.all([
-      probeBinanceRest('https://fapi.binance.com/fapi/v1/ping'),
-      probeBinanceRest('https://testnet.binancefuture.com/fapi/v1/ping'),
-    ]);
-
-    const isGeo = live.geo_restricted || testnet.geo_restricted;
-    const isBanned = !!state.apiStatus.isBanned;
-    const isRateLimited = !!state.apiStatus.isRateLimited;
-
-    let overallStatus: 'ok' | 'degraded' | 'restricted' | 'error' = 'ok';
-    if (isGeo) {
-      overallStatus = 'restricted';
-    } else if (!live.accessible && !testnet.accessible) {
-      overallStatus = 'error';
-    } else if (!live.accessible || !testnet.accessible || isBanned || isRateLimited) {
-      overallStatus = 'degraded';
-    }
-
-    const diagnostics: string[] = [];
+  if (testnet.geo_restricted) {
+    diagnostics.push(`Binance Testnet is also geo-restricted (HTTP ${testnet.status_code}).`);
+  } else if (testnet.accessible) {
+    diagnostics.push(`Binance Testnet Futures API is reachable (latency: ${testnet.latency_ms}ms).`);
     if (live.geo_restricted) {
       diagnostics.push(
-        `CRITICAL: Geo-restriction detected on Binance Live Futures API (HTTP ${live.status_code}). Host IP is located in a restricted jurisdiction.`
+        'Fallback option: Testnet API is reachable. You can switch session trading_mode to "testnet" or "paper" while resolving live connectivity.'
       );
-      if (proxyUrl) {
-        diagnostics.push(
-          `Proxy is configured (${proxyUrl.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@')}), but live traffic is still restricted. Verify proxy exit node location.`
-        );
-      } else {
-        diagnostics.push(
-          'Fallback remedy: Configure a Proxy URL in Settings (or set PROXY_URL environment variable) to route requests via an allowed region.'
-        );
-      }
-    } else if (live.accessible) {
-      diagnostics.push(`Binance Live Futures API is reachable (latency: ${live.latency_ms}ms).`);
-    } else {
-      diagnostics.push(`Binance Live Futures API unreachable: ${live.error || 'Connection failed'}.`);
     }
+  } else {
+    diagnostics.push(`Binance Testnet Futures API unreachable: ${testnet.error || 'Connection failed'}.`);
+  }
 
-    if (testnet.geo_restricted) {
-      diagnostics.push(`Binance Testnet is also geo-restricted (HTTP ${testnet.status_code}).`);
-    } else if (testnet.accessible) {
-      diagnostics.push(`Binance Testnet Futures API is reachable (latency: ${testnet.latency_ms}ms).`);
-      if (live.geo_restricted) {
-        diagnostics.push(
-          'Fallback option: Testnet API is reachable. You can switch session trading_mode to "testnet" or "paper" while resolving live connectivity.'
-        );
-      }
-    } else {
-      diagnostics.push(`Binance Testnet Futures API unreachable: ${testnet.error || 'Connection failed'}.`);
-    }
+  if (isBanned) {
+    diagnostics.push('CRITICAL: Host IP is currently marked BANNED by Binance (HTTP 418).');
+  }
+  if (isRateLimited) {
+    diagnostics.push('WARNING: Host is currently rate limited by Binance (HTTP 429).');
+  }
 
-    if (isBanned) {
-      diagnostics.push('CRITICAL: Host IP is currently marked BANNED by Binance (HTTP 418).');
-    }
-    if (isRateLimited) {
-      diagnostics.push('WARNING: Host is currently rate limited by Binance (HTTP 429).');
-    }
+  const result = {
+    status: overallStatus,
+    timestamp: new Date().toISOString(),
+    geo_restricted: isGeo,
+    live,
+    testnet,
+    uds_status: state.running ? 'CONNECTED' : 'DISCONNECTED',
+    ip_status: {
+      is_banned: isBanned,
+      is_rate_limited: isRateLimited,
+      ban_until: state.apiStatus.banUntil,
+      last_error_message: state.apiStatus.lastErrorMessage,
+    },
+    proxy: {
+      configured: !!proxyUrl,
+      proxy_url: proxyUrl ? proxyUrl.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@') : null,
+      routing: proxyUrl ? 'proxy' : 'direct',
+    },
+    rate_limit: {
+      used_1m: (state as any).rateLimit?.used_weight_1m || 0,
+      weight_limit: 2400,
+    },
+    diagnostics,
+    cached: false,
+  };
 
-    const result = {
-      status: overallStatus,
+  cachedBinanceHealth = { result, ts: Date.now() };
+  return result;
+}
+
+// Minimal probe for internal container liveness checks
+app.get('/healthz/liveness', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Primary health check endpoints - returns full system & Binance status
+app.get(['/health', '/healthz'], async (req, res) => {
+  try {
+    const isFresh = req.query?.fresh === 'true' || req.query?.fresh === '1';
+    const binanceHealth = await getBinanceHealthStatus(isFresh);
+    res.json({
+      status: binanceHealth.status === 'error' ? 'degraded' : 'ok',
+      service: 'online',
       timestamp: new Date().toISOString(),
-      geo_restricted: isGeo,
-      live,
-      testnet,
-      uds_status: state.running ? 'CONNECTED' : 'DISCONNECTED',
-      ip_status: {
-        is_banned: isBanned,
-        is_rate_limited: isRateLimited,
-        ban_until: state.apiStatus.banUntil,
-        last_error_message: state.apiStatus.lastErrorMessage,
+      binance: binanceHealth,
+      endpoints: {
+        binance_details: '/healthz/binance',
+        binance_health_alias: '/health/binance',
+        liveness: '/healthz/liveness',
+        session_status: '/session/status',
+        websocket: '/session/ws',
       },
-      proxy: {
-        configured: !!proxyUrl,
-        proxy_url: proxyUrl ? proxyUrl.replace(/:\/\/([^:]+):([^@]+)@/, '://$1:***@') : null,
-        routing: proxyUrl ? 'proxy' : 'direct',
-      },
-      rate_limit: {
-        used_1m: (state as any).rateLimit?.used_weight_1m || 0,
-        weight_limit: 2400,
-      },
-      diagnostics,
-      cached: false,
-    };
+    });
+  } catch (err: any) {
+    res.status(500).json({ status: 'error', error: err?.message || String(err) });
+  }
+});
 
-    cachedBinanceHealth = { result, ts: Date.now() };
+// Dedicated Binance connection diagnostic endpoints
+app.get(['/healthz/binance', '/health/binance', '/binance/health'], async (req, res) => {
+  try {
+    const isFresh = req.query?.fresh === 'true' || req.query?.fresh === '1';
+    const result = await getBinanceHealthStatus(isFresh);
     res.json(result);
   } catch (err: any) {
     res.status(500).json({

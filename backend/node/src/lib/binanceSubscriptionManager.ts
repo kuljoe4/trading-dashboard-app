@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import WebSocket from 'ws';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 export interface SubscriptionRequest {
   id: number;
@@ -38,6 +39,7 @@ export class BinanceSubscriptionManager {
     private readonly wsUrl: string,
     private readonly options: {
       isTestnet: boolean;
+      proxyUrl?: string;
       onMessage: (data: any) => void;
       isBanned?: () => boolean;
       onBan?: (msg: string) => void;
@@ -59,9 +61,11 @@ export class BinanceSubscriptionManager {
 
     return new Promise((resolve, reject) => {
       this.logger.log(`[SubscriptionManager] Connecting to ${this.wsUrl}`);
+      const agent = this.options.proxyUrl ? new HttpsProxyAgent(this.options.proxyUrl) : undefined;
       const ws = new WebSocket(this.wsUrl, {
         handshakeTimeout: 15000,
         perMessageDeflate: false,
+        agent,
         // Live Futures market-data WS (fstream.binance.com) requires browser-like
         // headers from some network vantage points; without them Binance accepts
         // the connection + SUBSCRIBE ACK but delivers ZERO data frames. Testnet

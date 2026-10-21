@@ -46,8 +46,8 @@ server {
 
     location /health {
         access_log off;
-        add_header Content-Type text/plain;
-        return 200 "OK";
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok","service":"frontend","message":"Frontend is healthy. For Binance connectivity & geo-restriction diagnostics, check backend /health or /healthz/binance"}';
     }
 }
 EOF_NGINX

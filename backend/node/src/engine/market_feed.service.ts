@@ -59,6 +59,7 @@ export class MarketFeedService {
   private currentConfig: SessionConfig | null = null;
   private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
   private currentIsTestnet = false;
+  private currentProxyUrl?: string;
   private restSeedInFlight = false;
 
   private lastMiniTickerMsgTs = 0;
@@ -123,14 +124,22 @@ export class MarketFeedService {
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
     const restBase = isTestnet
-        ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
 
     this.currentRestBase = restBase;
     this.currentIsTestnet = isTestnet;
 
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (settings?.proxy_url) this.currentProxyUrl = settings.proxy_url.trim();
+    } catch (_) {}
+    if (!this.currentProxyUrl) {
+      this.currentProxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
+    }
+
     const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     // Discovery Managers initialization is now deferred to startGlobalDiscovery
@@ -253,7 +262,7 @@ export class MarketFeedService {
       } else {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
         const response = await this.binanceClientFactory.genericRequest(
-          () => fetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) }),
+          () => this.binanceClientFactory.proxyFetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
           'exchangeInformation',
           true // Metadata is critical for boot
         );
@@ -389,7 +398,7 @@ export class MarketFeedService {
       const url = `${restBase}/fapi/v1/ticker/24hr`;
       this.logger.log(`[MarketFeed] Seeding TickerCache from REST market data (${url})...`);
       const response = await this.binanceClientFactory.genericRequest(
-        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
         'ticker24hrPriceChangeStatistics',
         false // Throttled, one-time critical seed
       );
@@ -847,7 +856,7 @@ export class MarketFeedService {
     // The classic /stream endpoint is starved by Binance from many IP ranges, and the
     // SUBSCRIBE method is not served on /market/stream, so URL-param subscription is required.
     const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     // RAW DISCOVERY FALLBACK (Citadel Protocol 2026): When the primary global aggregate streams
@@ -877,6 +886,7 @@ export class MarketFeedService {
         wsUrl,
         {
             isTestnet,
+            proxyUrl: this.currentProxyUrl,
             onMessage: (data) => this.processStreamMessage(data),
             isBanned: () => this.sessionState.isBanned(),
             onBan: (msg) => {
@@ -1041,7 +1051,7 @@ export class MarketFeedService {
 
     // We will use the standard `/stream` endpoint to support live SUBSCRIBE/UNSUBSCRIBE payload and avoid connection drops
     const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     const allStreams: string[] = [];
@@ -1094,6 +1104,7 @@ export class MarketFeedService {
         wsBaseMarket,
         {
             isTestnet,
+            proxyUrl: this.currentProxyUrl,
             onMessage: (data) => this.processStreamMessage(data),
             isBanned: () => this.sessionState.isBanned(),
             onBan: (msg) => {
@@ -1315,7 +1326,7 @@ export class MarketFeedService {
     } else {
       const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
       const response = await this.binanceClientFactory.genericRequest(
-        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
         'klineCandlestickData'
       );
       if (response.ok) {
@@ -1418,7 +1429,7 @@ export class MarketFeedService {
       } else {
         const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
         const response = await this.binanceClientFactory.genericRequest(
-          () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+          () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
           'klineCandlestickData'
         );
         if (!response.ok) return;

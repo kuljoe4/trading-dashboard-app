@@ -8,6 +8,7 @@ import { ApiKeyGuard } from '../lib/api-key.guard';
 import { Request } from 'express';
 import { extractIp, isGeneralRateLimited } from '../lib/throttle';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { ENGINE_CONSTANTS } from '../models/constants';
 import https from 'https';
 
 export interface BinanceProbeResult {
@@ -65,17 +66,21 @@ export class MonitoringController {
    * Avoids 404 when visiting the backend service root domain directly
    */
   @Get()
-  getRoot() {
+  async getRoot(@Req() req: Request) {
+    const binance = await this.getBinanceHealth(req).catch(() => null);
     return {
       name: 'Momentum Trading Engine API',
       status: 'online',
       version: '1.0.0',
       timestamp: new Date().toISOString(),
       service: 'backend',
+      binance: binance || { status: 'unknown' },
       endpoints: {
         health: '/health',
         binance_health: '/healthz/binance',
+        binance_health_alias: '/health/binance',
         readiness: '/healthz/readiness',
+        liveness: '/healthz/liveness',
         session_status: '/session/status',
         websocket: '/session/ws',
       },
@@ -91,15 +96,29 @@ export class MonitoringController {
 
   /**
    * SRE: Health check endpoint (Railway & orchestrators)
+   * Returns full system health including live Binance connectivity status.
    */
   @Get('health')
-  getHealth(@Req() req: Request) {
-    return this.getLiveness(req);
+  async getHealth(@Req() req: Request) {
+    const binance = await this.getBinanceHealth(req);
+    return {
+      status: binance.status === 'error' ? 'degraded' : 'ok',
+      service: 'online',
+      timestamp: new Date().toISOString(),
+      binance,
+      endpoints: {
+        binance_details: '/healthz/binance',
+        binance_health_alias: '/health/binance',
+        liveness: '/healthz/liveness',
+        session_status: '/session/status',
+        websocket: '/session/ws',
+      },
+    };
   }
 
   @Get('healthz')
-  getHealthz(@Req() req: Request) {
-    return this.getLiveness(req);
+  async getHealthz(@Req() req: Request) {
+    return this.getHealth(req);
   }
 
   /**
@@ -158,7 +177,7 @@ export class MonitoringController {
    * specifically detecting geo-restriction blocks (HTTP 451/403) and providing
    * actionable fallback diagnostics.
    */
-  @Get('healthz/binance')
+  @Get(['healthz/binance', 'health/binance', 'binance/health'])
   async getBinanceHealth(@Req() req: Request): Promise<BinanceHealthStatus> {
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
     if (isGeneralRateLimited(clientIp)) {
@@ -166,7 +185,18 @@ export class MonitoringController {
     }
 
     const query = (req as any)?.query;
-    const isFresh = query?.fresh === 'true' || query?.fresh === '1';
+    let isFresh = query?.fresh === 'true' || query?.fresh === '1';
+
+    // SRE: Fresh probes hit external exchange networks and consume rate limit weight.
+    // Require API key authorization to bypass the cache.
+    if (isFresh) {
+      const authHeader = (req.headers['x-api-key'] || req.headers['authorization']) as string | undefined;
+      const token = authHeader?.replace(/^Bearer\s+/i, '');
+      const expectedKey = process.env.ADMIN_API_KEY || process.env.API_KEY;
+      if (!token || !expectedKey || token !== expectedKey) {
+        throw new HttpException('Unauthorized: Valid API key required for live network check (fresh=1)', HttpStatus.UNAUTHORIZED);
+      }
+    }
 
     // Serve cached result if within TTL to protect IP weight & keep endpoint lightweight
     if (!isFresh && this.cachedBinanceHealth && (Date.now() - this.cachedBinanceHealth.ts < MonitoringController.CACHE_TTL_MS)) {
@@ -189,10 +219,10 @@ export class MonitoringController {
       proxyUrl = process.env.HTTPS_PROXY.trim();
     }
 
-    // Probe both Live and Testnet endpoints concurrently
+    // Probe both Live and Testnet endpoints concurrently using standardized constants
     const [liveProbe, testnetProbe] = await Promise.all([
-      this.probeBinanceEndpoint('https://fapi.binance.com/fapi/v1/ping', proxyUrl),
-      this.probeBinanceEndpoint('https://testnet.binancefuture.com/fapi/v1/ping', null),
+      this.probeBinanceEndpoint(`${ENGINE_CONSTANTS.BINANCE_REST_BASE}/fapi/v1/ping`, proxyUrl),
+      this.probeBinanceEndpoint(`${ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL}/fapi/v1/ping`, null),
     ]);
 
     const isGeoRestricted = liveProbe.geo_restricted || testnetProbe.geo_restricted;

@@ -1125,7 +1125,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     try {
       const isTestnet = mode === "testnet";
       const restBase = isTestnet
-        ? "https://testnet.binancefuture.com"
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
       await this.marketFeed.fetchExchangeInfo(restBase);
     } catch (e) {

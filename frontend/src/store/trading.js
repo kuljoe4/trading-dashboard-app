@@ -380,7 +380,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
   activeTrades: [], logs: [], logLimit: 50, logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
-  apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
+  apiStatus: { isBanned: false, isRateLimited: false, isGeoBlocked: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
   entryCount: 0, hitCount: 0,

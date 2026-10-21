@@ -33,11 +33,13 @@ export class SessionStateService {
   public apiStatus: {
     isBanned: boolean;
     isRateLimited: boolean;
+    isGeoBlocked?: boolean;
     banUntil: number | null;
     lastErrorMessage: string | null;
   } = {
     isBanned: false,
     isRateLimited: false,
+    isGeoBlocked: false,
     banUntil: null,
     lastErrorMessage: null
   };
@@ -360,6 +362,7 @@ export class SessionStateService {
     this.apiStatus = {
       isBanned: false,
       isRateLimited: false,
+      isGeoBlocked: false,
       banUntil: null,
       lastErrorMessage: null
     };
@@ -368,24 +371,26 @@ export class SessionStateService {
 
   @OnEvent('binance.api_limit_reached')
   handleApiLimitReached(payload: {
-    type?: 'BAN' | 'RATE_LIMIT';
+    type?: 'BAN' | 'RATE_LIMIT' | 'GEO_BLOCKED';
     message?: string;
     until?: number;
     banUntil?: number;
     reason?: string;
   }) {
-    const isBan = payload.type ? (payload.type === 'BAN') : true;
+    const isGeo = payload.type === 'GEO_BLOCKED';
+    const isBan = payload.type ? (payload.type === 'BAN') : !isGeo;
     const isRateLimit = payload.type ? (payload.type === 'RATE_LIMIT') : false;
     const until = payload.until !== undefined ? payload.until : payload.banUntil;
     const message = payload.message !== undefined ? payload.message : payload.reason;
 
     this.apiStatus.isBanned = isBan;
     this.apiStatus.isRateLimited = isRateLimit;
+    this.apiStatus.isGeoBlocked = isGeo;
     this.apiStatus.banUntil = until || null;
     this.apiStatus.lastErrorMessage = message || null;
 
     const untilStr = until && !isNaN(until) ? new Date(until).toISOString() : 'unknown';
-    this.logger.warn(`[SessionState] Centralized ban event received: Until ${untilStr}, Reason: ${message}`);
+    this.logger.warn(`[SessionState] Centralized ${isGeo ? 'geo-restriction' : 'ban'} event received: Until ${untilStr}, Reason: ${message}`);
   }
 
   updateOrderRateLimits(headers: any | null, limits?: { limit10s?: number, limit1m?: number }) {
@@ -419,8 +424,12 @@ export class SessionStateService {
     }
   }
 
+  isGeoBlocked(): boolean {
+    return !!this.apiStatus.isGeoBlocked;
+  }
+
   isRateLimited(threshold = 0.8): boolean {
-    if (this.isBanned()) return true;
+    if (this.isBanned() || this.isGeoBlocked()) return true;
     const used = this.binanceRateLimit.used_1m;
     const limit = this.binanceRateLimit.limit;
     return (used / limit) > threshold;

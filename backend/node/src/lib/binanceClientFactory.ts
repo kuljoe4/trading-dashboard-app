@@ -7,6 +7,9 @@ import {
 } from '@binance/derivatives-trading-usds-futures';
 import { Injectable, Logger, Inject, forwardRef, OnModuleInit, Optional } from '@nestjs/common';
 import WebSocket from 'ws';
+import https from 'https';
+import http from 'http';
+import { URL } from 'url';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -34,33 +37,130 @@ export class BinanceClientFactory implements OnModuleInit {
     // SRE: Proactive Clock Synchronization Check (Citadel Vector 6).
     // Drift of >1000ms makes signed requests invalid or vulnerable to replay.
     try {
-      const start = Date.now();
-      // SENTINEL: Use genericRequest to ensure clock sync respects IP reputation and rate limits.
-      const response = await this.genericRequest(
-        () => fetch(`${DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL}/fapi/v1/time`, {
-          signal: AbortSignal.timeout(5000)
-        }),
-        'getServerTime',
-        true // Critical for boot but still throttled
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      let proxyUrl: string | undefined = undefined;
+      let isTestnet = false;
+      try {
+        const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+        if (settings?.proxy_url) proxyUrl = settings.proxy_url.trim();
+        if (settings?.testnet || (settings as any)?.trading_mode === 'testnet') isTestnet = true;
+      } catch (_) {}
+      if (!proxyUrl) {
+        proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
       }
-      const data = (await response.json()) as { serverTime: number };
-      const end = Date.now();
-      const serverTime = data.serverTime;
-      const localTime = (start + end) / 2;
-      const drift = Math.abs(localTime - serverTime);
 
-      if (drift > 1000) {
-        this.logger.fatal(`[CRITICAL] System clock drift detected: ${drift.toFixed(0)}ms. Execution at risk. [Weight: 1]`);
+      const baseUrl = isTestnet
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL
+        : (process.env.BINANCE_REST_BASE || ENGINE_CONSTANTS.BINANCE_REST_BASE);
+      const start = Date.now();
+      const response = await this.proxyFetch(`${baseUrl}/fapi/v1/time`, {
+        signal: AbortSignal.timeout(5000)
+      }, proxyUrl);
+
+      if (response && response.ok) {
+        const data = (await response.json()) as { serverTime: number };
+        const end = Date.now();
+        const serverTime = data.serverTime;
+        const localTime = (start + end) / 2;
+        const drift = Math.abs(localTime - serverTime);
+
+        if (drift > 1000) {
+          this.logger.fatal(`[CRITICAL] System clock drift detected: ${drift.toFixed(0)}ms. Execution at risk. [Weight: 1]`);
+        } else {
+          this.logger.log(`[Clock] System synchronized with Binance engine. Drift: ${drift.toFixed(0)}ms [Weight: 1]`);
+        }
+      } else if (response && (response.status === 451 || response.status === 403)) {
+        this.logger.warn(`[Clock] System time check returned HTTP ${response.status} (Geo-Restriction / Blocked). Host IP may be blocked. Configure proxy_url in Settings. Non-fatal for startup.`);
       } else {
-        this.logger.log(`[Clock] System synchronized with Binance engine. Drift: ${drift.toFixed(0)}ms [Weight: 1]`);
+        this.logger.warn(`[Clock] System time check returned HTTP ${response?.status || 'unknown'}. Non-fatal for startup.`);
       }
     } catch (e) {
-      this.logger.warn(`[Clock] Failed to verify system time synchronization: ${e instanceof Error ? e.message : String(e)}`);
+      this.logger.warn(`[Clock] Failed to verify system time synchronization: ${e instanceof Error ? e.message : String(e)}. Non-fatal.`);
     }
+
+    // Periodically re-verify clock synchronization in background (every 15 min, non-fatal)
+    const periodicTimer = setInterval(async () => {
+      try {
+        let pUrl: string | undefined = undefined;
+        let testnetMode = false;
+        try {
+          const s = await this.settingsRepository.findOne({ where: { id: 'default' } });
+          if (s?.proxy_url) pUrl = s.proxy_url.trim();
+          if (s?.testnet || (s as any)?.trading_mode === 'testnet') testnetMode = true;
+        } catch (_) {}
+        const bUrl = testnetMode ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL : (process.env.BINANCE_REST_BASE || ENGINE_CONSTANTS.BINANCE_REST_BASE);
+        const res = await this.proxyFetch(`${bUrl}/fapi/v1/time`, { signal: AbortSignal.timeout(5000) }, pUrl);
+        if (res?.ok) {
+          const d = await res.json();
+          const drift = Math.abs(Date.now() - d.serverTime);
+          if (drift > 1000) this.logger.warn(`[Clock] Periodic drift warning: ${drift}ms`);
+        }
+      } catch (_) {}
+    }, 15 * 60 * 1000);
+    if (periodicTimer?.unref) periodicTimer.unref();
+  }
+
+  /**
+   * SRE: Universal HTTP fetch helper with HttpsProxyAgent support for REST queries and market data
+   */
+  async proxyFetch(url: string, init?: RequestInit, proxyUrlOverride?: string): Promise<any> {
+    let proxyUrl = proxyUrlOverride;
+    if (!proxyUrl && this.settingsRepository) {
+      try {
+        const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+        if (settings?.proxy_url) proxyUrl = settings.proxy_url.trim();
+      } catch (_) {}
+    }
+    if (!proxyUrl) {
+      proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
+    }
+
+    if (proxyUrl) {
+      return new Promise((resolve, reject) => {
+        try {
+          const parsedUrl = new URL(url);
+          const isHttps = parsedUrl.protocol === 'https:';
+          const lib = isHttps ? https : http;
+          const agent = new HttpsProxyAgent(proxyUrl!);
+
+          const req = lib.request(url, {
+            method: init?.method || 'GET',
+            headers: (init?.headers as any) || {
+              'User-Agent': 'MomentumEngine/1.0',
+              Accept: 'application/json, text/plain, */*',
+            },
+            agent,
+            signal: init?.signal as any,
+          }, (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', chunk => chunks.push(Buffer.from(chunk)));
+            res.on('end', () => {
+              const body = Buffer.concat(chunks).toString('utf-8');
+              const status = res.statusCode || 200;
+              const ok = status >= 200 && status < 300;
+              resolve({
+                ok,
+                status,
+                statusText: res.statusMessage || '',
+                headers: res.headers,
+                json: async () => JSON.parse(body),
+                text: async () => body,
+                clone: () => ({ text: async () => body }),
+              });
+            });
+          });
+
+          req.on('error', reject);
+          if (init?.body) {
+            req.write(typeof init.body === 'string' ? init.body : JSON.stringify(init.body));
+          }
+          req.end();
+        } catch (err) {
+          reject(err);
+        }
+      });
+    }
+
+    return fetch(url, init);
   }
 
   /**
@@ -104,12 +204,17 @@ export class BinanceClientFactory implements OnModuleInit {
     const configRestAPI: any = {
       apiKey,
       apiSecret,
-      basePath: restURL
+      basePath: restURL,
+      recvWindow: 10000,
+      baseOptions: {
+        recvWindow: 10000,
+      }
     };
 
     if (proxyUrl) {
       try {
         configRestAPI.baseOptions = {
+          recvWindow: 10000,
           httpsAgent: new HttpsProxyAgent(proxyUrl)
         };
       } catch (err) {
@@ -153,12 +258,12 @@ export class BinanceClientFactory implements OnModuleInit {
         // Saved W_cumulative_ws = 2 weight units per handshake error avoided.
         let gatewayURL = wsURL;
         if (isPrivate) {
-          gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/ws' : ENGINE_CONSTANTS.BINANCE_WS_PRIVATE;
+          gatewayURL = isTestnet ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_PRIVATE : ENGINE_CONSTANTS.BINANCE_WS_PRIVATE;
         } else {
           if (useStreamEndpoint) {
-            gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/stream' : ENGINE_CONSTANTS.BINANCE_WS_PUBLIC;
+            gatewayURL = isTestnet ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL : ENGINE_CONSTANTS.BINANCE_WS_PUBLIC;
           } else {
-            gatewayURL = isTestnet ? 'wss://fstream.binancefuture.com/stream' : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+            gatewayURL = isTestnet ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
           }
         }
 
@@ -178,6 +283,7 @@ export class BinanceClientFactory implements OnModuleInit {
             const ws = new WebSocket(finalUrl, {
               handshakeTimeout: 15000,
               perMessageDeflate: false,
+              agent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
               headers: isTestnet ? {} : {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Origin': 'https://www.binance.com'
@@ -591,8 +697,9 @@ export class BinanceRequestQueue {
                BinanceRequestQueue.currentWeight1m = 9999;
             }
 
-            // Short 60s cooldown for rate limits or geo-restriction so proxy configuration can be tested promptly
-            let until = Date.now() + 60000;
+            // For geo-restriction (451), use a 10-minute backoff to prevent tight retry loops against Binance.
+            // For transient rate limits (429), use 60s cooldown unless retry-after header is provided.
+            let until = Date.now() + (isGeo ? 10 * 60 * 1000 : 60000);
 
             if (isBan) {
                // SRE: Attempt to extract absolute ban timestamp from message: "banned until (\d+)"
@@ -612,8 +719,8 @@ export class BinanceRequestQueue {
             BinanceRequestQueue.setCooldownUntil(until);
 
             this.eventEmitter.emit('binance.api_limit_reached', {
-                type: isBan ? 'BAN' : (isGeo ? 'BAN' : 'RATE_LIMIT'),
-                message: isGeo ? `Regional Geo-Restriction (HTTP 451): Host IP is blocked by Binance. Configure a Proxy URL.` : msg,
+                type: isBan ? 'BAN' : (isGeo ? 'GEO_BLOCKED' : 'RATE_LIMIT'),
+                message: isGeo ? `Regional Geo-Restriction (HTTP 451): Host IP is blocked by Binance in this region. Configure a Proxy URL or switch to Testnet/Paper mode.` : msg,
                 until
             });
 

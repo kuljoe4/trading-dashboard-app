@@ -13,7 +13,11 @@ describe('MonitoringController', () => {
   let monitoringService: MonitoringService;
   let sessionStateService: SessionStateService;
 
+  let originalApiKey: string | undefined;
+
   beforeEach(async () => {
+    originalApiKey = process.env.ADMIN_API_KEY;
+    process.env.ADMIN_API_KEY = 'test_key';
     const module: TestingModule = await Test.createTestingModule({
       controllers: [MonitoringController],
       providers: [
@@ -51,6 +55,14 @@ describe('MonitoringController', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env.ADMIN_API_KEY = originalApiKey;
+    } else {
+      delete process.env.ADMIN_API_KEY;
+    }
   });
 
   it('should return metrics for getStats', () => {
@@ -132,7 +144,7 @@ describe('MonitoringController', () => {
     it('should diagnose geo-restriction when Binance returns HTTP 451 or 403', async () => {
       jest.spyOn(throttle, 'isGeneralRateLimited').mockReturnValue(false);
       // Force fresh check to bypass cache
-      const freshRequest = { ...mockRequest('127.0.0.1'), query: { fresh: 'true' } } as any;
+            const freshRequest = { ...mockRequest('127.0.0.1'), query: { fresh: 'true' }, headers: { authorization: 'Bearer test_key' } } as any;
 
       jest.spyOn(controller as any, 'probeBinanceEndpoint').mockImplementation(async (url: any) => {
         if (url.includes('fapi.binance.com')) {
@@ -182,12 +194,12 @@ describe('MonitoringController', () => {
       }));
 
       // First call (populates cache)
-      const res1 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: { fresh: 'true' } } as any);
+            const res1 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: { fresh: 'true' }, headers: { authorization: 'Bearer test_key' } } as any);
       expect(res1.cached).toBe(false);
       expect(probeSpy).toHaveBeenCalledTimes(2); // live + testnet
 
       // Second call (hits cache)
-      const res2 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: {} } as any);
+            const res2 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: {}, headers: { authorization: 'Bearer test_key' } } as any);
       expect(res2.cached).toBe(true);
       expect(probeSpy).toHaveBeenCalledTimes(2); // no additional calls
     });

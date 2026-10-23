@@ -49,7 +49,7 @@ async function bootstrap() {
   });
 
   // Enable graceful shutdown hooks so that onApplicationShutdown is called
-  app.enableShutdownHooks();
+  app.enableShutdownHooks(['SIGINT', 'SIGTERM', 'SIGQUIT']);
 
   // Security: Enable 'trust proxy' for accurate client IP detection behind load balancers/reverse proxies
   const expressInstance = app.getHttpAdapter().getInstance();
@@ -557,22 +557,6 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
   const logger = new Logger('UnhandledRejection');
   logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-process.on('SIGTERM', () => {
-  const logger = new Logger('Process');
-  logger.log('SIGTERM signal received. Initiating graceful shutdown via NestJS hooks...');
-  // The app.enableShutdownHooks() handles the actual shutdown when this signal is received
-});
-
-process.on('SIGINT', () => {
-  const logger = new Logger('Process');
-  logger.log('SIGINT signal received. Initiating graceful shutdown via NestJS hooks...');
-});
-
-process.on('SIGQUIT', () => {
-  const logger = new Logger('Process');
-  logger.log('SIGQUIT signal received. Initiating graceful shutdown via NestJS hooks...');
 });
 
 bootstrap().catch((err) => {

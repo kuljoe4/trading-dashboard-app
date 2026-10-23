@@ -19,7 +19,7 @@ export const normalizeUrl = (url, forceProtocol = null) => {
 
 const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_URL : undefined
 const isExternalStaging = baseUrlEnv && baseUrlEnv.includes('railway.app');
-const baseURL = (!isExternalStaging && normalizeUrl(baseUrlEnv)) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:3000' : '')
+const baseURL = (!isExternalStaging && normalizeUrl(baseUrlEnv)) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8080' : '')
 const api = axios.create({
   baseURL,
   timeout: 15000, // 15 seconds default timeout to prevent indefinite hangs

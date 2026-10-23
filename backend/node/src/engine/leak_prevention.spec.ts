@@ -116,6 +116,7 @@ describe('MarketFeedService Leak Fixes', () => {
     // Set requiredWarmup to 2
     (service as any).signalEngine.getRequiredWarmup.mockReturnValue(2);
 
+    (service as any).binanceClientFactory.proxyFetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
     await (service as any).backfillKlines('BTCUSDT', interval);
 
     // Should NOT call fetch (monitoring incrementApiRequests)
@@ -137,8 +138,9 @@ describe('MarketFeedService Leak Fixes', () => {
     (service as any).running = true;
     (service as any).sessionState.config = { watchlist_size: 10 };
 
+    (service as any).binanceClientFactory.proxyFetch = jest.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
     await (service as any).backfillKlines('BTCUSDT', interval);
 
-    expect(fetchSpy).toHaveBeenCalled();
+    expect((service as any).binanceClientFactory.proxyFetch).toHaveBeenCalled();
   });
 });

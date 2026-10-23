@@ -15,12 +15,9 @@ import { RrOptimizationService } from './rr-optimization.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { AuditLogService } from '../trading/audit-log.service';
 import { ConfigService } from '@nestjs/config';
-import { Trade } from '../models/Trade';
 
 describe('Chronos: Position Adoption Concurrency Lock', () => {
   let sessionService: SessionService;
-  let tradingSessionService: TradingSessionService;
-  let tradeRepository: any;
 
   const mockSessionRepository = {
     findOne: jest.fn(),
@@ -99,8 +96,6 @@ describe('Chronos: Position Adoption Concurrency Lock', () => {
     }).compile();
 
     sessionService = module.get<SessionService>(SessionService);
-    tradingSessionService = module.get<TradingSessionService>(TradingSessionService);
-    tradeRepository = module.get(getRepositoryToken(TradeEntity));
 
     // Force session to be running in the service state
     (sessionService as any).sessionRunning = true;

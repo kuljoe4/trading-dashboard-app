@@ -45,7 +45,7 @@ describe('BacktestService', () => {
     service = module.get<BacktestService>(BacktestService);
 
     // Mock fetch for historical candles
-    global.fetch = jest.fn().mockImplementation(async (_url: string) => {
+    global.fetch = jest.fn().mockImplementation(async () => {
       const now = Date.now();
       const rawCandles: any[][] = [];
       for (let i = 0; i < 20; i++) {

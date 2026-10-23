@@ -56,7 +56,8 @@ describe('MarketFeedService Leak Fixes', () => {
         {
           provide: BinanceClientFactory,
           useValue: {
-            genericRequest: jest.fn().mockImplementation((fn) => fn())
+            genericRequest: jest.fn().mockImplementation((fn) => fn()),
+            proxyFetch: jest.fn().mockResolvedValue({ ok: true, json: async () => [] })
           }
         },
       ],
@@ -137,8 +138,10 @@ describe('MarketFeedService Leak Fixes', () => {
     (service as any).running = true;
     (service as any).sessionState.config = { watchlist_size: 10 };
 
+    const proxyFetchSpy = jest.spyOn((service as any).binanceClientFactory, 'proxyFetch');
+
     await (service as any).backfillKlines('BTCUSDT', interval);
 
-    expect(fetchSpy).toHaveBeenCalled();
+    expect(proxyFetchSpy).toHaveBeenCalled();
   });
 });

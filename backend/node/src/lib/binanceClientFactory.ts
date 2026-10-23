@@ -42,7 +42,7 @@ export class BinanceClientFactory implements OnModuleInit {
       try {
         const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
         if (settings?.proxy_url) proxyUrl = settings.proxy_url.trim();
-        if (settings?.testnet || (settings as any)?.trading_mode === 'testnet') isTestnet = true;
+        if ((settings as any)?.testnet || (settings as any)?.trading_mode === 'testnet') isTestnet = true;
       } catch (_) {}
       if (!proxyUrl) {
         proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
@@ -85,7 +85,7 @@ export class BinanceClientFactory implements OnModuleInit {
         try {
           const s = await this.settingsRepository.findOne({ where: { id: 'default' } });
           if (s?.proxy_url) pUrl = s.proxy_url.trim();
-          if (s?.testnet || (s as any)?.trading_mode === 'testnet') testnetMode = true;
+          if ((s as any)?.testnet || (s as any)?.trading_mode === 'testnet') testnetMode = true;
         } catch (_) {}
         const bUrl = testnetMode ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL : (process.env.BINANCE_REST_BASE || ENGINE_CONSTANTS.BINANCE_REST_BASE);
         const res = await this.proxyFetch(`${bUrl}/fapi/v1/time`, { signal: AbortSignal.timeout(5000) }, pUrl);
@@ -128,7 +128,7 @@ export class BinanceClientFactory implements OnModuleInit {
               'User-Agent': 'MomentumEngine/1.0',
               Accept: 'application/json, text/plain, */*',
             },
-            agent,
+            agent: agent as any,
             signal: init?.signal as any,
           }, (res) => {
             const chunks: Buffer[] = [];
@@ -283,12 +283,12 @@ export class BinanceClientFactory implements OnModuleInit {
             const ws = new WebSocket(finalUrl, {
               handshakeTimeout: 15000,
               perMessageDeflate: false,
-              agent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
+              agent: (proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined) as any,
               headers: isTestnet ? {} : {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Origin': 'https://www.binance.com'
               }
-            });
+            } as any);
 
             // SRE: Proactive Keep-Alive (Memory: WebSocket Keep-Alive Standard)
             const pingInterval = setInterval(() => {

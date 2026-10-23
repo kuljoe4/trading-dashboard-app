@@ -65,7 +65,7 @@ export class BinanceSubscriptionManager {
       const ws = new WebSocket(this.wsUrl, {
         handshakeTimeout: 15000,
         perMessageDeflate: false,
-        agent,
+        agent: agent as any,
         // Live Futures market-data WS (fstream.binance.com) requires browser-like
         // headers from some network vantage points; without them Binance accepts
         // the connection + SUBSCRIBE ACK but delivers ZERO data frames. Testnet
@@ -75,7 +75,7 @@ export class BinanceSubscriptionManager {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Origin': 'https://www.binance.com'
         }
-      });
+      } as any);
 
       ws.on('open', () => {
         if (this.isStopped) {

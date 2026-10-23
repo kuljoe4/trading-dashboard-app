@@ -58,8 +58,8 @@ describe('MonitoringController', () => {
     expect(monitoringService.getMetrics).toHaveBeenCalled();
   });
 
-  it('should return service operational info for getRoot (GET /)', () => {
-    const root = controller.getRoot();
+  it('should return service operational info for getRoot (GET /)', async () => {
+    const root = await controller.getRoot({} as any);
     expect(root.status).toBe('online');
     expect(root.service).toBe('backend');
     expect(root.endpoints.health).toBe('/health');

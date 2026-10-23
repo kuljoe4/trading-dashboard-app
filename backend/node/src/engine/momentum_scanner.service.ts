@@ -154,9 +154,11 @@ export class MomentumScannerService {
 
           // Also include volume-based or change-pct-based leaders
           const discoveryMode = config.discovery_mode || 'volume';
-          const topSymbols = discoveryMode === 'change_pct'
-            ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-            : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
+          const topSymbols = discoveryMode === 'abs_change_pct'
+            ? this.tickerCache.topByAbsChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+            : discoveryMode === 'change_pct'
+              ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+              : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
           const topLen = topSymbols.length;
           for (let i = 0; i < topLen; i++) {
             const t = topSymbols[i];
@@ -166,9 +168,11 @@ export class MomentumScannerService {
           }
         } else {
           const discoveryMode = config.discovery_mode || 'volume';
-          const topSymbols = discoveryMode === 'change_pct'
-            ? this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
-            : this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
+          const topSymbols = discoveryMode === 'abs_change_pct'
+            ? this.tickerCache.topByAbsChangePct(watchlistSize + offset, combinedExcluded)
+            : discoveryMode === 'change_pct'
+              ? this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
+              : this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
           for (let i = offset; i < topSymbols.length; i++) {
             const t = topSymbols[i];
             if (t && t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !activeExcluded.has(t.symbol)) {

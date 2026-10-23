@@ -62,7 +62,7 @@ describe('TickerCacheService', () => {
   });
 
   describe('topByChangePct', () => {
-    it('should return tickers sorted by absolute 24-hour change percentage descending', () => {
+    it('should return tickers sorted by directional 24-hour change percentage descending', () => {
       // Setup tickers with different 24h change pct
       // BTC: price=110, open=100 -> change = +10%
       // ETH: price=95, open=100 -> change = -5% (absolute 5%)
@@ -77,7 +77,7 @@ describe('TickerCacheService', () => {
       expect(top.length).toBe(3);
       expect(top[0].symbol).toBe('SOLUSDT'); // 20%
       expect(top[1].symbol).toBe('BTCUSDT'); // 10%
-      expect(top[2].symbol).toBe('ETHUSDT'); // 5%
+      expect(top[2].symbol).toBe('ADAUSDT'); // 1%
     });
 
     it('should respect exclusions', () => {
@@ -123,8 +123,8 @@ describe('TickerCacheService', () => {
           return [...all]
             .filter(t => t.price && t.open_24h && t.open_24h > 0)
             .sort((a, b) => {
-              const changeA = Math.abs(((a.price - (a.open_24h || 0)) / (a.open_24h || 1)) * 100);
-              const changeB = Math.abs(((b.price - (b.open_24h || 0)) / (b.open_24h || 1)) * 100);
+              const changeA = ((a.price - (a.open_24h || 0)) / (a.open_24h || 1)) * 100;
+              const changeB = ((b.price - (b.open_24h || 0)) / (b.open_24h || 1)) * 100;
               return changeB - changeA;
             })
             .slice(0, n);
@@ -181,6 +181,22 @@ describe('TickerCacheService', () => {
           expect(resOpt[i].symbol).toBe(resOld[i].symbol);
         }
       });
+    });
+  });
+
+
+  describe('topByAbsChangePct', () => {
+    it('should return tickers sorted by absolute 24-hour change percentage descending', () => {
+      service.updateTicker('BTCUSDT', 110, 1000000, 100); // +10%
+      service.updateTicker('ETHUSDT', 80, 2000000, 100); // -20% (absolute 20%)
+      service.updateTicker('SOLUSDT', 115, 500000, 100); // +15%
+      service.updateTicker('ADAUSDT', 101, 100000, 100); // +1%
+
+      const top = service.topByAbsChangePct(3);
+      expect(top.length).toBe(3);
+      expect(top[0].symbol).toBe('ETHUSDT'); // 20%
+      expect(top[1].symbol).toBe('SOLUSDT'); // 15%
+      expect(top[2].symbol).toBe('BTCUSDT'); // 10%
     });
   });
 

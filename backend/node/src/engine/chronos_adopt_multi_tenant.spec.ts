@@ -18,7 +18,6 @@ import { ConfigService } from '@nestjs/config';
 
 describe('Chronos: Position Adoption Multi-Tenant Safety Check', () => {
   let sessionService: SessionService;
-  let tradeRepository: any;
 
   const mockSessionRepository = {
     findOne: jest.fn(),
@@ -99,7 +98,6 @@ describe('Chronos: Position Adoption Multi-Tenant Safety Check', () => {
     }).compile();
 
     sessionService = module.get<SessionService>(SessionService);
-    tradeRepository = module.get(getRepositoryToken(TradeEntity));
   });
 
   it('should authorize adoption if there is an active OPEN trade in the local database', async () => {

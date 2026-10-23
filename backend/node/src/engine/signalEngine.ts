@@ -546,20 +546,8 @@ export class SignalEngineService {
 
       // Closed close-only modes intentionally ignore the actively forming candle.
       // The signal candle is the last completed candle, and entry happens on the next/live candle.
-      // Partial (soft) modes explicitly evaluate off the live, unclosed candle for earlier execution.
       const signalIdx = closeOnlyMode ? candles.length - 2 : candles.length - 1;
       const curr = candles[signalIdx];
-
-      if (!curr) {
-        this.logger.warn(`[SignalEngine] ${symbol} Target signal candle at idx ${signalIdx} is undefined. Array length: ${candles.length}, Mode: ${mode}`);
-        return { fired: false, value: 0, threshold: 0, unit: 'error', metric: 'Engulfing', description: 'Signal candle missing (State Error)' };
-      }
-
-      if (softMode && !minimal) {
-        // Robust visibility for Soft Mode execution: explicitly log that this operates on intra-candle ticks.
-        this.logger.debug(`[SignalEngine] ${symbol} Evaluating soft mode (${mode}) on live forming candle (time: ${curr.time}). Signal will fire immediately on intra-candle ticks breaking threshold, NOT waiting for candle close.`);
-      }
-
       const searchStartIdx = Math.max(0, signalIdx - lookback);
 
       let foundStreakStart = -1;
@@ -630,12 +618,6 @@ export class SignalEngineService {
       // Inline pure helper function to evaluate engulfing condition at a specific index
       const evaluateEngulfingAt = (idx: number, isVolConfirmReq: boolean): { fired: boolean; reason: string } => {
         const candle = candles[idx];
-
-        if (!candle) {
-           this.logger.error(`[SignalEngine] ${symbol} Critical state bug: evaluateEngulfingAt received undefined candle at index ${idx}.`);
-           return { fired: false, reason: 'Candle data missing' };
-        }
-
         const isBullish = candle.close > candle.open;
         const isBearish = candle.close < candle.open;
 

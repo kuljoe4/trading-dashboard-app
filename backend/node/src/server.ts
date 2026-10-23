@@ -49,7 +49,7 @@ async function bootstrap() {
   });
 
   // Enable graceful shutdown hooks so that onApplicationShutdown is called
-  app.enableShutdownHooks(['SIGINT', 'SIGTERM', 'SIGQUIT']);
+  app.enableShutdownHooks(['SIGTERM', 'SIGINT', 'SIGQUIT']);
 
   // Security: Enable 'trust proxy' for accurate client IP detection behind load balancers/reverse proxies
   const expressInstance = app.getHttpAdapter().getInstance();

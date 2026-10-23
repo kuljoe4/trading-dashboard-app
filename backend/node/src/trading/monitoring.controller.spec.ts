@@ -142,9 +142,10 @@ describe('MonitoringController', () => {
     });
 
     it('should diagnose geo-restriction when Binance returns HTTP 451 or 403', async () => {
+      process.env.ADMIN_API_KEY = 'test_key';
       jest.spyOn(throttle, 'isGeneralRateLimited').mockReturnValue(false);
       // Force fresh check to bypass cache
-            const freshRequest = { ...mockRequest('127.0.0.1'), query: { fresh: 'true' }, headers: { authorization: 'Bearer test_key' } } as any;
+      const freshRequest = { ...mockRequest('127.0.0.1'), query: { fresh: 'true' }, headers: { 'x-api-key': 'test_key' } } as any;
 
       jest.spyOn(controller as any, 'probeBinanceEndpoint').mockImplementation(async (url: any) => {
         if (url.includes('fapi.binance.com')) {
@@ -181,6 +182,7 @@ describe('MonitoringController', () => {
     });
 
     it('should return cached result when within cache TTL', async () => {
+      process.env.ADMIN_API_KEY = 'test_key';
       jest.spyOn(throttle, 'isGeneralRateLimited').mockReturnValue(false);
       const probeSpy = jest.spyOn(controller as any, 'probeBinanceEndpoint').mockImplementation(async (url: any) => ({
         url,
@@ -194,7 +196,7 @@ describe('MonitoringController', () => {
       }));
 
       // First call (populates cache)
-            const res1 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: { fresh: 'true' }, headers: { authorization: 'Bearer test_key' } } as any);
+      const res1 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: { fresh: 'true' }, headers: { 'x-api-key': 'test_key' } } as any);
       expect(res1.cached).toBe(false);
       expect(probeSpy).toHaveBeenCalledTimes(2); // live + testnet
 

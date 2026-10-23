@@ -1247,6 +1247,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
   const [isRunning, setIsRunning] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
   const [error, setError] = useState(null);
+  const smartSymbolsInputRef = useRef(null);
   const addAlert = useTradingStore(state => state.addAlert);
 
   useEffect(() => {
@@ -1385,14 +1386,33 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
 
           <div>
             <label htmlFor="smart-symbols" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Target Symbols</label>
-            <input
-              id="smart-symbols"
-              type="text"
-              placeholder="BTCUSDT, ETHUSDT..."
-              value={symbolsText}
-              onChange={(e) => setSymbolsText(e.target.value)}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
-            />
+            <div className="relative">
+              <input
+                ref={smartSymbolsInputRef}
+                id="smart-symbols"
+                type="text"
+                placeholder="BTCUSDT, ETHUSDT..."
+                value={symbolsText}
+                onChange={(e) => setSymbolsText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setSymbolsText('')}
+                className="w-full bg-surface border border-border rounded-xl pl-3 pr-8 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              />
+              {symbolsText && (
+                <Tooltip content="Clear Symbols">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSymbolsText('');
+                      smartSymbolsInputRef.current?.focus();
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                    aria-label="Clear symbols"
+                  >
+                    <XCircle size={14} />
+                  </button>
+                </Tooltip>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1570,6 +1590,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const abortControllerRef = useRef(null);
+  const backtestSymbolsInputRef = useRef(null);
   const addAlert = useTradingStore(state => state.addAlert);
 
   const handleStopBacktest = () => {
@@ -1763,18 +1784,37 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
 
           <div>
             <label htmlFor="backtest-symbols" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Target Symbol(s)</label>
-            <input
-              id="backtest-symbols"
-              type="text"
-              placeholder="BTCUSDT, ETHUSDT..."
-              disabled={useGlobalScanner}
-              value={symbolText}
-              onChange={(e) => setSymbolSearchText(e.target.value)}
-              className={cn(
-                "w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent",
-                useGlobalScanner && "opacity-50 cursor-not-allowed"
+            <div className="relative">
+              <input
+                ref={backtestSymbolsInputRef}
+                id="backtest-symbols"
+                type="text"
+                placeholder="BTCUSDT, ETHUSDT..."
+                disabled={useGlobalScanner}
+                value={symbolText}
+                onChange={(e) => setSymbolSearchText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Escape' && setSymbolSearchText('')}
+                className={cn(
+                  "w-full bg-surface border border-border rounded-xl pl-3 pr-8 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent",
+                  useGlobalScanner && "opacity-50 cursor-not-allowed"
+                )}
+              />
+              {symbolText && !useGlobalScanner && (
+                <Tooltip content="Clear Symbols">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSymbolSearchText('');
+                      backtestSymbolsInputRef.current?.focus();
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                    aria-label="Clear symbols"
+                  >
+                    <XCircle size={14} />
+                  </button>
+                </Tooltip>
               )}
-            />
+            </div>
           </div>
         </div>
 

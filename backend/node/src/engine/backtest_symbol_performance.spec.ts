@@ -1,4 +1,4 @@
-import { BacktestService, BacktestTradeDto } from './backtest.service';
+import { BacktestTradeDto } from './backtest.service';
 
 describe('BacktestSymbolPerformance Unit Tests', () => {
   test('aggregates per-symbol performance and marks top recommendations correctly', () => {

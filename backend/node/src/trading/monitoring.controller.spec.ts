@@ -13,7 +13,11 @@ describe('MonitoringController', () => {
   let monitoringService: MonitoringService;
   let sessionStateService: SessionStateService;
 
+  let originalApiKey: string | undefined;
+
   beforeEach(async () => {
+    originalApiKey = process.env.ADMIN_API_KEY;
+    process.env.ADMIN_API_KEY = 'test_key';
     const module: TestingModule = await Test.createTestingModule({
       controllers: [MonitoringController],
       providers: [
@@ -51,6 +55,14 @@ describe('MonitoringController', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    if (originalApiKey !== undefined) {
+      process.env.ADMIN_API_KEY = originalApiKey;
+    } else {
+      delete process.env.ADMIN_API_KEY;
+    }
   });
 
   it('should return metrics for getStats', () => {
@@ -189,7 +201,7 @@ describe('MonitoringController', () => {
       expect(probeSpy).toHaveBeenCalledTimes(2); // live + testnet
 
       // Second call (hits cache)
-      const res2 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: {} } as any);
+            const res2 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: {}, headers: { authorization: 'Bearer test_key' } } as any);
       expect(res2.cached).toBe(true);
       expect(probeSpy).toHaveBeenCalledTimes(2); // no additional calls
     });

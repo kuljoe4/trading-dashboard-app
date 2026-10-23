@@ -143,9 +143,9 @@ export class SessionConfig {
   @IsOptional()
   watchlist_offset?: number = 0;
 
-  @IsEnum(['volume', 'change_pct'])
+  @IsEnum(['volume', 'change_pct', 'abs_change_pct'])
   @IsOptional()
-  discovery_mode?: 'volume' | 'change_pct' = 'volume';
+  discovery_mode?: 'volume' | 'change_pct' | 'abs_change_pct' = 'volume';
 
   @IsEnum(['both', 'long', 'short'])
   @IsOptional()

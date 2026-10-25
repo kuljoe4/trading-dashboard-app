@@ -506,13 +506,19 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         strategyGateStates: res.data.strategy_gate_states,
         rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
       });
+      // SRE: Automatically clear API error banner when status endpoint succeeds
+      if (st.apiError) {
+        st.clearApiError();
+      }
+
       // SRE: Proactively fetch analytics and trade history to keep Account Balance last trade and Insights populated
       get().fetchAnalytics();
       get().fetchTradeHistory('all');
     } catch (e) {
       if (e.code === 'ERR_CANCELED') return;
       if (retryCount < 5) {
-        setTimeout(() => get().sync(retryCount + 1), 1500);
+        const backoffDelay = Math.min(1500 * Math.pow(1.5, retryCount), 8000);
+        setTimeout(() => get().sync(retryCount + 1), backoffDelay);
       } else {
         console.error("Manual sync failed", e);
       }

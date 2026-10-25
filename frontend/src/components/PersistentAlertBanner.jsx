@@ -21,9 +21,34 @@ export const PersistentAlertBanner = () => {
       }
     };
 
+    const handleSystemApiResolved = (event) => {
+      if (apiError && (!event.detail?.url || event.detail.url === apiError.url)) {
+        clearApiError();
+      }
+    };
+
     window.addEventListener('system-api-error', handleSystemApiError);
-    return () => window.removeEventListener('system-api-error', handleSystemApiError);
-  }, [setApiError]);
+    window.addEventListener('system-api-resolved', handleSystemApiResolved);
+    return () => {
+      window.removeEventListener('system-api-error', handleSystemApiError);
+      window.removeEventListener('system-api-resolved', handleSystemApiResolved);
+    };
+  }, [setApiError, clearApiError, apiError]);
+
+  const hasWsFailure = !!wsError || wsStatus === 'error';
+  const hasApiFailure = !!apiError;
+
+  // SRE: Auto-heal API status in background so transient 502/restart clears automatically
+  useEffect(() => {
+    if (!hasApiFailure) return;
+    const timer = setInterval(async () => {
+      try {
+        await sync();
+        clearApiError();
+      } catch (_) {}
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [hasApiFailure, sync, clearApiError]);
 
   const handleReconnectWs = () => {
     setIsReconnecting(true);
@@ -45,9 +70,6 @@ export const PersistentAlertBanner = () => {
       setIsRetryingApi(false);
     }
   };
-
-  const hasWsFailure = !!wsError || wsStatus === 'error';
-  const hasApiFailure = !!apiError;
 
   if (!hasWsFailure && !hasApiFailure) {
     return null;

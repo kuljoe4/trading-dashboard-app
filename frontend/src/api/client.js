@@ -86,6 +86,15 @@ api.interceptors.response.use(
       err.response = response;
       return Promise.reject(err);
     }
+    // SRE: Notify system that API endpoint responded with valid JSON
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('system-api-resolved', {
+        detail: {
+          url: response.config?.url,
+          status: response.status
+        }
+      }));
+    }
     return response;
   },
   async (error) => {
@@ -372,7 +381,7 @@ export const smartOptimizerAPI = {
 }
 
 export const healthAPI = {
-  getStartupChecklist: (fresh = false) => api.get(`/startup-checklist${fresh ? '?fresh=true' : ''}`),
+  getStartupChecklist: (fresh = false) => api.get(`/session/startup-checklist${fresh ? '?fresh=true' : ''}`),
   getBinanceHealth: (fresh = false) => api.get(`/healthz/binance${fresh ? '?fresh=true' : ''}`),
 }
 

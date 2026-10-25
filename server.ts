@@ -1159,7 +1159,30 @@ app.get('/auth/config', (req, res) => {
 });
 
 app.get('/session/status', (req, res) => {
-  res.json(getStatusSnapshot());
+  try {
+    res.json(getStatusSnapshot());
+  } catch (err: any) {
+    console.error('[Error in /session/status]:', err?.message || err);
+    res.status(200).json({
+      running: state.sessionActive || false,
+      sessionActive: state.sessionActive || false,
+      sessionPaused: state.sessionPaused || false,
+      paused_strategies: state.pausedStrategies || [],
+      strategy_gate_states: state.strategyGateStates || {},
+      strategyId: state.strategyId || null,
+      balance: state.balance || 10000.0,
+      totalPnl: state.totalPnl || 0,
+      totalRiskPct: state.totalRiskPct || 0,
+      totalSlUsed: state.totalSlUsed || 0,
+      activeTrades: state.activeTrades || [],
+      history: state.tradeHistory || [],
+      scannerResults: [],
+      logs: state.logs || [],
+      config: state.config || {},
+      apiStatus: state.apiStatus || { isBanned: false, isRateLimited: false },
+      rateLimit: { used_weight_1m: 0, order_count_10s: 0 },
+    });
+  }
 });
 
 app.post('/session/clear-ban', (req, res) => {

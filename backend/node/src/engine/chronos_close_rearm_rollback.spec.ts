@@ -77,7 +77,7 @@ describe('Chronos: Close-Rearm Rollback and Stop-Loss Protection', () => {
 
     try {
       await service.closeTrade('BTCUSDT', trade, 45000, 'SIGNAL');
-    } catch (e) {}
+    } catch {}
 
     // Verify cancellation of old SL was called
     expect(mockBinanceClient.restAPI.cancelOrder).toHaveBeenCalledWith(expect.objectContaining({

@@ -13,12 +13,10 @@ import { AuditLogService } from '../trading/audit-log.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { Trade } from '../models/Trade';
-import { ENGINE_EVENTS } from './events';
 
 describe('Chronos: In-Flight Entry Promotion', () => {
   let orderManager: OrderManagerService;
   let positionTracker: PositionTrackerService;
-  let sessionState: SessionStateService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -56,7 +54,6 @@ describe('Chronos: In-Flight Entry Promotion', () => {
 
     orderManager = module.get<OrderManagerService>(OrderManagerService);
     positionTracker = module.get<PositionTrackerService>(PositionTrackerService);
-    sessionState = module.get<SessionStateService>(SessionStateService);
   });
 
   it('should promote an in-flight entry to active list upon UDS fill', async () => {

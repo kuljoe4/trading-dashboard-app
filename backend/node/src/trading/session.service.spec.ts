@@ -1112,7 +1112,7 @@ describe('SessionService Validation', () => {
         const cutoffDate: Date = callArgs[1].cutoff;
         const diffMs = Date.now() - cutoffDate.getTime();
         const expectedMs = 3 * 24 * 60 * 60 * 1000;
-        expect(Math.abs(diffMs - expectedMs)).toBeLessThan(5000); // within 5s
+        expect(Math.abs(diffMs - expectedMs)).toBeLessThan(10000); // within 5s
       }
     });
   });

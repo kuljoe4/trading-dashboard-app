@@ -158,14 +158,14 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         `Failed to execute onModuleInit setup: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
-    // SEC-02: Cleanup old data on startup and periodically
+    // SEC-02: Cleanup old data on startup and periodically (every 1 hour)
     await this.cleanupOldData();
     const cleanupInterval = setInterval(
       () =>
         this.cleanupOldData().catch((e) =>
           this.logger.error(`Periodic cleanup failed: ${e.message}`),
         ),
-      12 * 60 * 60 * 1000,
+      1 * 60 * 60 * 1000,
     );
 
     if (cleanupInterval?.unref) cleanupInterval.unref();
@@ -3140,9 +3140,9 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       const settings = await this.settingsRepository.findOne({
         where: { id: "default" },
       });
-      const logRetentionDays = (settings as any)?.log_retention_days || 7;
+      const logRetentionDays = (settings as any)?.log_retention_days || 2;
       const tradeRetentionDays = (settings as any)?.trade_retention_days || 30;
-      const klineRetentionDays = (settings as any)?.kline_retention_days || 3;
+      const klineRetentionDays = (settings as any)?.kline_retention_days || 1;
 
       const logCutoff = new Date(
         Date.now() - logRetentionDays * 24 * 60 * 60 * 1000,
@@ -3165,7 +3165,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         .execute();
 
       const balanceCutoff = new Date(
-        Date.now() - 3 * 24 * 60 * 60 * 1000,
+        Date.now() - 1 * 24 * 60 * 60 * 1000,
       );
       const deletedBalanceHistory = await this.balanceHistoryRepository
         .createQueryBuilder()

@@ -23,6 +23,11 @@ FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 
 RUN cat > /etc/nginx/conf.d/default.conf.template <<'EOF_NGINX'
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
 server {
     listen ${PORT};
     server_name localhost;
@@ -34,8 +39,51 @@ server {
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_min_length 1024;
 
-    location / {
-        try_files $uri $uri/ /index.html;
+    # Backend proxy rules for same-origin routing to avoid CORS and WS-origin issues
+    location /presets {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /session {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+
+    location /auth {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /settings {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /health {
+        access_log off;
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok","service":"frontend","message":"Frontend is healthy."}';
     }
 
     location /assets/ {
@@ -44,14 +92,12 @@ server {
         try_files $uri =404;
     }
 
-    location /health {
-        access_log off;
-        add_header Content-Type application/json;
-        return 200 '{"status":"ok","service":"frontend","message":"Frontend is healthy. For Binance connectivity & geo-restriction diagnostics, check backend /health or /healthz/binance"}';
+    location / {
+        try_files $uri $uri/ /index.html;
     }
 }
 EOF_NGINX
 
 EXPOSE 80
 
-CMD ["/bin/sh", "-c", ": ${PORT:=80}; envsubst '${PORT}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && sed -i 's/^worker_processes.*/worker_processes 1;/' /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]
+CMD ["/bin/sh", "-c", ": ${PORT:=80}; : ${BACKEND_URL:=${API_URL:-${VITE_API_URL:-http://localhost:8080}}}; BACKEND_URL=$(echo \"${BACKEND_URL}\" | sed 's:/*$::'); export PORT BACKEND_URL; envsubst '${PORT} ${BACKEND_URL}' < /etc/nginx/conf.d/default.conf.template > /etc/nginx/conf.d/default.conf && sed -i 's/^worker_processes.*/worker_processes 1;/' /etc/nginx/nginx.conf && nginx -g 'daemon off;'"]

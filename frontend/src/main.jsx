@@ -8,6 +8,7 @@ import { useVisibility } from './hooks/useVisibility';
 import { AuthOverlay } from './components/AuthOverlay';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { GlobalToaster } from './components/ui/primitives';
+import { PersistentAlertBanner } from './components/PersistentAlertBanner';
 import { lazyWithRetry } from './lib/lazy';
 import './index.css';
 
@@ -324,6 +325,7 @@ const App = () => {
       <ShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
       <GlobalToaster />
       <div className="min-h-screen bg-background text-text font-sans selection:bg-accent selection:text-white">
+        <PersistentAlertBanner />
         <Suspense fallback={<LoadingView />}>
           {renderView()}
         </Suspense>

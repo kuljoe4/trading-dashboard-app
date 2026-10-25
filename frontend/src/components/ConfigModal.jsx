@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -315,10 +316,10 @@ const ExitSignalCard = React.memo(({
         <Switch.Root
           checked={active}
           onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
+          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
           aria-label={`Toggle ${label} exit signal`}
         >
-          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+          <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
         </Switch.Root>
       </div>
 
@@ -548,10 +549,10 @@ const EntrySignalCard = React.memo(({
         <Switch.Root
           checked={active}
           onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
+          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
           aria-label={`Toggle ${label} entry signal`}
         >
-          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+          <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
         </Switch.Root>
       </div>
 
@@ -1030,7 +1031,13 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
   <Chip
     active={active}
     onClick={() => onClick(id)}
-    className={cn("flex items-center gap-2 relative", hasError && !active && "border-red/40")}
+    className={cn(
+      "flex items-center gap-2 relative transition-all duration-200 px-4 py-2.5 rounded-xl text-xs font-bold",
+      active
+        ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
+        : "border-border text-dim hover:border-dim/50 hover:text-text",
+      hasError && !active && "border-red/40"
+    )}
     role="tab"
     aria-selected={active}
     aria-invalid={hasError}
@@ -1038,8 +1045,8 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     id={`config-tab-${id}`}
     tabIndex={active ? 0 : -1}
   >
-    <Icon size={12} className={cn(active ? "text-accent" : "text-dim", hasError && !active && "text-red")} />
-    {label}
+    <Icon size={14} className={cn(active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
+    <span>{label}</span>
     {hasError && !active && (
       <span className="absolute -top-1 -right-1 flex h-2 w-2">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
@@ -1050,21 +1057,22 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
 ))
 SectionTab.displayName = 'SectionTab'
 
-const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
+const SectionTabs = React.memo(({ section, onSectionChange, errors, isMoreOpen, setIsMoreOpen, modalRef }) => {
   const dropdownRef = useRef(null);
+  const triggerBtnRef = useRef(null);
+  const [menuCoords, setMenuCoords] = useState({ top: 0, left: 0 });
 
   const primaryTabs = useMemo(() => [
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
-    { id: 'risk', label: 'Risk', icon: ShieldCheck }
+    { id: 'risk', label: 'Risk', icon: ShieldCheck },
+    { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
   const secondaryTabs = useMemo(() => [
     { id: 'env', label: 'Env', icon: Briefcase },
     { id: 'smart', label: 'Smart Auto', icon: Sparkles },
-    { id: 'backtest', label: 'Backtest', icon: TrendingUp },
-    { id: 'presets', label: 'Presets', icon: FolderOpen }
+    { id: 'backtest', label: 'Backtest', icon: TrendingUp }
   ], []);
 
   const allTabs = useMemo(() => [...primaryTabs, ...secondaryTabs], [primaryTabs, secondaryTabs]);
@@ -1085,10 +1093,39 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     return secondaryTabs.some(t => tabHasError(t.id));
   }, [secondaryTabs, tabHasError]);
 
+  const updateCoords = React.useCallback(() => {
+    if (triggerBtnRef.current && modalRef?.current) {
+      const btnRect = triggerBtnRef.current.getBoundingClientRect();
+      const modalRect = modalRef.current.getBoundingClientRect();
+      const dropdownWidth = 192;
+      const left = Math.max(8, Math.min(modalRect.width - dropdownWidth - 8, btnRect.right - modalRect.left - dropdownWidth));
+      const top = btnRect.bottom - modalRect.top + 8;
+      setMenuCoords({ top, left });
+    }
+  }, [modalRef]);
+
+  useEffect(() => {
+    if (isMoreOpen) {
+      updateCoords();
+      const handleScrollOrResize = () => updateCoords();
+      window.addEventListener('resize', handleScrollOrResize);
+      window.addEventListener('scroll', handleScrollOrResize, true);
+      return () => {
+        window.removeEventListener('resize', handleScrollOrResize);
+        window.removeEventListener('scroll', handleScrollOrResize, true);
+      };
+    }
+  }, [isMoreOpen, updateCoords]);
+
   // Close dropdown on outside click or escape
   useEffect(() => {
     const handleOutsideClick = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target) &&
+        triggerBtnRef.current &&
+        !triggerBtnRef.current.contains(e.target)
+      ) {
         setIsMoreOpen(false);
       }
     };
@@ -1105,7 +1142,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isMoreOpen]);
+  }, [isMoreOpen, setIsMoreOpen]);
 
   const handleKeyDownNav = (e) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -1146,28 +1183,31 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
       ))}
 
       {/* Overflow "More" Icon Trigger Dropdown */}
-      <div className="relative shrink-0 ml-auto" ref={dropdownRef}>
-        <Tooltip content="More strategy sections (Env, Smart Auto, Backtest, Presets)">
+      <div className="relative shrink-0 ml-auto">
+        <Tooltip content="More strategy sections (Env, Smart Auto, Backtest)">
           <button
+            ref={triggerBtnRef}
             type="button"
             id="config-tab-more"
-            onClick={() => setIsMoreOpen(!isMoreOpen)}
+            onClick={() => {
+              if (!isMoreOpen) updateCoords();
+              setIsMoreOpen(!isMoreOpen);
+            }}
             aria-expanded={isMoreOpen}
             aria-haspopup="true"
             aria-controls="more-tabs-dropdown"
             aria-label="More configuration options menu"
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer",
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer",
               isSecondaryActive
-                ? "border-accent text-accent bg-accent/10"
+                ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
                 : "border-border text-dim hover:border-dim/50 hover:text-text"
             )}
           >
-            <MoreHorizontal size={14} className={cn(isSecondaryActive ? "text-accent" : "text-dim")} />
+            <MoreVertical size={14} className={cn(isSecondaryActive ? "text-white" : "text-dim")} />
             <span className="hidden xs:inline">
               {activeSecondaryTab ? activeSecondaryTab.label : 'More'}
             </span>
-            <ChevronDown size={11} className={cn("transition-transform duration-200", isMoreOpen && "rotate-180")} />
 
             {/* Error dot on icon trigger if any secondary tab has an error */}
             {secondaryHasError && !isSecondaryActive && (
@@ -1179,60 +1219,86 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
           </button>
         </Tooltip>
 
-        <AnimatePresence>
-          {isMoreOpen && (
-            <motion.div
-              id="more-tabs-dropdown"
-              initial={{ opacity: 0, scale: 0.95, y: 5 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 5 }}
-              transition={{ duration: 0.15, ease: "easeInOut" }}
-              className="absolute right-0 top-full mt-2 w-48 bg-surface border border-border/80 rounded-xl shadow-2xl z-50 p-1.5 flex flex-col gap-1 backdrop-blur-xl"
-              role="menu"
-              aria-orientation="vertical"
-              aria-labelledby="config-tab-more"
-            >
-              <div className="px-2 py-1 text-[8px] font-black uppercase text-dim tracking-widest border-b border-border/30 mb-1">
-                More Sections
-              </div>
-              {secondaryTabs.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = section === tab.id;
-                const hasErr = tabHasError(tab.id);
+        {modalRef?.current && createPortal(
+          <AnimatePresence>
+            {isMoreOpen && (
+              <>
+                <motion.div
+                  key="more-menu-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute inset-0 bg-black/75 backdrop-blur-md z-50 cursor-pointer pointer-events-auto"
+                  onClick={() => setIsMoreOpen(false)}
+                />
+                <motion.div
+                  key="more-menu-dropdown"
+                  id="more-tabs-dropdown"
+                  ref={dropdownRef}
+                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  style={{
+                    position: 'absolute',
+                    top: `${menuCoords.top}px`,
+                    left: `${menuCoords.left}px`,
+                    zIndex: 60,
+                  }}
+                  className="w-48 bg-[#181a20] border border-border/80 rounded-xl shadow-2xl p-1.5 flex flex-col gap-1 pointer-events-auto"
+                  role="menu"
+                  aria-orientation="vertical"
+                  aria-labelledby="config-tab-more"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-2 py-1 text-[8px] font-black uppercase text-dim tracking-widest border-b border-border/30 mb-1">
+                    More Sections
+                  </div>
+                  {secondaryTabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = section === tab.id;
+                    const hasErr = tabHasError(tab.id);
 
-                return (
-                  <button
-                    key={tab.id}
-                    id={`config-tab-${tab.id}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    aria-controls={`config-panel-${tab.id}`}
-                    onClick={() => {
-                      onSectionChange(tab.id);
-                      setIsMoreOpen(false);
-                    }}
-                    className={cn(
-                      "w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold transition-all text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                      isActive
-                        ? "bg-accent/15 text-accent font-black"
-                        : "text-dim hover:text-text hover:bg-white/5"
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Icon size={13} className={isActive ? "text-accent" : "text-dim"} />
-                      <span>{tab.label}</span>
-                    </div>
+                    return (
+                      <button
+                        key={tab.id}
+                        id={`config-tab-${tab.id}`}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        aria-controls={`config-panel-${tab.id}`}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSectionChange(tab.id);
+                          setIsMoreOpen(false);
+                        }}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold transition-all text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                          isActive
+                            ? "bg-accent/15 text-accent font-black"
+                            : "text-dim hover:text-text hover:bg-white/5"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon size={13} className={isActive ? "text-accent" : "text-dim"} />
+                          <span>{tab.label}</span>
+                        </div>
 
-                    {hasErr && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" />
-                    )}
-                  </button>
-                );
-              })}
-            </motion.div>
-          )}
-        </AnimatePresence>
+                        {hasErr && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>,
+          modalRef.current
+        )}
       </div>
     </div>
   );
@@ -2300,6 +2366,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [selectedPresetNames, setSelectedPresetNames] = useState(new Set());
@@ -2504,14 +2571,40 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         setPresets(validPresets);
         console.log(`[ConfigModal] Loaded ${validPresets.length} presets.`);
       } else {
-        console.warn('[ConfigModal] Presets response is not an array:', res?.data);
+        const msg = typeof res?.data === 'string' && (res.data.includes('<!DOCTYPE') || res.data.includes('<html'))
+          ? 'Presets request returned HTML (non-JSON). Reverse proxy or backend route /presets may not be routed correctly.'
+          : 'Presets response was invalid or not a JSON array.';
+        console.warn('[ConfigModal]', msg, res?.data);
         setPresets([]);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('system-api-error', {
+            detail: {
+              type: 'non-json',
+              url: '/presets',
+              message: msg,
+            }
+          }));
+        }
       }
     } catch (e) {
       console.error('[ConfigModal] Error loading presets:', e);
       setPresets([]);
+      const isHtml = e.isNonJson || (e.response && typeof e.response.data === 'string' && (e.response.data.includes('<!DOCTYPE') || e.response.data.includes('<html')));
+      const msg = isHtml
+        ? 'Presets endpoint /presets returned non-JSON (HTML response). Check backend connectivity.'
+        : (e.message || 'Failed to load strategy presets.');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('system-api-error', {
+          detail: {
+            type: isHtml ? 'non-json' : 'network-error',
+            url: '/presets',
+            status: e.response?.status,
+            message: msg,
+          }
+        }));
+      }
       if (addAlert) {
-        addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
+        addAlert({ level: 'error', title: 'Load Failed', message: msg });
       }
     }
   }, [addAlert]);
@@ -3427,8 +3520,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   return (
     <div ref={modalRef} tabIndex={-1} className="flex flex-col h-full bg-surface text-text overflow-hidden relative outline-none">
-      <div className="sticky top-0 z-50 bg-surface/80 backdrop-blur-md border-b border-border">
-        <div className="py-3 px-4 flex justify-between items-center">
+      <div className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-border relative">
+        <div className="py-3 px-4 flex justify-between items-center relative z-20">
           <div className="min-w-0 flex-1 mr-4">
              <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">
                {cfg.strategy_label || 'Configure Engine'}
@@ -3456,7 +3549,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <button type="button" onClick={onClose} aria-label="Close Configuration" className="p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={16} className="text-dim" /></button>
           </Tooltip>
         </div>
-        <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
+        <SectionTabs section={section} onSectionChange={setSection} errors={errors} isMoreOpen={isMoreOpen} setIsMoreOpen={setIsMoreOpen} modalRef={modalRef} />
       </div>
       <ModalAlertTicker />
 

@@ -17,11 +17,22 @@ export const normalizeUrl = (url, forceProtocol = null) => {
   return `${proto}://${normalized.replace(/\/+$/, '')}`;
 }
 
-const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_URL : undefined
-const isExternalStaging = baseUrlEnv && baseUrlEnv.includes('railway.app');
-const baseURL = (!isExternalStaging && normalizeUrl(baseUrlEnv)) || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:8080' : '')
+const isDevPreview = typeof window !== 'undefined' && 
+  (window.location.hostname.includes('.run.app') || 
+   window.location.hostname.includes('googleusercontent.com') ||
+   window.location.hostname === 'localhost' ||
+   window.location.hostname === '127.0.0.1');
+
+const baseUrlEnv = typeof import.meta !== 'undefined' && typeof import.meta.env !== 'undefined' ? import.meta.env.VITE_API_URL : undefined;
+
+// When running inside AI Studio dev/preview environment (Cloud Run / run.app / localhost),
+// the backend Express server co-hosts the routes on the same origin (port 3000).
+// In standalone production environments (such as Railway or custom domains), VITE_API_URL is fully honored.
+const initialBaseURL = (!isDevPreview && baseUrlEnv ? normalizeUrl(baseUrlEnv) : '') || '';
+let currentBaseURL = initialBaseURL;
+
 const api = axios.create({
-  baseURL,
+  baseURL: currentBaseURL,
   timeout: 15000, // 15 seconds default timeout to prevent indefinite hangs
 })
 
@@ -52,11 +63,66 @@ export const initializeAuth = () => {
 };
 
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response && error.response.status === 401 && error.config.url !== '/auth/config') {
+  (response) => {
+    // Detect if an endpoint returned HTML (e.g. 502/404 Nginx or Vite fallback page) instead of JSON
+    const isHtml = typeof response.data === 'string' &&
+      (response.data.trim().startsWith('<!DOCTYPE') || response.data.trim().startsWith('<html') || response.data.trim().startsWith('<!doctype'));
+    const contentType = response.headers?.['content-type'] || '';
+    if (isHtml || (contentType.includes('text/html') && typeof response.data === 'string')) {
+      const url = response.config?.url || 'endpoint';
+      const msg = `API response for ${url} returned HTML instead of JSON. The backend route or reverse proxy may be misconfigured.`;
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('system-api-error', {
+          detail: {
+            type: 'non-json',
+            url,
+            status: response.status,
+            message: msg
+          }
+        }));
+      }
+      const err = new Error(msg);
+      err.isNonJson = true;
+      err.response = response;
+      return Promise.reject(err);
+    }
+    return response;
+  },
+  async (error) => {
+    // Failover: If an external API URL failed (e.g. network failure, CORS error, DNS error, or 404 from defunct staging host),
+    // and we haven't tried same-origin yet, automatically retry once against same-origin ('')
+    if (currentBaseURL && (!error.response || error.response.status === 404 || error.response.status >= 500 || error.code === 'ERR_NETWORK')) {
+      if (error.config && !error.config._retriedSameOrigin) {
+        error.config._retriedSameOrigin = true;
+        error.config.baseURL = '';
+        currentBaseURL = '';
+        api.defaults.baseURL = '';
+        console.warn('[API] External API failed. Failing over to same-origin API...');
+        return api.request(error.config);
+      }
+    }
+
+    const isHtmlError = error.response && typeof error.response.data === 'string' &&
+      (error.response.data.trim().startsWith('<!DOCTYPE') || error.response.data.trim().startsWith('<html') || (error.response.headers?.['content-type'] || '').includes('text/html'));
+
+    const url = error.config?.url || 'endpoint';
+    if (typeof window !== 'undefined') {
+      const errorDetail = {
+        type: isHtmlError ? 'non-json' : 'network-error',
+        url,
+        status: error.response?.status,
+        message: isHtmlError
+          ? `API request to ${url} returned non-JSON (HTML status ${error.response?.status}). Backend service may be unreachable or returned an error page.`
+          : (error.message || 'API request failed')
+      };
+      window.dispatchEvent(new CustomEvent('system-api-error', { detail: errorDetail }));
+    }
+
+    if (error.response && error.response.status === 401 && error.config?.url !== '/auth/config') {
       // Broadcast event for the UI to show auth overlay
-      window.dispatchEvent(new CustomEvent('auth-required'));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth-required'));
+      }
     }
     return Promise.reject(error);
   }
@@ -303,6 +369,11 @@ export const smartOptimizerAPI = {
   }),
   getRecommendations: () => api.get('/session/smart-optimizer/recommendations'),
   clearRecommendations: () => api.delete('/session/smart-optimizer/recommendations'),
+}
+
+export const healthAPI = {
+  getStartupChecklist: (fresh = false) => api.get(`/startup-checklist${fresh ? '?fresh=true' : ''}`),
+  getBinanceHealth: (fresh = false) => api.get(`/healthz/binance${fresh ? '?fresh=true' : ''}`),
 }
 
 export { sanitizeSessionConfig }

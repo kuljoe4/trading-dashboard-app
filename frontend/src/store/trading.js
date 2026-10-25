@@ -775,7 +775,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
   
-  ws: null, reconnectAttempts: 0,
+  ws: null, reconnectAttempts: 0, wsError: null, apiError: null,
+  setWsError: (wsError) => set({ wsError }),
+  clearWsError: () => set({ wsError: null }),
+  setApiError: (apiError) => set({ apiError }),
+  clearApiError: () => set({ apiError: null }),
   connectWS: () => {
     if (get().ws) return;
     set({ wsStatus: 'connecting' });
@@ -784,8 +788,20 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // unconditionally breaks local dev where the Vite server is plain HTTP,
     // causing "can't establish a connection to wss://localhost:3000".
     const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    let u = normalizeUrl(import.meta.env.VITE_WS_URL, wsProto) || `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
-    if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
+    const isDevPreview = typeof window !== 'undefined' && 
+      (window.location.hostname.includes('.run.app') || 
+       window.location.hostname.includes('googleusercontent.com') ||
+       window.location.hostname === 'localhost' ||
+       window.location.hostname === '127.0.0.1');
+
+    let u;
+    if (isDevPreview || !import.meta.env.VITE_WS_URL) {
+      u = `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host}/session/ws`;
+    } else {
+      u = normalizeUrl(import.meta.env.VITE_WS_URL, wsProto);
+      if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
+    }
+
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY');
     // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs
     const ws = new WebSocket(u, ak || []);
@@ -793,6 +809,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       const sessionActive = get().sessionActive;
       set({
         wsStatus: 'live',
+        wsError: null,
         reconnectAttempts: 0,
         isSyncingOnResume: sessionActive // Start sync feedback on reconnect if session is active
       });
@@ -800,6 +817,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().fetchTradeHistory('all');
       get().fetchAnalytics();
       get().fetchLogs();
+    };
+    ws.onerror = (e) => {
+      console.warn('[WebSocket] Connection failed or error occurred:', e);
+      set({
+        wsStatus: 'error',
+        wsError: {
+          message: 'WebSocket connection failed or was rejected. Real-time updates and live market stream are unavailable.',
+          timestamp: Date.now()
+        }
+      });
     };
     let lsu = 0;
         let logBuffer = [];
@@ -1131,7 +1158,28 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }
       else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };
-    ws.onclose = () => { set({ ws: null, wsStatus: 'offline' }); if (get().sessionActive) { const att = get().reconnectAttempts; const del = Math.min(1000 * Math.pow(2, att), 30000); set({ reconnectAttempts: att + 1 }); setTimeout(() => get().connectWS(), del); } };
+    ws.onclose = (e) => {
+      const wasExpected = e && e.code === 1000;
+      set((st) => ({
+        ws: null,
+        wsStatus: wasExpected ? 'offline' : 'error',
+        wsError: wasExpected ? null : {
+          message: e?.reason || (e?.code === 1006 ? 'WebSocket connection was rejected or closed abnormally (code 1006).' : `WebSocket disconnected (code ${e?.code || 'unknown'}).`),
+          code: e?.code,
+          timestamp: Date.now()
+        }
+      }));
+      if (get().sessionActive || !wasExpected) {
+        const att = get().reconnectAttempts;
+        const del = Math.min(1000 * Math.pow(2, att), 30000);
+        set({ reconnectAttempts: att + 1 });
+        setTimeout(() => {
+          if (!get().ws && get().wsStatus !== 'offline') {
+            get().connectWS();
+          }
+        }, del);
+      }
+    };
     set({ ws });
   },
   disconnectWS: () => { if (get().ws) { get().ws.close(); set({ ws: null, wsStatus: 'offline' }); } },

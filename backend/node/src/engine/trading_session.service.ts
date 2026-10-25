@@ -128,6 +128,7 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (s) return s;
     s = JSON.stringify({
       ge: config.global_scanner_enabled,
+      dm: config.discovery_mode,
       si: config.scan_interval,
       sl: config.scan_lookback,
       st: config.scan_pct_threshold,

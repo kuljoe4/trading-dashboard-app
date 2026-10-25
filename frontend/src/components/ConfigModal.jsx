@@ -1032,7 +1032,7 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     active={active}
     onClick={() => onClick(id)}
     className={cn(
-      "flex items-center gap-2 relative transition-all duration-200 px-4 py-2.5 rounded-xl text-xs font-bold",
+      "flex items-center gap-1 sm:gap-2 relative transition-all duration-200 px-1.5 py-1 sm:px-3.5 sm:py-2 rounded-md sm:rounded-xl text-[10px] xs:text-[11px] sm:text-xs font-bold shrink-0 min-w-0",
       active
         ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
         : "border-border text-dim hover:border-dim/50 hover:text-text",
@@ -1045,8 +1045,8 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     id={`config-tab-${id}`}
     tabIndex={active ? 0 : -1}
   >
-    <Icon size={14} className={cn(active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
-    <span>{label}</span>
+    <Icon size={12} className={cn("shrink-0 sm:w-3.5 sm:h-3.5", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
+    <span className="whitespace-nowrap truncate">{label}</span>
     {hasError && !active && (
       <span className="absolute -top-1 -right-1 flex h-2 w-2">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
@@ -1164,7 +1164,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors, isMoreOpen, 
 
   return (
     <div
-      className="flex items-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:p-3 overflow-visible outline-none relative z-40 w-full"
+      className="flex items-center gap-1 sm:gap-2 px-1 py-1.5 sm:px-3 sm:py-2.5 overflow-x-auto no-scrollbar outline-none relative z-40 w-full"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
@@ -1198,14 +1198,14 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors, isMoreOpen, 
             aria-controls="more-tabs-dropdown"
             aria-label="More configuration options menu"
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer",
+              "flex items-center gap-1 sm:gap-2 px-1.5 py-1 sm:px-3.5 sm:py-2 rounded-md sm:rounded-xl border text-[10px] xs:text-[11px] sm:text-xs font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer shrink-0 ml-auto",
               isSecondaryActive
                 ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
                 : "border-border text-dim hover:border-dim/50 hover:text-text"
             )}
           >
-            <MoreVertical size={14} className={cn(isSecondaryActive ? "text-white" : "text-dim")} />
-            <span className="hidden xs:inline">
+            <MoreVertical size={12} className={cn("shrink-0 sm:w-3.5 sm:h-3.5", isSecondaryActive ? "text-white" : "text-dim")} />
+            <span className="hidden xs:inline whitespace-nowrap">
               {activeSecondaryTab ? activeSecondaryTab.label : 'More'}
             </span>
 
@@ -2370,6 +2370,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [selectedPresetNames, setSelectedPresetNames] = useState(new Set());
+  const [presetTabFilter, setPresetTabFilter] = useState('all'); // 'all' | 'in_use'
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
       const stored = localStorage.getItem('recently_used_presets');
@@ -3088,7 +3089,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     const cleanedConfig = {
       ...(p.config || {}),
-      strategy_label: presetLabel || cfg.strategy_label,
+      strategy_label: p.name || presetLabel || cfg.strategy_label,
       strategy_variants: filteredVariants
     };
     delete cleanedConfig.paused;
@@ -3524,7 +3525,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         <div className="py-3 px-4 flex justify-between items-center relative z-20">
           <div className="min-w-0 flex-1 mr-4">
              <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">
-               {cfg.strategy_label || 'Configure Engine'}
+               <span className="truncate">{loadedPresetName || cfg.strategy_label || 'Configure Engine'}</span>
+               {loadedPresetName ? (
+                 <span className={cn(
+                   "text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase border shrink-0",
+                   isDirty
+                     ? "bg-amber/15 border-amber/40 text-amber"
+                     : "bg-accent/15 border-accent/40 text-accent"
+                 )}>
+                   {isDirty ? "Preset (Modified)" : "Preset"}
+                 </span>
+               ) : (
+                 <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-surface border border-border text-dim shrink-0">
+                   Custom Draft
+                 </span>
+               )}
                {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
              <div className="text-[9px] text-dim font-bold uppercase tracking-widest flex items-center gap-1.5 truncate">
@@ -3542,7 +3557,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  </span>
                )}
                <span className="opacity-40">/</span>
-               <span className="truncate">Orchestration Center</span>
+               <span className="truncate">
+                 {loadedPresetName
+                   ? `Preset: "${loadedPresetName}"${cfg.strategy_label && cfg.strategy_label !== loadedPresetName ? ` (Target: ${cfg.strategy_label})` : ''}`
+                   : (cfg.strategy_label ? `Strategy: ${cfg.strategy_label}` : 'Orchestration Center')}
+               </span>
              </div>
           </div>
           <Tooltip content="Close Configuration">
@@ -3550,6 +3569,51 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           </Tooltip>
         </div>
         <SectionTabs section={section} onSectionChange={setSection} errors={errors} isMoreOpen={isMoreOpen} setIsMoreOpen={setIsMoreOpen} modalRef={modalRef} />
+
+        {/* Persistent Preset Context Ribbon */}
+        {loadedPresetName && (
+          <div className={cn(
+            "px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs border-t transition-colors relative z-30",
+            isDirty
+              ? "bg-amber/10 border-amber/30 text-amber-200"
+              : "bg-accent/5 border-accent/20 text-text/90"
+          )}>
+            <div className="flex items-center gap-2 truncate">
+              <FolderOpen size={13} className={isDirty ? "text-amber shrink-0" : "text-accent shrink-0"} />
+              <span className="text-[10px] uppercase font-bold tracking-wider text-dim shrink-0">Preset:</span>
+              <span className="font-mono font-bold text-xs truncate max-w-[140px] xs:max-w-[200px] sm:max-w-[320px] text-text" title={loadedPresetName}>{loadedPresetName}</span>
+              {isDirty ? (
+                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber/20 text-amber border border-amber/40 shrink-0">
+                  Modified
+                </span>
+              ) : (
+                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-green/10 text-green border border-green/30 shrink-0">
+                  Synced
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {isDirty && (
+                <button
+                  type="button"
+                  onClick={() => savePreset(loadedPresetName)}
+                  disabled={isSaving}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+                >
+                  <RefreshCw size={10} className={cn(isSaving && "animate-spin")} />
+                  Update Preset
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { setSection('presets'); }}
+                className="text-[10px] font-bold text-dim hover:text-accent transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-white/5"
+              >
+                Presets →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <ModalAlertTicker />
 
@@ -5158,47 +5222,102 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-presets"
             className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
-            {/* Top Toolbar: Save / Update Controls & Compact Actions */}
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-3">
-              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <SavePresetInput
-                    key={loadedPresetName || 'new'}
-                    defaultName={loadedPresetName || generatedPresetName}
-                    onSave={(name) => { savePreset(name); }}
-                    isSaving={isSaving}
-                    success={saveSuccess}
-                  />
+            {/* 1. Active Preset Context & Quick Actions Bar */}
+            <div className="p-4 sm:p-5 bg-background/60 border border-border/80 rounded-2xl flex flex-col gap-3 shadow-xs">
+              <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className={cn(
+                    "w-10 h-10 rounded-xl flex items-center justify-center border shrink-0 transition-all",
+                    loadedPresetName
+                      ? "bg-accent/15 border-accent/40 text-accent shadow-sm"
+                      : "bg-surface border-border text-dim"
+                  )}>
+                    <FolderOpen size={20} />
+                  </div>
+                  <div className="flex flex-col min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-dim">
+                        Current Configuration Source
+                      </span>
+                      {loadedPresetName ? (
+                        <span className={cn(
+                          "text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase border",
+                          isDirty
+                            ? "bg-amber/15 border-amber/40 text-amber"
+                            : "bg-accent/15 border-accent/40 text-accent"
+                        )}>
+                          {isDirty ? "Preset (Modified)" : "Active Base Preset"}
+                        </span>
+                      ) : (
+                        <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-surface border border-border text-dim">
+                          Custom Draft (Not Saved to Preset)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-base sm:text-lg font-black font-mono tracking-tight text-text truncate max-w-full">
+                      {loadedPresetName || cfg.strategy_label || 'Custom Strategy Draft'}
+                    </div>
+                    <div className="text-[10px] text-dim/80 font-medium">
+                      {loadedPresetName
+                        ? (isDirty
+                            ? 'You have modified settings from this preset. Update to overwrite or save as new.'
+                            : 'All current settings in this modal are synced with this preset.')
+                        : 'Custom parameters entered directly. Save as a preset below to reuse later.'}
+                    </div>
+                  </div>
                 </div>
 
-                {/* Direct Action Buttons: Update Preset & Save New */}
-                {loadedPresetName && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Tooltip content={`Overwrite active preset "${loadedPresetName}" with current configuration settings`}>
-                      <Btn
-                        variant="primary"
-                        onClick={() => savePreset(loadedPresetName)}
-                        loading={isSaving}
-                        className="px-3.5 py-2.5 text-xs font-bold bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 flex items-center gap-1.5 shrink-0"
-                      >
-                        <RefreshCw size={13} className={cn(isSaving && "animate-spin")} /> Update "{loadedPresetName}"
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Save current settings under a new preset name">
-                      <Btn
-                        variant="ghost"
-                        onClick={() => { setPresetName(''); setLoadedPresetName(null); }}
-                        className="px-3 py-2.5 text-xs font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
-                      >
-                        <Plus size={13} /> Save As New
-                      </Btn>
-                    </Tooltip>
-                  </div>
-                )}
+                {/* Direct Action Buttons for Active Preset */}
+                <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end flex-wrap">
+                  {loadedPresetName ? (
+                    <>
+                      <Tooltip content={`Overwrite "${loadedPresetName}" with current settings`}>
+                        <Btn
+                          variant="primary"
+                          onClick={() => savePreset(loadedPresetName)}
+                          loading={isSaving}
+                          className="px-3.5 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 flex items-center gap-1.5 shrink-0 shadow-xs"
+                        >
+                          <RefreshCw size={12} className={cn(isSaving && "animate-spin")} /> Update "{loadedPresetName}"
+                        </Btn>
+                      </Tooltip>
+                      <Tooltip content="Fork current settings under a new preset name">
+                        <Btn
+                          variant="ghost"
+                          onClick={() => { setPresetName(''); setLoadedPresetName(null); }}
+                          className="px-3 py-2 text-xs font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
+                        >
+                          <Plus size={12} /> Save As New
+                        </Btn>
+                      </Tooltip>
+                      <Tooltip content="Revert changes back to original saved preset">
+                        <Btn
+                          variant="ghost"
+                          onClick={() => {
+                            const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
+                            if (original) loadPreset(original);
+                          }}
+                          className="px-2.5 py-2 text-xs font-bold border border-border/60 hover:border-red/40 text-dim hover:text-red flex items-center gap-1 shrink-0"
+                        >
+                          <RefreshCw size={12} /> Revert
+                        </Btn>
+                      </Tooltip>
+                    </>
+                  ) : (
+                    <div className="w-full sm:w-auto">
+                      <SavePresetInput
+                        key="new"
+                        defaultName={generatedPresetName}
+                        onSave={(name) => { savePreset(name); }}
+                        isSaving={isSaving}
+                        success={saveSuccess}
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Collapsible Utility & Transfer Tools (JSON Export/Import, Clipboard Copy/Paste & Reset Slate) */}
+              {/* Collapsible Utility & Transfer Tools */}
               <div className="pt-2 border-t border-border/30">
                 <CollapsibleSection
                   id="presets_tools"
@@ -5251,12 +5370,42 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             </div>
 
-            {/* Presets List Section */}
-            <section className="flex flex-col gap-4">
+            {/* Presets Directory Section with Clear Spatial Orientation */}
+            <section className="flex flex-col gap-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex justify-between items-center w-full sm:w-auto">
-                  <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load, combine or batch export/delete strategies" />
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center bg-background/60 border border-border/60 p-0.5 rounded-xl text-xs" role="tablist" aria-label="Preset view filter">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={presetTabFilter === 'all'}
+                      onClick={() => setPresetTabFilter('all')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px]",
+                        presetTabFilter === 'all'
+                          ? "bg-accent text-white shadow-xs"
+                          : "text-dim hover:text-text"
+                      )}
+                    >
+                      All Presets ({(Array.isArray(presets) ? presets.length : 0)})
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={presetTabFilter === 'in_use'}
+                      onClick={() => setPresetTabFilter('in_use')}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px]",
+                        presetTabFilter === 'in_use'
+                          ? "bg-accent text-white shadow-xs"
+                          : "text-dim hover:text-text"
+                      )}
+                    >
+                      In-Use ({partitionedPresets.active.length})
+                    </button>
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                   <div className="relative flex-1 sm:w-64 group">
                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent pointer-events-none transition-colors" />
@@ -5290,6 +5439,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       </kbd>
                     )}
                   </div>
+
                   <div className="flex items-center gap-1.5 shrink-0">
                     <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border">
                       {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
@@ -5357,6 +5507,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
                   <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
                   <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
+                  <p className="text-[11px] text-dim/70 mt-1">Save your current strategy settings above to create your first preset.</p>
                 </div>
               ) : partitionedPresets.active.length === 0 && partitionedPresets.recentlyUsed.length === 0 && partitionedPresets.available.length === 0 ? (
                 <div className="p-10 border border-dashed border-border rounded-2xl text-center flex flex-col gap-3">
@@ -5367,15 +5518,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </Btn>
                 </div>
               ) : (
-                <div className="flex flex-col gap-6">
-                  {/* Active Orchestration Section */}
+                <div className="flex flex-col gap-4">
+                  {/* Active in-use section */}
                   {partitionedPresets.active.length > 0 && (
-                    <div className="flex flex-col gap-3 animate-in fade-in duration-300">
+                    <div className="flex flex-col gap-2.5 animate-in fade-in duration-300">
                       <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-accent">
                         <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                        Active Strategy & Enabled Variants ({partitionedPresets.active.length})
+                        In-Use Strategies ({partitionedPresets.active.length})
                       </div>
-                      <motion.div layout className="flex flex-col gap-3">
+                      <motion.div layout className="flex flex-col gap-2.5">
                         <AnimatePresence mode="popLayout">
                           {partitionedPresets.active.map(p => (
                             <PresetItem
@@ -5397,124 +5548,35 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     </div>
                   )}
 
-                  {/* Recently Used Presets Section */}
-                  {partitionedPresets.recentlyUsed.length > 0 && (() => {
-                    const isRecentOpen = recentExpanded || !!presetSearch;
-                    return (
-                      <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                        <button
-                          type="button"
-                          onClick={() => setRecentExpanded(!recentExpanded)}
-                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-text/90 hover:text-text transition-colors group/rec-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1 cursor-pointer"
-                          aria-expanded={isRecentOpen}
-                          aria-controls="presets-recently-used-content"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <Clock size={11} className="text-accent" />
-                            Recently Used Presets ({partitionedPresets.recentlyUsed.length})
-                          </span>
-                          <div className={cn(
-                            "w-4 h-4 rounded border border-border/60 flex items-center justify-center text-dim group-hover/rec-btn:text-text transition-all",
-                            isRecentOpen && "rotate-180 text-accent border-accent/30"
-                          )}>
-                            <ChevronDown size={10} />
-                          </div>
-                        </button>
-
-                        <AnimatePresence initial={false}>
-                          {isRecentOpen && (
-                            <motion.div
-                              id="presets-recently-used-content"
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2, ease: "easeInOut" }}
-                              className="overflow-hidden"
-                            >
-                              <motion.div layout className="flex flex-col gap-3 pt-1">
-                                <AnimatePresence mode="popLayout">
-                                  {partitionedPresets.recentlyUsed.map(p => (
-                                    <PresetItem
-                                      key={p.name}
-                                      preset={p}
-                                      isLoaded={loadedPresetName === p.name}
-                                      isDirty={isDirty}
-                                      onLoad={loadPreset}
-                                      onToggleVariant={toggleVariant}
-                                      onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                                      isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                                      sessionActive={sessionActive}
-                                      isSelected={selectedPresetNames.has(p.name)}
-                                      onToggleSelect={toggleSelectPreset}
-                                    />
-                                  ))}
-                                </AnimatePresence>
-                              </motion.div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                  {/* Available library presets (flat, predictable, clean) */}
+                  {presetTabFilter !== 'in_use' && (
+                    <div className="flex flex-col gap-2.5" id="presets-library-content">
+                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-dim">
+                        Preset Library ({partitionedPresets.recentlyUsed.length + partitionedPresets.available.length})
                       </div>
-                    );
-                  })()}
-
-                  {/* Preset Library Section */}
-                  {partitionedPresets.available.length > 0 && (() => {
-                    const isLibraryOpen = libraryExpanded || !!presetSearch;
-                    return (
-                      <div className="flex flex-col gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setLibraryExpanded(!libraryExpanded)}
-                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-dim hover:text-text transition-colors group/lib-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1 cursor-pointer"
-                          aria-expanded={isLibraryOpen}
-                          aria-controls="presets-library-content"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            Preset Library ({partitionedPresets.available.length})
-                          </span>
-                          <div className={cn(
-                            "w-4 h-4 rounded border border-border/60 flex items-center justify-center text-dim group-hover/lib-btn:text-text transition-all",
-                            isLibraryOpen && "rotate-180 text-accent border-accent/30"
-                          )}>
-                            <ChevronDown size={10} />
-                          </div>
-                        </button>
-
-                        <AnimatePresence initial={false}>
-                          {isLibraryOpen && (
-                            <motion.div
-                              id="presets-library-content"
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2, ease: "easeInOut" }}
-                              className="overflow-hidden"
-                            >
-                              <motion.div layout className="flex flex-col gap-3 pt-1">
-                                <AnimatePresence mode="popLayout">
-                                  {partitionedPresets.available.map(p => (
-                                    <PresetItem
-                                      key={p.name}
-                                      preset={p}
-                                      isLoaded={loadedPresetName === p.name}
-                                      isDirty={isDirty}
-                                      onLoad={loadPreset}
-                                      onToggleVariant={toggleVariant}
-                                      onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                                      isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                                      sessionActive={sessionActive}
-                                      isSelected={selectedPresetNames.has(p.name)}
-                                      onToggleSelect={toggleSelectPreset}
-                                    />
-                                  ))}
-                                </AnimatePresence>
-                              </motion.div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                      <div className="flex flex-col gap-2.5" id="presets-recently-used-content">
+                        <motion.div layout className="flex flex-col gap-2.5">
+                          <AnimatePresence mode="popLayout">
+                            {[...partitionedPresets.recentlyUsed, ...partitionedPresets.available].map(p => (
+                              <PresetItem
+                                key={p.name}
+                                preset={p}
+                                isLoaded={loadedPresetName === p.name}
+                                isDirty={isDirty}
+                                onLoad={loadPreset}
+                                onToggleVariant={toggleVariant}
+                                onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                                isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                                sessionActive={sessionActive}
+                                isSelected={selectedPresetNames.has(p.name)}
+                                onToggleSelect={toggleSelectPreset}
+                              />
+                            ))}
+                          </AnimatePresence>
+                        </motion.div>
                       </div>
-                    );
-                  })()}
+                    </div>
+                  )}
                 </div>
               )}
 

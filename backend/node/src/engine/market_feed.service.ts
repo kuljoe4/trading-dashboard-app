@@ -698,8 +698,29 @@ export class MarketFeedService {
         }
 
         for (const sc of strategyConfigs) {
+          let scSymbols = symbols;
+          if (sc !== config) {
+            if (sc.symbols && sc.symbols.length > 0) {
+              scSymbols = sc.symbols.filter(s => !activeSymbolList.includes(s));
+            } else if (
+              sc.discovery_mode &&
+              (sc.discovery_mode !== config.discovery_mode || (sc.watchlist_size && sc.watchlist_size !== config.watchlist_size))
+            ) {
+              const scWatchlistSize = sc.watchlist_size || config.watchlist_size || 50;
+              const scOffset = sc.watchlist_offset || 0;
+              const scTop = sc.discovery_mode === 'change_pct'
+                ? await this.tickerCache.topByChangePct(scWatchlistSize + scOffset, combinedExcluded)
+                : sc.discovery_mode === 'abs_change_pct'
+                  ? await this.tickerCache.topByAbsChangePct(scWatchlistSize + scOffset, combinedExcluded)
+                  : await this.tickerCache.topByVolume(scWatchlistSize + scOffset, combinedExcluded);
+              scSymbols = scTop
+                .slice(scOffset)
+                .map((t: any) => t.symbol)
+                .filter(s => this.getSymbolFilters(s) !== undefined && !activeExcludedSet.has(s));
+            }
+          }
           const globalInterval = sc.scan_interval || '1m';
-          for (const s of symbols) {
+          for (const s of scSymbols) {
             if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
             newWatchlist.get(s)!.add(globalInterval);
           }

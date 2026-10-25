@@ -7,6 +7,8 @@ import { applyTheme } from '../lib/theme.js'
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
+let activeSyncPromise = null;
+let syncRetryTimeout = null;
 
 // Anti-flicker metric resolver: prevents transient 0/null/undefined payloads from zero-resetting active store values
 const resolveNonZeroMetric = (nextVal, currentVal, isResuming = false) => {
@@ -475,54 +477,85 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   }),
   setSyncing: (s) => set({ isSyncing: s }),
   sync: async (retryCount = 0) => {
-    try {
-      const res = await sessionAPI.status();
-      const st = get();
-      const running = !!res.data.running;
-
-      if (running) {
-        st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
-      } else if (st.sessionActive) {
-        // When backend REST status confirms session is no longer running, exit resuming state
-        st.setSessionActive(false, null);
-      }
-
-      // BOLT: Centralize merge logic via updateStats
-      get().updateStats({
-        sessionActive: running,
-        balance: res.data.balance,
-        totalPnl: res.data.totalPnl ?? res.data.total_pnl,
-        totalRiskPct: res.data.totalRiskPct,
-        totalSlUsed: res.data.totalSlUsed,
-        activeTrades: res.data.activeTrades,
-        variantStats: res.data.variant_stats,
-        isAdaptiveTightened: res.data.isAdaptiveTightened,
-        nextSlotTs: res.data.nextSlotTs,
-        scannerResults: res.data.scannerResults,
-        activeWindows: res.data.activeWindows,
-        tradeHistory: res.data.history,
-        config: res.data.config,
-        pausedStrategies: res.data.paused_strategies,
-        strategyGateStates: res.data.strategy_gate_states,
-        rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
-      });
-      // SRE: Automatically clear API error banner when status endpoint succeeds
-      if (st.apiError) {
-        st.clearApiError();
-      }
-
-      // SRE: Proactively fetch analytics and trade history to keep Account Balance last trade and Insights populated
-      get().fetchAnalytics();
-      get().fetchTradeHistory('all');
-    } catch (e) {
-      if (e.code === 'ERR_CANCELED') return;
-      if (retryCount < 5) {
-        const backoffDelay = Math.min(1500 * Math.pow(1.5, retryCount), 8000);
-        setTimeout(() => get().sync(retryCount + 1), backoffDelay);
-      } else {
-        console.error("Manual sync failed", e);
-      }
+    // SRE P1: Guard against concurrent in-flight sync calls
+    if (activeSyncPromise) {
+      return activeSyncPromise;
     }
+
+    if (syncRetryTimeout) {
+      clearTimeout(syncRetryTimeout);
+      syncRetryTimeout = null;
+    }
+
+    activeSyncPromise = (async () => {
+      try {
+        const res = await sessionAPI.status();
+        const running = !!res.data.running;
+        const currentActive = get().sessionActive;
+
+        if (running) {
+          get().setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+        } else if (currentActive) {
+          // When backend REST status confirms session is no longer running, exit resuming state
+          get().setSessionActive(false, null);
+        }
+
+        // BOLT: Centralize merge logic via updateStats
+        get().updateStats({
+          sessionActive: running,
+          balance: res.data.balance,
+          totalPnl: res.data.totalPnl ?? res.data.total_pnl,
+          totalRiskPct: res.data.totalRiskPct,
+          totalSlUsed: res.data.totalSlUsed,
+          activeTrades: res.data.activeTrades,
+          variantStats: res.data.variant_stats,
+          isAdaptiveTightened: res.data.isAdaptiveTightened,
+          nextSlotTs: res.data.nextSlotTs,
+          scannerResults: res.data.scannerResults,
+          activeWindows: res.data.activeWindows,
+          tradeHistory: res.data.history,
+          config: res.data.config,
+          pausedStrategies: res.data.paused_strategies,
+          strategyGateStates: res.data.strategy_gate_states,
+          rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
+        });
+
+        // SRE P2: Re-read state fresh with get() so stale snapshot doesn't leave error banner visible
+        if (get().apiError) {
+          get().clearApiError();
+        }
+      } catch (e) {
+        // SRE P3: Reset syncing feedback states if request was aborted
+        if (e.code === 'ERR_CANCELED') {
+          set({ isSyncing: false, isSyncingOnResume: false });
+          return;
+        }
+
+        // SRE: Do not endlessly retry on 4xx client errors (401, 403, 404, 451)
+        const httpStatus = e?.response?.status;
+        if (httpStatus >= 400 && httpStatus < 500) {
+          set({ isSyncing: false, isSyncingOnResume: false });
+          return;
+        }
+
+        if (retryCount < 5) {
+          // SRE P1: Jittered exponential backoff
+          const baseDelay = Math.min(1500 * Math.pow(1.5, retryCount), 8000);
+          const jitteredDelay = Math.floor(baseDelay * (0.8 + Math.random() * 0.4));
+          syncRetryTimeout = setTimeout(() => {
+            syncRetryTimeout = null;
+            get().sync(retryCount + 1);
+          }, jitteredDelay);
+        } else {
+          console.error("Manual sync failed", e);
+          set({ isSyncing: false, isSyncingOnResume: false });
+        }
+      } finally {
+        activeSyncPromise = null;
+      }
+    })();
+
+    return activeSyncPromise;
   },
   setThrottled: (t) => {
     const wasThrottled = get().isThrottled;
@@ -589,7 +622,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); const sessions = (r.data || []).map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 })); set({ sessionList: sessions }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  fetchTradeHistory: async (sid = 'all', limit = 1000) => { set({ isSyncing: true }); try { const parsedLimit = limit === 'ALL' || limit === 'all' ? 5000 : limit; const r = await sessionAPI.history(sid, parsedLimit); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchTradeHistory: async (sid = 'all', limit = 100) => { set({ isSyncing: true }); try { const parsedLimit = limit === 'ALL' || limit === 'all' ? 500 : Math.min(Number(limit) || 100, 500); const r = await sessionAPI.history(sid, parsedLimit); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLogs: async (limit = 50) => {
     try {
       const res = await sessionAPI.logs(limit);

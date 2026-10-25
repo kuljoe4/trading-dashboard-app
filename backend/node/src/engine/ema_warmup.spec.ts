@@ -1,12 +1,10 @@
 import { SignalEngineService } from './signalEngine';
-import { KlineStoreService } from './kline_store.service';
 import { ConfigService } from '@nestjs/config';
 
 describe('SignalEngineService - EMA Warmup', () => {
   let signalEngine: SignalEngineService;
 
   beforeEach(() => {
-    // Mock KlineStoreService since we don't need its real functionality for getRequiredWarmup
     const mockKlineStore = {} as any;
     signalEngine = new SignalEngineService(mockKlineStore);
   });

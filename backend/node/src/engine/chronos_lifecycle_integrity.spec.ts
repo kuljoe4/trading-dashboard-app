@@ -1,7 +1,6 @@
 import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { Trade } from '../models/Trade';
-import { roundEight } from '../lib/math';
 import { ENGINE_EVENTS } from './events';
 import { EXIT_REASONS } from '../models/constants';
 

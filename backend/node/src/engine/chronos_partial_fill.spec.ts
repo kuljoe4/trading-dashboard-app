@@ -15,7 +15,6 @@ import { AuditLogService } from '../trading/audit-log.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { ENGINE_EVENTS } from './events';
-import { EXIT_REASONS } from '../models/constants';
 
 describe('Chronos: Partial Fill and Quantity Integrity', () => {
   let orderManager: OrderManagerService;

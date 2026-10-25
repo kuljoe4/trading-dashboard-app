@@ -17,7 +17,6 @@ import { MomentumScannerService } from './momentum_scanner.service';
 import { AnalyticsService } from './analytics.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
-import { EXIT_REASONS } from '../models/constants';
 
 describe('Chronos ReduceOnly Retry Failure Propagates To Sync Recovery', () => {
   let orderManager: OrderManagerService;

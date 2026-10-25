@@ -1,17 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
 import { MonitoringController } from './monitoring.controller';
 import { MonitoringService } from '../engine/monitoring.service';
 import { SessionStateService } from '../engine/session_state.service';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { ApiKeyGuard } from '../lib/api-key.guard';
 import { ConfigService } from '@nestjs/config';
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { Request } from 'express';
 import * as throttle from '../lib/throttle';
+import { encrypt } from '../lib/crypto';
 
 describe('MonitoringController', () => {
   let controller: MonitoringController;
   let monitoringService: MonitoringService;
   let sessionStateService: SessionStateService;
+  let settingsRepository: any;
 
   let originalApiKey: string | undefined;
 
@@ -44,6 +48,13 @@ describe('MonitoringController', () => {
             get: jest.fn().mockReturnValue('dummy_key'),
           },
         },
+        {
+          provide: getRepositoryToken(SettingsEntity),
+          useValue: {
+            findOne: jest.fn().mockResolvedValue(null),
+            query: jest.fn().mockResolvedValue([{ 1: 1 }]),
+          },
+        },
         ApiKeyGuard,
       ],
     }).compile();
@@ -51,6 +62,7 @@ describe('MonitoringController', () => {
     controller = module.get<MonitoringController>(MonitoringController);
     monitoringService = module.get<MonitoringService>(MonitoringService);
     sessionStateService = module.get<SessionStateService>(SessionStateService);
+    settingsRepository = module.get(getRepositoryToken(SettingsEntity));
   });
 
   afterEach(() => {
@@ -201,9 +213,54 @@ describe('MonitoringController', () => {
       expect(probeSpy).toHaveBeenCalledTimes(2); // live + testnet
 
       // Second call (hits cache)
-            const res2 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: {}, headers: { authorization: 'Bearer test_key' } } as any);
+      const res2 = await controller.getBinanceHealth({ ...mockRequest('127.0.0.1'), query: {}, headers: { authorization: 'Bearer test_key' } } as any);
       expect(res2.cached).toBe(true);
       expect(probeSpy).toHaveBeenCalledTimes(2); // no additional calls
+    });
+  });
+
+  describe('getStartupChecklist', () => {
+    const mockRequest = (ip: string): Request => ({
+      ip,
+      headers: {},
+      socket: { remoteAddress: ip },
+    } as any);
+
+    it('should detect API keys saved in settings database when process.env.BINANCE_API_KEY is unset', async () => {
+      const originalEnvKey = process.env.BINANCE_API_KEY;
+      delete process.env.BINANCE_API_KEY;
+
+      process.env.ENCRYPTION_KEY = 'test_encryption_key_123456';
+      const fakeEncryptedKey = encrypt('live_api_key_1234567890_abcdef');
+
+      settingsRepository.findOne.mockResolvedValueOnce({
+        id: 'default',
+        binance_api_key: fakeEncryptedKey,
+        binance_testnet_api_key: null,
+      });
+
+      jest.spyOn(controller as any, 'probeBinanceEndpoint').mockImplementation(async (url: any) => ({
+        url,
+        accessible: true,
+        status_code: 200,
+        latency_ms: 30,
+        geo_restricted: false,
+        ip_banned: false,
+        rate_limited: false,
+        error: null,
+      }));
+
+      const res = await controller.getStartupChecklist(mockRequest('127.0.0.1'));
+      const keyCheck = res.checks.find((c: any) => c.id === 'binance_live_keys');
+
+      expect(keyCheck).toBeDefined();
+      expect(keyCheck.status).toBe('PASS');
+      expect(keyCheck.summary).toContain('Configured (••••••••cdef)');
+      expect(keyCheck.detail).toContain('Settings database');
+
+      if (originalEnvKey !== undefined) {
+        process.env.BINANCE_API_KEY = originalEnvKey;
+      }
     });
   });
 });

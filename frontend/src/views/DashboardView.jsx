@@ -37,6 +37,7 @@ import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { useNow } from '../hooks/useNow'
+import { ApiHealthWidget } from '../components/ApiHealthWidget'
 
 const TemporalRiskGrid = React.memo(() => {
   const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs, nextSlotTs } = useTradingStore(state => ({
@@ -2676,6 +2677,7 @@ export function DashboardView({ initialStrategy }) {
 
         <div aria-live="polite">
           <BanBanner apiStatus={apiStatus} />
+          <ApiHealthWidget className="mb-6" />
           {agreementRequired && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}

@@ -1,5 +1,4 @@
 import { SignalEngineService } from './signalEngine';
-import { ConfigService } from '@nestjs/config';
 
 describe('SignalEngineService - EMA Warmup', () => {
   let signalEngine: SignalEngineService;

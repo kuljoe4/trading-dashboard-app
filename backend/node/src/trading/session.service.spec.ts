@@ -336,7 +336,7 @@ describe('SessionService Validation', () => {
     it('filters out invalid active trades from database', async () => {
       const mockTradeRepository = {
         find: jest.fn().mockResolvedValue([
-          { symbol: 'BTCUSDT', status: 'OPEN', entry_price: 50000, qty: 1 },
+          { symbol: 'BTCUSDT', status: 'OPEN', entry_price: 10000, qty: 1 },
           { symbol: 'ETHUSDT', status: 'OPEN', entry_price: NaN, qty: 1 },
           { symbol: 'SOLUSDT', status: 'OPEN', entry_price: 100, qty: undefined },
         ]),
@@ -461,7 +461,7 @@ describe('SessionService Validation', () => {
     });
 
     it('should rollback transaction and throw error if trade save fails', async () => {
-      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 10000, qty: 1, pnl: 100 } as any;
       mockQueryRunner.manager.findOne.mockResolvedValue({ id: 'session-123', paperMode: true });
       mockQueryRunner.manager.save.mockRejectedValue(new Error('DB SAVE FAILED'));
       (service as any).currentSessionId = 'session-123';
@@ -474,7 +474,7 @@ describe('SessionService Validation', () => {
     });
 
     it('should commit transaction if all steps succeed', async () => {
-      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 10000, qty: 1, pnl: 100 } as any;
       (service as any).currentSessionId = 'session-123';
 
       const mockQueryBuilder = {
@@ -496,7 +496,7 @@ describe('SessionService Validation', () => {
     });
 
     it('should be idempotent and not double count PnL if called twice', async () => {
-      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 50000, qty: 1, pnl: 100 } as any;
+      const trade = { symbol: 'BTCUSDT', status: 'CLOSED', entry_price: 10000, qty: 1, pnl: 100 } as any;
       (service as any).currentSessionId = 'session-123';
 
       const mockQueryBuilder = {
@@ -523,7 +523,7 @@ describe('SessionService Validation', () => {
       const trade = {
         symbol: 'BTCUSDT',
         status: 'CLOSED_SIGNAL',
-        entry_price: 50000,
+        entry_price: 10000,
         qty: 1,
         pnl: 100,
         exit_signal_type: 'EMA_CROSS',
@@ -554,7 +554,7 @@ describe('SessionService Validation', () => {
       const trade = {
         symbol: 'BTCUSDT',
         status: 'OPEN',
-        entry_price: 50000,
+        entry_price: 10000,
         qty: 1,
         entry_signal_type: 'breakout',
         entry_signal_confidence: 0.85,
@@ -813,7 +813,7 @@ describe('SessionService Validation', () => {
       id: 'trade-id-123',
       symbol: 'BTCUSDT',
       status: 'OPEN',
-      current_sl: 50000,
+      current_sl: 10000,
       sessionId: 'session-id-123',
       strategy_config: {
         strategy_label: 'Original Label',
@@ -934,7 +934,7 @@ describe('SessionService Validation', () => {
       });
 
       mockTradingSessionService.fetchAllPositions = jest.fn().mockResolvedValue([
-        { symbol: 'BTCUSDT', positionAmt: '1.5', entryPrice: '50000', markPrice: '50100' }
+        { symbol: 'BTCUSDT', positionAmt: '1.5', entryPrice: '10000', markPrice: '50100' }
       ]);
       mockTradingSessionService.getActiveTradesRaw = jest.fn().mockReturnValue([]);
 
@@ -969,7 +969,7 @@ describe('SessionService Validation', () => {
       mockOrderManagerService.fetchPosition = jest.fn().mockResolvedValue({
         symbol: 'BTCUSDT',
         positionAmt: '1.5',
-        entryPrice: '50000',
+        entryPrice: '10000',
         markPrice: '50100'
       });
       mockOrderManagerService.fetchOpenOrders = jest.fn().mockResolvedValue([]);
@@ -1010,7 +1010,7 @@ describe('SessionService Validation', () => {
       mockOrderManagerService.fetchPosition = jest.fn().mockResolvedValue({
         symbol: 'BTCUSDT',
         positionAmt: '1.5',
-        entryPrice: '50000',
+        entryPrice: '10000',
         markPrice: '50100'
       });
       mockOrderManagerService.fetchOpenOrders = jest.fn().mockResolvedValue([]);

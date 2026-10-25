@@ -391,7 +391,7 @@ export class MonitoringController {
       title: 'WebSocket Connection Gateway',
       status: 'PASS',
       summary: `Endpoint ws://0.0.0.0:${port}/session/ws ready`,
-      detail: `WebSocket gateway active. Connected clients: ${this.sessionState?.listenerCount ?? 0}. UDS status: ${metrics.application?.exchange_uds_status || 'READY'}`,
+      detail: `WebSocket gateway active. Connected clients: ${(metrics.application as any)?.active_ws_connections ?? 0}. UDS status: ${metrics.application?.exchange_uds_status || 'READY'}`,
     });
 
     // 5. Binance Health Probes

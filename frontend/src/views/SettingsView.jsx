@@ -14,7 +14,7 @@ export function SettingsView() {
   const cfg = config || {}
 
   // Collapsible section state - defaults to all sections collapsed for clean, ultra-dense UI flow
-  const [openSections, setOpenSections] = useState(new Set(['startup_checklist']))
+  const [openSections, setOpenSections] = useState(new Set())
 
   const toggleSection = (id) => {
     setOpenSections(prev => {

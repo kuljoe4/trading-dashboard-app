@@ -2016,8 +2016,61 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
 });
 BacktestWorkbenchPanel.displayName = 'BacktestWorkbenchPanel';
 
-const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant, sessionActive, isSelected, onToggleSelect }, ref) => {
+
+const computePresetDiff = (current, saved) => {
+  const diffs = [];
+
+  // Risk per trade
+  const rCurr = current.risk_pct_per_trade;
+  const rSaved = saved.risk_pct_per_trade;
+  if (rCurr !== rSaved) diffs.push({ label: 'Risk per trade', old: `${rSaved}%`, new: `${rCurr}%` });
+
+  // Stop loss
+  const slCurr = current.sl_distance_pct;
+  const slSaved = saved.sl_distance_pct;
+  if (slCurr !== slSaved) diffs.push({ label: 'Stop loss', old: `${slSaved}%`, new: `${slCurr}%` });
+
+  // Trailing stop
+  const tCurr = current.trailing_stop_mode && current.trailing_stop_mode !== 'none' ? 'on' : 'off';
+  const tSaved = saved.trailing_stop_mode && saved.trailing_stop_mode !== 'none' ? 'on' : 'off';
+  if (tCurr !== tSaved) diffs.push({ label: 'Trailing stop', old: tSaved, new: tCurr });
+
+  return diffs;
+};
+
+const PresetItem = React.memo(React.forwardRef(({
+  preset,
+  isLoaded,
+  isDirty,
+  onLoad,
+  onToggleVariant,
+  onDelete,
+  isVariant,
+  sessionActive,
+  isSelected,
+  onToggleSelect,
+  currentCfg,
+  onSave,
+  onSaveAsNew,
+  onRevert,
+  onDuplicate
+}, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
+  const isExpanded = isLoaded;
+
+  let modeColor = "bg-dim";
+  let modeLabel = "Paper";
+  if (pMode === 'live') { modeColor = "bg-green"; modeLabel = "Live"; }
+  else if (pMode === 'testnet') { modeColor = "bg-cyan-500"; modeLabel = "Testnet"; }
+
+  const tpRatio = (preset.config.tp_mode === 'fixed' || preset.config.tp_mode === undefined)
+    ? preset.config.tp_ratio || 2.0
+    : (preset.config.exit_rr_sequence && preset.config.exit_rr_sequence.length > 0)
+        ? preset.config.exit_rr_sequence[preset.config.exit_rr_sequence.length - 1]
+        : 2.0;
+
+  const diffs = (isExpanded && isDirty && currentCfg) ? computePresetDiff(currentCfg, preset.config) : [];
+
   return (
     <motion.div
       ref={ref}
@@ -2027,120 +2080,163 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer shadow-md shadow-black/20",
-        isSelected
-          ? "border-accent shadow-[0_0_12px_rgba(var(--accent-rgb),0.2)] bg-accent/[0.04]"
-          : isLoaded
-          ? "border-accent/60 shadow-[0_0_12px_rgba(var(--accent-rgb),0.12)] bg-accent/[0.02]"
-          : isVariant
-          ? "border-purple/60 shadow-[0_0_12px_rgba(168,85,247,0.12)] bg-purple/[0.02]"
-          : "border-border/80 hover:border-border-hover hover:bg-white/[0.01]"
+        "flex flex-col border-b border-border/40 hover:bg-white/[0.02] transition-colors relative overflow-hidden group/preset",
+        isSelected && "bg-accent/[0.04]",
+        isExpanded && "bg-surface/30 border-b-border"
       )}
     >
-      {onToggleSelect && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
-          className="shrink-0 p-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
-          aria-label={`Select preset ${preset.name}`}
-        >
-          <div className={cn(
-            "w-4 h-4 rounded border flex items-center justify-center transition-all",
-            isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60 hover:border-accent"
-          )}>
-            {isSelected && <Check size={11} className="stroke-[3]" />}
-          </div>
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={() => onLoad(preset)}
-        className="flex-1 min-w-0 flex items-center gap-2.5 sm:gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-0.5 sm:p-1 transition-all"
-        aria-label={`Load preset ${preset.name}`}
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3 sm:py-4 cursor-pointer"
+        onClick={(e) => {
+          if (e.target.closest('button')) return;
+          if (onToggleSelect && (isSelected || e.metaKey || e.ctrlKey)) {
+             onToggleSelect(preset.name);
+          } else {
+             onLoad(preset);
+          }
+        }}
       >
-        <div className={cn(
-          "w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border shrink-0 transition-all duration-300",
-          isLoaded
-            ? "bg-accent/15 border-accent/30 text-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.15)]"
-            : isVariant
-            ? "bg-purple/15 border-purple/30 text-purple shadow-[0_0_8px_rgba(168,85,247,0.15)]"
-            : "bg-surface border-border text-dim group-hover/preset:border-accent/20 group-hover/preset:text-accent group-hover/preset:scale-105"
-        )}>
-          {isLoaded ? <CheckCircle2 size={18} /> : isVariant ? <ShieldCheck size={18} /> : <Zap size={18} />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs sm:text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
-             <span className="truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[320px] font-mono tracking-tight" title={preset.name}>{preset.name}</span>
-             <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
-               {pMode === 'paper' && <PaperBadge />}
-               {pMode === 'testnet' && <DemoBadge />}
-               {pMode === 'live' && <LiveBadge />}
+        {/* Checkbox for batch select */}
+        {onToggleSelect && (
+           <button
+             type="button"
+             onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
+             className="shrink-0 p-1 md:hidden md:group-hover/preset:block focus-visible:ring-2 focus-visible:ring-accent rounded-md"
+           >
+             <div className={cn(
+               "w-4 h-4 rounded border flex items-center justify-center transition-all",
+               isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60"
+             )}>
+               {isSelected && <Check size={11} className="stroke-[3]" />}
              </div>
-             {isLoaded && (
-               <span className={cn("text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
-                 {isDirty ? "Modified Base" : "Active Base"}
-               </span>
-             )}
-             {isVariant && !isLoaded && (
-               <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none bg-purple/10 text-purple">
-                 Variant
-               </span>
-             )}
-          </div>
-          <div className="text-[9.5px] sm:text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5 truncate">
-            {preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk
+           </button>
+        )}
+
+        <div className="flex-1 min-w-0 flex items-center gap-3">
+          <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", modeColor)} />
+          <div className="flex flex-col min-w-0">
+             <div className="flex items-center gap-2">
+                <span className="text-sm font-bold truncate tracking-tight text-text group-hover/preset:text-accent transition-colors">
+                  {preset.name}
+                </span>
+                {isExpanded && isDirty && (
+                  <span className="text-[10px] text-amber font-bold tracking-tight">
+                     {diffs.length} unsaved changes
+                  </span>
+                )}
+             </div>
+             <div className="text-[11px] text-dim font-mono tracking-tight mt-0.5 truncate flex items-center gap-1.5">
+               {preset.config.scan_interval} · {preset.config.risk_pct_per_trade}% risk · SL {preset.config.sl_distance_pct}%
+               {tpRatio ? ` · TP ${Number(tpRatio).toFixed(1)}R` : ''}
+             </div>
           </div>
         </div>
-      </button>
 
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        {isLoaded ? (
-          <Tooltip content="Base Strategy (Cannot be added as variant of itself)">
-            <span className="px-2 py-1 bg-surface border border-border text-dim/60 text-[9px] font-mono font-bold uppercase rounded-lg cursor-not-allowed select-none">
-              Base Strategy
-            </span>
-          </Tooltip>
-        ) : (
-          <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
-            <button
-              type="button"
-              onClick={(e) => onToggleVariant(e, preset)}
-              aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-              className={cn(
-                "p-2 rounded-lg transition-all active:scale-95 border focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                isVariant
-                  ? "bg-purple/10 text-purple border-purple/20 hover:bg-purple/20"
-                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/20"
-              )}
-            >
-              {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-            </button>
-          </Tooltip>
-        )}
-        <Tooltip content={sessionActive ? "Preset deletion is locked while a session is active. Disable or remove from active strategy variants instead." : "Delete Preset"}>
-          <button
-            type="button"
-            disabled={sessionActive}
-            onClick={(e) => {
-              if (sessionActive) return;
-              onDelete(e, preset.name);
-            }}
-            aria-label={sessionActive ? `Preset deletion is locked for ${preset.name}` : `Delete preset ${preset.name}`}
-            className={cn(
-              "p-2 transition-colors rounded-lg focus-visible:ring-2 focus-visible:outline-none",
-              sessionActive
-                ? "text-dim/30 bg-surface/5 border border-border/20 cursor-not-allowed"
-                : "text-dim hover:text-red hover:bg-red/5 focus-visible:ring-red"
-            )}
-          >
-            {sessionActive ? <Lock size={16} className="opacity-60" /> : <Trash2 size={16} />}
-          </button>
-        </Tooltip>
+        <div className="flex items-center gap-4 shrink-0">
+          <span className="text-[11px] text-dim tracking-tight hidden sm:block">{modeLabel}</span>
+
+          {/* Desktop Right Action */}
+          <div className="hidden sm:flex">
+             {isExpanded ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg border text-xs font-bold transition-all focus-visible:ring-2",
+                    isVariant
+                      ? "bg-transparent text-dim border-border hover:text-white"
+                      : "bg-transparent text-dim border-border hover:border-accent hover:text-accent"
+                  )}
+                >
+                  {isVariant ? "In variants" : "Add to variants"}
+                </button>
+             ) : (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                  className={cn(
+                    "text-[11px] font-bold transition-colors opacity-0 group-hover/preset:opacity-100",
+                    isVariant ? "text-dim" : "text-text hover:text-accent"
+                  )}
+                >
+                  {isVariant ? "In variants" : "Add to variants"}
+                </button>
+             )}
+          </div>
+        </div>
       </div>
+
+      {/* Inline Expansion */}
+      {isExpanded && (
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-4 pb-4 flex flex-col gap-4 overflow-hidden"
+          >
+            {isDirty && diffs.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                 {diffs.map((d, i) => (
+                    <div key={i} className="bg-background/40 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+                       <span className="text-[11px] text-dim">{d.label}</span>
+                       <div className="text-sm font-mono tracking-tight flex items-center gap-2">
+                         <span className="text-dim/80">{d.old}</span>
+                         <span className="text-dim/40">→</span>
+                         <span className="text-amber">{d.new}</span>
+                       </div>
+                    </div>
+                 ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/20">
+               <Btn
+                 variant="primary"
+                 onClick={() => onSave(preset.name)}
+                 className="px-4 py-2 text-xs bg-accent text-white font-bold"
+               >
+                 Update preset
+               </Btn>
+               <Btn
+                 variant="ghost"
+                 onClick={onSaveAsNew}
+                 className="px-4 py-2 text-xs border border-border text-dim hover:text-text font-bold"
+               >
+                 Save as new
+               </Btn>
+               <Btn
+                 variant="ghost"
+                 onClick={onRevert}
+                 className="px-4 py-2 text-xs text-dim hover:text-text font-bold"
+               >
+                 Revert
+               </Btn>
+               <div className="flex-1" />
+               <Btn
+                 variant="ghost"
+                 onClick={onDuplicate}
+                 className="px-4 py-2 text-xs text-dim hover:text-text hidden sm:flex font-bold"
+               >
+                 Duplicate
+               </Btn>
+               <Btn
+                 variant="ghost"
+                 disabled={sessionActive}
+                 onClick={(e) => onDelete(e, preset.name)}
+                 className={cn("px-4 py-2 text-xs font-bold", sessionActive ? "text-dim/30" : "text-red hover:bg-red/10")}
+               >
+                 Delete
+               </Btn>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      )}
     </motion.div>
   );
 }))
 PresetItem.displayName = 'PresetItem'
+
 
 const flattenConfig = (config) => {
   if (!config) return {};
@@ -2416,46 +2512,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [onClose]);
 
-  const partitionedPresets = useMemo(() => {
+
+  const filteredPresets = useMemo(() => {
+    let list = Array.isArray(presets) ? presets : [];
+
     const searchLower = presetSearch.toLowerCase().trim();
-    const safePresets = Array.isArray(presets) ? presets : [];
-    const filtered = safePresets.filter(p =>
-      p && typeof p.name === 'string' && (!searchLower || p.name.toLowerCase().includes(searchLower))
-    );
+    if (searchLower) {
+      list = list.filter(p => p && typeof p.name === 'string' && p.name.toLowerCase().includes(searchLower));
+    }
 
-    const active = [];
-    const recentlyUsed = [];
-    const available = [];
-
-    const activeSet = new Set();
-    filtered.forEach(p => {
-      const isLoaded = loadedPresetName === p.name;
-      const isVar = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
-      if (isLoaded || isVar) {
-        active.push(p);
-        activeSet.add(p.name);
-      }
-    });
-
-    const recentSet = new Set(recentlyUsedNames);
-    filtered.forEach(p => {
-      if (activeSet.has(p.name)) return;
-      if (recentSet.has(p.name)) {
-        recentlyUsed.push(p);
+    if (presetTabFilter !== 'all') {
+      if (presetTabFilter === 'variants') {
+        const variantsSet = new Set((cfg.strategy_variants || []).map(v => v.strategy_label));
+        list = list.filter(p => variantsSet.has(p.name));
       } else {
-        available.push(p);
+        list = list.filter(p => {
+          const pMode = p.config.trading_mode || (p.config.paper_mode ? 'paper' : 'live');
+          return pMode === presetTabFilter;
+        });
       }
-    });
+    }
 
-    // Sort recentlyUsed according to recentlyUsedNames order
-    recentlyUsed.sort((a, b) => {
-      const idxA = recentlyUsedNames.indexOf(a.name);
-      const idxB = recentlyUsedNames.indexOf(b.name);
-      return idxA - idxB;
+    // Sort recentlyUsed according to recentlyUsedNames order to top
+    return [...list].sort((a, b) => {
+       const idxA = recentlyUsedNames.indexOf(a.name);
+       const idxB = recentlyUsedNames.indexOf(b.name);
+       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+       if (idxA !== -1) return -1;
+       if (idxB !== -1) return 1;
+       return a.name.localeCompare(b.name);
     });
+  }, [presets, presetSearch, presetTabFilter, cfg.strategy_variants, recentlyUsedNames]);
 
-    return { active, recentlyUsed, available };
-  }, [presets, presetSearch, loadedPresetName, cfg.strategy_variants, recentlyUsedNames]);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -5216,371 +5304,182 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
 
         {section === 'presets' && (
-          <div
-            id="config-panel-presets"
+          <div id="config-panel-presets"
             role="tabpanel"
             aria-labelledby="config-tab-presets"
-            className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
+            className="flex flex-col gap-0 animate-in fade-in duration-300 -mx-3 md:-mx-4 -mt-3"
           >
-            {/* 1. Active Preset Context & Quick Actions Bar */}
-            <div className="p-4 sm:p-5 bg-background/60 border border-border/80 rounded-2xl flex flex-col gap-3 shadow-xs">
-              <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-                <div className="flex items-start gap-3 min-w-0">
-                  <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center border shrink-0 transition-all",
-                    loadedPresetName
-                      ? "bg-accent/15 border-accent/40 text-accent shadow-sm"
-                      : "bg-surface border-border text-dim"
-                  )}>
-                    <FolderOpen size={20} />
+            {/* Top Bar */}
+            <div className="flex flex-col gap-4 px-4 pt-5 pb-3">
+               <div className="flex items-center justify-between">
+                  <div className="text-xl font-bold text-text flex items-center gap-3">
+                     Presets
+                     <span className="text-xs text-dim font-normal tracking-tight">
+                        {Array.isArray(presets) ? presets.length : 0} saved · {cfg.strategy_variants?.length || 0} running as variants
+                     </span>
                   </div>
-                  <div className="flex flex-col min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-dim">
-                        Current Configuration Source
-                      </span>
-                      {loadedPresetName ? (
-                        <span className={cn(
-                          "text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase border",
-                          isDirty
-                            ? "bg-amber/15 border-amber/40 text-amber"
-                            : "bg-accent/15 border-accent/40 text-accent"
-                        )}>
-                          {isDirty ? "Preset (Modified)" : "Active Base Preset"}
-                        </span>
-                      ) : (
-                        <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-surface border border-border text-dim">
-                          Custom Draft (Not Saved to Preset)
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-base sm:text-lg font-black font-mono tracking-tight text-text truncate max-w-full">
-                      {loadedPresetName || cfg.strategy_label || 'Custom Strategy Draft'}
-                    </div>
-                    <div className="text-[10px] text-dim/80 font-medium">
-                      {loadedPresetName
-                        ? (isDirty
-                            ? 'You have modified settings from this preset. Update to overwrite or save as new.'
-                            : 'All current settings in this modal are synced with this preset.')
-                        : 'Custom parameters entered directly. Save as a preset below to reuse later.'}
-                    </div>
+                  <div className="flex items-center gap-4">
+                     <div className="relative w-64 hidden sm:block">
+                        <input
+                           type="text"
+                           placeholder="Search   ( / )"
+                           value={presetSearch}
+                           onChange={(e) => setPresetSearch(e.target.value)}
+                           className="w-full bg-surface border border-border rounded-xl h-10 px-4 text-sm font-medium focus:border-accent focus:outline-none"
+                        />
+                     </div>
+                     <button
+                        type="button"
+                        onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
+                        className="text-[13px] font-bold text-dim hover:text-text transition-colors whitespace-nowrap"
+                     >
+                        Import / Export
+                     </button>
                   </div>
-                </div>
+               </div>
 
-                {/* Direct Action Buttons for Active Preset */}
-                <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end flex-wrap">
-                  {loadedPresetName ? (
-                    <>
-                      <Tooltip content={`Overwrite "${loadedPresetName}" with current settings`}>
-                        <Btn
-                          variant="primary"
-                          onClick={() => savePreset(loadedPresetName)}
-                          loading={isSaving}
-                          className="px-3.5 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 flex items-center gap-1.5 shrink-0 shadow-xs"
-                        >
-                          <RefreshCw size={12} className={cn(isSaving && "animate-spin")} /> Update "{loadedPresetName}"
-                        </Btn>
-                      </Tooltip>
-                      <Tooltip content="Fork current settings under a new preset name">
-                        <Btn
-                          variant="ghost"
-                          onClick={() => { setPresetName(''); setLoadedPresetName(null); }}
-                          className="px-3 py-2 text-xs font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
-                        >
-                          <Plus size={12} /> Save As New
-                        </Btn>
-                      </Tooltip>
-                      <Tooltip content="Revert changes back to original saved preset">
-                        <Btn
-                          variant="ghost"
-                          onClick={() => {
-                            const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
-                            if (original) loadPreset(original);
-                          }}
-                          className="px-2.5 py-2 text-xs font-bold border border-border/60 hover:border-red/40 text-dim hover:text-red flex items-center gap-1 shrink-0"
-                        >
-                          <RefreshCw size={12} /> Revert
-                        </Btn>
-                      </Tooltip>
-                    </>
-                  ) : (
-                    <div className="w-full sm:w-auto">
-                      <SavePresetInput
-                        key="new"
-                        defaultName={generatedPresetName}
-                        onSave={(name) => { savePreset(name); }}
-                        isSaving={isSaving}
-                        success={saveSuccess}
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Collapsible Utility & Transfer Tools */}
-              <div className="pt-2 border-t border-border/30">
-                <CollapsibleSection
-                  id="presets_tools"
-                  icon={Settings2}
-                  title="Export, Import & Clipboard Tools"
-                  subtitle="Backup, copy, paste or reset strategy definitions"
-                  isOpen={openSectionId === 'presets_tools'}
-                  onToggle={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
-                >
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 pt-3">
-                    <Tooltip content="Copy active strategy configuration JSON to clipboard">
-                      <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
-                        <Copy size={13} /> Copy active
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Paste strategy configuration JSON from clipboard">
-                      <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
-                        <ClipboardPaste size={13} /> Paste active
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Export active strategy definition as a downloadable JSON file">
-                      <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
-                        <Download size={13} /> Export JSON
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Import strategy JSON or preset array file from your disk">
-                      <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
-                        <input type="file" accept=".json" aria-label="Import JSON config or presets file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
-                        <div className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border border-border bg-transparent text-[11px] font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer text-text">
-                          <Upload size={13} /> Import File
+               {/* Tools expansion */}
+               <AnimatePresence>
+                  {openSectionId === 'presets_tools' && (
+                     <motion.div
+                       initial={{ opacity: 0, height: 0 }}
+                       animate={{ opacity: 1, height: 'auto' }}
+                       exit={{ opacity: 0, height: 0 }}
+                       className="overflow-hidden"
+                     >
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 pb-4">
+                          <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="h-10 border border-border hover:border-accent text-xs font-bold"><Copy size={14} className="mr-2"/> Copy active</Btn>
+                          <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="h-10 border border-border hover:border-accent text-xs font-bold"><ClipboardPaste size={14} className="mr-2"/> Paste active</Btn>
+                          <Btn variant="ghost" onClick={handleExportToFile} className="h-10 border border-border hover:border-accent text-xs font-bold"><Download size={14} className="mr-2"/> Export JSON</Btn>
+                          <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-xl text-xs font-bold cursor-pointer text-text hover:text-accent transition-colors">
+                            <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer" />
+                            <Upload size={14} className="mr-2"/> Import File
+                          </label>
                         </div>
-                      </label>
-                    </Tooltip>
+                     </motion.div>
+                  )}
+               </AnimatePresence>
 
-                    <Tooltip content={isEdit ? "Revert parameter edits back to last saved session state" : "Reset custom strategy parameters to baseline defaults"}>
-                      <Btn
-                        variant="ghost"
-                        onClick={handleClearActiveConfig}
-                        className="flex items-center justify-center gap-1.5 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-2 text-[11px] font-bold col-span-2 md:col-span-1"
-                        aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
-                      >
-                        <RefreshCw size={12} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset" : "Clear Active"}
-                      </Btn>
-                    </Tooltip>
-                  </div>
-                </CollapsibleSection>
-              </div>
+               {/* Filters */}
+               <div className="flex items-center gap-1 border-b border-border/40 pb-3">
+                  {[
+                     { id: 'all', label: 'All' },
+                     { id: 'live', label: 'Live' },
+                     { id: 'testnet', label: 'Testnet' },
+                     { id: 'paper', label: 'Paper' },
+                     { id: 'variants', label: 'Variants' }
+                  ].map(f => (
+                     <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setPresetTabFilter(f.id)}
+                        className={cn(
+                           "px-4 py-2 text-[13px] font-bold rounded-xl transition-colors",
+                           presetTabFilter === f.id
+                              ? "text-accent"
+                              : "text-dim hover:text-text"
+                        )}
+                        style={presetTabFilter === f.id ? { borderBottom: '2px solid var(--accent)' } : {}}
+                     >
+                        {f.label}
+                     </button>
+                  ))}
+               </div>
             </div>
 
-            {/* Presets Directory Section with Clear Spatial Orientation */}
-            <section className="flex flex-col gap-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center bg-background/60 border border-border/60 p-0.5 rounded-xl text-xs" role="tablist" aria-label="Preset view filter">
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={presetTabFilter === 'all'}
-                      onClick={() => setPresetTabFilter('all')}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px]",
-                        presetTabFilter === 'all'
-                          ? "bg-accent text-white shadow-xs"
-                          : "text-dim hover:text-text"
-                      )}
-                    >
-                      All Presets ({(Array.isArray(presets) ? presets.length : 0)})
-                    </button>
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={presetTabFilter === 'in_use'}
-                      onClick={() => setPresetTabFilter('in_use')}
-                      className={cn(
-                        "px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer text-[11px]",
-                        presetTabFilter === 'in_use'
-                          ? "bg-accent text-white shadow-xs"
-                          : "text-dim hover:text-text"
-                      )}
-                    >
-                      In-Use ({partitionedPresets.active.length})
-                    </button>
+            {/* Presets List */}
+            <div className="flex flex-col pb-20">
+               {filteredPresets.length === 0 ? (
+                  <div className="py-12 text-center text-dim text-sm">
+                     No presets found.
                   </div>
-                </div>
+               ) : (
+                  filteredPresets.map(p => (
+                     <PresetItem
+                        key={p.name}
+                        preset={p}
+                        isLoaded={loadedPresetName === p.name}
+                        isDirty={isDirty}
+                        onLoad={loadPreset}
+                        onToggleVariant={toggleVariant}
+                        onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                        isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                        sessionActive={sessionActive}
+                        isSelected={selectedPresetNames.has(p.name)}
+                        onToggleSelect={toggleSelectPreset}
+                        currentCfg={cfg}
+                        onSave={(name) => savePreset(name)}
+                        onSaveAsNew={() => { setPresetName(''); setLoadedPresetName(null); }}
+                        onRevert={() => {
+                           const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
+                           if (original) loadPreset(original);
+                        }}
+                        onDuplicate={() => {
+                           // Simple duplicate logic: load it, clear loaded name, let user save
+                           loadPreset(p);
+                           setLoadedPresetName(null);
+                        }}
+                     />
+                  ))
+               )}
+            </div>
 
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                  <div className="relative flex-1 sm:w-64 group">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent pointer-events-none transition-colors" />
-                    <input
-                      ref={presetSearchInputRef}
-                      type="text"
-                      placeholder="Search preset by name..."
-                      value={presetSearch}
-                      onChange={(e) => setPresetSearch(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Escape' && setPresetSearch('')}
-                      aria-label="Search presets by name"
-                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
-                    />
-                    {presetSearch ? (
-                      <Tooltip content="Clear Preset Search">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPresetSearch('');
-                            presetSearchInputRef.current?.focus();
-                          }}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
-                          aria-label="Clear Preset Search"
-                        >
-                          <XCircle size={12} />
-                        </button>
-                      </Tooltip>
-                    ) : (
-                      <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
-                        /
-                      </kbd>
-                    )}
+            {/* Fixed Footer for Batch & Variants */}
+            {selectedPresetNames.size > 0 ? (
+               <div className="fixed bottom-[68px] sm:bottom-0 left-0 sm:left-auto right-0 sm:right-6 bg-surface border-t border-border p-4 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 sm:rounded-tl-2xl sm:rounded-tr-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.4)]">
+                  <div className="flex items-center justify-between w-full sm:w-auto">
+                     <span className="text-sm font-bold">{selectedPresetNames.size} selected</span>
+                     <button type="button" onClick={() => setSelectedPresetNames(new Set())} className="text-sm font-bold text-dim hover:text-text sm:hidden">Clear</button>
                   </div>
-
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border">
-                      {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
-                    </div>
-                    {(cfg.strategy_variants || []).length > 0 && (
-                      <button
-                        type="button"
-                        onClick={clearAllVariants}
-                        className="text-[9px] font-black uppercase tracking-wider text-red hover:text-red/80 bg-red/10 border border-red/20 hover:bg-red/20 px-2 py-1.5 rounded-lg transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none"
-                        aria-label="Clear all active strategy variants"
-                      >
-                        Clear All
-                      </button>
-                    )}
-                  </div>
-
-                  <Tooltip content="Select or Deselect all presets">
-                    <Btn
-                      variant="ghost"
-                      onClick={handleSelectAllPresets}
-                      className="px-2.5 py-2 text-[11px] font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
-                    >
-                      <Check size={12} /> {selectedPresetNames.size === (Array.isArray(presets) ? presets.length : 0) && (Array.isArray(presets) ? presets.length : 0) > 0 ? "Deselect All" : "Select All"}
-                    </Btn>
-                  </Tooltip>
-                </div>
-              </div>
-
-              {/* Multi-Select Batch Actions Toolbar */}
-              {selectedPresetNames.size > 0 && (
-                <div className="flex items-center justify-between gap-3 p-3 bg-accent/10 border border-accent/30 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
-                  <div className="flex items-center gap-2 text-xs font-bold text-accent">
-                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                    {selectedPresetNames.size} preset(s) selected
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Tooltip content="Copy selected presets as JSON array to clipboard">
-                      <Btn variant="ghost" onClick={handleCopySelectedPresets} className="px-2.5 py-1.5 text-[11px] font-bold border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 flex items-center gap-1">
-                        <Copy size={12} /> Copy
-                      </Btn>
-                    </Tooltip>
-                    <Tooltip content="Export selected presets to downloadable JSON file">
-                      <Btn variant="ghost" onClick={handleExportSelectedPresets} className="px-2.5 py-1.5 text-[11px] font-bold border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 flex items-center gap-1">
-                        <Download size={12} /> Export
-                      </Btn>
-                    </Tooltip>
-                    <Tooltip content={sessionActive ? "Preset deletion locked while session is running" : "Delete selected presets"}>
-                      <Btn
+                  <div className="flex items-center gap-2 w-full sm:w-auto flex-col sm:flex-row">
+                     <Btn
+                        variant="primary"
+                        onClick={() => {
+                           // Set as variants logic (bulk)
+                           const newVariants = [...(cfg.strategy_variants || [])];
+                           Array.from(selectedPresetNames).forEach(name => {
+                              if (!newVariants.some(v => v.strategy_label === name)) {
+                                 const p = presets.find(x => x.name === name);
+                                 if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
+                                    newVariants.push(p.config);
+                                 }
+                              }
+                           });
+                           setCfg(prev => ({ ...prev, strategy_variants: newVariants }));
+                           setSelectedPresetNames(new Set());
+                           addAlert({ level: 'success', title: 'Variants Updated', message: `Added selected to variants.` });
+                        }}
+                        className="w-full sm:w-auto px-8 py-3 bg-accent text-white font-bold"
+                     >
+                        Set as variants
+                     </Btn>
+                     <Btn variant="ghost" onClick={handleExportSelectedPresets} className="w-full sm:w-auto px-8 py-3 border border-border text-text font-bold hover:bg-surface">
+                        Export
+                     </Btn>
+                     <Btn
                         variant="ghost"
                         onClick={handleDeleteSelectedPresets}
                         disabled={sessionActive}
-                        className={cn(
-                          "px-2.5 py-1.5 text-[11px] font-bold border flex items-center gap-1",
-                          sessionActive ? "border-border/30 text-dim/30 cursor-not-allowed" : "border-red/30 text-red hover:bg-red/10"
-                        )}
-                      >
-                        <Trash2 size={12} /> Delete
-                      </Btn>
-                    </Tooltip>
+                        className={cn("w-full sm:w-auto text-sm font-bold", sessionActive ? "text-red/50" : "text-red")}
+                     >
+                        {sessionActive ? "Delete (locked: session active)" : "Delete"}
+                     </Btn>
                   </div>
-                </div>
-              )}
-
-              {(!Array.isArray(presets) || presets.length === 0) ? (
-                <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
-                  <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
-                  <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
-                  <p className="text-[11px] text-dim/70 mt-1">Save your current strategy settings above to create your first preset.</p>
-                </div>
-              ) : partitionedPresets.active.length === 0 && partitionedPresets.recentlyUsed.length === 0 && partitionedPresets.available.length === 0 ? (
-                <div className="p-10 border border-dashed border-border rounded-2xl text-center flex flex-col gap-3">
-                  <Search size={28} className="mx-auto text-dim/30" />
-                  <div className="text-xs font-bold text-dim uppercase">No matching presets found</div>
-                  <Btn variant="ghost" onClick={() => setPresetSearch('')} className="text-accent hover:bg-accent/5 py-1 px-3 text-[10px] uppercase font-black tracking-widest">
-                    Clear Filter
-                  </Btn>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-4">
-                  {/* Active in-use section */}
-                  {partitionedPresets.active.length > 0 && (
-                    <div className="flex flex-col gap-2.5 animate-in fade-in duration-300">
-                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-accent">
-                        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                        In-Use Strategies ({partitionedPresets.active.length})
-                      </div>
-                      <motion.div layout className="flex flex-col gap-2.5">
-                        <AnimatePresence mode="popLayout">
-                          {partitionedPresets.active.map(p => (
-                            <PresetItem
-                              key={p.name}
-                              preset={p}
-                              isLoaded={loadedPresetName === p.name}
-                              isDirty={isDirty}
-                              onLoad={loadPreset}
-                              onToggleVariant={toggleVariant}
-                              onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                              isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                              sessionActive={sessionActive}
-                              isSelected={selectedPresetNames.has(p.name)}
-                              onToggleSelect={toggleSelectPreset}
-                            />
-                          ))}
-                        </AnimatePresence>
-                      </motion.div>
-                    </div>
+               </div>
+            ) : (
+               <div className="fixed bottom-[68px] sm:bottom-0 left-0 sm:left-auto right-0 sm:right-6 bg-surface border-t border-border p-4 flex items-center justify-between z-20 sm:rounded-tl-2xl sm:rounded-tr-2xl text-[13px] text-dim">
+                  <span>
+                     Variants {(cfg.strategy_variants || []).length} / {CONFIG_LIMITS.MAX_VARIANTS} · combined risk {((cfg.strategy_variants || []).reduce((acc, v) => acc + (Number(v.risk_pct_per_trade) || 0), 0)).toFixed(1)}% of {cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}% cap
+                  </span>
+                  {(cfg.strategy_variants || []).length > 0 && (
+                     <button type="button" onClick={clearAllVariants} className="text-red font-bold hover:text-red-400 transition-colors">
+                        Clear variants
+                     </button>
                   )}
+               </div>
+            )}
 
-                  {/* Available library presets (flat, predictable, clean) */}
-                  {presetTabFilter !== 'in_use' && (
-                    <div className="flex flex-col gap-2.5" id="presets-library-content">
-                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-dim">
-                        Preset Library ({partitionedPresets.recentlyUsed.length + partitionedPresets.available.length})
-                      </div>
-                      <div className="flex flex-col gap-2.5" id="presets-recently-used-content">
-                        <motion.div layout className="flex flex-col gap-2.5">
-                          <AnimatePresence mode="popLayout">
-                            {[...partitionedPresets.recentlyUsed, ...partitionedPresets.available].map(p => (
-                              <PresetItem
-                                key={p.name}
-                                preset={p}
-                                isLoaded={loadedPresetName === p.name}
-                                isDirty={isDirty}
-                                onLoad={loadPreset}
-                                onToggleVariant={toggleVariant}
-                                onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                                isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                                sessionActive={sessionActive}
-                                isSelected={selectedPresetNames.has(p.name)}
-                                onToggleSelect={toggleSelectPreset}
-                              />
-                            ))}
-                          </AnimatePresence>
-                        </motion.div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <ConfirmationModal
+            <ConfirmationModal
                 isOpen={!!presetToDelete}
                 onClose={() => setPresetToDelete(null)}
                 onConfirm={() => deletePreset(presetToDelete)}
@@ -5589,8 +5488,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 confirmText="Delete Preset"
                 variant="danger"
                 loading={isDeleting}
-              />
-            </section>
+            />
           </div>
         )}
       </div>

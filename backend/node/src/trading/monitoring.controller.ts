@@ -10,6 +10,7 @@ import { extractIp, isGeneralRateLimited } from '../lib/throttle';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { ENGINE_CONSTANTS } from '../models/constants';
 import https from 'https';
+import { decrypt } from '../lib/crypto';
 
 export interface BinanceProbeResult {
   url: string;
@@ -437,17 +438,50 @@ export class MonitoringController {
     });
 
     // 8. Credentials
-    const apiKey = process.env.BINANCE_API_KEY;
-    const hasLiveKey = !!apiKey && apiKey.length >= 16;
+    let liveApiKey = process.env.BINANCE_API_KEY || '';
+    let testnetApiKey = process.env.BINANCE_TESTNET_API_KEY || '';
+    let keySource = process.env.BINANCE_API_KEY ? 'environment variable' : '';
+
+    if (this.settingsRepository) {
+      try {
+        const settings = await this.settingsRepository.findOne({
+          where: { id: 'default' },
+          select: ['id', 'binance_api_key', 'binance_testnet_api_key'],
+        });
+        if (!liveApiKey && settings?.binance_api_key) {
+          liveApiKey = decrypt(settings.binance_api_key);
+          if (liveApiKey) keySource = 'Settings database';
+        }
+        if (!testnetApiKey && settings?.binance_testnet_api_key) {
+          testnetApiKey = decrypt(settings.binance_testnet_api_key);
+        }
+      } catch (_) {}
+    }
+
+    const hasLiveKey = !!liveApiKey && liveApiKey.trim().length >= 16;
+    const hasTestnetKey = !!testnetApiKey && testnetApiKey.trim().length >= 16;
+
+    let credStatus = 'WARN';
+    let credSummary = 'Unconfigured (Paper trading only)';
+    let credDetail = 'API credentials missing in environment and settings. Engine will run in Paper Mode ($10,000 USDT virtual balance).';
+
+    if (hasLiveKey) {
+      credStatus = 'PASS';
+      credSummary = `Configured (••••••••${liveApiKey.trim().slice(-4)})`;
+      credDetail = `API credentials configured in ${keySource}. Ready for signed Binance Futures calls.`;
+    } else if (hasTestnetKey) {
+      credStatus = 'PASS';
+      credSummary = `Testnet Configured (••••••••${testnetApiKey.trim().slice(-4)})`;
+      credDetail = 'Testnet API Key configured. Ready for Binance Testnet Futures calls.';
+    }
+
     checks.push({
       id: 'binance_live_keys',
       category: 'Environment & Credentials',
       title: 'Binance Live API Credentials',
-      status: hasLiveKey ? 'PASS' : 'WARN',
-      summary: hasLiveKey ? `Configured (••••••••${apiKey.slice(-4)})` : 'Unconfigured (Paper trading only)',
-      detail: hasLiveKey
-        ? 'API Key configured in environment. Ready for signed Binance Futures calls.'
-        : 'API credentials missing in environment. Engine will run in Paper Mode ($10,000 USDT virtual balance).',
+      status: credStatus,
+      summary: credSummary,
+      detail: credDetail,
     });
 
     // 9. Risk Safeguards

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { settingsAPI, setAdminApiKey } from '../api/client'
+import { settingsAPI, healthAPI, setAdminApiKey } from '../api/client'
 import { SectionLabel, Btn, StatCard, cn, ViewHeader, Tooltip } from '../components/ui/primitives'
-import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck, ChevronDown, SlidersHorizontal, Database, XCircle } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Lock, CheckCircle2, AlertCircle, Activity, Zap, Eye, EyeOff, RotateCcw, Bug, X, ShieldCheck, ChevronDown, SlidersHorizontal, Database, XCircle, CheckSquare } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
@@ -44,9 +44,24 @@ export function SettingsView() {
   const [status, setStatus] = useState(null)
   const [validating, setValidating] = useState(false)
   const [validationResults, setValidationResults] = useState(null)
+  const [startupChecklist, setStartupChecklist] = useState(null)
+  const [checkingStartup, setCheckingStartup] = useState(false)
+
+  const fetchStartupChecklist = async (fresh = false) => {
+    setCheckingStartup(true)
+    try {
+      const res = await healthAPI.getStartupChecklist(fresh)
+      setStartupChecklist(res.data)
+    } catch (e) {
+      console.error('Failed to load startup checklist', e)
+    } finally {
+      setCheckingStartup(false)
+    }
+  }
 
   useEffect(() => {
     loadKeys()
+    fetchStartupChecklist()
   }, [])
 
   async function loadKeys() {
@@ -636,6 +651,83 @@ export function SettingsView() {
                       </Btn>
                     </div>
                   </Tooltip>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Section: Startup & Connection Checklist */}
+          <section className="bg-surface border border-border/80 rounded-2xl overflow-hidden shadow-sm">
+            <button
+              type="button"
+              onClick={() => toggleSection('startup_checklist')}
+              aria-expanded={openSections.has('startup_checklist')}
+              aria-controls="startup_checklist-content"
+              aria-label={openSections.has('startup_checklist') ? "Collapse Startup & Connection Checklist section" : "Expand Startup & Connection Checklist section"}
+              className="w-full p-4 md:p-5 flex items-center justify-between text-left cursor-pointer hover:bg-surface-hover/50 transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            >
+              <div className="flex items-center gap-3">
+                <SectionLabel className="mb-0">Startup & Connection Checklist</SectionLabel>
+                <span className={cn(
+                  "text-[10px] font-mono font-bold uppercase tracking-wider flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border",
+                  startupChecklist?.ready ? "bg-green/10 border-green/20 text-green" : "bg-amber/10 border-amber/20 text-amber"
+                )}>
+                  <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", startupChecklist?.ready ? "bg-green" : "bg-amber")} />
+                  {startupChecklist?.ready ? `Ready (${startupChecklist.summary?.passed}/${startupChecklist.summary?.total} Passed)` : 'Checklist Pending'}
+                </span>
+              </div>
+              <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", openSections.has('startup_checklist') && "rotate-180")} />
+            </button>
+            {openSections.has('startup_checklist') && (
+              <div id="startup_checklist-content" className="p-5 md:p-6 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between gap-4 flex-wrap pb-3 border-b border-border/40">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-tight text-text">Full Stack Startup & Environment Readiness</h3>
+                    <p className="text-[10px] text-dim font-medium uppercase mt-0.5">
+                      Backend HTTP, WebSocket gateway, Binance exchange latency, market feed, and risk limits
+                    </p>
+                  </div>
+                  <Btn
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fetchStartupChecklist(true)}
+                    disabled={checkingStartup}
+                    loading={checkingStartup}
+                    className="text-[10px] font-bold uppercase tracking-wider"
+                  >
+                    Re-verify Checklist
+                  </Btn>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {(startupChecklist?.checks || []).map((check) => {
+                    const isPass = check.status === 'PASS';
+                    const isWarn = check.status === 'WARN';
+                    return (
+                      <div
+                        key={check.id}
+                        className={cn(
+                          "p-4 rounded-xl border flex flex-col justify-between gap-2.5 transition-all",
+                          isPass ? "bg-background/40 border-border/60 hover:border-accent/40" : isWarn ? "bg-amber/5 border-amber/30" : "bg-red/5 border-red/30"
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-dim">{check.category}</span>
+                          <span className={cn(
+                            "text-[9px] font-mono font-bold px-2 py-0.5 rounded uppercase tracking-wider",
+                            isPass ? "bg-green/10 text-green border border-green/20" : isWarn ? "bg-amber/10 text-amber border border-amber/20" : "bg-red/10 text-red border border-red/20"
+                          )}>
+                            {check.status === 'PASS' ? '✓ PASS' : check.status === 'WARN' ? '⚠ WARN' : '✗ FAIL'}
+                          </span>
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-text mb-0.5">{check.title}</div>
+                          <div className="text-[11px] font-mono font-semibold text-accent mb-1">{check.summary}</div>
+                          <p className="text-[10px] text-dim leading-snug">{check.detail}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

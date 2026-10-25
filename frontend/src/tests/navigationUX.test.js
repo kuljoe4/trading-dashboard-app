@@ -26,4 +26,8 @@ test('Navigation buttons include explicit type="button", cursor-pointer, focus r
 
   // Verify Sidebar brand header button is interactive and accessible
   assert.match(fileContent, /aria-label="Momentum Cockpit Home"/, 'Sidebar brand header should specify aria-label="Momentum Cockpit Home"');
+
+  // Verify desktop sidebar is scrollable on constrained viewports
+  assert.match(fileContent, /overflow-y-auto/, 'Desktop sidebar should declare overflow-y-auto for vertical scrollability');
+  assert.match(fileContent, /min-h-0/, 'Desktop sidebar container should specify min-h-0 for flex overflow containment');
 });

@@ -42,13 +42,13 @@ export const Sidebar = ({ selected }) => {
         isExpanded ? "w-[260px]" : "w-[80px]"
       )}
     >
-      <div className={cn("flex-1 flex flex-col p-4 sm:p-5 overflow-hidden", !isExpanded && "px-3")}>
+      <div className={cn("flex-1 flex flex-col p-4 sm:p-5 overflow-y-auto overflow-x-hidden min-h-0", !isExpanded && "px-3")}>
         <button
           type="button"
           onClick={() => { window.location.hash = '#/'; }}
           onMouseEnter={() => preloadView('/')}
           aria-label="Momentum Cockpit Home"
-          className={cn("flex items-center gap-3 mb-8 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer transition-opacity hover:opacity-95 relative", !isExpanded && "justify-center")}
+          className={cn("flex items-center gap-3 mb-8 text-left group/brand focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer transition-opacity hover:opacity-95 relative shrink-0", !isExpanded && "justify-center")}
         >
           <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shadow-sm shrink-0 group-hover/brand:scale-105 transition-transform">
             <LayoutDashboard size={20} className="text-white" />
@@ -66,7 +66,7 @@ export const Sidebar = ({ selected }) => {
           )}
         </button>
 
-      <nav className="flex-1 flex flex-col gap-1.5">
+      <nav className="flex flex-col gap-1.5 shrink-0">
         {NAV_ITEMS.map(item => (
           <Tooltip key={item.path} content={collapsed ? `${item.label} [${item.shortcut}]` : null} side="right">
             <button
@@ -141,7 +141,7 @@ export const Sidebar = ({ selected }) => {
       </nav>
 
         <div className={cn(
-          "pt-6 border-t border-border/50",
+          "mt-auto pt-6 border-t border-border/50 shrink-0",
           !isExpanded ? "px-0" : "px-2"
         )}>
           <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} rateLimitLastSync={rateLimitLastSync} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} activeTrades={activeTrades} config={config} compact={!isExpanded} />

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -315,10 +316,10 @@ const ExitSignalCard = React.memo(({
         <Switch.Root
           checked={active}
           onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
+          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
           aria-label={`Toggle ${label} exit signal`}
         >
-          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+          <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
         </Switch.Root>
       </div>
 
@@ -548,10 +549,10 @@ const EntrySignalCard = React.memo(({
         <Switch.Root
           checked={active}
           onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-5 w-9 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
+          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
           aria-label={`Toggle ${label} entry signal`}
         >
-          <Switch.Thumb className={cn("block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-4" : "translate-x-1")} />
+          <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
         </Switch.Root>
       </div>
 
@@ -844,15 +845,17 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
   }, [scannerResults, searchTerm, rangeFilter]);
 
   const handleSelect = (symbol) => {
-    if (symbol && !value.includes(symbol)) {
-      onChange([...value, symbol]);
+    const safeValue = Array.isArray(value) ? value : [];
+    if (symbol && !safeValue.includes(symbol)) {
+      onChange([...safeValue, symbol]);
     }
     setSearchTerm('');
     setIsOpen(false);
   };
 
   const handleRemove = (symbol) => {
-    onChange(value.filter(s => s !== symbol));
+    const safeValue = Array.isArray(value) ? value : [];
+    onChange(safeValue.filter(s => s !== symbol));
   };
 
   return (
@@ -993,11 +996,16 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
 WatchlistDropdownInput.displayName = 'WatchlistDropdownInput';
 
 const ListInput = React.memo(({ value, onChange, placeholder }) => {
-  const [localValue, setLocalValue] = useState(() => value?.join(', ') || '');
+  const getStr = (val) => {
+    if (Array.isArray(val)) return val.join(', ');
+    if (typeof val === 'string') return val;
+    return '';
+  };
+  const [localValue, setLocalValue] = useState(() => getStr(value));
 
   // Update local value when external value changes (e.g. on preset load)
   useEffect(() => {
-    setLocalValue(value?.join(', ') || '');
+    setLocalValue(getStr(value));
   }, [value]);
 
   const handleBlur = () => {
@@ -1023,7 +1031,13 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
   <Chip
     active={active}
     onClick={() => onClick(id)}
-    className={cn("flex items-center gap-2 relative", hasError && !active && "border-red/40")}
+    className={cn(
+      "flex items-center gap-1 sm:gap-2 relative transition-all duration-200 px-1.5 py-1 sm:px-3.5 sm:py-2 rounded-md sm:rounded-xl text-[10px] xs:text-[11px] sm:text-xs font-bold shrink-0 min-w-0",
+      active
+        ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
+        : "border-border text-dim hover:border-dim/50 hover:text-text",
+      hasError && !active && "border-red/40"
+    )}
     role="tab"
     aria-selected={active}
     aria-invalid={hasError}
@@ -1031,8 +1045,8 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     id={`config-tab-${id}`}
     tabIndex={active ? 0 : -1}
   >
-    <Icon size={12} className={cn(active ? "text-accent" : "text-dim", hasError && !active && "text-red")} />
-    {label}
+    <Icon size={12} className={cn("shrink-0 sm:w-3.5 sm:h-3.5", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
+    <span className="whitespace-nowrap truncate">{label}</span>
     {hasError && !active && (
       <span className="absolute -top-1 -right-1 flex h-2 w-2">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
@@ -1043,21 +1057,22 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
 ))
 SectionTab.displayName = 'SectionTab'
 
-const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
+const SectionTabs = React.memo(({ section, onSectionChange, errors, isMoreOpen, setIsMoreOpen, modalRef }) => {
   const dropdownRef = useRef(null);
+  const triggerBtnRef = useRef(null);
+  const [menuCoords, setMenuCoords] = useState({ top: 0, left: 0 });
 
   const primaryTabs = useMemo(() => [
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
-    { id: 'risk', label: 'Risk', icon: ShieldCheck }
+    { id: 'risk', label: 'Risk', icon: ShieldCheck },
+    { id: 'presets', label: 'Presets', icon: FolderOpen }
   ], []);
 
   const secondaryTabs = useMemo(() => [
     { id: 'env', label: 'Env', icon: Briefcase },
     { id: 'smart', label: 'Smart Auto', icon: Sparkles },
-    { id: 'backtest', label: 'Backtest', icon: TrendingUp },
-    { id: 'presets', label: 'Presets', icon: FolderOpen }
+    { id: 'backtest', label: 'Backtest', icon: TrendingUp }
   ], []);
 
   const allTabs = useMemo(() => [...primaryTabs, ...secondaryTabs], [primaryTabs, secondaryTabs]);
@@ -1078,10 +1093,39 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     return secondaryTabs.some(t => tabHasError(t.id));
   }, [secondaryTabs, tabHasError]);
 
+  const updateCoords = React.useCallback(() => {
+    if (triggerBtnRef.current && modalRef?.current) {
+      const btnRect = triggerBtnRef.current.getBoundingClientRect();
+      const modalRect = modalRef.current.getBoundingClientRect();
+      const dropdownWidth = 192;
+      const left = Math.max(8, Math.min(modalRect.width - dropdownWidth - 8, btnRect.right - modalRect.left - dropdownWidth));
+      const top = btnRect.bottom - modalRect.top + 8;
+      setMenuCoords({ top, left });
+    }
+  }, [modalRef]);
+
+  useEffect(() => {
+    if (isMoreOpen) {
+      updateCoords();
+      const handleScrollOrResize = () => updateCoords();
+      window.addEventListener('resize', handleScrollOrResize);
+      window.addEventListener('scroll', handleScrollOrResize, true);
+      return () => {
+        window.removeEventListener('resize', handleScrollOrResize);
+        window.removeEventListener('scroll', handleScrollOrResize, true);
+      };
+    }
+  }, [isMoreOpen, updateCoords]);
+
   // Close dropdown on outside click or escape
   useEffect(() => {
     const handleOutsideClick = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target) &&
+        triggerBtnRef.current &&
+        !triggerBtnRef.current.contains(e.target)
+      ) {
         setIsMoreOpen(false);
       }
     };
@@ -1098,7 +1142,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isMoreOpen]);
+  }, [isMoreOpen, setIsMoreOpen]);
 
   const handleKeyDownNav = (e) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
@@ -1120,7 +1164,7 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
 
   return (
     <div
-      className="flex items-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:p-3 overflow-visible outline-none relative z-40 w-full"
+      className="flex items-center gap-1 sm:gap-2 px-1 py-1.5 sm:px-3 sm:py-2.5 overflow-x-auto no-scrollbar outline-none relative z-40 w-full"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
@@ -1139,28 +1183,31 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
       ))}
 
       {/* Overflow "More" Icon Trigger Dropdown */}
-      <div className="relative shrink-0 ml-auto" ref={dropdownRef}>
-        <Tooltip content="More strategy sections (Env, Smart Auto, Backtest, Presets)">
+      <div className="relative shrink-0 ml-auto">
+        <Tooltip content="More strategy sections (Env, Smart Auto, Backtest)">
           <button
+            ref={triggerBtnRef}
             type="button"
             id="config-tab-more"
-            onClick={() => setIsMoreOpen(!isMoreOpen)}
+            onClick={() => {
+              if (!isMoreOpen) updateCoords();
+              setIsMoreOpen(!isMoreOpen);
+            }}
             aria-expanded={isMoreOpen}
             aria-haspopup="true"
             aria-controls="more-tabs-dropdown"
             aria-label="More configuration options menu"
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-[11px] font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer",
+              "flex items-center gap-1 sm:gap-2 px-1.5 py-1 sm:px-3.5 sm:py-2 rounded-md sm:rounded-xl border text-[10px] xs:text-[11px] sm:text-xs font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer shrink-0 ml-auto",
               isSecondaryActive
-                ? "border-accent text-accent bg-accent/10"
+                ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
                 : "border-border text-dim hover:border-dim/50 hover:text-text"
             )}
           >
-            <MoreHorizontal size={14} className={cn(isSecondaryActive ? "text-accent" : "text-dim")} />
-            <span className="hidden xs:inline">
+            <MoreVertical size={12} className={cn("shrink-0 sm:w-3.5 sm:h-3.5", isSecondaryActive ? "text-white" : "text-dim")} />
+            <span className="hidden xs:inline whitespace-nowrap">
               {activeSecondaryTab ? activeSecondaryTab.label : 'More'}
             </span>
-            <ChevronDown size={11} className={cn("transition-transform duration-200", isMoreOpen && "rotate-180")} />
 
             {/* Error dot on icon trigger if any secondary tab has an error */}
             {secondaryHasError && !isSecondaryActive && (
@@ -1172,60 +1219,86 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
           </button>
         </Tooltip>
 
-        <AnimatePresence>
-          {isMoreOpen && (
-            <motion.div
-              id="more-tabs-dropdown"
-              initial={{ opacity: 0, scale: 0.95, y: 5 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 5 }}
-              transition={{ duration: 0.15, ease: "easeInOut" }}
-              className="absolute right-0 top-full mt-2 w-48 bg-surface border border-border/80 rounded-xl shadow-2xl z-50 p-1.5 flex flex-col gap-1 backdrop-blur-xl"
-              role="menu"
-              aria-orientation="vertical"
-              aria-labelledby="config-tab-more"
-            >
-              <div className="px-2 py-1 text-[8px] font-black uppercase text-dim tracking-widest border-b border-border/30 mb-1">
-                More Sections
-              </div>
-              {secondaryTabs.map((tab) => {
-                const Icon = tab.icon;
-                const isActive = section === tab.id;
-                const hasErr = tabHasError(tab.id);
+        {modalRef?.current && createPortal(
+          <AnimatePresence>
+            {isMoreOpen && (
+              <>
+                <motion.div
+                  key="more-menu-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute inset-0 bg-black/75 backdrop-blur-md z-50 cursor-pointer pointer-events-auto"
+                  onClick={() => setIsMoreOpen(false)}
+                />
+                <motion.div
+                  key="more-menu-dropdown"
+                  id="more-tabs-dropdown"
+                  ref={dropdownRef}
+                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                  transition={{ duration: 0.15, ease: "easeOut" }}
+                  style={{
+                    position: 'absolute',
+                    top: `${menuCoords.top}px`,
+                    left: `${menuCoords.left}px`,
+                    zIndex: 60,
+                  }}
+                  className="w-48 bg-[#181a20] border border-border/80 rounded-xl shadow-2xl p-1.5 flex flex-col gap-1 pointer-events-auto"
+                  role="menu"
+                  aria-orientation="vertical"
+                  aria-labelledby="config-tab-more"
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-2 py-1 text-[8px] font-black uppercase text-dim tracking-widest border-b border-border/30 mb-1">
+                    More Sections
+                  </div>
+                  {secondaryTabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const isActive = section === tab.id;
+                    const hasErr = tabHasError(tab.id);
 
-                return (
-                  <button
-                    key={tab.id}
-                    id={`config-tab-${tab.id}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    aria-controls={`config-panel-${tab.id}`}
-                    onClick={() => {
-                      onSectionChange(tab.id);
-                      setIsMoreOpen(false);
-                    }}
-                    className={cn(
-                      "w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold transition-all text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                      isActive
-                        ? "bg-accent/15 text-accent font-black"
-                        : "text-dim hover:text-text hover:bg-white/5"
-                    )}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Icon size={13} className={isActive ? "text-accent" : "text-dim"} />
-                      <span>{tab.label}</span>
-                    </div>
+                    return (
+                      <button
+                        key={tab.id}
+                        id={`config-tab-${tab.id}`}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        aria-controls={`config-panel-${tab.id}`}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onSectionChange(tab.id);
+                          setIsMoreOpen(false);
+                        }}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold transition-all text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
+                          isActive
+                            ? "bg-accent/15 text-accent font-black"
+                            : "text-dim hover:text-text hover:bg-white/5"
+                        )}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon size={13} className={isActive ? "text-accent" : "text-dim"} />
+                          <span>{tab.label}</span>
+                        </div>
 
-                    {hasErr && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" />
-                    )}
-                  </button>
-                );
-              })}
-            </motion.div>
-          )}
-        </AnimatePresence>
+                        {hasErr && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>,
+          modalRef.current
+        )}
       </div>
     </div>
   );
@@ -1555,7 +1628,7 @@ EnvironmentButton.displayName = 'EnvironmentButton'
 const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, onSave }) => {
   const [days, setDays] = useState(14);
   const [startingBalance, setStartingBalance] = useState(10000);
-  const [symbolText, setSymbolSearchText] = useState(() => (cfg.symbols && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
+  const [symbolText, setSymbolSearchText] = useState(() => (Array.isArray(cfg?.symbols) && cfg.symbols.length > 0 ? cfg.symbols.join(', ') : typeof cfg?.symbols === 'string' ? cfg.symbols : 'BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT, XRPUSDT'));
   const [useGlobalScanner, setUseGlobalScanner] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [progressPct, setProgressPct] = useState(0);
@@ -1943,8 +2016,61 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
 });
 BacktestWorkbenchPanel.displayName = 'BacktestWorkbenchPanel';
 
-const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onLoad, onToggleVariant, onDelete, isVariant, sessionActive, isSelected, onToggleSelect }, ref) => {
+
+const computePresetDiff = (current, saved) => {
+  const diffs = [];
+
+  // Risk per trade
+  const rCurr = current.risk_pct_per_trade;
+  const rSaved = saved.risk_pct_per_trade;
+  if (rCurr !== rSaved) diffs.push({ label: 'Risk per trade', old: `${rSaved}%`, new: `${rCurr}%` });
+
+  // Stop loss
+  const slCurr = current.sl_distance_pct;
+  const slSaved = saved.sl_distance_pct;
+  if (slCurr !== slSaved) diffs.push({ label: 'Stop loss', old: `${slSaved}%`, new: `${slCurr}%` });
+
+  // Trailing stop
+  const tCurr = current.trailing_stop_mode && current.trailing_stop_mode !== 'none' ? 'on' : 'off';
+  const tSaved = saved.trailing_stop_mode && saved.trailing_stop_mode !== 'none' ? 'on' : 'off';
+  if (tCurr !== tSaved) diffs.push({ label: 'Trailing stop', old: tSaved, new: tCurr });
+
+  return diffs;
+};
+
+const PresetItem = React.memo(React.forwardRef(({
+  preset,
+  isLoaded,
+  isDirty,
+  onLoad,
+  onToggleVariant,
+  onDelete,
+  isVariant,
+  sessionActive,
+  isSelected,
+  onToggleSelect,
+  currentCfg,
+  onSave,
+  onSaveAsNew,
+  onRevert,
+  onDuplicate
+}, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
+  const isExpanded = isLoaded;
+
+  let modeColor = "bg-dim";
+  let modeLabel = "Paper";
+  if (pMode === 'live') { modeColor = "bg-green"; modeLabel = "Live"; }
+  else if (pMode === 'testnet') { modeColor = "bg-cyan-500"; modeLabel = "Testnet"; }
+
+  const tpRatio = (preset.config.tp_mode === 'fixed' || preset.config.tp_mode === undefined)
+    ? preset.config.tp_ratio || 2.0
+    : (preset.config.exit_rr_sequence && preset.config.exit_rr_sequence.length > 0)
+        ? preset.config.exit_rr_sequence[preset.config.exit_rr_sequence.length - 1]
+        : 2.0;
+
+  const diffs = (isExpanded && isDirty && currentCfg) ? computePresetDiff(currentCfg, preset.config) : [];
+
   return (
     <motion.div
       ref={ref}
@@ -1954,120 +2080,163 @@ const PresetItem = React.memo(React.forwardRef(({ preset, isLoaded, isDirty, onL
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "flex items-center justify-between gap-2 sm:gap-3 p-3 sm:p-4 bg-background border rounded-2xl transition-all group/preset relative overflow-hidden cursor-pointer shadow-md shadow-black/20",
-        isSelected
-          ? "border-accent shadow-[0_0_12px_rgba(var(--accent-rgb),0.2)] bg-accent/[0.04]"
-          : isLoaded
-          ? "border-accent/60 shadow-[0_0_12px_rgba(var(--accent-rgb),0.12)] bg-accent/[0.02]"
-          : isVariant
-          ? "border-purple/60 shadow-[0_0_12px_rgba(168,85,247,0.12)] bg-purple/[0.02]"
-          : "border-border/80 hover:border-border-hover hover:bg-white/[0.01]"
+        "flex flex-col border-b border-border/40 hover:bg-white/[0.02] transition-colors relative overflow-hidden group/preset",
+        isSelected && "bg-accent/[0.04]",
+        isExpanded && "bg-surface/30 border-b-border"
       )}
     >
-      {onToggleSelect && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
-          className="shrink-0 p-1 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md"
-          aria-label={`Select preset ${preset.name}`}
-        >
-          <div className={cn(
-            "w-4 h-4 rounded border flex items-center justify-center transition-all",
-            isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60 hover:border-accent"
-          )}>
-            {isSelected && <Check size={11} className="stroke-[3]" />}
-          </div>
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={() => onLoad(preset)}
-        className="flex-1 min-w-0 flex items-center gap-2.5 sm:gap-4 text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl p-0.5 sm:p-1 transition-all"
-        aria-label={`Load preset ${preset.name}`}
+      <div
+        className="flex items-center justify-between gap-3 px-4 py-3 sm:py-4 cursor-pointer"
+        onClick={(e) => {
+          if (e.target.closest('button')) return;
+          if (onToggleSelect && (isSelected || e.metaKey || e.ctrlKey)) {
+             onToggleSelect(preset.name);
+          } else {
+             onLoad(preset);
+          }
+        }}
       >
-        <div className={cn(
-          "w-8.5 h-8.5 sm:w-10 sm:h-10 rounded-xl flex items-center justify-center border shrink-0 transition-all duration-300",
-          isLoaded
-            ? "bg-accent/15 border-accent/30 text-accent shadow-[0_0_8px_rgba(var(--accent-rgb),0.15)]"
-            : isVariant
-            ? "bg-purple/15 border-purple/30 text-purple shadow-[0_0_8px_rgba(168,85,247,0.15)]"
-            : "bg-surface border-border text-dim group-hover/preset:border-accent/20 group-hover/preset:text-accent group-hover/preset:scale-105"
-        )}>
-          {isLoaded ? <CheckCircle2 size={18} /> : isVariant ? <ShieldCheck size={18} /> : <Zap size={18} />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-xs sm:text-sm font-bold group-hover/preset:text-accent transition-colors flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
-             <span className="truncate max-w-[120px] xs:max-w-[180px] sm:max-w-[260px] md:max-w-[320px] font-mono tracking-tight" title={preset.name}>{preset.name}</span>
-             <div className="flex items-center gap-1 scale-[0.7] origin-left shrink-0">
-               {pMode === 'paper' && <PaperBadge />}
-               {pMode === 'testnet' && <DemoBadge />}
-               {pMode === 'live' && <LiveBadge />}
+        {/* Checkbox for batch select */}
+        {onToggleSelect && (
+           <button
+             type="button"
+             onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
+             className="shrink-0 p-1 md:hidden md:group-hover/preset:block focus-visible:ring-2 focus-visible:ring-accent rounded-md"
+           >
+             <div className={cn(
+               "w-4 h-4 rounded border flex items-center justify-center transition-all",
+               isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60"
+             )}>
+               {isSelected && <Check size={11} className="stroke-[3]" />}
              </div>
-             {isLoaded && (
-               <span className={cn("text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none", isDirty ? "bg-amber/10 text-amber" : "bg-accent/10 text-accent")}>
-                 {isDirty ? "Modified Base" : "Active Base"}
-               </span>
-             )}
-             {isVariant && !isLoaded && (
-               <span className="text-[8px] sm:text-[9px] px-1.5 py-0.5 rounded shrink-0 font-black tracking-widest uppercase leading-none bg-purple/10 text-purple">
-                 Variant
-               </span>
-             )}
-          </div>
-          <div className="text-[9.5px] sm:text-[10px] text-dim font-bold uppercase tracking-tight mt-0.5 truncate">
-            {preset.config.scan_interval} · {preset.config.scan_pct_threshold}% · {preset.config.risk_pct_per_trade}% Risk
+           </button>
+        )}
+
+        <div className="flex-1 min-w-0 flex items-center gap-3">
+          <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", modeColor)} />
+          <div className="flex flex-col min-w-0">
+             <div className="flex items-center gap-2">
+                <span className="text-sm font-bold truncate tracking-tight text-text group-hover/preset:text-accent transition-colors">
+                  {preset.name}
+                </span>
+                {isExpanded && isDirty && (
+                  <span className="text-[10px] text-amber font-bold tracking-tight">
+                     {diffs.length} unsaved changes
+                  </span>
+                )}
+             </div>
+             <div className="text-[11px] text-dim font-mono tracking-tight mt-0.5 truncate flex items-center gap-1.5">
+               {preset.config.scan_interval} · {preset.config.risk_pct_per_trade}% risk · SL {preset.config.sl_distance_pct}%
+               {tpRatio ? ` · TP ${Number(tpRatio).toFixed(1)}R` : ''}
+             </div>
           </div>
         </div>
-      </button>
 
-      <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-        {isLoaded ? (
-          <Tooltip content="Base Strategy (Cannot be added as variant of itself)">
-            <span className="px-2 py-1 bg-surface border border-border text-dim/60 text-[9px] font-mono font-bold uppercase rounded-lg cursor-not-allowed select-none">
-              Base Strategy
-            </span>
-          </Tooltip>
-        ) : (
-          <Tooltip content={isVariant ? "Remove Variant" : "Add as Variant"}>
-            <button
-              type="button"
-              onClick={(e) => onToggleVariant(e, preset)}
-              aria-label={isVariant ? `Remove ${preset.name} from variants` : `Add ${preset.name} as variant`}
-              className={cn(
-                "p-2 rounded-lg transition-all active:scale-95 border focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                isVariant
-                  ? "bg-purple/10 text-purple border-purple/20 hover:bg-purple/20"
-                  : "bg-surface border-border text-dim hover:text-accent hover:border-accent/20"
-              )}
-            >
-              {isVariant ? <XCircle size={16} /> : <Plus size={16} />}
-            </button>
-          </Tooltip>
-        )}
-        <Tooltip content={sessionActive ? "Preset deletion is locked while a session is active. Disable or remove from active strategy variants instead." : "Delete Preset"}>
-          <button
-            type="button"
-            disabled={sessionActive}
-            onClick={(e) => {
-              if (sessionActive) return;
-              onDelete(e, preset.name);
-            }}
-            aria-label={sessionActive ? `Preset deletion is locked for ${preset.name}` : `Delete preset ${preset.name}`}
-            className={cn(
-              "p-2 transition-colors rounded-lg focus-visible:ring-2 focus-visible:outline-none",
-              sessionActive
-                ? "text-dim/30 bg-surface/5 border border-border/20 cursor-not-allowed"
-                : "text-dim hover:text-red hover:bg-red/5 focus-visible:ring-red"
-            )}
-          >
-            {sessionActive ? <Lock size={16} className="opacity-60" /> : <Trash2 size={16} />}
-          </button>
-        </Tooltip>
+        <div className="flex items-center gap-4 shrink-0">
+          <span className="text-[11px] text-dim tracking-tight hidden sm:block">{modeLabel}</span>
+
+          {/* Desktop Right Action */}
+          <div className="hidden sm:flex">
+             {isExpanded ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                  className={cn(
+                    "px-3 py-1.5 rounded-lg border text-xs font-bold transition-all focus-visible:ring-2",
+                    isVariant
+                      ? "bg-transparent text-dim border-border hover:text-white"
+                      : "bg-transparent text-dim border-border hover:border-accent hover:text-accent"
+                  )}
+                >
+                  {isVariant ? "In variants" : "Add to variants"}
+                </button>
+             ) : (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                  className={cn(
+                    "text-[11px] font-bold transition-colors opacity-0 group-hover/preset:opacity-100",
+                    isVariant ? "text-dim" : "text-text hover:text-accent"
+                  )}
+                >
+                  {isVariant ? "In variants" : "Add to variants"}
+                </button>
+             )}
+          </div>
+        </div>
       </div>
+
+      {/* Inline Expansion */}
+      {isExpanded && (
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="px-4 pb-4 flex flex-col gap-4 overflow-hidden"
+          >
+            {isDirty && diffs.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                 {diffs.map((d, i) => (
+                    <div key={i} className="bg-background/40 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+                       <span className="text-[11px] text-dim">{d.label}</span>
+                       <div className="text-sm font-mono tracking-tight flex items-center gap-2">
+                         <span className="text-dim/80">{d.old}</span>
+                         <span className="text-dim/40">→</span>
+                         <span className="text-amber">{d.new}</span>
+                       </div>
+                    </div>
+                 ))}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/20">
+               <Btn
+                 variant="primary"
+                 onClick={() => onSave(preset.name)}
+                 className="px-4 py-2 text-xs bg-accent text-white font-bold"
+               >
+                 Update preset
+               </Btn>
+               <Btn
+                 variant="ghost"
+                 onClick={onSaveAsNew}
+                 className="px-4 py-2 text-xs border border-border text-dim hover:text-text font-bold"
+               >
+                 Save as new
+               </Btn>
+               <Btn
+                 variant="ghost"
+                 onClick={onRevert}
+                 className="px-4 py-2 text-xs text-dim hover:text-text font-bold"
+               >
+                 Revert
+               </Btn>
+               <div className="flex-1" />
+               <Btn
+                 variant="ghost"
+                 onClick={onDuplicate}
+                 className="px-4 py-2 text-xs text-dim hover:text-text hidden sm:flex font-bold"
+               >
+                 Duplicate
+               </Btn>
+               <Btn
+                 variant="ghost"
+                 disabled={sessionActive}
+                 onClick={(e) => onDelete(e, preset.name)}
+                 className={cn("px-4 py-2 text-xs font-bold", sessionActive ? "text-dim/30" : "text-red hover:bg-red/10")}
+               >
+                 Delete
+               </Btn>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      )}
     </motion.div>
   );
 }))
 PresetItem.displayName = 'PresetItem'
+
 
 const flattenConfig = (config) => {
   if (!config) return {};
@@ -2118,6 +2287,12 @@ const flattenConfig = (config) => {
       engulfing_sequential: config.engulfing_sequential !== false,
       required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
       required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
+      exit_signals: Array.isArray(config.exit_signals) ? config.exit_signals : [],
+      enabled_signals: Array.isArray(config.enabled_signals) ? config.enabled_signals : [],
+      symbols: Array.isArray(config.symbols) ? config.symbols : [],
+      trading_windows: Array.isArray(config.trading_windows) ? config.trading_windows : [],
+      single_symbol_configs: Array.isArray(config.single_symbol_configs) ? config.single_symbol_configs : [],
+      strategy_variants: Array.isArray(config.strategy_variants) ? config.strategy_variants : [],
       reject_entry_if_sl_exceeds_max: config.reject_entry_if_sl_exceeds_max !== false,
       htf_ema_cross_boost_enabled: config.htf_ema_cross_boost_enabled !== false,
       htf_ema_cross_interval: config.htf_ema_cross_interval || '4h',
@@ -2230,14 +2405,15 @@ const coerceAndSanitizeConfig = (rawConfig) => {
   }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
-  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
     isSyncingOnResume: state.isSyncingOnResume,
     sessionActive: state.sessionActive,
     lifetimeAnalytics: state.lifetimeAnalytics,
-    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
+    apiStatus: state.apiStatus,
   }));
 
   const presetSearchInputRef = useRef(null);
@@ -2286,9 +2462,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [selectedPresetNames, setSelectedPresetNames] = useState(new Set());
+  const [presetTabFilter, setPresetTabFilter] = useState('all'); // 'all' | 'in_use'
   const [recentlyUsedNames, setRecentlyUsedNames] = useState(() => {
     try {
       const stored = localStorage.getItem('recently_used_presets');
@@ -2334,45 +2512,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [onClose]);
 
-  const partitionedPresets = useMemo(() => {
+
+  const filteredPresets = useMemo(() => {
+    let list = Array.isArray(presets) ? presets : [];
+
     const searchLower = presetSearch.toLowerCase().trim();
-    const filtered = presets.filter(p =>
-      !searchLower || p.name.toLowerCase().includes(searchLower)
-    );
+    if (searchLower) {
+      list = list.filter(p => p && typeof p.name === 'string' && p.name.toLowerCase().includes(searchLower));
+    }
 
-    const active = [];
-    const recentlyUsed = [];
-    const available = [];
-
-    const activeSet = new Set();
-    filtered.forEach(p => {
-      const isLoaded = loadedPresetName === p.name;
-      const isVar = (cfg.strategy_variants || []).some(v => v.strategy_label === p.name);
-      if (isLoaded || isVar) {
-        active.push(p);
-        activeSet.add(p.name);
-      }
-    });
-
-    const recentSet = new Set(recentlyUsedNames);
-    filtered.forEach(p => {
-      if (activeSet.has(p.name)) return;
-      if (recentSet.has(p.name)) {
-        recentlyUsed.push(p);
+    if (presetTabFilter !== 'all') {
+      if (presetTabFilter === 'variants') {
+        const variantsSet = new Set((cfg.strategy_variants || []).map(v => v.strategy_label));
+        list = list.filter(p => variantsSet.has(p.name));
       } else {
-        available.push(p);
+        list = list.filter(p => {
+          const pMode = p.config.trading_mode || (p.config.paper_mode ? 'paper' : 'live');
+          return pMode === presetTabFilter;
+        });
       }
-    });
+    }
 
-    // Sort recentlyUsed according to recentlyUsedNames order
-    recentlyUsed.sort((a, b) => {
-      const idxA = recentlyUsedNames.indexOf(a.name);
-      const idxB = recentlyUsedNames.indexOf(b.name);
-      return idxA - idxB;
+    // Sort recentlyUsed according to recentlyUsedNames order to top
+    return [...list].sort((a, b) => {
+       const idxA = recentlyUsedNames.indexOf(a.name);
+       const idxB = recentlyUsedNames.indexOf(b.name);
+       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+       if (idxA !== -1) return -1;
+       if (idxB !== -1) return 1;
+       return a.name.localeCompare(b.name);
     });
+  }, [presets, presetSearch, presetTabFilter, cfg.strategy_variants, recentlyUsedNames]);
 
-    return { active, recentlyUsed, available };
-  }, [presets, presetSearch, loadedPresetName, cfg.strategy_variants, recentlyUsedNames]);
 
   // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
   useEffect(() => {
@@ -2476,16 +2647,53 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     try {
       console.log('[ConfigModal] Loading presets...');
       const res = await presetsAPI.list();
-      if (res && res.data) {
-        setPresets(res.data);
-        console.log(`[ConfigModal] Loaded ${res.data.length} presets.`);
+      let rawData = res?.data;
+      if (rawData && !Array.isArray(rawData)) {
+        if (Array.isArray(rawData.presets)) {
+          rawData = rawData.presets;
+        } else if (Array.isArray(rawData.data)) {
+          rawData = rawData.data;
+        }
+      }
+      if (Array.isArray(rawData)) {
+        const validPresets = rawData.filter(p => p && typeof p === 'object' && typeof p.name === 'string');
+        setPresets(validPresets);
+        console.log(`[ConfigModal] Loaded ${validPresets.length} presets.`);
       } else {
-        console.warn('[ConfigModal] No presets data returned from API.');
+        const msg = typeof res?.data === 'string' && (res.data.includes('<!DOCTYPE') || res.data.includes('<html'))
+          ? 'Presets request returned HTML (non-JSON). Reverse proxy or backend route /presets may not be routed correctly.'
+          : 'Presets response was invalid or not a JSON array.';
+        console.warn('[ConfigModal]', msg, res?.data);
+        setPresets([]);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('system-api-error', {
+            detail: {
+              type: 'non-json',
+              url: '/presets',
+              message: msg,
+            }
+          }));
+        }
       }
     } catch (e) {
       console.error('[ConfigModal] Error loading presets:', e);
+      setPresets([]);
+      const isHtml = e.isNonJson || (e.response && typeof e.response.data === 'string' && (e.response.data.includes('<!DOCTYPE') || e.response.data.includes('<html')));
+      const msg = isHtml
+        ? 'Presets endpoint /presets returned non-JSON (HTML response). Check backend connectivity.'
+        : (e.message || 'Failed to load strategy presets.');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('system-api-error', {
+          detail: {
+            type: isHtml ? 'non-json' : 'network-error',
+            url: '/presets',
+            status: e.response?.status,
+            message: msg,
+          }
+        }));
+      }
       if (addAlert) {
-        addAlert({ level: 'error', title: 'Load Failed', message: 'Failed to load strategy presets. Check network connection.' });
+        addAlert({ level: 'error', title: 'Load Failed', message: msg });
       }
     }
   }, [addAlert]);
@@ -2542,7 +2750,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleToggleRequiredEntry = React.useCallback((sigKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentReq = prev.required_signals || [];
+      const currentReq = Array.isArray(prev.required_signals) ? prev.required_signals : [];
       const isReq = currentReq.includes(sigKey);
       const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
       return { ...prev, required_signals: nextReq };
@@ -2552,7 +2760,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleToggleRequiredExit = React.useCallback((sigKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentReq = prev.required_exit_signals || [];
+      const currentReq = Array.isArray(prev.required_exit_signals) ? prev.required_exit_signals : [];
       const isReq = currentReq.includes(sigKey);
       const nextReq = isReq ? currentReq.filter(s => s !== sigKey) : [...currentReq, sigKey];
       return { ...prev, required_exit_signals: nextReq };
@@ -2563,7 +2771,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev };
-      const currentExitSignals = prev.exit_signals || [];
+      const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
 
       if (active) {
         // Toggling OFF: remove base signal AND all its chained layers
@@ -2607,7 +2815,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleAddLayer = React.useCallback((baseKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentExitSignals = prev.exit_signals || [];
+      const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
       let suffixNum = 2;
       while (currentExitSignals.includes(`${baseKey}_${suffixNum}`)) {
         suffixNum++;
@@ -2638,7 +2846,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       return {
         ...prev,
-        exit_signals: (prev.exit_signals || []).filter(sig => sig !== layerKey),
+        exit_signals: (Array.isArray(prev.exit_signals) ? prev.exit_signals : []).filter(sig => sig !== layerKey),
         exit_signal_delays: nextDelays,
         exit_signal_actions: nextActions,
         signal_timeframes: nextTimeframes
@@ -2671,7 +2879,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setIsDirty(true);
     setCfg(prev => {
       const next = { ...prev };
-      const currentEntrySignals = prev.enabled_signals || [];
+      const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
 
       if (active) {
         next.enabled_signals = currentEntrySignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
@@ -2694,7 +2902,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const handleAddEntryLayer = React.useCallback((baseKey) => {
     setIsDirty(true);
     setCfg(prev => {
-      const currentEntrySignals = prev.enabled_signals || [];
+      const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
       let suffixNum = 2;
       while (currentEntrySignals.includes(`${baseKey}_${suffixNum}`)) {
         suffixNum++;
@@ -2914,8 +3122,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (res && res.data) {
         console.log(`[ConfigModal] Preset "${name}" saved successfully.`);
         setPresets(prev => {
-          const nextPresets = [...prev.filter(p => p.name !== name), res.data];
-          return nextPresets.sort((a, b) => a.name.localeCompare(b.name));
+          const safePrev = Array.isArray(prev) ? prev : [];
+          const savedPreset = res.data?.preset || res.data;
+          if (!savedPreset || typeof savedPreset !== 'object' || !savedPreset.name) {
+            return safePrev;
+          }
+          const nextPresets = [...safePrev.filter(p => p && p.name !== name), savedPreset];
+          return nextPresets.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         });
         setPresetName('');
         setLoadedPresetName(name);
@@ -2964,7 +3177,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     const cleanedConfig = {
       ...(p.config || {}),
-      strategy_label: presetLabel || cfg.strategy_label,
+      strategy_label: p.name || presetLabel || cfg.strategy_label,
       strategy_variants: filteredVariants
     };
     delete cleanedConfig.paused;
@@ -3002,7 +3215,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     try {
       setIsDeleting(true);
       await presetsAPI.delete(name);
-      setPresets(prev => prev.filter(p => p.name !== name));
+      setPresets(prev => (Array.isArray(prev) ? prev.filter(p => p && p.name !== name) : []));
 
       // Clear active preset/loaded references if the deleted preset was active/loaded
       if (loadedPresetName === name) {
@@ -3055,7 +3268,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         entry_side: 'both',
         watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
         watchlist_offset: 0,
-        discovery_mode: 'volume',
+        discovery_mode: 'abs_change_pct',
         enabled_signals: ['momentum_pct'],
         signal_logic: 'all',
         tp_mode: 'fixed',
@@ -3189,15 +3402,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleSelectAllPresets = React.useCallback(() => {
-    if (selectedPresetNames.size === presets.length) {
+    const safePresets = Array.isArray(presets) ? presets : [];
+    if (selectedPresetNames.size === safePresets.length && safePresets.length > 0) {
       setSelectedPresetNames(new Set());
     } else {
-      setSelectedPresetNames(new Set(presets.map(p => p.name)));
+      setSelectedPresetNames(new Set(safePresets.filter(p => p && p.name).map(p => p.name)));
     }
   }, [presets, selectedPresetNames]);
 
   const handleCopySelectedPresets = React.useCallback(async () => {
-    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const selected = safePresets.filter(p => p && p.name && selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       await navigator.clipboard.writeText(JSON.stringify(selected, null, 2));
@@ -3208,7 +3423,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [presets, selectedPresetNames, addAlert]);
 
   const handleExportSelectedPresets = React.useCallback(() => {
-    const selected = presets.filter(p => selectedPresetNames.has(p.name));
+    const safePresets = Array.isArray(presets) ? presets : [];
+    const selected = safePresets.filter(p => p && p.name && selectedPresetNames.has(p.name));
     if (selected.length === 0) return;
     try {
       const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(selected, null, 2));
@@ -3393,11 +3609,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   return (
     <div ref={modalRef} tabIndex={-1} className="flex flex-col h-full bg-surface text-text overflow-hidden relative outline-none">
-      <div className="sticky top-0 z-50 bg-surface/80 backdrop-blur-md border-b border-border">
-        <div className="py-3 px-4 flex justify-between items-center">
+      <div className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-border relative">
+        <div className="py-3 px-4 flex justify-between items-center relative z-20">
           <div className="min-w-0 flex-1 mr-4">
              <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">
-               {cfg.strategy_label || 'Configure Engine'}
+               <span className="truncate">{loadedPresetName || cfg.strategy_label || 'Configure Engine'}</span>
+               {loadedPresetName ? (
+                 <span className={cn(
+                   "text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase border shrink-0",
+                   isDirty
+                     ? "bg-amber/15 border-amber/40 text-amber"
+                     : "bg-accent/15 border-accent/40 text-accent"
+                 )}>
+                   {isDirty ? "Preset (Modified)" : "Preset"}
+                 </span>
+               ) : (
+                 <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-surface border border-border text-dim shrink-0">
+                   Custom Draft
+                 </span>
+               )}
                {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
              <div className="text-[9px] text-dim font-bold uppercase tracking-widest flex items-center gap-1.5 truncate">
@@ -3415,14 +3645,63 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  </span>
                )}
                <span className="opacity-40">/</span>
-               <span className="truncate">Orchestration Center</span>
+               <span className="truncate">
+                 {loadedPresetName
+                   ? `Preset: "${loadedPresetName}"${cfg.strategy_label && cfg.strategy_label !== loadedPresetName ? ` (Target: ${cfg.strategy_label})` : ''}`
+                   : (cfg.strategy_label ? `Strategy: ${cfg.strategy_label}` : 'Orchestration Center')}
+               </span>
              </div>
           </div>
           <Tooltip content="Close Configuration">
             <button type="button" onClick={onClose} aria-label="Close Configuration" className="p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={16} className="text-dim" /></button>
           </Tooltip>
         </div>
-        <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
+        <SectionTabs section={section} onSectionChange={setSection} errors={errors} isMoreOpen={isMoreOpen} setIsMoreOpen={setIsMoreOpen} modalRef={modalRef} />
+
+        {/* Persistent Preset Context Ribbon */}
+        {loadedPresetName && (
+          <div className={cn(
+            "px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs border-t transition-colors relative z-30",
+            isDirty
+              ? "bg-amber/10 border-amber/30 text-amber-200"
+              : "bg-accent/5 border-accent/20 text-text/90"
+          )}>
+            <div className="flex items-center gap-2 truncate">
+              <FolderOpen size={13} className={isDirty ? "text-amber shrink-0" : "text-accent shrink-0"} />
+              <span className="text-[10px] uppercase font-bold tracking-wider text-dim shrink-0">Preset:</span>
+              <span className="font-mono font-bold text-xs truncate max-w-[140px] xs:max-w-[200px] sm:max-w-[320px] text-text" title={loadedPresetName}>{loadedPresetName}</span>
+              {isDirty ? (
+                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber/20 text-amber border border-amber/40 shrink-0">
+                  Modified
+                </span>
+              ) : (
+                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-green/10 text-green border border-green/30 shrink-0">
+                  Synced
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {isDirty && (
+                <button
+                  type="button"
+                  onClick={() => savePreset(loadedPresetName)}
+                  disabled={isSaving}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+                >
+                  <RefreshCw size={10} className={cn(isSaving && "animate-spin")} />
+                  Update Preset
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => { setSection('presets'); }}
+                className="text-[10px] font-bold text-dim hover:text-accent transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-white/5"
+              >
+                Presets →
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <ModalAlertTicker />
 
@@ -3504,7 +3783,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
                 {renderField('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
-                {renderField('Discovery Mode', 'discovery_mode', 'text', ['volume', 'change_pct'])}
+                {renderField('Discovery Mode', 'discovery_mode', 'text', ['volume', 'change_pct', 'abs_change_pct'])}
                 {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
                 <Tooltip content="Number of recent candles evaluated for price momentum percentage change. Shorter lookback captures immediate price velocity, while longer lookback filters short-term wicks.">
                   {renderField('Momentum Lookback', 'scan_lookback', 'number', null, { min: 1, max: 100 })}
@@ -5025,373 +5304,182 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
 
         {section === 'presets' && (
-          <div
-            id="config-panel-presets"
+          <div id="config-panel-presets"
             role="tabpanel"
             aria-labelledby="config-tab-presets"
-            className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
+            className="flex flex-col gap-0 animate-in fade-in duration-300 -mx-3 md:-mx-4 -mt-3"
           >
-            {/* Top Toolbar: Save / Update Controls & Compact Actions */}
-            <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-3">
-              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
-                <div className="flex-1 min-w-0">
-                  <SavePresetInput
-                    key={loadedPresetName || 'new'}
-                    defaultName={loadedPresetName || generatedPresetName}
-                    onSave={(name) => { savePreset(name); }}
-                    isSaving={isSaving}
-                    success={saveSuccess}
-                  />
-                </div>
-
-                {/* Direct Action Buttons: Update Preset & Save New */}
-                {loadedPresetName && (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Tooltip content={`Overwrite active preset "${loadedPresetName}" with current configuration settings`}>
-                      <Btn
-                        variant="primary"
-                        onClick={() => savePreset(loadedPresetName)}
-                        loading={isSaving}
-                        className="px-3.5 py-2.5 text-xs font-bold bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 flex items-center gap-1.5 shrink-0"
-                      >
-                        <RefreshCw size={13} className={cn(isSaving && "animate-spin")} /> Update "{loadedPresetName}"
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Save current settings under a new preset name">
-                      <Btn
-                        variant="ghost"
-                        onClick={() => { setPresetName(''); setLoadedPresetName(null); }}
-                        className="px-3 py-2.5 text-xs font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
-                      >
-                        <Plus size={13} /> Save As New
-                      </Btn>
-                    </Tooltip>
+            {/* Top Bar */}
+            <div className="flex flex-col gap-4 px-4 pt-5 pb-3">
+               <div className="flex items-center justify-between">
+                  <div className="text-xl font-bold text-text flex items-center gap-3">
+                     Presets
+                     <span className="text-xs text-dim font-normal tracking-tight">
+                        {Array.isArray(presets) ? presets.length : 0} saved · {cfg.strategy_variants?.length || 0} running as variants
+                     </span>
                   </div>
-                )}
-              </div>
+                  <div className="flex items-center gap-4">
+                     <div className="relative w-64 hidden sm:block">
+                        <input
+                           type="text"
+                           placeholder="Search   ( / )"
+                           value={presetSearch}
+                           onChange={(e) => setPresetSearch(e.target.value)}
+                           className="w-full bg-surface border border-border rounded-xl h-10 px-4 text-sm font-medium focus:border-accent focus:outline-none"
+                        />
+                     </div>
+                     <button
+                        type="button"
+                        onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
+                        className="text-[13px] font-bold text-dim hover:text-text transition-colors whitespace-nowrap"
+                     >
+                        Import / Export
+                     </button>
+                  </div>
+               </div>
 
-              {/* Collapsible Utility & Transfer Tools (JSON Export/Import, Clipboard Copy/Paste & Reset Slate) */}
-              <div className="pt-2 border-t border-border/30">
-                <CollapsibleSection
-                  id="presets_tools"
-                  icon={Settings2}
-                  title="Export, Import & Clipboard Tools"
-                  subtitle="Backup, copy, paste or reset strategy definitions"
-                  isOpen={openSectionId === 'presets_tools'}
-                  onToggle={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
-                >
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 pt-3">
-                    <Tooltip content="Copy active strategy configuration JSON to clipboard">
-                      <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
-                        <Copy size={13} /> Copy active
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Paste strategy configuration JSON from clipboard">
-                      <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
-                        <ClipboardPaste size={13} /> Paste active
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Export active strategy definition as a downloadable JSON file">
-                      <Btn variant="ghost" onClick={handleExportToFile} className="flex items-center justify-center gap-1.5 py-2 border-border hover:bg-accent/5 hover:border-accent/40 text-[11px] font-bold">
-                        <Download size={13} /> Export JSON
-                      </Btn>
-                    </Tooltip>
-
-                    <Tooltip content="Import strategy JSON or preset array file from your disk">
-                      <label className="relative focus-within:ring-2 focus-within:ring-accent focus-within:outline-none rounded-xl block">
-                        <input type="file" accept=".json" aria-label="Import JSON config or presets file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer z-10 outline-none" />
-                        <div className="flex items-center justify-center gap-1.5 py-2 px-2.5 rounded-xl border border-border bg-transparent text-[11px] font-bold transition-all hover:bg-accent/5 hover:border-accent/40 cursor-pointer text-text">
-                          <Upload size={13} /> Import File
+               {/* Tools expansion */}
+               <AnimatePresence>
+                  {openSectionId === 'presets_tools' && (
+                     <motion.div
+                       initial={{ opacity: 0, height: 0 }}
+                       animate={{ opacity: 1, height: 'auto' }}
+                       exit={{ opacity: 0, height: 0 }}
+                       className="overflow-hidden"
+                     >
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 pb-4">
+                          <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="h-10 border border-border hover:border-accent text-xs font-bold"><Copy size={14} className="mr-2"/> Copy active</Btn>
+                          <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="h-10 border border-border hover:border-accent text-xs font-bold"><ClipboardPaste size={14} className="mr-2"/> Paste active</Btn>
+                          <Btn variant="ghost" onClick={handleExportToFile} className="h-10 border border-border hover:border-accent text-xs font-bold"><Download size={14} className="mr-2"/> Export JSON</Btn>
+                          <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-xl text-xs font-bold cursor-pointer text-text hover:text-accent transition-colors">
+                            <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer" />
+                            <Upload size={14} className="mr-2"/> Import File
+                          </label>
                         </div>
-                      </label>
-                    </Tooltip>
+                     </motion.div>
+                  )}
+               </AnimatePresence>
 
-                    <Tooltip content={isEdit ? "Revert parameter edits back to last saved session state" : "Reset custom strategy parameters to baseline defaults"}>
-                      <Btn
-                        variant="ghost"
-                        onClick={handleClearActiveConfig}
-                        className="flex items-center justify-center gap-1.5 border-red/20 text-dim hover:text-red hover:bg-red/5 hover:border-red/40 py-2 text-[11px] font-bold col-span-2 md:col-span-1"
-                        aria-label={isEdit ? "Reset to initial configuration" : "Clear Active Configuration"}
-                      >
-                        <RefreshCw size={12} className="text-red/80 animate-spin-hover" /> {isEdit ? "Reset" : "Clear Active"}
-                      </Btn>
-                    </Tooltip>
-                  </div>
-                </CollapsibleSection>
-              </div>
+               {/* Filters */}
+               <div className="flex items-center gap-1 border-b border-border/40 pb-3">
+                  {[
+                     { id: 'all', label: 'All' },
+                     { id: 'live', label: 'Live' },
+                     { id: 'testnet', label: 'Testnet' },
+                     { id: 'paper', label: 'Paper' },
+                     { id: 'variants', label: 'Variants' }
+                  ].map(f => (
+                     <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => setPresetTabFilter(f.id)}
+                        className={cn(
+                           "px-4 py-2 text-[13px] font-bold rounded-xl transition-colors",
+                           presetTabFilter === f.id
+                              ? "text-accent"
+                              : "text-dim hover:text-text"
+                        )}
+                        style={presetTabFilter === f.id ? { borderBottom: '2px solid var(--accent)' } : {}}
+                     >
+                        {f.label}
+                     </button>
+                  ))}
+               </div>
             </div>
 
-            {/* Presets List Section */}
-            <section className="flex flex-col gap-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex justify-between items-center w-full sm:w-auto">
-                  <SectionHeader icon={FolderOpen} title="Manage Presets" subtitle="Load, combine or batch export/delete strategies" />
-                </div>
-                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                  <div className="relative flex-1 sm:w-64 group">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim/50 group-focus-within:text-accent pointer-events-none transition-colors" />
-                    <input
-                      ref={presetSearchInputRef}
-                      type="text"
-                      placeholder="Search preset by name..."
-                      value={presetSearch}
-                      onChange={(e) => setPresetSearch(e.target.value)}
-                      onKeyDown={(e) => e.key === 'Escape' && setPresetSearch('')}
-                      aria-label="Search presets by name"
-                      className="w-full bg-surface border border-border rounded-xl pl-9 pr-8 py-2 text-xs focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
-                    />
-                    {presetSearch ? (
-                      <Tooltip content="Clear Preset Search">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPresetSearch('');
-                            presetSearchInputRef.current?.focus();
-                          }}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
-                          aria-label="Clear Preset Search"
-                        >
-                          <XCircle size={12} />
-                        </button>
-                      </Tooltip>
-                    ) : (
-                      <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
-                        /
-                      </kbd>
-                    )}
+            {/* Presets List */}
+            <div className="flex flex-col pb-20">
+               {filteredPresets.length === 0 ? (
+                  <div className="py-12 text-center text-dim text-sm">
+                     No presets found.
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <div className="text-[9px] text-dim font-black uppercase bg-background px-2.5 py-1.5 rounded-lg border border-border">
-                      {cfg.strategy_variants?.length || 0} / {CONFIG_LIMITS.MAX_VARIANTS} Variants
-                    </div>
-                    {(cfg.strategy_variants || []).length > 0 && (
-                      <button
-                        type="button"
-                        onClick={clearAllVariants}
-                        className="text-[9px] font-black uppercase tracking-wider text-red hover:text-red/80 bg-red/10 border border-red/20 hover:bg-red/20 px-2 py-1.5 rounded-lg transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-red focus-visible:outline-none"
-                        aria-label="Clear all active strategy variants"
-                      >
-                        Clear All
-                      </button>
-                    )}
-                  </div>
+               ) : (
+                  filteredPresets.map(p => (
+                     <PresetItem
+                        key={p.name}
+                        preset={p}
+                        isLoaded={loadedPresetName === p.name}
+                        isDirty={isDirty}
+                        onLoad={loadPreset}
+                        onToggleVariant={toggleVariant}
+                        onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                        isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
+                        sessionActive={sessionActive}
+                        isSelected={selectedPresetNames.has(p.name)}
+                        onToggleSelect={toggleSelectPreset}
+                        currentCfg={cfg}
+                        onSave={(name) => savePreset(name)}
+                        onSaveAsNew={() => { setPresetName(''); setLoadedPresetName(null); }}
+                        onRevert={() => {
+                           const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
+                           if (original) loadPreset(original);
+                        }}
+                        onDuplicate={() => {
+                           // Simple duplicate logic: load it, clear loaded name, let user save
+                           loadPreset(p);
+                           setLoadedPresetName(null);
+                        }}
+                     />
+                  ))
+               )}
+            </div>
 
-                  <Tooltip content="Select or Deselect all presets">
-                    <Btn
-                      variant="ghost"
-                      onClick={handleSelectAllPresets}
-                      className="px-2.5 py-2 text-[11px] font-bold border border-border hover:border-border-hover text-dim hover:text-text flex items-center gap-1 shrink-0"
-                    >
-                      <Check size={12} /> {selectedPresetNames.size === presets.length && presets.length > 0 ? "Deselect All" : "Select All"}
-                    </Btn>
-                  </Tooltip>
-                </div>
-              </div>
-
-              {/* Multi-Select Batch Actions Toolbar */}
-              {selectedPresetNames.size > 0 && (
-                <div className="flex items-center justify-between gap-3 p-3 bg-accent/10 border border-accent/30 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
-                  <div className="flex items-center gap-2 text-xs font-bold text-accent">
-                    <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                    {selectedPresetNames.size} preset(s) selected
+            {/* Fixed Footer for Batch & Variants */}
+            {selectedPresetNames.size > 0 ? (
+               <div className="fixed bottom-[68px] sm:bottom-0 left-0 sm:left-auto right-0 sm:right-6 bg-surface border-t border-border p-4 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 sm:rounded-tl-2xl sm:rounded-tr-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.4)]">
+                  <div className="flex items-center justify-between w-full sm:w-auto">
+                     <span className="text-sm font-bold">{selectedPresetNames.size} selected</span>
+                     <button type="button" onClick={() => setSelectedPresetNames(new Set())} className="text-sm font-bold text-dim hover:text-text sm:hidden">Clear</button>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Tooltip content="Copy selected presets as JSON array to clipboard">
-                      <Btn variant="ghost" onClick={handleCopySelectedPresets} className="px-2.5 py-1.5 text-[11px] font-bold border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 flex items-center gap-1">
-                        <Copy size={12} /> Copy
-                      </Btn>
-                    </Tooltip>
-                    <Tooltip content="Export selected presets to downloadable JSON file">
-                      <Btn variant="ghost" onClick={handleExportSelectedPresets} className="px-2.5 py-1.5 text-[11px] font-bold border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 flex items-center gap-1">
-                        <Download size={12} /> Export
-                      </Btn>
-                    </Tooltip>
-                    <Tooltip content={sessionActive ? "Preset deletion locked while session is running" : "Delete selected presets"}>
-                      <Btn
+                  <div className="flex items-center gap-2 w-full sm:w-auto flex-col sm:flex-row">
+                     <Btn
+                        variant="primary"
+                        onClick={() => {
+                           // Set as variants logic (bulk)
+                           const newVariants = [...(cfg.strategy_variants || [])];
+                           Array.from(selectedPresetNames).forEach(name => {
+                              if (!newVariants.some(v => v.strategy_label === name)) {
+                                 const p = presets.find(x => x.name === name);
+                                 if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
+                                    newVariants.push(p.config);
+                                 }
+                              }
+                           });
+                           setCfg(prev => ({ ...prev, strategy_variants: newVariants }));
+                           setSelectedPresetNames(new Set());
+                           addAlert({ level: 'success', title: 'Variants Updated', message: `Added selected to variants.` });
+                        }}
+                        className="w-full sm:w-auto px-8 py-3 bg-accent text-white font-bold"
+                     >
+                        Set as variants
+                     </Btn>
+                     <Btn variant="ghost" onClick={handleExportSelectedPresets} className="w-full sm:w-auto px-8 py-3 border border-border text-text font-bold hover:bg-surface">
+                        Export
+                     </Btn>
+                     <Btn
                         variant="ghost"
                         onClick={handleDeleteSelectedPresets}
                         disabled={sessionActive}
-                        className={cn(
-                          "px-2.5 py-1.5 text-[11px] font-bold border flex items-center gap-1",
-                          sessionActive ? "border-border/30 text-dim/30 cursor-not-allowed" : "border-red/30 text-red hover:bg-red/10"
-                        )}
-                      >
-                        <Trash2 size={12} /> Delete
-                      </Btn>
-                    </Tooltip>
+                        className={cn("w-full sm:w-auto text-sm font-bold", sessionActive ? "text-red/50" : "text-red")}
+                     >
+                        {sessionActive ? "Delete (locked: session active)" : "Delete"}
+                     </Btn>
                   </div>
-                </div>
-              )}
-
-              {presets.length === 0 ? (
-                <div className="p-12 border-2 border-dashed border-border rounded-2xl text-center">
-                  <FolderOpen size={32} className="mx-auto mb-4 text-dim/20" />
-                  <div className="text-xs font-bold text-dim uppercase">No saved presets</div>
-                </div>
-              ) : partitionedPresets.active.length === 0 && partitionedPresets.recentlyUsed.length === 0 && partitionedPresets.available.length === 0 ? (
-                <div className="p-10 border border-dashed border-border rounded-2xl text-center flex flex-col gap-3">
-                  <Search size={28} className="mx-auto text-dim/30" />
-                  <div className="text-xs font-bold text-dim uppercase">No matching presets found</div>
-                  <Btn variant="ghost" onClick={() => setPresetSearch('')} className="text-accent hover:bg-accent/5 py-1 px-3 text-[10px] uppercase font-black tracking-widest">
-                    Clear Filter
-                  </Btn>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-6">
-                  {/* Active Orchestration Section */}
-                  {partitionedPresets.active.length > 0 && (
-                    <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                      <div className="flex items-center gap-2 px-1 text-[9px] font-black uppercase tracking-widest text-accent">
-                        <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
-                        Active Strategy & Enabled Variants ({partitionedPresets.active.length})
-                      </div>
-                      <motion.div layout className="flex flex-col gap-3">
-                        <AnimatePresence mode="popLayout">
-                          {partitionedPresets.active.map(p => (
-                            <PresetItem
-                              key={p.name}
-                              preset={p}
-                              isLoaded={loadedPresetName === p.name}
-                              isDirty={isDirty}
-                              onLoad={loadPreset}
-                              onToggleVariant={toggleVariant}
-                              onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                              isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                              sessionActive={sessionActive}
-                              isSelected={selectedPresetNames.has(p.name)}
-                              onToggleSelect={toggleSelectPreset}
-                            />
-                          ))}
-                        </AnimatePresence>
-                      </motion.div>
-                    </div>
+               </div>
+            ) : (
+               <div className="fixed bottom-[68px] sm:bottom-0 left-0 sm:left-auto right-0 sm:right-6 bg-surface border-t border-border p-4 flex items-center justify-between z-20 sm:rounded-tl-2xl sm:rounded-tr-2xl text-[13px] text-dim">
+                  <span>
+                     Variants {(cfg.strategy_variants || []).length} / {CONFIG_LIMITS.MAX_VARIANTS} · combined risk {((cfg.strategy_variants || []).reduce((acc, v) => acc + (Number(v.risk_pct_per_trade) || 0), 0)).toFixed(1)}% of {cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}% cap
+                  </span>
+                  {(cfg.strategy_variants || []).length > 0 && (
+                     <button type="button" onClick={clearAllVariants} className="text-red font-bold hover:text-red-400 transition-colors">
+                        Clear variants
+                     </button>
                   )}
+               </div>
+            )}
 
-                  {/* Recently Used Presets Section */}
-                  {partitionedPresets.recentlyUsed.length > 0 && (() => {
-                    const isRecentOpen = recentExpanded || !!presetSearch;
-                    return (
-                      <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                        <button
-                          type="button"
-                          onClick={() => setRecentExpanded(!recentExpanded)}
-                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-text/90 hover:text-text transition-colors group/rec-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1 cursor-pointer"
-                          aria-expanded={isRecentOpen}
-                          aria-controls="presets-recently-used-content"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <Clock size={11} className="text-accent" />
-                            Recently Used Presets ({partitionedPresets.recentlyUsed.length})
-                          </span>
-                          <div className={cn(
-                            "w-4 h-4 rounded border border-border/60 flex items-center justify-center text-dim group-hover/rec-btn:text-text transition-all",
-                            isRecentOpen && "rotate-180 text-accent border-accent/30"
-                          )}>
-                            <ChevronDown size={10} />
-                          </div>
-                        </button>
-
-                        <AnimatePresence initial={false}>
-                          {isRecentOpen && (
-                            <motion.div
-                              id="presets-recently-used-content"
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2, ease: "easeInOut" }}
-                              className="overflow-hidden"
-                            >
-                              <motion.div layout className="flex flex-col gap-3 pt-1">
-                                <AnimatePresence mode="popLayout">
-                                  {partitionedPresets.recentlyUsed.map(p => (
-                                    <PresetItem
-                                      key={p.name}
-                                      preset={p}
-                                      isLoaded={loadedPresetName === p.name}
-                                      isDirty={isDirty}
-                                      onLoad={loadPreset}
-                                      onToggleVariant={toggleVariant}
-                                      onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                                      isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                                      sessionActive={sessionActive}
-                                      isSelected={selectedPresetNames.has(p.name)}
-                                      onToggleSelect={toggleSelectPreset}
-                                    />
-                                  ))}
-                                </AnimatePresence>
-                              </motion.div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Preset Library Section */}
-                  {partitionedPresets.available.length > 0 && (() => {
-                    const isLibraryOpen = libraryExpanded || !!presetSearch;
-                    return (
-                      <div className="flex flex-col gap-3">
-                        <button
-                          type="button"
-                          onClick={() => setLibraryExpanded(!libraryExpanded)}
-                          className="flex items-center justify-between w-full px-1 text-[9px] font-black uppercase tracking-widest text-dim hover:text-text transition-colors group/lib-btn focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded py-1 cursor-pointer"
-                          aria-expanded={isLibraryOpen}
-                          aria-controls="presets-library-content"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            Preset Library ({partitionedPresets.available.length})
-                          </span>
-                          <div className={cn(
-                            "w-4 h-4 rounded border border-border/60 flex items-center justify-center text-dim group-hover/lib-btn:text-text transition-all",
-                            isLibraryOpen && "rotate-180 text-accent border-accent/30"
-                          )}>
-                            <ChevronDown size={10} />
-                          </div>
-                        </button>
-
-                        <AnimatePresence initial={false}>
-                          {isLibraryOpen && (
-                            <motion.div
-                              id="presets-library-content"
-                              initial={{ height: 0, opacity: 0 }}
-                              animate={{ height: 'auto', opacity: 1 }}
-                              exit={{ height: 0, opacity: 0 }}
-                              transition={{ duration: 0.2, ease: "easeInOut" }}
-                              className="overflow-hidden"
-                            >
-                              <motion.div layout className="flex flex-col gap-3 pt-1">
-                                <AnimatePresence mode="popLayout">
-                                  {partitionedPresets.available.map(p => (
-                                    <PresetItem
-                                      key={p.name}
-                                      preset={p}
-                                      isLoaded={loadedPresetName === p.name}
-                                      isDirty={isDirty}
-                                      onLoad={loadPreset}
-                                      onToggleVariant={toggleVariant}
-                                      onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                                      isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                                      sessionActive={sessionActive}
-                                      isSelected={selectedPresetNames.has(p.name)}
-                                      onToggleSelect={toggleSelectPreset}
-                                    />
-                                  ))}
-                                </AnimatePresence>
-                              </motion.div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-
-              <ConfirmationModal
+            <ConfirmationModal
                 isOpen={!!presetToDelete}
                 onClose={() => setPresetToDelete(null)}
                 onConfirm={() => deletePreset(presetToDelete)}
@@ -5400,8 +5488,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 confirmText="Delete Preset"
                 variant="danger"
                 loading={isDeleting}
-              />
-            </section>
+            />
           </div>
         )}
       </div>
@@ -5429,14 +5516,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
              </Tooltip>
            </div>
         </div>
-        <Btn variant="primary" loading={loading} onClick={() => {
-          if (validate(cfg)) {
-             onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
-             sessionStorage.removeItem('config_draft');
-             setIsDirty(false);
-          }
-        }} className="w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs">
-          {isEdit ? 'Apply Changes' : 'Start Session'}
+        <Btn
+          variant="primary"
+          loading={loading}
+          disabled={loading || (!isEdit && apiStatus?.isBanned)}
+          onClick={() => {
+            if (!isEdit && apiStatus?.isBanned) {
+              addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
+              return;
+            }
+            if (validate(cfg)) {
+               onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
+               sessionStorage.removeItem('config_draft');
+               setIsDirty(false);
+            }
+          }}
+          className={cn(
+            "w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs",
+            !isEdit && apiStatus?.isBanned && "opacity-50 cursor-not-allowed"
+          )}
+        >
+          {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : 'Start Session')}
           {isDirty && <span className="w-1 h-1 rounded-full bg-accent animate-pulse" />}
         </Btn>
       </div>

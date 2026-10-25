@@ -746,11 +746,11 @@ const BanBanner = ({ apiStatus }) => {
     return () => clearInterval(timer);
   }, [apiStatus?.banUntil]);
 
-  const hasBanTime = !!apiStatus?.banUntil;
-  if (hasBanTime && timeLeft <= 0) return null;
-  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited) return null;
+  if (!apiStatus?.isBanned && !apiStatus?.isRateLimited && !apiStatus?.isGeoBlocked) return null;
 
-  const isBan = apiStatus.isBanned;
+  const isGeo = !!apiStatus.isGeoBlocked;
+  const isBan = !!apiStatus.isBanned && !isGeo;
+  const hasBanCountdown = !!apiStatus?.banUntil && timeLeft > 0;
   const cooldownEnd = apiStatus.banUntil ? new Date(apiStatus.banUntil).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'unknown';
 
   return (
@@ -761,48 +761,58 @@ const BanBanner = ({ apiStatus }) => {
       aria-live="polite"
       className={cn(
         "p-5 rounded-2xl mb-6 flex flex-col md:flex-row items-center gap-4 shadow-xl border",
-        isBan ? "bg-red/20 border-red/40 shadow-red/5" : "bg-amber/20 border-amber/40 shadow-amber/5"
+        (isBan || isGeo) ? "bg-red/20 border-red/40 shadow-red/5" : "bg-amber/20 border-amber/40 shadow-amber/5"
       )}
     >
       <div className={cn(
         "w-12 h-12 rounded-full flex items-center justify-center shrink-0 animate-pulse",
-        isBan ? "bg-red/20 text-red" : "bg-amber/20 text-amber"
+        (isBan || isGeo) ? "bg-red/20 text-red" : "bg-amber/20 text-amber"
       )}>
         <AlertCircle size={24} />
       </div>
       <div className="flex-1 text-center md:text-left">
         <h3 className={cn(
           "text-sm font-black uppercase tracking-tight mb-1",
-          isBan ? "text-red" : "text-amber"
+          (isBan || isGeo) ? "text-red" : "text-amber"
         )}>
-          {isBan ? 'Binance IP Ban' : 'Rate Limit Protection'}
+          {isGeo ? 'Binance Regional Geo-Restriction (HTTP 451)' : (isBan ? 'Binance IP Ban / Restriction' : 'Rate Limit Protection')}
         </h3>
         <p className={cn(
           "text-xs font-bold",
-          isBan ? "text-red/80" : "text-amber/80"
+          (isBan || isGeo) ? "text-red/80" : "text-amber/80"
         )}>
-          {apiStatus.lastErrorMessage || `Automatic requests are paused to protect your account standing. Normal operations will resume shortly.`}
+          {apiStatus.lastErrorMessage || (isGeo ? 'Host IP is located in a jurisdiction restricted by Binance. Please configure a Proxy URL in Settings or switch to Testnet/Paper mode.' : `Automatic requests are paused to protect your account standing. Normal operations will resume shortly.`)}
         </p>
       </div>
       <div className="flex flex-col items-center md:items-end gap-1.5 shrink-0">
         <div className={cn(
           "px-4 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-widest border flex items-center gap-2",
-          isBan ? "bg-red/20 border-red/30 text-red" : "bg-amber/20 border-amber/30 text-amber"
+          (isBan || isGeo) ? "bg-red/20 border-red/30 text-red" : "bg-amber/20 border-amber/30 text-amber"
         )}>
           <span className="w-2 h-2 rounded-full bg-current motion-safe:animate-ping" aria-hidden="true" />
-          {hasBanTime ? formatDuration(timeLeft) : 'Active'}
+          {isGeo ? 'Geo-Blocked' : (hasBanCountdown ? formatDuration(timeLeft) : (isBan ? 'Restricted' : 'Active'))}
         </div>
-        {hasBanTime && (
+        {hasBanCountdown && (
           <div className="flex items-center gap-1.5 opacity-60">
             <History size={10} />
             <span className="text-[9px] font-bold uppercase tracking-tighter">Ends at {cooldownEnd}</span>
           </div>
         )}
-        {isBan && (
+        {(isBan || isGeo) && (
            <Btn
              onClick={async () => {
                try {
                  await sessionAPI.clearBan();
+                 useTradingStore.setState(st => ({
+                   apiStatus: {
+                     ...st.apiStatus,
+                     isBanned: false,
+                     isRateLimited: false,
+                     isGeoBlocked: false,
+                     banUntil: null,
+                     lastErrorMessage: null
+                   }
+                 }));
                } catch (e) {
                  console.error('Failed to clear ban:', e);
                }
@@ -1560,8 +1570,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
   const [manualCurrentSl, setManualCurrentSl] = useState({});
 
   const strategyLabels = useMemo(() => {
-    const baseLabel = config.strategy_label || 'Momentum Strategy';
-    const variantLabels = (config.strategy_variants || [])
+    const baseLabel = config?.strategy_label || 'Momentum Strategy';
+    const variantLabels = (config?.strategy_variants || [])
       .filter(v => v && v.enabled !== false)
       .map((v, i) => v.strategy_label || `Variant ${i + 1}`);
     return [baseLabel, ...variantLabels];
@@ -1908,6 +1918,9 @@ export function DashboardView({ initialStrategy }) {
   const [confirmStop, setConfirmStop] = useState(false)
   const [sessionToDelete, setSessionToDelete] = useState(null)
   const [pausingMap, setPausingMap] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
+  const [scannerFocusLabel, setScannerFocusLabel] = useState(null)
 
   const {
     sessionActive, sessionPaused, pausedStrategies, strategyGateStates, strategyId, balance, totalPnl, totalRiskPct,
@@ -2197,10 +2210,6 @@ export function DashboardView({ initialStrategy }) {
     return set;
   }, [config.single_symbol_configs]);
 
-
-  const [loading, setLoading] = useState(false)
-  const [showInsights, setShowInsights] = useState(false)
-
   const correlationData = useMemo(() => {
     // BOLT OPTIMIZATION: Loop-fused single-pass traversal over tradeHistory with O(1) direct branch-based
     // bucket sorting, utilizing pre-calculated numeric entry/exit milliseconds (t.entry_ts_ms, t.exit_ts_ms).
@@ -2309,6 +2318,14 @@ export function DashboardView({ initialStrategy }) {
         updateConfig(finalConfig)
         addAlert({ level: 'success', title: 'Config Updated', message: 'Strategy parameters synchronized with the engine.' });
       } else {
+        if (apiStatus?.isBanned) {
+          addAlert({
+            level: 'error',
+            title: 'Action Blocked',
+            message: 'Cannot start new trading sessions while an API ban or geo-restriction is active.'
+          });
+          return;
+        }
         updateConfig(finalConfig)
         const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
         setSessionActive(true, res.data.strategyId || res.data.strategy_id)
@@ -2371,6 +2388,14 @@ export function DashboardView({ initialStrategy }) {
 
   const handleResumeLast = React.useCallback(async () => {
     if (!lastSession) return;
+    if (apiStatus?.isBanned) {
+      addAlert({
+        level: 'error',
+        title: 'Action Blocked',
+        message: 'Cannot resume sessions while an API ban or geo-restriction is active.'
+      });
+      return;
+    }
     setLoading(true);
     setSyncing(true);
     try {
@@ -2437,7 +2462,6 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [sessionToDelete, addAlert, fetchSessions, setSyncing]);
 
-  const [scannerFocusLabel, setScannerFocusLabel] = useState(null)
   const handleOpenScanner = React.useCallback((label) => {
     setScannerFocusLabel(typeof label === 'string' ? label : null);
     setShowScanner(true);
@@ -3240,7 +3264,7 @@ export function DashboardView({ initialStrategy }) {
                 {sessionActive ? (
                   <>
                     {(() => {
-                      const activeVariants = (config.strategy_variants || []).filter(v => v.enabled !== false);
+                      const activeVariants = (config?.strategy_variants || []).filter(v => v && v.enabled !== false);
                       const totalCards = 1 + activeVariants.length;
                       return (
                         <>
@@ -3320,35 +3344,39 @@ export function DashboardView({ initialStrategy }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-5 col-span-1 md:col-span-2">
                     <button
                       onClick={() => { setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); setShowConfig(true); }}
-                      disabled={loading || isSyncing}
+                      disabled={loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                       aria-label="Create new trading strategy"
                       className={cn(
                         "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full",
                         lastSession ? "col-span-1" : "col-span-1 md:col-span-2",
-                        (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                        (loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                       )}
                     >
                       <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
                         <Plus size={20} />
                       </div>
-                      <span className="text-[11px] font-bold uppercase tracking-widest">New Strategy</span>
+                      <span className="text-[11px] font-bold uppercase tracking-widest">
+                        {apiStatus?.isGeoBlocked ? 'Disabled (Geo-Restricted)' : (apiStatus?.isBanned ? 'Strategy Launch Disabled (API Ban)' : 'New Strategy')}
+                      </span>
                     </button>
 
                     {lastSession && (
                       <button
                         onClick={handleResumeLast}
-                        disabled={loading || isSyncing}
+                        disabled={loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
                         aria-label={`Resume last session: ${lastSession.config.strategy_label}`}
                         className={cn(
                           "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full col-span-1",
-                          (loading || isSyncing) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
+                          (loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
                         )}
                       >
                         <div className="w-10 h-10 rounded-full bg-surface border border-border flex items-center justify-center group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
                           <History size={20} />
                         </div>
                         <div className="flex flex-col items-center">
-                          <span className="text-[11px] font-bold uppercase tracking-widest">Resume Last</span>
+                          <span className="text-[11px] font-bold uppercase tracking-widest">
+                            {apiStatus?.isGeoBlocked ? 'Resume Disabled (Geo-Blocked)' : (apiStatus?.isBanned ? 'Resume Disabled (API Ban)' : 'Resume Last')}
+                          </span>
                           <span className="text-[9px] text-dim/60 font-medium uppercase mt-1 truncate max-w-[150px]">
                             {lastSession.config.strategy_label}
                           </span>

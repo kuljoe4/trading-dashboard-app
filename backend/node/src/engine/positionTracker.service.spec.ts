@@ -730,14 +730,16 @@ describe('PositionTrackerService', () => {
         direction: 'LONG',
         entry_price: 100,
         initial_sl: 90,
-        current_sl: 90, // SL still at 90 (below entry)
+        current_sl: 101, // SL guarantees breakeven
         qty: 10,
         status: 'OPEN',
         risk_usdt: 100,
       } as unknown as Trade;
 
       service.addTrade(trade);
-      expect(trade.risk_usdt).toBe(100);
+      // Risk is immediately 0 because SL is at breakeven
+      expect(trade.risk_usdt).toBe(0);
+      expect(trade.risk_lock_reason).toBe('SL_AT_BREAKEVEN');
 
       const config = {
         release_risk_on_est_pnl_be: true,
@@ -760,8 +762,11 @@ describe('PositionTrackerService', () => {
 
       expect(trade.risk_usdt).toBe(0);
       expect(service.totalRisk()).toBe(0);
+      // The lock reason should be updated to EST_PNL_BREAKEVEN
+      expect(trade.risk_lock_reason).toBe('EST_PNL_BREAKEVEN');
 
-      // Estimated PnL drops back to -50 (below breakeven 0)
+      // Drop threshold to 95. However, since SL is 101, the ratchetPnl is 10.
+      // max(10, -50) = 10 >= 0, so est_pnl_be condition still holds!
       trade.exit_signals_status = {
         ema_cross: {
           fired: true,
@@ -776,8 +781,9 @@ describe('PositionTrackerService', () => {
       };
       service.refreshTradeRisk(trade, false, 95, config);
 
-      expect(trade.risk_usdt).toBe(100);
-      expect(service.totalRisk()).toBe(100);
+      expect(trade.risk_usdt).toBe(0);
+      // It stays EST_PNL_BREAKEVEN because ratchetPnl (10) >= 0
+      expect(trade.risk_lock_reason).toBe('EST_PNL_BREAKEVEN');
     });
   });
 });

@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import WebSocket from 'ws';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 export interface SubscriptionRequest {
   id: number;
@@ -38,6 +39,7 @@ export class BinanceSubscriptionManager {
     private readonly wsUrl: string,
     private readonly options: {
       isTestnet: boolean;
+      proxyUrl?: string;
       onMessage: (data: any) => void;
       isBanned?: () => boolean;
       onBan?: (msg: string) => void;
@@ -59,9 +61,11 @@ export class BinanceSubscriptionManager {
 
     return new Promise((resolve, reject) => {
       this.logger.log(`[SubscriptionManager] Connecting to ${this.wsUrl}`);
+      const agent = this.options.proxyUrl ? new HttpsProxyAgent(this.options.proxyUrl) : undefined;
       const ws = new WebSocket(this.wsUrl, {
         handshakeTimeout: 15000,
         perMessageDeflate: false,
+        agent: agent as any,
         // Live Futures market-data WS (fstream.binance.com) requires browser-like
         // headers from some network vantage points; without them Binance accepts
         // the connection + SUBSCRIBE ACK but delivers ZERO data frames. Testnet
@@ -71,7 +75,7 @@ export class BinanceSubscriptionManager {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Origin': 'https://www.binance.com'
         }
-      });
+      } as any);
 
       ws.on('open', () => {
         if (this.isStopped) {
@@ -117,7 +121,7 @@ export class BinanceSubscriptionManager {
           : this.wsUrl;
         this.logger.error(`[SubscriptionManager] WebSocket error. URL: ${urlSnippet} | Msg: ${msg}`);
 
-        if (msg.includes('429') || msg.includes('418')) {
+        if (msg.includes('429') || msg.includes('418') || msg.includes('451') || msg.toLowerCase().includes('restricted')) {
           this.logger.fatal(`[CRITICAL] WebSocket handshake failed with rate-limit/ban status (${msg}).`);
           this.options.onBan?.(msg);
         }
@@ -273,10 +277,8 @@ export class BinanceSubscriptionManager {
     if (this.processQueueInterval) return;
     this.processQueueInterval = setInterval(() => {
       this.processQueue();
-
-    if (this.processQueueInterval?.unref) this.processQueueInterval.unref();
     }, 10);
-    this.processQueueInterval.unref?.();
+    if (this.processQueueInterval?.unref) this.processQueueInterval.unref();
   }
 
   private stopQueueProcessor() {
@@ -291,11 +293,9 @@ export class BinanceSubscriptionManager {
     this.pingInterval = setInterval(() => {
       if (this.ws && this.ws.readyState === WebSocket.OPEN) {
         this.ws.ping();
-
-    if (this.pingInterval?.unref) this.pingInterval.unref();
       }
     }, 20000);
-    this.pingInterval.unref?.();
+    if (this.pingInterval?.unref) this.pingInterval.unref();
   }
 
   private stopPingInterval() {
@@ -309,13 +309,11 @@ export class BinanceSubscriptionManager {
       if (this.statsInterval) return;
       this.statsInterval = setInterval(() => {
           const now = Date.now();
-
-      if (this.statsInterval?.unref) this.statsInterval.unref();
           const silence = this.lastMsgTs > 0 ? Math.round((now - this.lastMsgTs) / 1000) : 'N/A';
           this.logger.debug(`[SubscriptionManager] Stats: Received ${this.msgCount} frames. Last msg: ${silence}s ago. Subs: ${this.activeSubscriptions.size}`);
           this.msgCount = 0;
       }, 30000);
-      this.statsInterval.unref?.();
+      if (this.statsInterval?.unref) this.statsInterval.unref();
   }
 
   private stopStatsInterval() {
@@ -335,8 +333,6 @@ export class BinanceSubscriptionManager {
     if (this.stallWatchdogInterval) return;
     this.stallWatchdogInterval = setInterval(() => {
       if (this.isStopped || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-    if (this.stallWatchdogInterval?.unref) this.stallWatchdogInterval.unref();
       const now = Date.now();
       if (this.activeSubscriptions.size > 0 && this.lastMsgTs > 0 && (now - this.lastMsgTs) > 420000) {
         this.logger.warn(`[SubscriptionManager] Stall detected (${Math.round((now - this.lastMsgTs) / 1000)}s silent with ${this.activeSubscriptions.size} active subs). Force-reconnecting...`);
@@ -347,7 +343,7 @@ export class BinanceSubscriptionManager {
         this.scheduleReconnect();
       }
     }, 30000);
-    this.stallWatchdogInterval.unref?.();
+    if (this.stallWatchdogInterval?.unref) this.stallWatchdogInterval.unref();
   }
 
   private stopStallWatchdog() {

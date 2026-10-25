@@ -58,8 +58,8 @@
   }
 
   ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
@@ -67,12 +67,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: var(--color-border);
+    background: var(--color-border-hover);
     border-radius: 9999px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--color-border-hover);
+    background: var(--color-accent);
   }
 }
 

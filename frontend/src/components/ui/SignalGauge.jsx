@@ -74,17 +74,28 @@ export const SignalGauge = React.memo(({
 
   const status = getStatus()
 
-  // Estimated PnL / RR for exit signals (capped at current unrealized live PnL to align with backend realizable exit PnL)
-  const rawEstPnl = (thresholdIsPrice && entryPrice && qty)
-    ? (numThreshold - entryPrice) * qty * (isLong ? 1 : -1)
+  // Estimated PnL / RR for exit signals (prioritize authoritative backend exit estimation, fallback to price threshold calculation)
+  const backendEstPnl = (signalEstimation && typeof signalEstimation.est_pnl === 'number')
+    ? signalEstimation.est_pnl
     : null
+  const backendEstRr = (signalEstimation && typeof signalEstimation.risk_reward === 'number')
+    ? signalEstimation.risk_reward
+    : null
+
+  const rawEstPnl = backendEstPnl !== null
+    ? backendEstPnl
+    : (thresholdIsPrice && entryPrice && qty)
+      ? (numThreshold - entryPrice) * qty * (isLong ? 1 : -1)
+      : null
   const livePnl = (markPrice && entryPrice && qty)
     ? (markPrice - entryPrice) * qty * (isLong ? 1 : -1)
     : null
   const estPnl = (rawEstPnl !== null && livePnl !== null)
     ? Math.min(rawEstPnl, livePnl)
     : rawEstPnl
-  const estRr = (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null
+  const estRr = backendEstRr !== null
+    ? backendEstRr
+    : (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null
 
   const content = (
     <div className={cn(

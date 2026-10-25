@@ -27,8 +27,8 @@ export class PositionTrackerService {
   public peakRrSwitchHits: Map<string, number> = new Map(); // strategy_label -> hits
   public tradePeakRrSwitchHandled: Set<string> = new Set(); // trade.id -> whether this trade has contributed to the switch count
   private dirtyTrailingSymbols: Map<string, { config: SessionConfig; lastReason: string }> = new Map();
-  private _totalRisk = 0;
-  private _pendingRiskTotal = 0; // BOLT: Track total pending risk in O(1)
+  private _totalRisk: number = 0;
+  private _pendingRiskTotal: number = 0; // BOLT: Track total pending risk in O(1)
   private _activeListCache: Trade[] | null = null;
 
   constructor(
@@ -105,7 +105,7 @@ export class PositionTrackerService {
   }
 
   @OnEvent(ENGINE_EVENTS.TICKER_PRICE_UPDATED)
-  async handleTickerPriceUpdated(payload: { symbol: string; price: number }) {
+  async handleTickerPriceUpdated(payload: { symbol: string; price: number }): Promise<void> {
     if (!payload || !payload.symbol || !payload.price) return;
     if (this.trades.has(payload.symbol)) {
       await this.onTickerUpdate(payload.symbol, payload.price);
@@ -123,10 +123,12 @@ export class PositionTrackerService {
     const activeConfig = { ...baseSessionConfig, ...(config || {}), ...(trade.strategy_config || {}) } as SessionConfig;
     if (!activeConfig) return;
 
-    await this.checkRrSequenceAdjustments(symbol, currentPrice, activeConfig);
-    await this.checkTrailingStop(symbol, currentPrice, activeConfig);
-    if (trade.is_knife) {
-      await this.checkKnifeTrailingStop(symbol, currentPrice, activeConfig);
+    const slAdjusted: boolean = await this.checkRrSequenceAdjustments(symbol, currentPrice, activeConfig);
+    if (!slAdjusted) {
+      await this.checkTrailingStop(symbol, currentPrice, activeConfig);
+      if (trade.is_knife) {
+        await this.checkKnifeTrailingStop(symbol, currentPrice, activeConfig);
+      }
     }
   }
 
@@ -185,7 +187,7 @@ export class PositionTrackerService {
     return roundEight(this._totalRisk + this._pendingRiskTotal);
   }
 
-  setEntering(symbol: string, entering: boolean, reservedRisk = 0): void {
+  setEntering(symbol: string, entering: boolean, reservedRisk: number = 0): void {
     if (entering) {
       this.enteringSymbols.add(symbol);
       if (reservedRisk > 0) {
@@ -369,7 +371,7 @@ export class PositionTrackerService {
           trade.binance_stop_order_id = undefined;
           trade.binance_stop_order_type = undefined;
         }
-        this.logSlAdjustment(trade, Number(trade.current_sl), 0, -5);
+        this.logSlAdjustment(trade, Number(trade.current_sl), 0, -5, false);
         trade.current_sl = 0;
         trade.updated_at = new Date();
         this.refreshTradeRisk(trade, false, undefined, config);
@@ -383,17 +385,17 @@ export class PositionTrackerService {
     symbol: string,
     currentPrice: number,
     config: SessionConfig,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const trade = this.trades.get(symbol);
-    if (!trade || trade.status !== 'OPEN') return;
+    if (!trade || trade.status !== 'OPEN') return false;
 
     if (await this.handleExitSignalOverrideIfNeeded(trade, config)) {
-      return;
+      return false;
     }
 
     // Calculate current R:R metrics
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
-    if (risk <= 0) return;
+    if (risk <= 0) return false;
 
     const reward = trade.direction === 'LONG'
       ? currentPrice - Number(trade.entry_price)
@@ -473,7 +475,7 @@ export class PositionTrackerService {
 
       // SRE/DEBUG: Catch-up evaluation. Check if current SL is lagging behind targetSl for the achieved milestone.
       const minDelta = Number(trade.entry_price) * 0.0001;
-      let isSlBehindTarget = false;
+      let isSlBehindTarget: boolean = false;
       if (trade.direction === 'LONG') {
         isSlBehindTarget = !Number(trade.current_sl) || Number(trade.current_sl) < targetSl - Math.max(0.00000001, minDelta);
       } else {
@@ -488,132 +490,134 @@ export class PositionTrackerService {
            this.markDirty(symbol, config, 'MUTEX_LOCKED');
            this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
            this.logger.debug(`[SL Ratchet] Mutex lock active for ${symbol}, deferring ratchet evaluation and recording skip audit.`);
-           return;
+           return false;
         }
 
         if (isNaN(targetSl) || !isFinite(targetSl) || targetSl <= 0) {
           this.logger.debug(`[RrSequence] Derived target SL ${targetSl} for ${symbol} is invalid or non-positive. Skipping adjustment.`);
-          return;
+          return false;
         }
 
-      // DATA-07: Ensure the target SL is filtered/rounded to exchange tick size BEFORE comparison.
-      // This prevents infinite cancel-replace loops caused by precision mismatches between
-      // internal float math (e.g. 0.1886835) and exchange tick sizes (e.g. 0.1887).
-      const filtered = this.orderManager.applyFilters(symbol, targetSl, trade.qty, {
-        priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
-        skipNotionalCheck: true
-      });
-      let newSl = filtered.price;
+        // DATA-07: Ensure the target SL is filtered/rounded to exchange tick size BEFORE comparison.
+        // This prevents infinite cancel-replace loops caused by precision mismatches between
+        // internal float math (e.g. 0.1886835) and exchange tick sizes (e.g. 0.1887).
+        const filtered = this.orderManager.applyFilters(symbol, targetSl, trade.qty, {
+          priceRounding: trade.direction === 'LONG' ? 'floor' : 'ceil',
+          skipNotionalCheck: true
+        });
+        let newSl: number = filtered.price;
 
-      // Audit Item: Dynamic Trailing Boundary Guard
-      // Prevents "Order would immediately trigger" rejections and instant fills by ensuring
-      // the new SL is not too close to (or beyond) the current market price.
-      const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
-      const buffer = currentPrice * (bufferPct / 100);
-      if (trade.direction === 'LONG') {
-        if (newSl >= currentPrice - buffer) {
-          const cappedSl = currentPrice - buffer;
-          const msg = `[Trailing Guard] Long SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
-          this.logger.warn(msg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
-          newSl = cappedSl;
-        }
-        // SAFETY: Never let trailing guard buffer push newSl below existing Number(trade.current_sl)!
-        if (Number(trade.current_sl) && Number(trade.current_sl) > 0 && newSl < Number(trade.current_sl)) {
-          newSl = Number(trade.current_sl);
-        }
-      } else {
-        if (newSl <= currentPrice + buffer) {
-          const cappedSl = currentPrice + buffer;
-          const msg = `[Trailing Guard] Short SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
-          this.logger.warn(msg);
-          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
-          newSl = cappedSl;
-        }
-        // SAFETY: Never let trailing guard buffer push newSl above existing Number(trade.current_sl) for short!
-        if (Number(trade.current_sl) && Number(trade.current_sl) > 0 && newSl > Number(trade.current_sl)) {
-          newSl = Number(trade.current_sl);
-        }
-      }
-
-      // Only move SL deeper into profit (stricter protection)
-      // For discrete milestone ratchets / catch-ups, compare against current_sl using micro-epsilon
-      // so tiny float differences or minDelta don't block reaching target breakeven/milestone SL.
-      let shouldUpdate = false;
-      if (trade.direction === 'LONG' && newSl) {
-        shouldUpdate = newSl > Number(trade.current_sl) + 0.00000001;
-      } else if (trade.direction === 'SHORT' && newSl) {
-        shouldUpdate = newSl < Number(trade.current_sl) - 0.00000001;
-      }
-
-      if (shouldUpdate) {
-        const prevSl = Number(trade.current_sl);
-
-        this.logger.log(`[SL Ratchet] Initiating ratchet for ${symbol}: ${prevSl} → ${newSl} (Milestone ${currentIndex}, Target RR: ${exitRr})`);
-        this.recordActiveTradeEvent(
-          trade,
-          'SL_RATCHET_ATTEMPT',
-          `Attempting SL move ${prevSl} → ${newSl} at milestone ${currentIndex} (${exitRr}R).`,
-          'info',
-          { prevSl, targetSl, newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved }
-        );
-
-        // Acknowledge-then-Update: Update exchange first in live mode
-        const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
-
-        if (updateRes.success) {
-           const finalSl = updateRes.price || newSl;
-
-           // Acknowledge-then-Commit: Only update local state after exchange confirmation
-           this.rrSequenceIndex.set(symbol, currentIndex);
-           trade.rr_sequence_index = currentIndex;
-           trade.updated_at = new Date();
-           trade.current_sl = finalSl;
-
-           // SRE: Live Risk Mitigation.
-           // Automatically handles risk release and updates _totalRisk via refreshTradeRisk
-           this.refreshTradeRisk(trade, false, currentPrice, config);
-
-           this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
-
-           // Notify of trade state change for persistence
-           this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        // Audit Item: Dynamic Trailing Boundary Guard
+        // Prevents "Order would immediately trigger" rejections and instant fills by ensuring
+        // the new SL is not too close to (or beyond) the current market price.
+        const bufferPct = config.trailing_guard_buffer_pct ?? CONFIG_LIMITS.TRAILING_GUARD_DEFAULT;
+        const buffer = currentPrice * (bufferPct / 100);
+        if (trade.direction === 'LONG') {
+          if (newSl >= currentPrice - buffer) {
+            const cappedSl = currentPrice - buffer;
+            const msg = `[Trailing Guard] Long SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
+            this.logger.warn(msg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
+            newSl = cappedSl;
+          }
+          // SAFETY: Never let trailing guard buffer push newSl below existing Number(trade.current_sl)!
+          if (Number(trade.current_sl) && Number(trade.current_sl) > 0 && newSl < Number(trade.current_sl)) {
+            newSl = Number(trade.current_sl);
+          }
         } else {
-           this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
-           this.recordActiveTradeEvent(
-             trade,
-             'SL_RATCHET_FAILED',
-             `SL move ${prevSl} → ${newSl} was not confirmed by the exchange; local SL remains ${Number(trade.current_sl)}.`,
-             'warn',
-             { prevSl, targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, updateRes }
-           );
+          if (newSl <= currentPrice + buffer) {
+            const cappedSl = currentPrice + buffer;
+            const msg = `[Trailing Guard] Short SL ${Number(newSl || 0).toFixed(5)} capped at ${Number(cappedSl).toFixed(5)} (Market: ${Number(currentPrice || 0).toFixed(5)})`;
+            this.logger.warn(msg);
+            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'warn' });
+            newSl = cappedSl;
+          }
+          // SAFETY: Never let trailing guard buffer push newSl above existing Number(trade.current_sl) for short!
+          if (Number(trade.current_sl) && Number(trade.current_sl) > 0 && newSl > Number(trade.current_sl)) {
+            newSl = Number(trade.current_sl);
+          }
         }
-      } else {
-        // Check if current SL is ALREADY at or beyond target SL for this milestone (or at max exchange tick precision newSl)
-        const targetDelta = Number(trade.entry_price) * 0.0001;
-        const isSlAtOrBeyondTarget = trade.direction === 'LONG'
-          ? (Number(trade.current_sl) >= newSl || Number(trade.current_sl) >= targetSl - Math.max(0.00000001, targetDelta))
-          : (Number(trade.current_sl) <= newSl || Number(trade.current_sl) <= targetSl + Math.max(0.00000001, targetDelta));
 
-        if (isSlAtOrBeyondTarget) {
-          this.rrSequenceIndex.set(symbol, currentIndex);
-          trade.rr_sequence_index = currentIndex;
-          trade.updated_at = new Date();
-          this.refreshTradeRisk(trade, false, currentPrice, config);
-          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
-        } else {
-          this.logger.warn(`[SL Ratchet] ${symbol} milestone ${currentIndex} reached (Peak RR: ${Number(trade.max_rr_achieved).toFixed(2)}), but SL adjustment was constrained (current_sl: ${Number(trade.current_sl)}, targetSl: ${targetSl}, newSl: ${newSl}). Retrying on next tick.`);
+        // Only move SL deeper into profit (stricter protection)
+        // For discrete milestone ratchets / catch-ups, compare against current_sl using micro-epsilon
+        // so tiny float differences or minDelta don't block reaching target breakeven/milestone SL.
+        let shouldUpdate: boolean = false;
+        if (trade.direction === 'LONG' && newSl) {
+          shouldUpdate = newSl > Number(trade.current_sl) + 0.00000001;
+        } else if (trade.direction === 'SHORT' && newSl) {
+          shouldUpdate = newSl < Number(trade.current_sl) - 0.00000001;
+        }
+
+        if (shouldUpdate) {
+          const prevSl = Number(trade.current_sl);
+
+          this.logger.log(`[SL Ratchet] Initiating ratchet for ${symbol}: ${prevSl} → ${newSl} (Milestone ${currentIndex}, Target RR: ${exitRr})`);
           this.recordActiveTradeEvent(
             trade,
-            'SL_RATCHET_CONSTRAINED',
-            `Milestone ${currentIndex} was reached but the SL could not advance; retry scheduled on the next evaluation.`,
-            'warn',
-            { currentSl: Number(trade.current_sl), targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved }
+            'SL_RATCHET_ATTEMPT',
+            `Attempting SL move ${prevSl} → ${newSl} at milestone ${currentIndex} (${exitRr}R).`,
+            'info',
+            { prevSl, targetSl, newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved }
           );
+
+          // Acknowledge-then-Update: Update exchange first in live mode
+          const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
+
+          if (updateRes.success) {
+             const finalSl = updateRes.price || newSl;
+
+             // Acknowledge-then-Commit: Only update local state after exchange confirmation
+             this.rrSequenceIndex.set(symbol, currentIndex);
+             trade.rr_sequence_index = currentIndex;
+             trade.updated_at = new Date();
+             trade.current_sl = finalSl;
+
+             // SRE: Live Risk Mitigation.
+             // Automatically handles risk release and updates _totalRisk via refreshTradeRisk
+             this.refreshTradeRisk(trade, false, currentPrice, config);
+
+             this.logSlAdjustment(trade, prevSl, finalSl, currentIndex, !!updateRes.price && updateRes.price !== newSl);
+
+             // Notify of trade state change for persistence
+             this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+             return true;
+          } else {
+             this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
+             this.recordActiveTradeEvent(
+               trade,
+               'SL_RATCHET_FAILED',
+               `SL move ${prevSl} → ${newSl} was not confirmed by the exchange; local SL remains ${Number(trade.current_sl)}.`,
+               'warn',
+               { prevSl, targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, updateRes }
+             );
+          }
+        } else {
+          // Check if current SL is ALREADY at or beyond target SL for this milestone (or at max exchange tick precision newSl)
+          const targetDelta = Number(trade.entry_price) * 0.0001;
+          const isSlAtOrBeyondTarget: boolean = trade.direction === 'LONG'
+            ? (Number(trade.current_sl) >= newSl || Number(trade.current_sl) >= targetSl - Math.max(0.00000001, targetDelta))
+            : (Number(trade.current_sl) <= newSl || Number(trade.current_sl) <= targetSl + Math.max(0.00000001, targetDelta));
+
+          if (isSlAtOrBeyondTarget) {
+            this.rrSequenceIndex.set(symbol, currentIndex);
+            trade.rr_sequence_index = currentIndex;
+            trade.updated_at = new Date();
+            this.refreshTradeRisk(trade, false, currentPrice, config);
+            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+          } else {
+            this.logger.warn(`[SL Ratchet] ${symbol} milestone ${currentIndex} reached (Peak RR: ${Number(trade.max_rr_achieved).toFixed(2)}), but SL adjustment was constrained (current_sl: ${Number(trade.current_sl)}, targetSl: ${targetSl}, newSl: ${newSl}). Retrying on next tick.`);
+            this.recordActiveTradeEvent(
+              trade,
+              'SL_RATCHET_CONSTRAINED',
+              `Milestone ${currentIndex} was reached but the SL could not advance; retry scheduled on the next evaluation.`,
+              'warn',
+              { currentSl: Number(trade.current_sl), targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved }
+            );
+          }
         }
       }
     }
-  }
+    return false;
   }
 
   private recordActiveTradeEvent(
@@ -634,7 +638,7 @@ export class PositionTrackerService {
     prevSl: number,
     newSl: number,
     milestoneIndex: number,
-    adaptive = false,
+    adaptive: boolean = false,
     reasonOverride?: string,
   ): void {
     const reasonText = reasonOverride
@@ -701,7 +705,7 @@ export class PositionTrackerService {
       // CHRONOS: In Live mode, if the stop loss order is already active on the exchange,
       // we must let the exchange execute it authoritatively rather than racing a local market order against it.
       // We only allow local exit trigger if we are in paper mode, OR if the trade lacks an active stop loss order ID.
-      const isPaper = config.paper_mode ?? true;
+      const isPaper: boolean = config.paper_mode ?? true;
       if (!isPaper && trade.binance_stop_order_id) {
         this.logger.debug(`[Chronos] ${symbol} price reached SL (${currentPrice} vs ${Number(trade.current_sl)}), but exchange-side SL order ${trade.binance_stop_order_id} is active. Skipping local exit to let exchange execute.`);
         return null;
@@ -754,7 +758,7 @@ export class PositionTrackerService {
       const actions = config.exit_signal_actions || {};
       const statusMap = trade.exit_signals_status || {};
       const firedActiveKeys: string[] = [];
-      let hasCloseAction = false;
+      let hasCloseAction: boolean = false;
 
       for (const k in statusMap) {
         if (!Object.prototype.hasOwnProperty.call(statusMap, k)) continue;
@@ -812,7 +816,7 @@ export class PositionTrackerService {
 
             // Only update SL if it improves protection
             const minDelta = Number(trade.entry_price) * 0.0001;
-            let shouldUpdate = false;
+            let shouldUpdate: boolean = false;
             if (trade.direction === 'LONG') {
               shouldUpdate = roundedSl > Number(trade.current_sl) + Math.max(0.00000001, minDelta);
             } else {
@@ -851,11 +855,11 @@ export class PositionTrackerService {
     config?: SessionConfig,
     paperMode?: boolean,
     localOnly?: boolean,
-    options: { ignoreBlocked?: boolean, orderId?: string, feesAlreadyAccounted?: boolean, alreadyRealized?: boolean, needsMarketClose?: boolean } = {}
-  ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean, error?: string }> {
+    options: { ignoreBlocked?: boolean; orderId?: string; feesAlreadyAccounted?: boolean; alreadyRealized?: boolean; needsMarketClose?: boolean } = {}
+  ): Promise<{ trade: Trade | null; exitOccurred: boolean; closeBlocked?: boolean; error?: string }> {
     // CHRONOS: Fallback to in-flight registry if not in active trades (Race Condition Guard)
     let trade = this.trades.get(symbol);
-    let isInFlight = false;
+    let isInFlight: boolean = false;
 
     if (!trade) {
        trade = this.inFlightEntries.get(symbol);
@@ -872,42 +876,42 @@ export class PositionTrackerService {
     this.closingSymbols.add(symbol);
 
     try {
-    if (exitReason === EXIT_REASONS.MANUAL_CLOSE) {
-      trade.exit_signal_type = 'MANUAL';
-      trade.exit_signal_reason = 'User manually closed position';
-    } else if (exitReason === EXIT_REASONS.SESSION_TERMINATED) {
-      trade.exit_signal_type = 'SESSION_TERMINATED';
-      trade.exit_signal_reason = 'Trading session was stopped by user';
-    }
+      if (exitReason === EXIT_REASONS.MANUAL_CLOSE) {
+        trade.exit_signal_type = 'MANUAL';
+        trade.exit_signal_reason = 'User manually closed position';
+      } else if (exitReason === EXIT_REASONS.SESSION_TERMINATED) {
+        trade.exit_signal_type = 'SESSION_TERMINATED';
+        trade.exit_signal_reason = 'Trading session was stopped by user';
+      }
 
-    const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly, options);
-    if (!result.exitOccurred || !result.trade) {
+      const result = await this.orderManager.closeTrade(symbol, trade, exitPrice, exitReason, paperMode, localOnly, options);
+      if (!result.exitOccurred || !result.trade) {
+        this.closingSymbols.delete(symbol);
+        return { trade: null, exitOccurred: false, closeBlocked: result.closeBlocked, error: result.error };
+      }
+
+      // Remove from tracking after exchange close/recording
+      const existing = this.trades.get(symbol);
+      this.trades.delete(symbol);
+      this.clearInFlight(symbol);
+      this.setEntering(symbol, false);
       this.closingSymbols.delete(symbol);
-      return { trade: null, exitOccurred: false, closeBlocked: result.closeBlocked, error: result.error };
-    }
+      this.rrSequenceIndex.delete(symbol);
+      this._activeListCache = null;
+      this.recalculateTotalRisk();
 
-    // Remove from tracking after exchange close/recording
-    const existing = this.trades.get(symbol);
-    this.trades.delete(symbol);
-    this.clearInFlight(symbol);
-    this.setEntering(symbol, false);
-    this.closingSymbols.delete(symbol);
-    this.rrSequenceIndex.delete(symbol);
-    this._activeListCache = null;
-    this.recalculateTotalRisk();
+      // BOLT: Proactively synchronize SessionState to prevent race conditions in UI/UDS handlers
+      this.sessionState.setActiveTrades(Array.from(this.trades.values()));
 
-    // BOLT: Proactively synchronize SessionState to prevent race conditions in UI/UDS handlers
-    this.sessionState.setActiveTrades(Array.from(this.trades.values()));
+      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
 
-    this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+      const finalizedExitPrice = result.trade.exit_price || exitPrice;
+      const finalizedExitReason = result.trade.exit_reason || exitReason;
+      const msg = `Trade closed: ${symbol} Exit=${finalizedExitPrice} P&L=${Number(result.trade.pnl || 0).toFixed(2)} (${Number(result.trade.pnl_pct || 0).toFixed(2)}%) Reason=${finalizedExitReason}`;
+      this.logger.log(msg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
 
-    const finalizedExitPrice = result.trade.exit_price || exitPrice;
-    const finalizedExitReason = result.trade.exit_reason || exitReason;
-    const msg = `Trade closed: ${symbol} Exit=${finalizedExitPrice} P&L=${Number(result.trade.pnl || 0).toFixed(2)} (${Number(result.trade.pnl_pct || 0).toFixed(2)}%) Reason=${finalizedExitReason}`;
-    this.logger.log(msg);
-    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg, level: 'info' });
-
-    return { trade: result.trade, exitOccurred: true };
+      return { trade: result.trade, exitOccurred: true };
     } catch (err) {
       this.logger.error(`Error during closeTrade for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
       this.closingSymbols.delete(symbol);
@@ -940,7 +944,7 @@ export class PositionTrackerService {
    * Enforces the "Breakeven Risk Release" rule: risk is 0 if SL is at or beyond entry.
    * Otherwise, risk is based on the initial stop distance.
    */
-  public refreshTradeRisk(trade: Trade, skipTotalRiskUpdate = false, currentPrice?: number, config?: SessionConfig): void {
+  public refreshTradeRisk(trade: Trade, skipTotalRiskUpdate: boolean = false, currentPrice?: number, config?: SessionConfig): void {
     const prevRisk = trade.risk_usdt || 0;
 
     // SRE: Increased tolerance for breakeven detection (0.01% or 0.00000001)
@@ -948,7 +952,7 @@ export class PositionTrackerService {
     const tolerance = Math.max(0.00000001, Number(trade.entry_price) * 0.0001);
 
     // SRE: Evaluate whether current_sl is at or better than breakeven
-    let isBreakevenOrBetter = false;
+    let isBreakevenOrBetter: boolean = false;
     let lockReason = 'ACTIVE_RISK_LOCKED';
 
     if (Number(trade.current_sl) && Number(trade.current_sl) > 0) {
@@ -977,12 +981,12 @@ export class PositionTrackerService {
         : (Number(trade.entry_price) - mark) * trade.qty;
     }
 
-    // Dynamic Estimated Floor Exit PnL Re-evaluation strictly from Ratchet SL and Exit Signal targets (NOT live unrealized PnL)
+    // Dynamic Estimated Floor Exit PnL Re-evaluation strictly from Ratchet SL and Exit Signal targets
     const activeConfig = config || trade.strategy_config;
     let estPnl: number | undefined = undefined;
 
     if (Number(trade.entry_price) && trade.qty) {
-      const isLong = trade.direction === 'LONG';
+      const isLong: boolean = trade.direction === 'LONG';
       const slPrice = Number(trade.current_sl) || trade.sl_price || 0;
 
       // 1. Calculate PnL guaranteed by ratchet stop loss if SL > 0
@@ -996,13 +1000,12 @@ export class PositionTrackerService {
       let maxEstPnl = ratchetPnl;
 
       // 2. Evaluate PnL from active exit signals / target thresholds
-      // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
       if (trade.exit_signals_status) {
         for (const key in trade.exit_signals_status) {
           if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
           const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
           if (!sigStatus) continue;
-          const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+          const isDelayActive: boolean = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
           if (isDelayActive) continue;
 
           let sigPnl: number | null = null;
@@ -1022,12 +1025,21 @@ export class PositionTrackerService {
       trade.est_pnl_to_realize = estPnl;
     }
 
-    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0) {
+    // SRE / Capital Safety: Only release risk on est_pnl_be if current SL guarantees breakeven
+    const isTradeLong: boolean = trade.direction === 'LONG';
+    const feeOffset = Number(trade.entry_price) * 0.0008; // 0.08% taker fee drag
+    const slGuaranteesBreakeven: boolean = Number(trade.current_sl) > 0 && (
+      isTradeLong
+        ? Number(trade.current_sl) >= Number(trade.entry_price) + feeOffset
+        : Number(trade.current_sl) <= Number(trade.entry_price) - feeOffset
+    );
+
+    if (activeConfig?.release_risk_on_est_pnl_be && estPnl !== undefined && estPnl >= 0 && slGuaranteesBreakeven) {
       isBreakevenOrBetter = true;
       lockReason = 'EST_PNL_BREAKEVEN';
     }
 
-    const isForcedRelease = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;
+    const isForcedRelease: boolean = trade.strategy_config?.force_risk_release === true || config?.force_risk_release === true;
     if (isForcedRelease) {
       lockReason = 'FORCED_RISK_RELEASE';
     }
@@ -1056,7 +1068,7 @@ export class PositionTrackerService {
    * DATA-07: Manual recalculation of total risk to ensure state consistency
    */
   @OnEvent(ENGINE_EVENTS.QUANTITY_SYNC)
-  handleQuantitySync(payload: { symbol: string, qty: number }) {
+  handleQuantitySync(payload: { symbol: string; qty: number }): void {
     const trade = this.trades.get(payload.symbol);
     if (trade && trade.status === 'OPEN') {
       const tradeIdShort8 = (trade.id || 'N/A').substring(0, 8);
@@ -1092,9 +1104,6 @@ export class PositionTrackerService {
 
   /**
    * SRE: State reconciliation for SL ratcheting.
-   * If we adopt an untracked SL, we derive the most likely milestone index
-   * to ensure the local 'rr_sequence_index' state is consistent for future ratchets.
-   * Uses a "Ladder Discovery" approach: finds the highest milestone already passed by the exchange SL.
    */
   public reconcileMilestoneFromSl(trade: Trade, slPrice: number, config: SessionConfig): number {
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
@@ -1161,7 +1170,7 @@ export class PositionTrackerService {
     if (!trade || trade.status !== 'OPEN' || !trade.is_knife) return;
 
     const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
-    const knifeTrailingEnabled = activeConfig.knife_trailing_enabled ?? true;
+    const knifeTrailingEnabled: boolean = activeConfig.knife_trailing_enabled ?? true;
     if (!knifeTrailingEnabled) return;
 
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
@@ -1227,16 +1236,16 @@ export class PositionTrackerService {
     });
     let newSl = filtered.price;
 
-    const isBreached = trade.direction === 'LONG'
+    const isBreached: boolean = trade.direction === 'LONG'
       ? currentPrice <= newSl
       : currentPrice >= newSl;
 
     if (isBreached && trade.binance_stop_order_type !== 'native_trailing') {
       const prevSl = Number(trade.current_sl);
-      const isLong = trade.direction === 'LONG';
-      const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
+      const isLong: boolean = trade.direction === 'LONG';
+      const isBetterSl: boolean = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
 
-      const isPaper = activeConfig.paper_mode ?? true;
+      const isPaper: boolean = activeConfig.paper_mode ?? true;
       if (isBetterSl && isPaper) {
         trade.current_sl = newSl;
         trade.updated_at = new Date();
@@ -1270,7 +1279,7 @@ export class PositionTrackerService {
     }
 
     const minDelta = Number(trade.entry_price) * 0.0001;
-    let shouldUpdate = false;
+    let shouldUpdate: boolean = false;
     if (trade.direction === 'LONG') {
       shouldUpdate = newSl > (Number(trade.current_sl) || 0) + Math.max(0.00000001, minDelta);
     } else {
@@ -1311,7 +1320,7 @@ export class PositionTrackerService {
     }
 
     const activeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
-    const trailingEnabled = activeConfig.trailing_stop_enabled === true || activeConfig.sl_type === 'trailing';
+    const trailingEnabled: boolean = activeConfig.trailing_stop_enabled === true || activeConfig.sl_type === 'trailing';
     if (!trailingEnabled) return;
 
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
@@ -1399,16 +1408,16 @@ export class PositionTrackerService {
     let newSl = filtered.price;
 
     // Check if market price has breached prospective SL (or current_sl)
-    const isBreached = trade.direction === 'LONG'
+    const isBreached: boolean = trade.direction === 'LONG'
       ? currentPrice <= newSl
       : currentPrice >= newSl;
 
     if (isBreached && trade.binance_stop_order_type !== 'native_trailing') {
       const prevSl = Number(trade.current_sl);
-      const isLong = trade.direction === 'LONG';
-      const isBetterSl = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
+      const isLong: boolean = trade.direction === 'LONG';
+      const isBetterSl: boolean = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
 
-      const isPaper = activeConfig.paper_mode ?? true;
+      const isPaper: boolean = activeConfig.paper_mode ?? true;
       if (isBetterSl && isPaper) {
         trade.current_sl = newSl;
         trade.updated_at = new Date();
@@ -1443,7 +1452,7 @@ export class PositionTrackerService {
     }
 
     const minDelta = Number(trade.entry_price) * 0.0001;
-    let shouldUpdate = false;
+    let shouldUpdate: boolean = false;
 
     if (trade.direction === 'LONG') {
       shouldUpdate = newSl > (Number(trade.current_sl) || 0) + Math.max(0.00000001, minDelta);

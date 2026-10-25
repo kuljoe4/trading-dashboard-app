@@ -1,6 +1,34 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script>
+      // SRE: Per platform environment constraints (HMR disabled in iFrame), ignore WebSocket / Vite HMR transport errors
+      window.addEventListener('unhandledrejection', function(event) {
+        var reason = event.reason;
+        var msg = (reason && (reason.message || reason.stack || String(reason))) || '';
+        if (
+          msg.includes('createWebSocketModuleRunnerTransport') ||
+          msg.includes('WebSocket') ||
+          msg.includes('vite-hmr') ||
+          msg.includes('@vite/client')
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+      window.addEventListener('error', function(event) {
+        var msg = (event.message || '') + ' ' + (event.filename || '');
+        if (
+          msg.includes('createWebSocketModuleRunnerTransport') ||
+          msg.includes('WebSocket') ||
+          msg.includes('vite-hmr') ||
+          msg.includes('@vite/client')
+        ) {
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        }
+      }, true);
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="theme-color" content="#5b6fff" />

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X, ChevronDown, Clock, RotateCw } from 'lucide-react'
+import { Activity, XCircle, Search, Copy, CheckCircle2, Info, X, ChevronDown, Clock, RotateCw, Download } from 'lucide-react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
@@ -182,7 +182,10 @@ const LogEntry = React.memo(({ log }) => {
 
   return (
     <>
-      <div className="flex items-start gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-4 w-full">
+      <div
+        className="flex items-start gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-4 w-full"
+        style={{ contentVisibility: 'auto', containIntrinsicSize: '32px' }}
+      >
         <div
           role="button"
           tabIndex={0}
@@ -371,6 +374,28 @@ export const DecisionLog = React.memo(() => {
     return (visibleLogs || []).map(l => `[${l.ts}] ${l.msg}`).join('\n');
   }, [visibleLogs]);
 
+  const handleExportLogs = useCallback(() => {
+    if (!visibleLogs || visibleLogs.length === 0) return;
+    const exportData = visibleLogs.map((l) => ({
+      timestamp: l.ts,
+      timestamp_ms: l.ts_ms,
+      level: l.level || 'info',
+      message: l.msg,
+      channel: l.channel || undefined,
+      symbol: l.symbol || undefined,
+      tradeId: l.tradeId || undefined,
+    }));
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `decision-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [visibleLogs]);
+
   const newLogsCount = useMemo(() => {
     if (isAtTop || !lastReadLogId.current || visibleLogs.length === 0) return 0;
     const index = visibleLogs.findIndex(log => log && log.id === lastReadLogId.current);
@@ -441,6 +466,17 @@ export const DecisionLog = React.memo(() => {
               className="bg-surface border border-border"
               tooltip="Copy All Visible Logs"
             />
+            <Tooltip content="Export Visible Logs (JSON)">
+              <button
+                type="button"
+                onClick={handleExportLogs}
+                disabled={visibleLogs.length === 0}
+                aria-label="Export visible logs as JSON"
+                className="p-1.5 rounded-lg border border-border bg-surface text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-colors cursor-pointer shrink-0 inline-flex items-center justify-center disabled:opacity-40"
+              >
+                <Download size={13} />
+              </button>
+            </Tooltip>
             {(filterButtons || []).map((filter) => {
               const active = (safeLogFilters[filter.level] ?? true)
               return (

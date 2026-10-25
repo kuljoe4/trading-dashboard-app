@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from "@nestjs/common";
+import { Injectable, Logger, Inject, forwardRef, Optional } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { Settings as SettingsEntity } from "../models/entities/Settings.entity";
@@ -26,6 +26,7 @@ import {
 import { ENGINE_CONSTANTS, EXIT_REASONS } from "../models/constants";
 
 import { LifecycleDiagnosticService } from './lifecycle-diagnostic.service';
+import { MaintenanceService } from './maintenance.service';
 
 @Injectable()
 export class SessionLifecycleService {
@@ -59,6 +60,9 @@ export class SessionLifecycleService {
     private readonly broadcastService: BroadcastService,
     @InjectRepository(SettingsEntity)
     private readonly settingsRepository: Repository<SettingsEntity>,
+    @Optional()
+    @Inject(forwardRef(() => MaintenanceService))
+    private readonly maintenanceService?: MaintenanceService,
   ) {}
 
   private async progress(msg: string, level: "info" | "warn" = "info") {
@@ -659,7 +663,12 @@ export class SessionLifecycleService {
         const hasActiveTrade = this.sessionState.activeTrades?.some(
           (t) => t.symbol === symbol,
         );
-        if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade)) {
+
+        // GATE: Only process zero-weight logic if reason is ORDER, FUNDING_FEE, or MARGIN_CALL, and position is BOTH
+        const isActionableReason = ['ORDER', 'FUNDING_FEE', 'MARGIN_CALL'].includes(data.a.m);
+        const isCorrectPositionSide = pos.ps === 'BOTH' || pos.ps === undefined; // Fallback to BOTH if ps is omitted by exchange or mock
+
+        if (amount === 0 && (!prevPos || prevPos.amount !== 0 || hasActiveTrade) && isActionableReason && isCorrectPositionSide) {
           this.logger.warn(`[UDS] Edge Case: Position reached zero for ${symbol} via ACCOUNT_UPDATE. If no ORDER_TRADE_UPDATE immediately precedes or follows this, it was closed externally (e.g., 'Close All' UI, Liquidation, ADL, or Settlement).`);
           let tEntity = this.sessionState.activeTrades?.find(
             (t) => t.symbol === symbol,
@@ -667,12 +676,6 @@ export class SessionLifecycleService {
           if (!tEntity && this.sessionState.closedTrades) {
             tEntity = this.sessionState.closedTrades.find(
               (t) => t.symbol === symbol && t.status !== "OPEN",
-            );
-          }
-          if (tEntity) {
-            this.sessionState.udsConfirmedClosedTrades.add(tEntity.id);
-            this.logger.debug(
-              `[UDS] Marked trade ${tEntity.id} for ${symbol} as UDS-confirmed closed.`,
             );
           }
 
@@ -689,8 +692,8 @@ export class SessionLifecycleService {
           }
 
           const trade = activeTradesBySymbol.get(symbol);
-          if (trade) {
-            const tradeIdShort8 = (trade.id || "N/A").substring(0, 8);
+          if (trade || tEntity) {
+            const tradeIdShort8 = ((trade || tEntity)!.id || "N/A").substring(0, 8);
 
             // CHRONOS/Race: When a position hits zero on exchange, an SL hit (with an attached
             // stop order) usually arrives its ORDER_TRADE_UPDATE slightly AFTER the
@@ -704,14 +707,29 @@ export class SessionLifecycleService {
             const executeSyncClose = () => {
               if (!this.running) return;
 
-              const currentTrade = this.sessionState.activeTradesBySymbol ? this.sessionState.activeTradesBySymbol.get(symbol) : this.sessionState.activeTrades.find(t => t.symbol === symbol);
-              if (!currentTrade) {
-                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} already removed. Skipping zero-weight closure.`);
+              // RE-VERIFY: Check realTimePositions again after delay to ensure it wasn't a transient ghost read
+              const currentPos = this.sessionState.realTimePositions.get(symbol);
+              if (currentPos && Math.abs(currentPos.amount) > 0.00000001) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Position for ${symbol} recovered to ${currentPos.amount} during delay. Aborting zero-weight closure.`);
                 return;
               }
 
-              if (this.positionTracker.isClosing(symbol)) {
-                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} is already closing. Skipping zero-weight closure.`);
+              // Defer marking udsConfirmedClosedTrades until we are certain it's a zero-fill closure
+              if (tEntity) {
+                this.sessionState.udsConfirmedClosedTrades.add(tEntity.id);
+                this.logger.debug(
+                  `[UDS] Marked trade ${tEntity.id} for ${symbol} as UDS-confirmed closed after delay check.`,
+                );
+              }
+
+              const currentTrade = this.sessionState.activeTradesBySymbol ? this.sessionState.activeTradesBySymbol.get(symbol) : this.sessionState.activeTrades.find(t => t.symbol === symbol);
+              if (!currentTrade) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} already removed or closed by ORDER_TRADE_UPDATE. Skipping zero-weight fallback closure.`);
+                return;
+              }
+
+              if (this.positionTracker.isClosing(symbol) || this.orderManager.isRatcheting(symbol)) {
+                this.logger.debug(`[${tradeIdShort8}] [Lifecycle] Trade for ${symbol} is actively closing or ratcheting. Skipping zero-weight fallback closure.`);
                 return;
               }
 
@@ -808,6 +826,14 @@ export class SessionLifecycleService {
       this.logger.log(`[UDS-DIAGNOSTIC] Successfully connected to stream with listenKey: ${this.listenKey?.substring(0, 5)}...`);
 
       this.monitoringService.setUdsStatus("CONNECTED");
+
+      // SL-01: On reconnect, immediately run live state reconciliation to close any disconnect gap
+      if (isReconnect && this.running && this.sessionState.config && this.maintenanceService) {
+        this.logger.log("[UDS] Reconnected - executing immediate state reconciliation audit.");
+        this.maintenanceService.reconcileLiveState(this.running, this.sessionState.config).catch((err: any) => {
+          this.logger.error(`[UDS] Reconnect reconciliation failed: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
 
       const currentWs = this.userDataWs;
 
@@ -1002,8 +1028,6 @@ export class SessionLifecycleService {
       this.udsLivenessCheck = setInterval(() => {
         if (!this.running || !this.isUdsConnected) return;
 
-      if (this.udsLivenessCheck?.unref) this.udsLivenessCheck.unref();
-
         // SRE: Proactive WebSocket ping to confirm liveness on idle accounts
         try {
           if (
@@ -1050,12 +1074,11 @@ export class SessionLifecycleService {
           );
         }
       }, 60000);
+      if (this.udsLivenessCheck?.unref) this.udsLivenessCheck.unref();
 
       const startTime = Date.now();
       this.listenKeyKeepAlive = setInterval(async () => {
         if (!this.listenKey || !this.running) return;
-
-      if (this.listenKeyKeepAlive?.unref) this.listenKeyKeepAlive.unref();
 
         const ageMs = Date.now() - startTime;
         // Finding 9: Proactive 24h reconnect at 23h 50m
@@ -1092,6 +1115,7 @@ export class SessionLifecycleService {
           }
         }
       }, ENGINE_CONSTANTS.USER_DATA_KEEPALIVE_MS);
+      if (this.listenKeyKeepAlive?.unref) this.listenKeyKeepAlive.unref();
     } catch (e) {
       if (!isReconnect && !isTransition) throw e;
       this.logger.error(

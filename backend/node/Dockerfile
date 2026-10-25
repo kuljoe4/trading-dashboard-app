@@ -5,8 +5,8 @@ WORKDIR /app
 ENV NODE_ENV=development
 RUN corepack enable && corepack prepare pnpm@10 --activate
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install
 
 COPY . .
 RUN pnpm run build
@@ -18,8 +18,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable && corepack prepare pnpm@10 --activate
 
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --prod --frozen-lockfile \
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install --prod \
   && pnpm store prune
 
 # Runtime stage

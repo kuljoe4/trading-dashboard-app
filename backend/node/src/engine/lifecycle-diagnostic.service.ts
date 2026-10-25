@@ -7,7 +7,7 @@ export class LifecycleDiagnosticService {
 
   constructor() {
     LifecycleDiagnosticService.instanceCount++;
-    this.logger.warn(`[DIAGNOSTIC] SessionLifecycleService instance created. Total active instances: ${LifecycleDiagnosticService.instanceCount}`);
+    this.logger.debug(`[DIAGNOSTIC] SessionLifecycleService instance created. Total active instances: ${LifecycleDiagnosticService.instanceCount}`);
   }
 
   static getInstanceCount(): number {

@@ -21,6 +21,7 @@ export class TickerCacheService {
   private hasReceivedFirstData = false;
   private _topByVolumeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private _topByChangeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
+  private _topByAbsChangeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private readonly TOP_VOLUME_CACHE_TTL_MS = 300000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
 
@@ -218,6 +219,57 @@ export class TickerCacheService {
     this.logger.verbose(`topByChangePct requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
 
     // BOLT OPTIMIZATION: Schwartzian Transform (map-sort-map) & Loop Fusion.
+    // Pre-calculate directional 24-hour change percentages in a single linear O(N) pass.
+    const mapped: { ticker: Ticker; change: number }[] = [];
+    const len = all.length;
+    for (let i = 0; i < len; i++) {
+      const t = all[i];
+      if (!excludedSet?.has(t.symbol) && t.price && t.open_24h && t.open_24h > 0) {
+        const change = ((t.price - t.open_24h) / t.open_24h) * 100;
+        mapped.push({ ticker: t, change });
+      }
+    }
+
+    mapped.sort((a, b) => b.change - a.change);
+
+    const resultLen = Math.min(n, mapped.length);
+    const result: Ticker[] = new Array(resultLen);
+    for (let i = 0; i < resultLen; i++) {
+      result[i] = mapped[i].ticker;
+    }
+
+    // BOLT OPTIMIZATION: Zero-allocation O(1) Map cache eviction.
+    if (!this._topByChangeCache.has(cacheKey) && this._topByChangeCache.size >= this.TOP_VOLUME_CACHE_MAX_KEYS) {
+      const firstKey = this._topByChangeCache.keys().next().value;
+      if (firstKey !== undefined) {
+        this._topByChangeCache.delete(firstKey);
+      }
+    }
+
+    this._topByChangeCache.set(cacheKey, {
+      data: result,
+      timestamp: now
+    });
+
+    return result;
+  }
+
+  topByAbsChangePct(n: number, excluded: string[] = []): Ticker[] {
+    // BOLT OPTIMIZATION: Use zero-allocation cache key generator
+    const cacheKey = this.getCacheKey(n, excluded);
+    const cached = this._topByAbsChangeCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
+    const hasExclusions = excluded && excluded.length > 0;
+    const excludedSet = hasExclusions ? new Set(excluded) : null;
+    const all = this.getLatestTickers();
+    this.logger.verbose(`topByAbsChangePct requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
+
+    // BOLT OPTIMIZATION: Schwartzian Transform (map-sort-map) & Loop Fusion.
     // Pre-calculate absolute 24-hour change percentages in a single linear O(N) pass,
     // avoiding redundant calculations, O(N log N) divisions/math, and multiple intermediate arrays.
     const mapped: { ticker: Ticker; change: number }[] = [];
@@ -239,16 +291,14 @@ export class TickerCacheService {
     }
 
     // BOLT OPTIMIZATION: Zero-allocation O(1) Map cache eviction.
-    // Map tracks insertion order; using size and keys().next().value allows O(1) eviction
-    // without array allocations or linear key scans on cache misses.
-    if (!this._topByChangeCache.has(cacheKey) && this._topByChangeCache.size >= this.TOP_VOLUME_CACHE_MAX_KEYS) {
-      const firstKey = this._topByChangeCache.keys().next().value;
+    if (!this._topByAbsChangeCache.has(cacheKey) && this._topByAbsChangeCache.size >= this.TOP_VOLUME_CACHE_MAX_KEYS) {
+      const firstKey = this._topByAbsChangeCache.keys().next().value;
       if (firstKey !== undefined) {
-        this._topByChangeCache.delete(firstKey);
+        this._topByAbsChangeCache.delete(firstKey);
       }
     }
 
-    this._topByChangeCache.set(cacheKey, {
+    this._topByAbsChangeCache.set(cacheKey, {
       data: result,
       timestamp: now
     });
@@ -263,6 +313,7 @@ export class TickerCacheService {
     this.tickers.clear();
     this._topByVolumeCache.clear();
     this._topByChangeCache.clear();
+    this._topByAbsChangeCache.clear();
     this.latestTickersCache = null; // Invalidate cache on clear
     this.logger.verbose('TickerCache cleared');
   }

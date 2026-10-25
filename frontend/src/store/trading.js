@@ -7,6 +7,35 @@ import { applyTheme } from '../lib/theme.js'
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
+let activeSyncPromise = null;
+let syncRetryTimeout = null;
+let detailRefreshTimeout = null;
+let lastDetailRefreshTs = 0;
+
+const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => {
+  const now = Date.now();
+  if (immediate && (now - lastDetailRefreshTs > 300)) {
+    lastDetailRefreshTs = now;
+    if (detailRefreshTimeout) {
+      clearTimeout(detailRefreshTimeout);
+      detailRefreshTimeout = null;
+    }
+    get().fetchAnalytics();
+    get().fetchTradeHistory('all');
+    if (fetchSessions) get().fetchSessions();
+    return;
+  }
+
+  if (detailRefreshTimeout) clearTimeout(detailRefreshTimeout);
+  detailRefreshTimeout = setTimeout(() => {
+    detailRefreshTimeout = null;
+    lastDetailRefreshTs = Date.now();
+    get().fetchAnalytics();
+    get().fetchTradeHistory('all');
+    if (fetchSessions) get().fetchSessions();
+  }, 25);
+};
+
 
 // Anti-flicker metric resolver: prevents transient 0/null/undefined payloads from zero-resetting active store values
 const resolveNonZeroMetric = (nextVal, currentVal, isResuming = false) => {
@@ -322,7 +351,7 @@ const defaultConfig = {
   entry_side: 'both',
   watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
   watchlist_offset: 0,
-  discovery_mode: 'volume',
+  discovery_mode: 'abs_change_pct',
   enabled_signals: ['momentum_pct'],
   signal_logic: 'all',
   required_signals: [],
@@ -380,7 +409,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
   activeTrades: [], logs: [], logLimit: 50, logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
   gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
-  apiStatus: { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null },
+  apiStatus: { isBanned: false, isRateLimited: false, isGeoBlocked: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
   entryCount: 0, hitCount: 0,
@@ -474,45 +503,100 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     return { logFilters: { ...safeFilters, [level]: !safeFilters[level] } };
   }),
   setSyncing: (s) => set({ isSyncing: s }),
-  sync: async () => {
-    try {
-      const res = await sessionAPI.status();
-      const st = get();
-      const running = !!res.data.running;
-
-      if (running) {
-        st.setSessionActive(true, res.data.strategyId || res.data.strategy_id);
-      } else if (st.sessionActive) {
-        // When backend REST status confirms session is no longer running, exit resuming state
-        st.setSessionActive(false, null);
-      }
-
-      // BOLT: Centralize merge logic via updateStats
-      get().updateStats({
-        sessionActive: running,
-        balance: res.data.balance,
-        totalPnl: res.data.totalPnl ?? res.data.total_pnl,
-        totalRiskPct: res.data.totalRiskPct,
-        totalSlUsed: res.data.totalSlUsed,
-        activeTrades: res.data.activeTrades,
-        variantStats: res.data.variant_stats,
-        isAdaptiveTightened: res.data.isAdaptiveTightened,
-        nextSlotTs: res.data.nextSlotTs,
-        scannerResults: res.data.scannerResults,
-        activeWindows: res.data.activeWindows,
-        tradeHistory: res.data.history,
-        config: res.data.config,
-        pausedStrategies: res.data.paused_strategies,
-        strategyGateStates: res.data.strategy_gate_states,
-        rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
-      });
-      // SRE: Proactively fetch analytics and trade history to keep Account Balance last trade and Insights populated
-      get().fetchAnalytics();
-      get().fetchTradeHistory('all');
-    } catch (e) {
-      if (e.code === 'ERR_CANCELED') return;
-      console.error("Manual sync failed", e);
+  sync: async (retryCount = 0, options = {}) => {
+    // SRE: Guard against concurrent in-flight sync calls
+    if (activeSyncPromise) {
+      return activeSyncPromise;
     }
+
+    if (syncRetryTimeout) {
+      clearTimeout(syncRetryTimeout);
+      syncRetryTimeout = null;
+    }
+
+    activeSyncPromise = (async () => {
+      try {
+        const prevSt = get();
+        const prevSessionActive = prevSt.sessionActive;
+        const prevStrategyId = prevSt.strategyId;
+        const prevActiveTradeCount = (prevSt.activeTrades || []).length;
+
+        const res = await sessionAPI.status();
+        const running = !!res.data.running;
+        const currentActive = get().sessionActive;
+
+        if (running) {
+          get().setSessionActive(true, res.data.strategyId || res.data.strategy_id);
+        } else if (currentActive) {
+          // When backend REST status confirms session is no longer running, exit resuming state
+          get().setSessionActive(false, null);
+        }
+
+        // BOLT: Centralize merge logic via updateStats
+        get().updateStats({
+          sessionActive: running,
+          balance: res.data.balance,
+          totalPnl: res.data.totalPnl ?? res.data.total_pnl,
+          totalRiskPct: res.data.totalRiskPct,
+          totalSlUsed: res.data.totalSlUsed,
+          activeTrades: res.data.activeTrades,
+          variantStats: res.data.variant_stats,
+          isAdaptiveTightened: res.data.isAdaptiveTightened,
+          nextSlotTs: res.data.nextSlotTs,
+          scannerResults: res.data.scannerResults,
+          activeWindows: res.data.activeWindows,
+          tradeHistory: res.data.history,
+          config: res.data.config,
+          pausedStrategies: res.data.paused_strategies,
+          strategyGateStates: res.data.strategy_gate_states,
+          rateLimitLastSync: res.data.rateLimit ? new Date().toISOString() : undefined,
+        });
+
+        // SRE P2: Re-read state fresh with get() so stale snapshot doesn't leave error banner visible
+        if (get().apiError) {
+          get().clearApiError();
+        }
+
+        // Specific event trigger: Only refresh full history & analytics if session state changed or trade closed
+        const sessionChanged = (running !== prevSessionActive) || (res.data.strategyId && res.data.strategyId !== prevStrategyId);
+        const incomingTradeCount = Array.isArray(res.data.activeTrades) ? res.data.activeTrades.length : 0;
+        const tradeClosed = prevActiveTradeCount > incomingTradeCount;
+
+        if (options?.forceDetails || sessionChanged || tradeClosed) {
+          triggerDetailRefresh(get, sessionChanged, true);
+        }
+      } catch (e) {
+        // SRE P3: Reset syncing feedback states if request was aborted
+        if (e.code === 'ERR_CANCELED') {
+          set({ isSyncing: false, isSyncingOnResume: false });
+          return;
+        }
+
+        // SRE: Do not endlessly retry on 4xx client errors (401, 403, 404, 451)
+        const httpStatus = e?.response?.status;
+        if (httpStatus >= 400 && httpStatus < 500) {
+          set({ isSyncing: false, isSyncingOnResume: false });
+          return;
+        }
+
+        if (retryCount < 5) {
+          // SRE P1: Jittered exponential backoff
+          const baseDelay = Math.min(1500 * Math.pow(1.5, retryCount), 8000);
+          const jitteredDelay = Math.floor(baseDelay * (0.8 + Math.random() * 0.4));
+          syncRetryTimeout = setTimeout(() => {
+            syncRetryTimeout = null;
+            get().sync(retryCount + 1, options);
+          }, jitteredDelay);
+        } else {
+          console.error("Manual sync failed", e);
+          set({ isSyncing: false, isSyncingOnResume: false });
+        }
+      } finally {
+        activeSyncPromise = null;
+      }
+    })();
+
+    return activeSyncPromise;
   },
   setThrottled: (t) => {
     const wasThrottled = get().isThrottled;
@@ -525,8 +609,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
     if (!t) {
       get().sync();
-      get().fetchTradeHistory('all');
-      get().fetchAnalytics();
     }
 
     const ws = get().ws;
@@ -570,16 +652,14 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       // Fetch fresh history and analytics after termination
       if (wasActive) {
         get().sync();
-        get().fetchTradeHistory();
-        get().fetchSessions();
-        get().fetchAnalytics();
+        triggerDetailRefresh(get, true, true);
       }
     }
   },
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); const sessions = (r.data || []).map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 })); set({ sessionList: sessions }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  fetchTradeHistory: async (sid = 'all', limit = 1000) => { set({ isSyncing: true }); try { const parsedLimit = limit === 'ALL' || limit === 'all' ? 5000 : limit; const r = await sessionAPI.history(sid, parsedLimit); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchTradeHistory: async (sid = 'all', limit = 100) => { set({ isSyncing: true }); try { const parsedLimit = limit === 'ALL' || limit === 'all' ? 500 : Math.min(Number(limit) || 100, 500); const r = await sessionAPI.history(sid, parsedLimit); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLogs: async (limit = 50) => {
     try {
       const res = await sessionAPI.logs(limit);
@@ -771,7 +851,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
   
-  ws: null, reconnectAttempts: 0,
+  ws: null, reconnectAttempts: 0, wsError: null, apiError: null,
+  setWsError: (wsError) => set({ wsError }),
+  clearWsError: () => set({ wsError: null }),
+  setApiError: (apiError) => set({ apiError }),
+  clearApiError: () => set({ apiError: null }),
   connectWS: () => {
     if (get().ws) return;
     set({ wsStatus: 'connecting' });
@@ -780,8 +864,20 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // unconditionally breaks local dev where the Vite server is plain HTTP,
     // causing "can't establish a connection to wss://localhost:3000".
     const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    let u = normalizeUrl(import.meta.env.VITE_WS_URL, wsProto) || `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.hostname + (window.location.port ? ':' + window.location.port : '')}/session/ws`;
-    if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
+    const isDevPreview = typeof window !== 'undefined' && 
+      (window.location.hostname.includes('.run.app') || 
+       window.location.hostname.includes('googleusercontent.com') ||
+       window.location.hostname === 'localhost' ||
+       window.location.hostname === '127.0.0.1');
+
+    let u;
+    if (isDevPreview || !import.meta.env.VITE_WS_URL) {
+      u = `${wsProto}://${window.location.hostname === 'localhost' ? 'localhost:3000' : window.location.host}/session/ws`;
+    } else {
+      u = normalizeUrl(import.meta.env.VITE_WS_URL, wsProto);
+      if (u && !u.includes('/session/ws')) u = u.replace(/\/$/, '') + '/session/ws';
+    }
+
     const ak = localStorage.getItem('MOMENTUM_ADMIN_API_KEY');
     // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs
     const ws = new WebSocket(u, ak || []);
@@ -789,6 +885,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       const sessionActive = get().sessionActive;
       set({
         wsStatus: 'live',
+        wsError: null,
         reconnectAttempts: 0,
         isSyncingOnResume: sessionActive // Start sync feedback on reconnect if session is active
       });
@@ -796,6 +893,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       get().fetchTradeHistory('all');
       get().fetchAnalytics();
       get().fetchLogs();
+    };
+    ws.onerror = (e) => {
+      console.warn('[WebSocket] Connection failed or error occurred:', e);
+      set({
+        wsStatus: 'error',
+        wsError: {
+          message: 'WebSocket connection failed or was rejected. Real-time updates and live market stream are unavailable.',
+          timestamp: Date.now()
+        }
+      });
     };
     let lsu = 0;
         let logBuffer = [];
@@ -860,6 +967,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const nextActiveSession = d.running ?? d.status === 'started';
           const nextPnl = d.totalPnl ?? d.total_pnl;
 
+          const sessionChanged = (st.sessionActive !== nextActiveSession) || (d.strategyId && d.strategyId !== st.strategyId);
+          const tradeClosed = currentActiveTrades.length > nt.length;
+          if (sessionChanged || tradeClosed) {
+            triggerDetailRefresh(get, sessionChanged, false);
+          }
+
           return {
             lastAuthoritativeUpdateTs: nowTs,
             sessionActive: nextActiveSession,
@@ -915,6 +1028,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               // Authoritative clear when not in resumption window
               nt = [];
             }
+          }
+
+          // Trade closure detection on tick/heartbeat: if an active trade was removed, refresh details
+          if (currentActiveTrades.length > nt.length) {
+            triggerDetailRefresh(get, false, false);
           }
 
           // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
@@ -1127,7 +1245,28 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       }
       else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };
-    ws.onclose = () => { set({ ws: null, wsStatus: 'offline' }); if (get().sessionActive) { const att = get().reconnectAttempts; const del = Math.min(1000 * Math.pow(2, att), 30000); set({ reconnectAttempts: att + 1 }); setTimeout(() => get().connectWS(), del); } };
+    ws.onclose = (e) => {
+      const wasExpected = e && e.code === 1000;
+      set((st) => ({
+        ws: null,
+        wsStatus: wasExpected ? 'offline' : 'error',
+        wsError: wasExpected ? null : {
+          message: e?.reason || (e?.code === 1006 ? 'WebSocket connection was rejected or closed abnormally (code 1006).' : `WebSocket disconnected (code ${e?.code || 'unknown'}).`),
+          code: e?.code,
+          timestamp: Date.now()
+        }
+      }));
+      if (get().sessionActive || !wasExpected) {
+        const att = get().reconnectAttempts;
+        const del = Math.min(1000 * Math.pow(2, att), 30000);
+        set({ reconnectAttempts: att + 1 });
+        setTimeout(() => {
+          if (!get().ws && get().wsStatus !== 'offline') {
+            get().connectWS();
+          }
+        }, del);
+      }
+    };
     set({ ws });
   },
   disconnectWS: () => { if (get().ws) { get().ws.close(); set({ ws: null, wsStatus: 'offline' }); } },
@@ -1179,11 +1318,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
          state.isSyncingOnResume = true;
       }
 
-      // Proactively fetch trade history and analytics on rehydration/app startup
-      setTimeout(() => {
-        useTradingStore.getState().fetchTradeHistory('all');
-        useTradingStore.getState().fetchAnalytics();
-      }, 50);
+      // Proactively fetch trade history and analytics on rehydration/app startup in browser
+      if (typeof window !== 'undefined') {
+        triggerDetailRefresh(useTradingStore.getState, false, false);
+      }
     }
   }
 }))

@@ -352,4 +352,12 @@ describe('presetsAPI', () => {
       presetsAPI.delete = originalDelete
     }
   })
+
+  it('normalizes railway.app URLs properly for production environments', () => {
+    const rawUrl = 'backend-production.up.railway.app'
+    assert.equal(normalizeUrl(rawUrl, 'https'), 'https://backend-production.up.railway.app')
+    assert.equal(normalizeUrl('https://backend-production.up.railway.app/'), 'https://backend-production.up.railway.app')
+    assert.equal(normalizeUrl('wss://backend-production.up.railway.app/session/ws'), 'wss://backend-production.up.railway.app/session/ws')
+  })
 })
+

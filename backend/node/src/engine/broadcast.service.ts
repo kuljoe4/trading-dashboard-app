@@ -1,6 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Trade } from '../models/Trade';
-import { SessionConfig } from '../models/SessionConfig';
 
 @Injectable()
 export class BroadcastService {

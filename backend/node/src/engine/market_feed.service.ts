@@ -59,6 +59,7 @@ export class MarketFeedService {
   private currentConfig: SessionConfig | null = null;
   private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
   private currentIsTestnet = false;
+  private currentProxyUrl?: string;
   private restSeedInFlight = false;
 
   private lastMiniTickerMsgTs = 0;
@@ -123,14 +124,22 @@ export class MarketFeedService {
     const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
     const isTestnet = mode === 'testnet';
     const restBase = isTestnet
-        ? 'https://testnet.binancefuture.com' // Corrected Testnet URL
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL
         : ENGINE_CONSTANTS.BINANCE_REST_BASE;
 
     this.currentRestBase = restBase;
     this.currentIsTestnet = isTestnet;
 
+    try {
+      const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+      if (settings?.proxy_url) this.currentProxyUrl = settings.proxy_url.trim();
+    } catch (_) {}
+    if (!this.currentProxyUrl) {
+      this.currentProxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
+    }
+
     const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     // Discovery Managers initialization is now deferred to startGlobalDiscovery
@@ -253,7 +262,7 @@ export class MarketFeedService {
       } else {
         this.logger.debug(`[MarketFeed] Fetching fresh exchange information via fetch...`);
         const response = await this.binanceClientFactory.genericRequest(
-          () => fetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) }),
+          () => this.binanceClientFactory.proxyFetch(`${restBase}/fapi/v1/exchangeInfo`, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
           'exchangeInformation',
           true // Metadata is critical for boot
         );
@@ -389,7 +398,7 @@ export class MarketFeedService {
       const url = `${restBase}/fapi/v1/ticker/24hr`;
       this.logger.log(`[MarketFeed] Seeding TickerCache from REST market data (${url})...`);
       const response = await this.binanceClientFactory.genericRequest(
-        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
         'ticker24hrPriceChangeStatistics',
         false // Throttled, one-time critical seed
       );
@@ -446,8 +455,6 @@ export class MarketFeedService {
     this.watchlistInterval = setInterval(() => {
       this.updateWatchlist(config);
 
-    if (this.watchlistInterval?.unref) this.watchlistInterval.unref();
-
       if (this.activeWatchlist.size === 0) {
         this.zeroWatchlistCycles++;
         if (this.zeroWatchlistCycles >= 2) {
@@ -467,7 +474,7 @@ export class MarketFeedService {
          this.checkStreamHealth();
       }
     }, ENGINE_CONSTANTS.WATCHLIST_REFRESH_INTERVAL_MS);
-    this.watchlistInterval.unref?.();
+    if (this.watchlistInterval?.unref) this.watchlistInterval.unref();
   }
 
   /**
@@ -644,17 +651,17 @@ export class MarketFeedService {
 
               // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
               const discoveryMode = config.discovery_mode || 'volume';
-              const topSymbols = discoveryMode === 'change_pct'
-                ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-                : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
+              const topSymbols = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+                : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+                  : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
               const volumeSymbols = topSymbols.map(t => t.symbol);
 
               symbols = Array.from(new Set([...symbols, ...volumeSymbols])).filter(s => !activeExcludedSet.has(s));
             } else {
               const discoveryMode = config.discovery_mode || 'volume';
-              const top = discoveryMode === 'change_pct'
-                ? await this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
-                : await this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
+              const top = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
+                : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(watchlistSize + offset, combinedExcluded)
+                  : await this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
               const slicedTop = top.slice(offset);
 
               // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
@@ -691,8 +698,29 @@ export class MarketFeedService {
         }
 
         for (const sc of strategyConfigs) {
+          let scSymbols = symbols;
+          if (sc !== config) {
+            if (sc.symbols && sc.symbols.length > 0) {
+              scSymbols = sc.symbols.filter(s => !activeSymbolList.includes(s));
+            } else if (
+              sc.discovery_mode &&
+              (sc.discovery_mode !== config.discovery_mode || (sc.watchlist_size && sc.watchlist_size !== config.watchlist_size))
+            ) {
+              const scWatchlistSize = sc.watchlist_size || config.watchlist_size || 50;
+              const scOffset = sc.watchlist_offset || 0;
+              const scTop = sc.discovery_mode === 'change_pct'
+                ? await this.tickerCache.topByChangePct(scWatchlistSize + scOffset, combinedExcluded)
+                : sc.discovery_mode === 'abs_change_pct'
+                  ? await this.tickerCache.topByAbsChangePct(scWatchlistSize + scOffset, combinedExcluded)
+                  : await this.tickerCache.topByVolume(scWatchlistSize + scOffset, combinedExcluded);
+              scSymbols = scTop
+                .slice(scOffset)
+                .map((t: any) => t.symbol)
+                .filter(s => this.getSymbolFilters(s) !== undefined && !activeExcludedSet.has(s));
+            }
+          }
           const globalInterval = sc.scan_interval || '1m';
-          for (const s of symbols) {
+          for (const s of scSymbols) {
             if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
             newWatchlist.get(s)!.add(globalInterval);
           }
@@ -847,7 +875,7 @@ export class MarketFeedService {
     // The classic /stream endpoint is starved by Binance from many IP ranges, and the
     // SUBSCRIBE method is not served on /market/stream, so URL-param subscription is required.
     const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     // RAW DISCOVERY FALLBACK (Citadel Protocol 2026): When the primary global aggregate streams
@@ -877,6 +905,7 @@ export class MarketFeedService {
         wsUrl,
         {
             isTestnet,
+            proxyUrl: this.currentProxyUrl,
             onMessage: (data) => this.processStreamMessage(data),
             isBanned: () => this.sessionState.isBanned(),
             onBan: (msg) => {
@@ -1041,7 +1070,7 @@ export class MarketFeedService {
 
     // We will use the standard `/stream` endpoint to support live SUBSCRIBE/UNSUBSCRIBE payload and avoid connection drops
     const wsBaseMarket = isTestnet
-        ? 'wss://fstream.binancefuture.com/stream'
+        ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL
         : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
 
     const allStreams: string[] = [];
@@ -1094,6 +1123,7 @@ export class MarketFeedService {
         wsBaseMarket,
         {
             isTestnet,
+            proxyUrl: this.currentProxyUrl,
             onMessage: (data) => this.processStreamMessage(data),
             isBanned: () => this.sessionState.isBanned(),
             onBan: (msg) => {
@@ -1315,7 +1345,7 @@ export class MarketFeedService {
     } else {
       const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
       const response = await this.binanceClientFactory.genericRequest(
-        () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+        () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
         'klineCandlestickData'
       );
       if (response.ok) {
@@ -1418,7 +1448,7 @@ export class MarketFeedService {
       } else {
         const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
         const response = await this.binanceClientFactory.genericRequest(
-          () => fetch(url, { signal: AbortSignal.timeout(10000) }),
+          () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
           'klineCandlestickData'
         );
         if (!response.ok) return;

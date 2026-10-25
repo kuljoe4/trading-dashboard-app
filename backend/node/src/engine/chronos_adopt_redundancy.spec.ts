@@ -15,7 +15,6 @@ import { RrOptimizationService } from './rr-optimization.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { AuditLogService } from '../trading/audit-log.service';
 import { ConfigService } from '@nestjs/config';
-import { Trade } from '../models/Trade';
 
 describe('Chronos: Position Adoption Redundancy', () => {
   let sessionService: SessionService;

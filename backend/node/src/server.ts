@@ -48,6 +48,9 @@ async function bootstrap() {
     bodyParser: false, // Disable default body parser to configure limits manually
   });
 
+  // Enable graceful shutdown hooks so that onApplicationShutdown is called
+  app.enableShutdownHooks(['SIGTERM', 'SIGINT', 'SIGQUIT']);
+
   // Security: Enable 'trust proxy' for accurate client IP detection behind load balancers/reverse proxies
   const expressInstance = app.getHttpAdapter().getInstance();
   expressInstance.set('trust proxy', 1);
@@ -76,18 +79,54 @@ async function bootstrap() {
   const { httpAdapter } = app.get(HttpAdapterHost);
   app.useGlobalFilters(new AllExceptionsFilter(app.get(HttpAdapterHost)));
 
-  const allowedOrigins = configService
-    .get<string>("ALLOWED_ORIGINS")
+  const port = Number(process.env.PORT || configService.get<number>("PORT") || 3000);
+  const nodeEnv = configService.get<string>("NODE_ENV") || process.env.NODE_ENV || "development";
+  const adminKey = configService.get<string>("ADMIN_API_KEY") || process.env.ADMIN_API_KEY;
+  const adminApiKeySet = Boolean(adminKey && adminKey.trim().length > 0);
+
+  const configuredOrigins = (configService.get<string>("ALLOWED_ORIGINS") || process.env.ALLOWED_ORIGINS)
     ?.split(",")
-    .map((o) => o.trim()) || [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "*.up.railway.app",
+    .map((o) => o.trim().replace(/^['"]/, "").replace(/['"]$/, ""))
+    .filter(Boolean);
+
+  const rawPinnedFrontend = configService.get<string>("FRONTEND_URL")
+    || configService.get<string>("RAILWAY_FRONTEND_URL")
+    || process.env.FRONTEND_URL
+    || process.env.RAILWAY_FRONTEND_URL;
+
+  const pinnedFrontend = rawPinnedFrontend
+    ? (rawPinnedFrontend.startsWith("http://") || rawPinnedFrontend.startsWith("https://")
+        ? rawPinnedFrontend
+        : `https://${rawPinnedFrontend}`)
+    : undefined;
+
+  const rawAllowedOrigins = [
+    ...(configuredOrigins && configuredOrigins.length > 0
+      ? configuredOrigins
+      : [
+          "http://localhost:5173",
+          "http://127.0.0.1:5173",
+          "http://localhost:3000",
+          "http://127.0.0.1:3000",
+        ]),
+    ...(pinnedFrontend ? [pinnedFrontend] : []),
   ];
 
-  const nodeEnv = configService.get<string>("NODE_ENV");
+  const allowedOrigins = Array.from(
+    new Set(rawAllowedOrigins.map((o) => o.trim().replace(/\/$/, "")).filter(Boolean))
+  );
+
   const serverLogger = new Logger("Server");
-  serverLogger.log(`🔒 Allowed Origins: ${allowedOrigins.join(", ")}`);
+
+  // Startup Config Check Diagnostic Log
+  serverLogger.log(`=======================================================`);
+  serverLogger.log(`🚀 [Config Check] Trading Engine Startup Diagnostics:`);
+  serverLogger.log(`   - Environment: ${nodeEnv}`);
+  serverLogger.log(`   - Listening Port: ${port}`);
+  serverLogger.log(`   - ADMIN_API_KEY: ${adminApiKeySet ? "Configured [SET]" : "Not Set [UNSET]"}`);
+  serverLogger.log(`   - Pinned Frontend URL: ${pinnedFrontend || "None"}`);
+  serverLogger.log(`   - Allowed Origins (${allowedOrigins.length}): ${allowedOrigins.join(", ")}`);
+  serverLogger.log(`=======================================================`);
 
 
   // Security Headers Middleware
@@ -144,17 +183,23 @@ async function bootstrap() {
     credentials: true,
   });
 
-  // Health check endpoint
+  // Health check endpoint enhanced with port, allowedOrigins, and adminApiKeySet
   app.getHttpAdapter().get("/health", async (req, res) => {
+    const healthInfo = {
+      port,
+      allowedOrigins,
+      adminApiKeySet,
+      timestamp: new Date().toISOString(),
+    };
     try {
       // Audit Item 35: Add DB health check. Resolve the TypeORM DataSource via
       // its token (the string "EntityManager" is NOT a registered provider, which
       // previously threw and made the /health probe fail).
       const dataSource = app.get(getDataSourceToken());
       await dataSource.query("SELECT 1");
-      res.status(200).send({ status: "ok", db: "connected", timestamp: new Date().toISOString() });
+      res.status(200).send({ status: "ok", db: "connected", ...healthInfo });
     } catch (e) {
-      res.status(503).send({ status: "error", db: "disconnected", timestamp: new Date().toISOString() });
+      res.status(503).send({ status: "error", db: "disconnected", ...healthInfo });
     }
   });
 
@@ -165,8 +210,6 @@ async function bootstrap() {
   });
 
   await app.init();
-  // Enable graceful shutdown hooks for NestJS
-  app.enableShutdownHooks();
   const httpServer = app.getHttpServer();
   const sessionService = app.get(SessionService);
   const monitoringService = app.get(MonitoringService);
@@ -532,12 +575,22 @@ async function bootstrap() {
     );
   });
 
-  const port = process.env.PORT || configService.get<number>("PORT") || 3000;
   await app.listen(port, "0.0.0.0");
 
   serverLogger.log(`✨ Trading Dashboard Backend running on port ${port}`);
   serverLogger.log(`📡 WebSocket endpoint: ws://0.0.0.0:${port}/session/ws`);
 }
+
+process.on('uncaughtException', (err) => {
+  const logger = new Logger('UncaughtException');
+  logger.error('Uncaught Exception thrown', err.stack || err);
+  // Do not process.exit(0) here because it might bypass hooks; process will exit naturally or via forever
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  const logger = new Logger('UnhandledRejection');
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
 
 bootstrap().catch((err) => {
   const bootstrapLogger = new Logger("Bootstrap");

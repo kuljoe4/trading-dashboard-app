@@ -9,6 +9,33 @@ const MAX_LOG_LINES = 500;
 const DEFAULT_LOG_FILTERS = { info: true, warn: true, error: true };
 let activeSyncPromise = null;
 let syncRetryTimeout = null;
+let detailRefreshTimeout = null;
+let lastDetailRefreshTs = 0;
+
+const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => {
+  const now = Date.now();
+  if (immediate && (now - lastDetailRefreshTs > 300)) {
+    lastDetailRefreshTs = now;
+    if (detailRefreshTimeout) {
+      clearTimeout(detailRefreshTimeout);
+      detailRefreshTimeout = null;
+    }
+    get().fetchAnalytics();
+    get().fetchTradeHistory('all');
+    if (fetchSessions) get().fetchSessions();
+    return;
+  }
+
+  if (detailRefreshTimeout) clearTimeout(detailRefreshTimeout);
+  detailRefreshTimeout = setTimeout(() => {
+    detailRefreshTimeout = null;
+    lastDetailRefreshTs = Date.now();
+    get().fetchAnalytics();
+    get().fetchTradeHistory('all');
+    if (fetchSessions) get().fetchSessions();
+  }, 25);
+};
+
 
 // Anti-flicker metric resolver: prevents transient 0/null/undefined payloads from zero-resetting active store values
 const resolveNonZeroMetric = (nextVal, currentVal, isResuming = false) => {
@@ -476,8 +503,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     return { logFilters: { ...safeFilters, [level]: !safeFilters[level] } };
   }),
   setSyncing: (s) => set({ isSyncing: s }),
-  sync: async (retryCount = 0) => {
-    // SRE P1: Guard against concurrent in-flight sync calls
+  sync: async (retryCount = 0, options = {}) => {
+    // SRE: Guard against concurrent in-flight sync calls
     if (activeSyncPromise) {
       return activeSyncPromise;
     }
@@ -489,6 +516,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
     activeSyncPromise = (async () => {
       try {
+        const prevSt = get();
+        const prevSessionActive = prevSt.sessionActive;
+        const prevStrategyId = prevSt.strategyId;
+        const prevActiveTradeCount = (prevSt.activeTrades || []).length;
+
         const res = await sessionAPI.status();
         const running = !!res.data.running;
         const currentActive = get().sessionActive;
@@ -524,6 +556,15 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         if (get().apiError) {
           get().clearApiError();
         }
+
+        // Specific event trigger: Only refresh full history & analytics if session state changed or trade closed
+        const sessionChanged = (running !== prevSessionActive) || (res.data.strategyId && res.data.strategyId !== prevStrategyId);
+        const incomingTradeCount = Array.isArray(res.data.activeTrades) ? res.data.activeTrades.length : 0;
+        const tradeClosed = prevActiveTradeCount > incomingTradeCount;
+
+        if (options?.forceDetails || sessionChanged || tradeClosed) {
+          triggerDetailRefresh(get, sessionChanged, true);
+        }
       } catch (e) {
         // SRE P3: Reset syncing feedback states if request was aborted
         if (e.code === 'ERR_CANCELED') {
@@ -544,7 +585,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const jitteredDelay = Math.floor(baseDelay * (0.8 + Math.random() * 0.4));
           syncRetryTimeout = setTimeout(() => {
             syncRetryTimeout = null;
-            get().sync(retryCount + 1);
+            get().sync(retryCount + 1, options);
           }, jitteredDelay);
         } else {
           console.error("Manual sync failed", e);
@@ -568,8 +609,6 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
     if (!t) {
       get().sync();
-      get().fetchTradeHistory('all');
-      get().fetchAnalytics();
     }
 
     const ws = get().ws;
@@ -613,9 +652,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       // Fetch fresh history and analytics after termination
       if (wasActive) {
         get().sync();
-        get().fetchTradeHistory();
-        get().fetchSessions();
-        get().fetchAnalytics();
+        triggerDetailRefresh(get, true, true);
       }
     }
   },
@@ -930,6 +967,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const nextActiveSession = d.running ?? d.status === 'started';
           const nextPnl = d.totalPnl ?? d.total_pnl;
 
+          const sessionChanged = (st.sessionActive !== nextActiveSession) || (d.strategyId && d.strategyId !== st.strategyId);
+          const tradeClosed = currentActiveTrades.length > nt.length;
+          if (sessionChanged || tradeClosed) {
+            triggerDetailRefresh(get, sessionChanged, false);
+          }
+
           return {
             lastAuthoritativeUpdateTs: nowTs,
             sessionActive: nextActiveSession,
@@ -985,6 +1028,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
               // Authoritative clear when not in resumption window
               nt = [];
             }
+          }
+
+          // Trade closure detection on tick/heartbeat: if an active trade was removed, refresh details
+          if (currentActiveTrades.length > nt.length) {
+            triggerDetailRefresh(get, false, false);
           }
 
           // BOLT: Prevent flickering during config sync. If local state is in-flight, ignore config updates from ticks.
@@ -1270,11 +1318,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
          state.isSyncingOnResume = true;
       }
 
-      // Proactively fetch trade history and analytics on rehydration/app startup
-      setTimeout(() => {
-        useTradingStore.getState().fetchTradeHistory('all');
-        useTradingStore.getState().fetchAnalytics();
-      }, 50);
+      // Proactively fetch trade history and analytics on rehydration/app startup in browser
+      if (typeof window !== 'undefined') {
+        triggerDetailRefresh(useTradingStore.getState, false, false);
+      }
     }
   }
 }))

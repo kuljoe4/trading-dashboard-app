@@ -1287,6 +1287,19 @@ export class PositionTrackerService {
     }
 
     if (shouldUpdate) {
+      const prevSl = Number(trade.current_sl);
+      const executionMode = activeConfig.trailing_execution_mode || 'exchange';
+      const isLocalExecution = executionMode === 'local' || (activeConfig.paper_mode ?? true);
+
+      if (isLocalExecution) {
+        trade.current_sl = newSl;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
+        this.logSlAdjustment(trade, prevSl, newSl, -4, false);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        return;
+      }
+
       if (this.orderManager.isRatcheting(symbol)) {
         this.markDirty(symbol, activeConfig, 'MUTEX_LOCKED');
         this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
@@ -1294,7 +1307,6 @@ export class PositionTrackerService {
         return;
       }
 
-      const prevSl = Number(trade.current_sl);
       const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
       if (updateRes.success) {
         const finalSl = updateRes.price || newSl;
@@ -1418,7 +1430,10 @@ export class PositionTrackerService {
       const isBetterSl: boolean = isLong ? newSl > prevSl : (prevSl === 0 || newSl < prevSl);
 
       const isPaper: boolean = activeConfig.paper_mode ?? true;
-      if (isBetterSl && isPaper) {
+      const executionMode = activeConfig.trailing_execution_mode || 'exchange';
+      const isLocalExecution = executionMode === 'local' || isPaper;
+
+      if (isBetterSl && isLocalExecution) {
         trade.current_sl = newSl;
         trade.updated_at = new Date();
         this.logSlAdjustment(trade, prevSl, newSl, -2, false);
@@ -1461,6 +1476,22 @@ export class PositionTrackerService {
     }
 
     if (shouldUpdate) {
+      const prevSl = Number(trade.current_sl);
+      const executionMode = activeConfig.trailing_execution_mode || 'exchange';
+      const isLocalExecution = executionMode === 'local' || (activeConfig.paper_mode ?? true);
+
+      if (isLocalExecution) {
+        // LOCAL TRAILING: Track stop purely in memory against real-time ticker stream.
+        // Zero REST order cancellations / replacements to exchange.
+        // Market close order will be dispatched when isBreached occurs.
+        trade.current_sl = newSl;
+        trade.updated_at = new Date();
+        this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
+        this.logSlAdjustment(trade, prevSl, newSl, -2, false);
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+        return;
+      }
+
       if (this.orderManager.isRatcheting(symbol)) {
         this.markDirty(symbol, activeConfig, 'MUTEX_LOCKED');
         this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
@@ -1468,7 +1499,6 @@ export class PositionTrackerService {
         return;
       }
 
-      const prevSl = Number(trade.current_sl);
       const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
 
       if (updateRes.success) {

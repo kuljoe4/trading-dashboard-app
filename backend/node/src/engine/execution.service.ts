@@ -347,6 +347,18 @@ export class ExecutionService {
           continue;
         }
 
+        // Enforce allowed entry side ('both' | 'long' | 'short')
+        const allowedSide = (resolvedConfig.entry_side || 'both').toLowerCase();
+        const oppDirection = (opp.direction || '').toUpperCase();
+        if (allowedSide === 'long' && oppDirection !== 'LONG') {
+          this.logger.debug(`${opp.symbol}: Entry skipped - strategy only allows LONG positions (candidate: ${oppDirection})`);
+          continue;
+        }
+        if (allowedSide === 'short' && oppDirection !== 'SHORT') {
+          this.logger.debug(`${opp.symbol}: Entry skipped - strategy only allows SHORT positions (candidate: ${oppDirection})`);
+          continue;
+        }
+
         // Anti-whipsaw / same-candle re-entry protection
         const uniqueTimeframes = new Set<string>();
         const resolvedScan = this.marketFeedService.resolveInterval(symbolConfig.scan_interval || '1m', symbolConfig);

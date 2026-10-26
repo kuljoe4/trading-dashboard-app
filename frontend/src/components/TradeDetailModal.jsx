@@ -52,10 +52,10 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
         <Drawer.Content
-          className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[4dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.5)] lg:max-w-[800px] lg:mx-auto h-auto">
+          className="bg-background border-t border-border flex flex-col rounded-t-[32px] fixed inset-x-0 bottom-0 top-[3dvh] z-[101] focus:outline-none shadow-[0_-20px_50px_rgba(0,0,0,0.6)] lg:max-w-[1140px] xl:max-w-[1260px] lg:inset-x-auto lg:left-1/2 lg:-translate-x-1/2 lg:top-[4dvh] lg:bottom-[4dvh] lg:rounded-3xl lg:border lg:border-border/70 lg:shadow-[0_25px_80px_rgba(0,0,0,0.85)] h-auto overflow-hidden">
 
           {/* Drawer Handle */}
-          <div className="p-2 bg-background rounded-t-[32px] flex flex-col items-center shrink-0">
+          <div className="p-2 bg-background rounded-t-[32px] lg:rounded-t-3xl flex flex-col items-center shrink-0">
             <div className="w-12 h-1.5 bg-border rounded-full mb-2" />
             <VisuallyHidden>
               <Drawer.Title>Trade Details for {trade.symbol}</Drawer.Title>

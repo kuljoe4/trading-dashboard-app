@@ -522,6 +522,47 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               style={{ left: `${tpPos}%` }}
             />
           )}
+          {/* Exit Signal Landmark Markers on Active Card Runway */}
+          {dualIndicatorMarkers.map((m) => {
+            if (m.pos < 0 || m.pos > 100) return null;
+            return (
+              <Tooltip
+                key={`runway-sig-${m.key}`}
+                content={
+                  <div className="flex flex-col gap-0.5 text-[10px] font-sans text-left">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span className={m.fired ? "text-rose-400 font-black" : "text-amber-400 font-bold"}>
+                        ⚡ {m.label || 'Exit Signal'}
+                      </span>
+                      {m.fired && <span className="bg-rose-500/20 text-rose-400 border border-rose-500/30 px-1 py-0.2 rounded text-[8px] font-black uppercase">CRITICAL</span>}
+                    </div>
+                    <div className="text-dim">Trigger Level: <span className="text-text font-mono font-bold">{fmtUSD(m.price)}</span></div>
+                    <div className="text-dim">Status: <span className={m.fired ? "text-rose-400 font-semibold" : "text-accent font-semibold"}>{m.fired ? 'FIRED / ACTIVE' : 'MONITORING'}</span></div>
+                  </div>
+                }
+              >
+                <div
+                  className="absolute top-0 bottom-0 z-25 -ml-[3px] flex flex-col items-center cursor-help group/sig pointer-events-auto"
+                  style={{ left: `${m.pos}%` }}
+                >
+                  <div
+                    className={cn(
+                      "w-1.5 h-1.5 rounded-full transition-transform group-hover/sig:scale-150 shadow-sm",
+                      m.fired
+                        ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-ping"
+                        : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]"
+                    )}
+                  />
+                  <div
+                    className={cn(
+                      "w-0.5 flex-1",
+                      m.fired ? "bg-rose-500/80 shadow-[0_0_4px_rgba(244,63,94,0.8)]" : "bg-amber-400/60"
+                    )}
+                  />
+                </div>
+              </Tooltip>
+            );
+          })}
 
           {/* Trail Motion Blur */}
           <AnimatePresence>

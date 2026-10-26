@@ -737,9 +737,13 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       results = results
         .sort((a, b) => (a.volume_rank || 999) - (b.volume_rank || 999))
         .slice(0, 24);
-    } else if (discoveryMode === 'pct_change') {
+    } else if (discoveryMode === 'pct_change' || discoveryMode === 'change_pct') {
       results = results
         .sort((a, b) => (a.change_rank || 999) - (b.change_rank || 999))
+        .slice(0, 24);
+    } else if (discoveryMode === 'abs_change_pct') {
+      results = results
+        .sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0))
         .slice(0, 24);
     }
 
@@ -986,20 +990,23 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
           {[
             { id: 'all', label: 'All Scanned', color: 'accent' },
             { id: 'volume', label: 'Top 24 Volume', color: 'green' },
-            { id: 'pct_change', label: 'Top 24h Change', color: 'purple' }
+            { id: 'change_pct', label: 'Top 24h Change', color: 'purple' },
+            { id: 'abs_change_pct', label: 'Top Volatile', color: 'amber' }
           ].map(m => (
             <button
               key={m.id}
               type="button"
               onClick={() => setDiscoveryMode(m.id)}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                discoveryMode === m.id
+                "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                (discoveryMode === m.id || (m.id === 'change_pct' && discoveryMode === 'pct_change'))
                   ? m.color === 'accent'
                     ? "bg-accent/15 border-accent/40 text-accent"
                     : m.color === 'green'
                     ? "bg-green/15 border-green/40 text-green"
-                    : "bg-purple/15 border-purple/40 text-purple"
+                    : m.color === 'purple'
+                    ? "bg-purple/15 border-purple/40 text-purple"
+                    : "bg-amber/15 border-amber/40 text-amber"
                   : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-border/60"
               )}
             >

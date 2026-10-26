@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState, useId, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
+import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight, Layers, Edit3 } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
 import { ConfirmationModal } from './ConfirmationModal'
@@ -2038,6 +2038,124 @@ const computePresetDiff = (current, saved) => {
   return diffs;
 };
 
+const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSummary = null }) => {
+  const [name, setName] = useState(defaultName);
+  const [error, setError] = useState('');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setName(defaultName);
+      setError('');
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+          inputRef.current.select();
+        }
+      }, 50);
+    }
+  }, [isOpen, defaultName]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e?.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError('Please enter a preset name');
+      return;
+    }
+    onSave(trimmed);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+      <div
+        role="dialog"
+        aria-labelledby="save-preset-modal-title"
+        aria-modal="true"
+        className="w-full max-w-md bg-surface border border-border/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 relative animate-in zoom-in-95 duration-200"
+      >
+        <div className="flex items-center justify-between pb-2 border-b border-border/40">
+          <div className="flex items-center gap-2">
+            <span className="p-1.5 rounded-lg bg-accent/15 text-accent">
+              <Save size={16} />
+            </span>
+            <h3 id="save-preset-modal-title" className="text-base font-bold text-text">Save As New Preset</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close dialog"
+            className="p-1 text-dim hover:text-text rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="save-new-preset-input" className="text-xs font-semibold text-dim">
+              Preset Name
+            </label>
+            <input
+              id="save-new-preset-input"
+              ref={inputRef}
+              type="text"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (error) setError('');
+              }}
+              placeholder="e.g. Scalp Alpha 1m"
+              className={cn(
+                "w-full bg-background border rounded-xl px-3.5 py-2.5 text-sm font-medium text-text focus:outline-none transition-colors",
+                error ? "border-red focus:border-red" : "border-border focus:border-accent"
+              )}
+            />
+            {error && <span className="text-xs text-red font-medium">{error}</span>}
+          </div>
+
+          {configSummary && (
+            <div className="bg-background/60 border border-border/40 rounded-xl p-3 flex flex-col gap-1 text-[11px] text-dim">
+              <span className="font-semibold text-text uppercase tracking-wider text-[10px]">Strategy Overview</span>
+              <div className="flex items-center gap-2 flex-wrap font-mono mt-0.5 text-text/90">
+                <span className="px-1.5 py-0.5 rounded bg-surface border border-border/40 text-[10px] font-bold">{configSummary.mode}</span>
+                <span>·</span>
+                <span>{configSummary.interval}</span>
+                <span>·</span>
+                <span>{configSummary.risk}% risk</span>
+                {configSummary.sl !== undefined && configSummary.sl !== null && (
+                  <>
+                    <span>·</span>
+                    <span>SL {configSummary.sl}%</span>
+                  </>
+                )}
+                {configSummary.tp !== undefined && configSummary.tp !== null && (
+                  <>
+                    <span>·</span>
+                    <span>TP {configSummary.tp}R</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/30">
+            <Btn type="button" variant="ghost" onClick={onClose} className="px-4 py-2 text-xs font-semibold">
+              Cancel
+            </Btn>
+            <Btn type="submit" variant="primary" className="px-5 py-2 text-xs font-bold bg-accent text-white">
+              Save Preset
+            </Btn>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const PresetItem = React.memo(React.forwardRef(({
   preset,
   isLoaded,
@@ -2046,6 +2164,9 @@ const PresetItem = React.memo(React.forwardRef(({
   onToggleVariant,
   onDelete,
   isVariant,
+  variantIndex,
+  isEditingVariant,
+  onEditVariant,
   sessionActive,
   isSelected,
   onToggleSelect,
@@ -2056,7 +2177,7 @@ const PresetItem = React.memo(React.forwardRef(({
   onDuplicate
 }, ref) => {
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
-  const isExpanded = isLoaded;
+  const isExpanded = isLoaded || isEditingVariant;
 
   let modeColor = "bg-dim";
   let modeLabel = "Paper";
@@ -2080,17 +2201,21 @@ const PresetItem = React.memo(React.forwardRef(({
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className={cn(
-        "flex flex-col border-b border-border/40 hover:bg-white/[0.02] transition-colors relative overflow-hidden group/preset",
-        isSelected && "bg-accent/[0.04]",
-        isExpanded && "bg-surface/30 border-b-border"
+        "flex flex-col border-b border-border/40 hover:bg-white/[0.02] transition-all relative overflow-hidden group/preset",
+        isSelected && "bg-accent/[0.06] border-accent/30",
+        isVariant && "border-violet-500/30 bg-violet-500/[0.03] hover:bg-violet-500/[0.06]",
+        isEditingVariant && "ring-1 ring-violet-500 bg-violet-500/[0.08]",
+        isExpanded && !isVariant && "bg-surface/30 border-b-border"
       )}
     >
       <div
-        className="flex items-center justify-between gap-3 px-4 py-3 sm:py-4 cursor-pointer"
+        className="flex items-center justify-between gap-2.5 sm:gap-4 px-3 sm:px-4 py-3 sm:py-4 cursor-pointer"
         onClick={(e) => {
-          if (e.target.closest('button')) return;
+          if (e.target.closest('button') || e.target.closest('input')) return;
           if (onToggleSelect && (isSelected || e.metaKey || e.ctrlKey)) {
              onToggleSelect(preset.name);
+          } else if (isVariant && onEditVariant) {
+             onEditVariant(preset, variantIndex);
           } else {
              onLoad(preset);
           }
@@ -2101,68 +2226,134 @@ const PresetItem = React.memo(React.forwardRef(({
            <button
              type="button"
              onClick={(e) => { e.stopPropagation(); onToggleSelect(preset.name); }}
-             className="shrink-0 p-1 md:hidden md:group-hover/preset:block focus-visible:ring-2 focus-visible:ring-accent rounded-md"
+             aria-label={`Select ${preset.name}`}
+             className="shrink-0 p-1 rounded-md focus-visible:ring-2 focus-visible:ring-accent"
            >
              <div className={cn(
                "w-4 h-4 rounded border flex items-center justify-center transition-all",
-               isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60"
+               isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60 hover:border-accent/40"
              )}>
                {isSelected && <Check size={11} className="stroke-[3]" />}
              </div>
            </button>
         )}
 
-        <div className="flex-1 min-w-0 flex items-center gap-3">
-          <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", modeColor)} />
-          <div className="flex flex-col min-w-0">
-             <div className="flex items-center gap-2">
-                <span className="text-sm font-bold truncate tracking-tight text-text group-hover/preset:text-accent transition-colors">
+        <div className="flex-1 min-w-0 flex items-center gap-2.5 sm:gap-3">
+          {/* Status dots */}
+          <div className="flex items-center gap-1 shrink-0">
+            <span className={cn("w-2 h-2 rounded-full", modeColor)} title={`Mode: ${modeLabel}`} />
+            {isVariant && (
+              <span
+                className="w-2 h-2 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.8)]"
+                title={`Running as Variant #${(variantIndex ?? 0) + 1}`}
+              />
+            )}
+          </div>
+
+          <div className="flex flex-col min-w-0 flex-1">
+             <div className="flex items-center gap-2 flex-wrap">
+                <span className={cn(
+                  "text-xs sm:text-sm font-bold truncate tracking-tight transition-colors",
+                  isVariant ? "text-violet-200 group-hover/preset:text-violet-100" : "text-text group-hover/preset:text-accent"
+                )}>
                   {preset.name}
                 </span>
+
+                {/* Variant Color-Coded Badge */}
+                {isVariant && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40 flex items-center gap-1 shrink-0">
+                    <Layers size={10} className="text-violet-400" />
+                    {variantIndex !== undefined && variantIndex >= 0 ? `Variant #${variantIndex + 1}` : 'Variant'}
+                  </span>
+                )}
+
+                {isEditingVariant && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/30 text-violet-200 border border-violet-400 shrink-0">
+                    Editing Now
+                  </span>
+                )}
+
+                {/* Active Base Badge */}
+                {isLoaded && !isVariant && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent/20 text-accent border border-accent/40 shrink-0">
+                    Active Base
+                  </span>
+                )}
+
                 {isExpanded && isDirty && (
                   <span className="text-[10px] text-amber font-bold tracking-tight">
                      {diffs.length} unsaved changes
                   </span>
                 )}
              </div>
-             <div className="text-[11px] text-dim font-mono tracking-tight mt-0.5 truncate flex items-center gap-1.5">
-               {preset.config.scan_interval} · {preset.config.risk_pct_per_trade}% risk · SL {preset.config.sl_distance_pct}%
-               {tpRatio ? ` · TP ${Number(tpRatio).toFixed(1)}R` : ''}
+
+             <div className="text-[11px] text-dim font-mono tracking-tight mt-0.5 truncate flex items-center gap-1.5 flex-wrap">
+               <span>{preset.config.scan_interval || '1m'}</span>
+               <span>·</span>
+               <span>{preset.config.risk_pct_per_trade}% risk</span>
+               <span>·</span>
+               <span>SL {preset.config.sl_distance_pct}%</span>
+               {tpRatio ? (
+                 <>
+                   <span>·</span>
+                   <span>TP {Number(tpRatio).toFixed(1)}R</span>
+                 </>
+               ) : null}
+               <span className="hidden xs:inline opacity-40">·</span>
+               <span className="hidden xs:inline text-[10px] text-dim/80">{modeLabel}</span>
              </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 shrink-0">
-          <span className="text-[11px] text-dim tracking-tight hidden sm:block">{modeLabel}</span>
-
-          {/* Desktop Right Action */}
-          <div className="hidden sm:flex">
-             {isExpanded ? (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg border text-xs font-bold transition-all focus-visible:ring-2",
-                    isVariant
-                      ? "bg-transparent text-dim border-border hover:text-white"
-                      : "bg-transparent text-dim border-border hover:border-accent hover:text-accent"
-                  )}
-                >
-                  {isVariant ? "In variants" : "Add to variants"}
-                </button>
-             ) : (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
-                  className={cn(
-                    "text-[11px] font-bold transition-colors opacity-0 group-hover/preset:opacity-100",
-                    isVariant ? "text-dim" : "text-text hover:text-accent"
-                  )}
-                >
-                  {isVariant ? "In variants" : "Add to variants"}
-                </button>
-             )}
-          </div>
+        {/* Right Actions: Responsive and Touch Friendly */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {isVariant ? (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onEditVariant?.(preset, variantIndex);
+                }}
+                className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-600/20 hover:bg-violet-600/30 text-violet-200 border border-violet-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                title="Edit this variant's parameters without altering base strategy"
+              >
+                <Edit3 size={12} className="text-violet-400" />
+                <span className="hidden xs:inline">Edit Variant</span>
+                <span className="xs:hidden">Edit</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                className="px-2 sm:px-2.5 py-1.5 rounded-lg border border-border/60 text-xs font-medium text-dim hover:text-red hover:border-red/40 transition-colors"
+                title="Remove from active variants"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
+                className="px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 text-xs font-bold text-text hover:border-accent hover:text-accent hover:bg-accent/5 transition-all cursor-pointer"
+                title="Add as secondary trading variant"
+              >
+                + Variant
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onLoad(preset); }}
+                className={cn(
+                  "hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  isLoaded ? "bg-accent/15 text-accent border border-accent/40" : "text-dim hover:text-text hover:bg-white/5 border border-transparent"
+                )}
+                title="Load as primary base strategy"
+              >
+                {isLoaded ? 'Loaded' : 'Load Base'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -2173,17 +2364,17 @@ const PresetItem = React.memo(React.forwardRef(({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="px-4 pb-4 flex flex-col gap-4 overflow-hidden"
+            className="px-3 sm:px-4 pb-4 flex flex-col gap-3.5 overflow-hidden bg-background/20 border-t border-border/20 pt-3"
           >
             {isDirty && diffs.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                  {diffs.map((d, i) => (
-                    <div key={i} className="bg-background/40 border border-border/40 rounded-xl p-3 flex flex-col gap-1.5">
+                    <div key={i} className="bg-background/60 border border-border/40 rounded-xl p-2.5 flex flex-col gap-1">
                        <span className="text-[11px] text-dim">{d.label}</span>
-                       <div className="text-sm font-mono tracking-tight flex items-center gap-2">
+                       <div className="text-xs font-mono tracking-tight flex items-center gap-2">
                          <span className="text-dim/80">{d.old}</span>
                          <span className="text-dim/40">→</span>
-                         <span className="text-amber">{d.new}</span>
+                         <span className="text-amber font-semibold">{d.new}</span>
                        </div>
                     </div>
                  ))}
@@ -2191,40 +2382,76 @@ const PresetItem = React.memo(React.forwardRef(({
             )}
 
             <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/20">
-               <Btn
-                 variant="primary"
-                 onClick={() => onSave(preset.name)}
-                 className="px-4 py-2 text-xs bg-accent text-white font-bold"
-               >
-                 Update preset
-               </Btn>
+               {isVariant ? (
+                 <>
+                   <Btn
+                     variant="primary"
+                     onClick={() => onEditVariant?.(preset, variantIndex)}
+                     className="px-3.5 py-1.5 text-xs bg-violet-600 hover:bg-violet-500 text-white font-bold flex items-center gap-1.5"
+                   >
+                     <Edit3 size={13} /> Edit Variant Parameters
+                   </Btn>
+                   <Btn
+                     variant="ghost"
+                     onClick={() => onLoad(preset)}
+                     className="px-3.5 py-1.5 text-xs border border-border text-dim hover:text-text font-bold"
+                     title="Make this variant your main base strategy"
+                   >
+                     Promote to Base
+                   </Btn>
+                 </>
+               ) : (
+                 <>
+                   <Btn
+                     variant="primary"
+                     onClick={() => onSave(preset.name)}
+                     className="px-3.5 py-1.5 text-xs bg-accent text-white font-bold"
+                   >
+                     Update preset
+                   </Btn>
+                   <Btn
+                     variant="ghost"
+                     onClick={() => onLoad(preset)}
+                     className="px-3.5 py-1.5 text-xs border border-border text-dim hover:text-text font-bold"
+                   >
+                     Load as Base
+                   </Btn>
+                 </>
+               )}
+
                <Btn
                  variant="ghost"
-                 onClick={onSaveAsNew}
-                 className="px-4 py-2 text-xs border border-border text-dim hover:text-text font-bold"
+                 onClick={() => onSaveAsNew(preset)}
+                 className="px-3.5 py-1.5 text-xs border border-border text-dim hover:text-accent font-bold flex items-center gap-1"
                >
-                 Save as new
+                 <Copy size={12} /> Save as new
                </Btn>
-               <Btn
-                 variant="ghost"
-                 onClick={onRevert}
-                 className="px-4 py-2 text-xs text-dim hover:text-text font-bold"
-               >
-                 Revert
-               </Btn>
+
+               {isLoaded && isDirty && (
+                 <Btn
+                   variant="ghost"
+                   onClick={onRevert}
+                   className="px-3.5 py-1.5 text-xs text-amber hover:text-amber-300 font-bold"
+                 >
+                   Revert
+                 </Btn>
+               )}
+
                <div className="flex-1" />
+
                <Btn
                  variant="ghost"
                  onClick={onDuplicate}
-                 className="px-4 py-2 text-xs text-dim hover:text-text hidden sm:flex font-bold"
+                 className="px-3.5 py-1.5 text-xs text-dim hover:text-text hidden md:flex font-bold"
                >
                  Duplicate
                </Btn>
+
                <Btn
                  variant="ghost"
                  disabled={sessionActive}
                  onClick={(e) => onDelete(e, preset.name)}
-                 className={cn("px-4 py-2 text-xs font-bold", sessionActive ? "text-dim/30" : "text-red hover:bg-red/10")}
+                 className={cn("px-3.5 py-1.5 text-xs font-bold", sessionActive ? "text-dim/30 cursor-not-allowed" : "text-red hover:bg-red/10")}
                >
                  Delete
                </Btn>
@@ -2234,7 +2461,7 @@ const PresetItem = React.memo(React.forwardRef(({
       )}
     </motion.div>
   );
-}))
+}));
 PresetItem.displayName = 'PresetItem'
 
 
@@ -2404,7 +2631,7 @@ const coerceAndSanitizeConfig = (rawConfig) => {
     return { ...rawConfig };
   }
 };
-export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false }) => {
+export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false, initialEditingVariantIndex = null, baseConfig = null }) => {
   const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
@@ -2417,6 +2644,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }));
 
   const presetSearchInputRef = useRef(null);
+
+  // Variant editing state: enables editing a variant's configuration while strictly preserving base config
+  const [editingVariantIdx, setEditingVariantIdx] = useState(initialEditingVariantIndex ?? null);
+  const [baseConfigBackup, setBaseConfigBackup] = useState(() => {
+    if (initialEditingVariantIndex !== null && baseConfig) {
+      return flattenConfig(baseConfig);
+    }
+    return null;
+  });
+
+  // Save As New Preset dialog state
+  const [saveModalState, setSaveModalState] = useState({
+    isOpen: false,
+    preset: null,
+    defaultName: '',
+    configSummary: null
+  });
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
   const showResumingFeedback = sessionActive && isResuming;
@@ -2447,7 +2691,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return !!savedDraft;
   });
 
-  const [section, setSection] = useState(isEdit ? 'presets' : 'scan')
+  const [section, setSection] = useState(initialEditingVariantIndex !== null ? 'strategy' : (isEdit ? 'presets' : 'scan'))
   const [presetLoaded, setPresetLoaded] = useState(false)
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
@@ -2977,6 +3221,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [testnetConfigured, liveConfigured, validate]);
 
   const buildConfigToSave = React.useCallback(() => {
+    // If currently editing a variant, merge variant into baseConfigBackup to preserve base strategy
+    if (editingVariantIdx !== null && baseConfigBackup) {
+      const base = { ...baseConfigBackup };
+      const variants = [...(base.strategy_variants || [])];
+      const sanitizedVariant = coerceAndSanitizeConfig(cfg);
+      delete sanitizedVariant.strategy_variants;
+      const vLabel = cfg.strategy_label || `Variant ${editingVariantIdx + 1}`;
+      sanitizedVariant.strategy_label = vLabel;
+      if (editingVariantIdx >= 0 && editingVariantIdx < variants.length) {
+        variants[editingVariantIdx] = sanitizedVariant;
+      } else {
+        variants.push(sanitizedVariant);
+      }
+      base.strategy_variants = variants;
+      return coerceAndSanitizeConfig(base);
+    }
+
     const rawLabel = (cfg.strategy_label && cfg.strategy_label !== 'Momentum Strategy')
       ? cfg.strategy_label
       : (presetName || loadedPresetName || cfg.strategy_label || generatedPresetName || 'Momentum Strategy');
@@ -3063,7 +3324,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     });
 
     return c;
-  }, [cfg, presetName, generatedPresetName]);
+  }, [cfg, presetName, loadedPresetName, generatedPresetName, editingVariantIdx, baseConfigBackup]);
 
   const savePreset = React.useCallback(async (explicitName) => {
     // SRE name-resolution helper: cleanly resolves the preset name with strict precedence.
@@ -3111,8 +3372,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
 
       // Strip strategy_variants when persisting a library preset so presets remain single-strategy definitions
+      const sourceConfig = editingVariantIdx !== null ? coerceAndSanitizeConfig(cfg) : pc;
       const presetPayload = {
-        ...pc,
+        ...sourceConfig,
         strategy_label: name,
         strategy_variants: []
       };
@@ -3131,7 +3393,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           return nextPresets.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         });
         setPresetName('');
-        setLoadedPresetName(name);
+        if (editingVariantIdx === null) {
+          setLoadedPresetName(name);
+        } else {
+          setField('strategy_label', name);
+        }
         recordRecentlyUsed(name);
         sessionStorage.removeItem('config_draft');
         setIsDirty(false);
@@ -3168,6 +3434,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert]);
 
   const loadPreset = React.useCallback((p) => {
+    // Exit any variant editing mode when loading a preset as base
+    setEditingVariantIdx(null);
+    setBaseConfigBackup(null);
+
     const presetLabel = p.name || p.config?.strategy_label;
 
     // Deduplicate: If promoting preset "X" to base, strip any matching variant entry from strategy_variants
@@ -3206,6 +3476,188 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         : `Active base configuration set to "${p.name}".${dedupNote}`
     });
   }, [validate, addAlert, isEdit, sessionActive, cfg.trading_mode, cfg.paper_mode, cfg.strategy_variants, cfg.strategy_label]);
+
+  // Variant editing handlers - allows customizing a variant without replacing or losing the base configuration
+  const startEditingVariant = React.useCallback((variantPresetOrObj, vIndex) => {
+    const currentBase = editingVariantIdx === null ? { ...cfg } : (baseConfigBackup || { ...cfg });
+    if (editingVariantIdx === null) {
+      setBaseConfigBackup(currentBase);
+    }
+
+    let vData = null;
+    if (currentBase.strategy_variants && currentBase.strategy_variants[vIndex]) {
+      vData = { ...currentBase.strategy_variants[vIndex] };
+    } else if (variantPresetOrObj) {
+      vData = { ...(variantPresetOrObj.config || variantPresetOrObj) };
+    }
+
+    if (!vData) return;
+    const label = variantPresetOrObj?.name || vData.strategy_label || `Variant ${vIndex + 1}`;
+    vData.strategy_label = label;
+
+    setEditingVariantIdx(vIndex);
+    const fullVariantCfg = {
+      ...currentBase,
+      ...vData,
+      strategy_label: label,
+      strategy_variants: currentBase.strategy_variants || [] // CRITICAL: Preserve base variants list!
+    };
+
+    setCfg(flattenConfig(fullVariantCfg));
+    // CRITICAL: loadedPresetName is strictly for the active base preset. DO NOT overwrite with variant name.
+    setIsDirty(false);
+    setSection('strategy');
+
+    addAlert({
+      level: 'info',
+      title: 'Variant Editing Active',
+      message: `Tuning variant "${label}". Base strategy "${currentBase.strategy_label || 'Base'}" is preserved.`
+    });
+  }, [cfg, editingVariantIdx, baseConfigBackup, addAlert]);
+
+  const saveVariantChanges = React.useCallback(() => {
+    if (!validate(cfg)) return;
+
+    const base = baseConfigBackup || cfg;
+    const currentVariants = [...(base.strategy_variants || [])];
+    const sanitizedVariant = coerceAndSanitizeConfig(cfg);
+    delete sanitizedVariant.strategy_variants;
+
+    const variantLabel = cfg.strategy_label || (editingVariantIdx !== null ? `Variant ${editingVariantIdx + 1}` : 'Variant');
+    sanitizedVariant.strategy_label = variantLabel;
+
+    if (editingVariantIdx !== null && editingVariantIdx >= 0 && editingVariantIdx < currentVariants.length) {
+      currentVariants[editingVariantIdx] = sanitizedVariant;
+    } else if (editingVariantIdx !== null) {
+      currentVariants[editingVariantIdx] = sanitizedVariant;
+    } else {
+      currentVariants.push(sanitizedVariant);
+    }
+
+    const updatedBase = {
+      ...base,
+      strategy_variants: currentVariants
+    };
+
+    setCfg(flattenConfig(updatedBase));
+    setBaseConfigBackup(null);
+    setEditingVariantIdx(null);
+    setIsDirty(true);
+
+    addAlert({
+      level: 'success',
+      title: 'Variant Changes Saved',
+      message: `Updated parameters for variant "${variantLabel}". Base strategy remains intact.`
+    });
+    setSection('presets');
+  }, [cfg, baseConfigBackup, editingVariantIdx, validate, addAlert]);
+
+  const exitVariantEditing = React.useCallback(() => {
+    if (baseConfigBackup) {
+      setCfg(flattenConfig(baseConfigBackup));
+    }
+    setBaseConfigBackup(null);
+    setEditingVariantIdx(null);
+    setIsDirty(false);
+    setSection('presets');
+    addAlert({
+      level: 'info',
+      title: 'Exited Variant Editing',
+      message: 'Returned to base strategy.'
+    });
+  }, [baseConfigBackup, addAlert]);
+
+  const promoteVariantToBase = React.useCallback(() => {
+    const base = baseConfigBackup || cfg;
+    const currentVariants = [...(base.strategy_variants || [])];
+    const variantLabel = cfg.strategy_label;
+
+    const remainingVariants = currentVariants.filter((v, i) => i !== editingVariantIdx && v.strategy_label !== variantLabel);
+
+    const newBaseConfig = {
+      ...coerceAndSanitizeConfig(cfg),
+      strategy_label: variantLabel,
+      strategy_variants: remainingVariants
+    };
+
+    setCfg(flattenConfig(newBaseConfig));
+    setBaseConfigBackup(null);
+    setEditingVariantIdx(null);
+    setLoadedPresetName(variantLabel);
+    setIsDirty(true);
+
+    addAlert({
+      level: 'success',
+      title: 'Promoted to Base Strategy',
+      message: `"${variantLabel}" is now the active base strategy.`
+    });
+    setSection('presets');
+  }, [baseConfigBackup, cfg, editingVariantIdx, addAlert]);
+
+  const handleOpenSaveAsNew = React.useCallback((presetToCopy = null) => {
+    const targetConfig = presetToCopy ? presetToCopy.config : cfg;
+    const targetName = presetToCopy ? presetToCopy.name : (cfg.strategy_label || 'New Strategy');
+    const suggestedName = presetToCopy ? `${targetName} (Copy)` : targetName;
+
+    const mode = targetConfig.trading_mode || (targetConfig.paper_mode ? 'paper' : 'live');
+    const interval = targetConfig.scan_interval || '1m';
+    const risk = targetConfig.risk_pct_per_trade || 1.0;
+    const sl = targetConfig.sl_distance_pct;
+    const tp = (targetConfig.tp_mode === 'fixed' || targetConfig.tp_mode === undefined)
+      ? targetConfig.tp_ratio || 2.0
+      : (targetConfig.exit_rr_sequence && targetConfig.exit_rr_sequence.length > 0)
+          ? targetConfig.exit_rr_sequence[targetConfig.exit_rr_sequence.length - 1]
+          : 2.0;
+
+    setSaveModalState({
+      isOpen: true,
+      preset: presetToCopy,
+      defaultName: suggestedName,
+      configSummary: {
+        mode: mode ? mode.toUpperCase() : 'PAPER',
+        interval,
+        risk,
+        sl,
+        tp: tp ? Number(tp).toFixed(1) : undefined
+      }
+    });
+  }, [cfg]);
+
+  const handleConfirmSaveAsNew = React.useCallback(async (newName) => {
+    if (saveModalState.preset) {
+      try {
+        setIsSaving(true);
+        const payload = {
+          ...saveModalState.preset.config,
+          strategy_label: newName,
+          strategy_variants: []
+        };
+        const res = await presetsAPI.save(newName, payload);
+        if (res && res.data) {
+          const savedPreset = res.data?.preset || res.data;
+          setPresets(prev => {
+            const safe = Array.isArray(prev) ? prev : [];
+            return [...safe.filter(p => p && p.name !== newName), savedPreset].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          });
+          addAlert({
+            level: 'success',
+            title: 'Preset Saved',
+            message: `Created preset "${newName}" successfully.`
+          });
+        }
+      } catch (err) {
+        addAlert({
+          level: 'error',
+          title: 'Save Failed',
+          message: err.response?.data?.message || err.message || 'Failed to save preset.'
+        });
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      await savePreset(newName);
+    }
+  }, [saveModalState.preset, savePreset, addAlert]);
 
   const deletePreset = React.useCallback(async (name) => {
     if (sessionActive) {
@@ -3613,8 +4065,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         <div className="py-3 px-4 flex justify-between items-center relative z-20">
           <div className="min-w-0 flex-1 mr-4">
              <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">
-               <span className="truncate">{loadedPresetName || cfg.strategy_label || 'Configure Engine'}</span>
-               {loadedPresetName ? (
+               <span className="truncate">
+                 {editingVariantIdx !== null
+                   ? `Variant #${editingVariantIdx + 1}: ${cfg.strategy_label || 'Variant'}`
+                   : (loadedPresetName || cfg.strategy_label || 'Configure Engine')}
+               </span>
+               {editingVariantIdx !== null ? (
+                 <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-violet-500/20 text-violet-300 border border-violet-500/40 shrink-0 flex items-center gap-1">
+                   <Layers size={9} /> Variant #{editingVariantIdx + 1}
+                 </span>
+               ) : loadedPresetName ? (
                  <span className={cn(
                    "text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase border shrink-0",
                    isDirty
@@ -3631,7 +4091,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
              <div className="text-[9px] text-dim font-bold uppercase tracking-widest flex items-center gap-1.5 truncate">
-               {showResumingFeedback ? (
+               {editingVariantIdx !== null ? (
+                 <span className="text-violet-400 font-semibold truncate flex items-center gap-1">
+                   Base Preserved: {baseConfigBackup?.strategy_label || loadedPresetName || 'Main Strategy'}
+                 </span>
+               ) : showResumingFeedback ? (
                  <span className="text-accent flex items-center gap-1 shrink-0">
                    <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
                  </span>
@@ -3644,12 +4108,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    <ShieldCheck size={9} className="text-green/60" /> Strategy Synced
                  </span>
                )}
-               <span className="opacity-40">/</span>
-               <span className="truncate">
-                 {loadedPresetName
-                   ? `Preset: "${loadedPresetName}"${cfg.strategy_label && cfg.strategy_label !== loadedPresetName ? ` (Target: ${cfg.strategy_label})` : ''}`
-                   : (cfg.strategy_label ? `Strategy: ${cfg.strategy_label}` : 'Orchestration Center')}
-               </span>
+               {editingVariantIdx === null && (
+                 <>
+                   <span className="opacity-40">/</span>
+                   <span className="truncate">
+                     {loadedPresetName
+                       ? `Preset: "${loadedPresetName}"${cfg.strategy_label && cfg.strategy_label !== loadedPresetName ? ` (Target: ${cfg.strategy_label})` : ''}`
+                       : (cfg.strategy_label ? `Strategy: ${cfg.strategy_label}` : 'Orchestration Center')}
+                   </span>
+                 </>
+               )}
              </div>
           </div>
           <Tooltip content="Close Configuration">
@@ -3658,49 +4126,153 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         </div>
         <SectionTabs section={section} onSectionChange={setSection} errors={errors} isMoreOpen={isMoreOpen} setIsMoreOpen={setIsMoreOpen} modalRef={modalRef} />
 
-        {/* Persistent Preset Context Ribbon */}
-        {loadedPresetName && (
-          <div className={cn(
-            "px-3 sm:px-4 py-1.5 flex items-center justify-between text-xs border-t transition-colors relative z-30",
-            isDirty
-              ? "bg-amber/10 border-amber/30 text-amber-200"
-              : "bg-accent/5 border-accent/20 text-text/90"
-          )}>
-            <div className="flex items-center gap-2 truncate">
-              <FolderOpen size={13} className={isDirty ? "text-amber shrink-0" : "text-accent shrink-0"} />
-              <span className="text-[10px] uppercase font-bold tracking-wider text-dim shrink-0">Preset:</span>
-              <span className="font-mono font-bold text-xs truncate max-w-[140px] xs:max-w-[200px] sm:max-w-[320px] text-text" title={loadedPresetName}>{loadedPresetName}</span>
-              {isDirty ? (
-                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber/20 text-amber border border-amber/40 shrink-0">
-                  Modified
+        {/* Ultra-Dense, High-Clarity Sub-Header Ribbon across other tabs */}
+        {section !== 'presets' && (
+          editingVariantIdx !== null ? (
+            <div className="px-3 sm:px-4 py-1.5 bg-violet-950/35 border-t border-b border-violet-500/30 flex items-center justify-between gap-2 text-xs transition-all relative z-30 animate-in fade-in duration-150">
+              {/* Left: Indicator, Variant Badge, and Full Strategy Name */}
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <span className="p-0.5 rounded bg-violet-500/20 text-violet-300 shrink-0">
+                  <Layers size={12} />
                 </span>
-              ) : (
-                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-green/10 text-green border border-green/30 shrink-0">
-                  Synced
+                <span className="text-[10px] font-black uppercase text-violet-300 bg-violet-500/20 px-1.5 py-0.2 rounded border border-violet-500/30 shrink-0">
+                  V{editingVariantIdx + 1}
                 </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {isDirty && (
+                <span
+                  className="font-mono font-bold text-xs truncate text-white min-w-0 flex-1"
+                  title={cfg.strategy_label || `Variant #${editingVariantIdx + 1}`}
+                >
+                  {cfg.strategy_label || `Variant #${editingVariantIdx + 1}`}
+                </span>
+                {isDirty && (
+                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                    Modified
+                  </span>
+                )}
+                <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-violet-500/15 text-violet-300/80 border border-violet-500/30 shrink-0 hidden md:inline">
+                  Base Safe
+                </span>
+              </div>
+
+              {/* Right: Quick Ultra-Compact Actions */}
+              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                {isDirty && presets.some(p => p.name === cfg.strategy_label) && (
+                  <button
+                    type="button"
+                    onClick={() => savePreset(cfg.strategy_label)}
+                    disabled={isSaving}
+                    className="px-2 py-1 rounded-lg text-[11px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0"
+                    title={`Update preset "${cfg.strategy_label}" in database`}
+                  >
+                    <RefreshCw size={11} className={cn(isSaving && "animate-spin")} />
+                    <span>Update</span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => savePreset(loadedPresetName)}
-                  disabled={isSaving}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+                  onClick={saveVariantChanges}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-violet-600 hover:bg-violet-500 text-white shadow-xs flex items-center gap-1 transition-all cursor-pointer active:scale-95 shrink-0"
+                  title="Save changes to this variant in active session"
                 >
-                  <RefreshCw size={10} className={cn(isSaving && "animate-spin")} />
-                  Update Preset
+                  <Check size={11} />
+                  <span>Save Variant</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => { setSection('presets'); }}
-                className="text-[10px] font-bold text-dim hover:text-accent transition-colors cursor-pointer px-1.5 py-0.5 rounded hover:bg-white/5"
-              >
-                Presets →
-              </button>
+                <button
+                  type="button"
+                  onClick={() => handleOpenSaveAsNew(null)}
+                  className="px-2 py-1 rounded-lg text-[11px] font-bold text-violet-200 hover:text-white border border-violet-500/30 hover:bg-white/5 transition-colors cursor-pointer shrink-0"
+                  title="Save this variant as a new preset in library"
+                >
+                  Save As
+                </button>
+                <button
+                  type="button"
+                  onClick={promoteVariantToBase}
+                  className="px-2 py-1 rounded-lg text-[10px] font-medium text-violet-300 hover:text-white border border-violet-500/30 hover:bg-white/5 transition-colors cursor-pointer hidden lg:inline-flex shrink-0"
+                  title="Make this variant your main base strategy"
+                >
+                  Promote
+                </button>
+                <button
+                  type="button"
+                  onClick={exitVariantEditing}
+                  className="px-2 py-1 rounded-lg text-[11px] font-medium text-dim hover:text-text hover:bg-white/5 transition-colors cursor-pointer shrink-0"
+                  title="Exit variant editing and return to base"
+                >
+                  Done
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            (loadedPresetName || cfg.strategy_label) && (
+              <div className={cn(
+                "px-3 sm:px-4 py-1.5 border-t border-b flex items-center justify-between gap-2 text-xs transition-all relative z-30",
+                isDirty
+                  ? "bg-amber-950/20 border-amber-500/30 text-amber-200"
+                  : "bg-surface/80 backdrop-blur-md border-border/60 text-text/90"
+              )}>
+                {/* Left: Dot/Status, Strategy Name (Full Width on Mobile), and Status Pill */}
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  <span className={cn(
+                    "w-2 h-2 rounded-full shrink-0",
+                    isDirty ? "bg-amber-400 animate-pulse" : "bg-accent"
+                  )} />
+                  <span
+                    className="font-mono font-bold text-xs truncate text-text min-w-0 flex-1"
+                    title={loadedPresetName || cfg.strategy_label}
+                  >
+                    {loadedPresetName || cfg.strategy_label || 'Custom Strategy'}
+                  </span>
+                  {loadedPresetName ? (
+                    isDirty ? (
+                      <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 shrink-0">
+                        Modified
+                      </span>
+                    ) : (
+                      <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-green-500/10 text-green-400 border border-green-500/30 shrink-0 flex items-center gap-1">
+                        <Check size={9} /> Synced
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded bg-white/5 text-dim border border-border/60 shrink-0">
+                      Draft
+                    </span>
+                  )}
+                </div>
+
+                {/* Right: Quick Update and Save As Actions */}
+                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                  {isDirty && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = loadedPresetName || (cfg.strategy_label && cfg.strategy_label !== 'Momentum Strategy' ? cfg.strategy_label : null);
+                        if (target) {
+                          savePreset(target);
+                        } else {
+                          handleOpenSaveAsNew(null);
+                        }
+                      }}
+                      disabled={isSaving}
+                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0"
+                      title={loadedPresetName ? `Update preset "${loadedPresetName}" in database` : 'Update strategy preset'}
+                    >
+                      <RefreshCw size={11} className={cn(isSaving && "animate-spin")} />
+                      <span>Update</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenSaveAsNew(null)}
+                    className="px-2 py-1 rounded-lg text-[11px] font-bold text-dim hover:text-accent border border-border/60 hover:border-accent/40 hover:bg-white/5 transition-colors cursor-pointer shrink-0"
+                    title="Save configuration as a new preset in library"
+                  >
+                    Save As
+                  </button>
+                </div>
+              </div>
+            )
+          )
         )}
       </div>
       <ModalAlertTicker />
@@ -5310,32 +5882,66 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             className="flex flex-col gap-0 animate-in fade-in duration-300 -mx-3 md:-mx-4 -mt-3"
           >
             {/* Top Bar */}
-            <div className="flex flex-col gap-4 px-4 pt-5 pb-3">
-               <div className="flex items-center justify-between">
-                  <div className="text-xl font-bold text-text flex items-center gap-3">
-                     Presets
-                     <span className="text-xs text-dim font-normal tracking-tight">
-                        {Array.isArray(presets) ? presets.length : 0} saved · {cfg.strategy_variants?.length || 0} running as variants
+            <div className="flex flex-col gap-3.5 px-3 sm:px-4 pt-4 pb-3">
+               <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                     <span className="text-lg sm:text-xl font-bold text-text tracking-tight">
+                        Presets
                      </span>
+                     <span className="text-[11px] sm:text-xs text-dim font-medium px-2 py-0.5 rounded-md bg-surface border border-border/50">
+                        {Array.isArray(presets) ? presets.length : 0} saved
+                     </span>
+                     {(cfg.strategy_variants?.length || 0) > 0 && (
+                        <span className="text-[11px] sm:text-xs font-bold text-violet-400 px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/30 flex items-center gap-1">
+                           <Layers size={11} /> {cfg.strategy_variants.length} active
+                        </span>
+                     )}
                   </div>
-                  <div className="flex items-center gap-4">
-                     <div className="relative w-64 hidden sm:block">
-                        <input
-                           type="text"
-                           placeholder="Search   ( / )"
-                           value={presetSearch}
-                           onChange={(e) => setPresetSearch(e.target.value)}
-                           className="w-full bg-surface border border-border rounded-xl h-10 px-4 text-sm font-medium focus:border-accent focus:outline-none"
-                        />
-                     </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                     <button
+                        type="button"
+                        onClick={() => handleOpenSaveAsNew(null)}
+                        className="px-3 py-1.5 rounded-xl bg-accent hover:bg-accent/90 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+                     >
+                        <Plus size={13} />
+                        <span className="hidden xs:inline">Save as Preset</span>
+                        <span className="xs:hidden">Save</span>
+                     </button>
                      <button
                         type="button"
                         onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
-                        className="text-[13px] font-bold text-dim hover:text-text transition-colors whitespace-nowrap"
+                        className={cn(
+                           "px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer",
+                           openSectionId === 'presets_tools'
+                              ? "bg-accent/10 border-accent/40 text-accent"
+                              : "border-border/70 text-dim hover:text-text hover:bg-surface"
+                        )}
                      >
-                        Import / Export
+                        Tools
                      </button>
                   </div>
+               </div>
+
+               {/* Responsive Search Bar (Desktop, Tablet, Mobile) */}
+               <div className="relative w-full">
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+                  <input
+                     type="text"
+                     placeholder="Search presets by name or mode... (/)"
+                     value={presetSearch}
+                     onChange={(e) => setPresetSearch(e.target.value)}
+                     className="w-full bg-surface/70 border border-border/70 hover:border-border rounded-xl h-9 sm:h-10 pl-9 pr-9 text-xs sm:text-sm font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-surface focus:outline-none transition-all"
+                  />
+                  {presetSearch && (
+                     <button
+                        type="button"
+                        onClick={() => setPresetSearch('')}
+                        aria-label="Clear search"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-dim hover:text-text rounded-md transition-colors"
+                     >
+                        <X size={13} />
+                     </button>
+                  )}
                </div>
 
                {/* Tools expansion */}
@@ -5347,137 +5953,204 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                        exit={{ opacity: 0, height: 0 }}
                        className="overflow-hidden"
                      >
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2 pb-4">
-                          <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="h-10 border border-border hover:border-accent text-xs font-bold"><Copy size={14} className="mr-2"/> Copy active</Btn>
-                          <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="h-10 border border-border hover:border-accent text-xs font-bold"><ClipboardPaste size={14} className="mr-2"/> Paste active</Btn>
-                          <Btn variant="ghost" onClick={handleExportToFile} className="h-10 border border-border hover:border-accent text-xs font-bold"><Download size={14} className="mr-2"/> Export JSON</Btn>
-                          <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-xl text-xs font-bold cursor-pointer text-text hover:text-accent transition-colors">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 pb-2">
+                          <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="h-9 border border-border hover:border-accent text-xs font-bold"><Copy size={13} className="mr-1.5"/> Copy active</Btn>
+                          <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="h-9 border border-border hover:border-accent text-xs font-bold"><ClipboardPaste size={13} className="mr-1.5"/> Paste active</Btn>
+                          <Btn variant="ghost" onClick={handleExportToFile} className="h-9 border border-border hover:border-accent text-xs font-bold"><Download size={13} className="mr-1.5"/> Export JSON</Btn>
+                          <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-xl text-xs font-bold cursor-pointer text-text hover:text-accent transition-colors h-9">
                             <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer" />
-                            <Upload size={14} className="mr-2"/> Import File
+                            <Upload size={13} className="mr-1.5"/> Import File
                           </label>
                         </div>
                      </motion.div>
                   )}
                </AnimatePresence>
 
-               {/* Filters */}
-               <div className="flex items-center gap-1 border-b border-border/40 pb-3">
+               {/* Filters — Responsive, horizontally scrollable on mobile */}
+               <div className="flex items-center gap-1.5 border-b border-border/40 pb-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0">
                   {[
-                     { id: 'all', label: 'All' },
+                     { id: 'all', label: 'All', count: Array.isArray(presets) ? presets.length : 0 },
                      { id: 'live', label: 'Live' },
                      { id: 'testnet', label: 'Testnet' },
                      { id: 'paper', label: 'Paper' },
-                     { id: 'variants', label: 'Variants' }
+                     { id: 'variants', label: 'Variants', count: (cfg.strategy_variants || []).length, isVariantTab: true }
                   ].map(f => (
                      <button
                         key={f.id}
                         type="button"
                         onClick={() => setPresetTabFilter(f.id)}
                         className={cn(
-                           "px-4 py-2 text-[13px] font-bold rounded-xl transition-colors",
+                           "px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer",
                            presetTabFilter === f.id
-                              ? "text-accent"
-                              : "text-dim hover:text-text"
+                              ? f.isVariantTab
+                                 ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+                                 : "bg-accent/15 text-accent border border-accent/30"
+                              : "text-dim hover:text-text hover:bg-surface/50 border border-transparent"
                         )}
-                        style={presetTabFilter === f.id ? { borderBottom: '2px solid var(--accent)' } : {}}
                      >
-                        {f.label}
+                        <span>{f.label}</span>
+                        {f.count !== undefined && (
+                           <span className={cn(
+                              "text-[10px] px-1.5 py-0.2 rounded-full font-bold",
+                              presetTabFilter === f.id
+                                 ? (f.isVariantTab ? "bg-violet-500/40 text-violet-100" : "bg-accent/30 text-white")
+                                 : "bg-surface border border-border/50 text-dim"
+                           )}>
+                              {f.count}
+                           </span>
+                        )}
                      </button>
                   ))}
                </div>
             </div>
 
             {/* Presets List */}
-            <div className="flex flex-col pb-20">
+            <div className="flex flex-col">
                {filteredPresets.length === 0 ? (
-                  <div className="py-12 text-center text-dim text-sm">
-                     No presets found.
+                  <div className="py-12 px-4 text-center text-dim text-xs sm:text-sm flex flex-col items-center gap-2">
+                     <p>No presets found matching your filter or search.</p>
+                     {presetSearch && (
+                        <button
+                           type="button"
+                           onClick={() => setPresetSearch('')}
+                           className="text-accent text-xs font-bold underline"
+                        >
+                           Clear search query
+                        </button>
+                     )}
                   </div>
                ) : (
-                  filteredPresets.map(p => (
-                     <PresetItem
-                        key={p.name}
-                        preset={p}
-                        isLoaded={loadedPresetName === p.name}
-                        isDirty={isDirty}
-                        onLoad={loadPreset}
-                        onToggleVariant={toggleVariant}
-                        onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
-                        isVariant={(cfg.strategy_variants || []).some(v => v.strategy_label === p.name)}
-                        sessionActive={sessionActive}
-                        isSelected={selectedPresetNames.has(p.name)}
-                        onToggleSelect={toggleSelectPreset}
-                        currentCfg={cfg}
-                        onSave={(name) => savePreset(name)}
-                        onSaveAsNew={() => { setPresetName(''); setLoadedPresetName(null); }}
-                        onRevert={() => {
-                           const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
-                           if (original) loadPreset(original);
-                        }}
-                        onDuplicate={() => {
-                           // Simple duplicate logic: load it, clear loaded name, let user save
-                           loadPreset(p);
-                           setLoadedPresetName(null);
-                        }}
-                     />
-                  ))
+                  filteredPresets.map(p => {
+                     const activeVariants = baseConfigBackup?.strategy_variants || cfg.strategy_variants || [];
+                     const variantIndex = activeVariants.findIndex(v => v.strategy_label === p.name);
+                     const isVariant = variantIndex !== -1;
+                     const isEditingVariant = editingVariantIdx === variantIndex && isVariant;
+                     const isLoaded = (baseConfigBackup
+                       ? (baseConfigBackup.strategy_label === p.name || loadedPresetName === p.name)
+                       : (loadedPresetName === p.name)) && !isVariant;
+                     return (
+                        <PresetItem
+                           key={p.name}
+                           preset={p}
+                           variantIndex={variantIndex}
+                           isLoaded={isLoaded}
+                           isDirty={isDirty}
+                           onLoad={loadPreset}
+                           onToggleVariant={toggleVariant}
+                           onDelete={(e, name) => { e.stopPropagation(); setPresetToDelete(name); }}
+                           isVariant={isVariant}
+                           isEditingVariant={isEditingVariant}
+                           onEditVariant={() => startEditingVariant(p, variantIndex)}
+                           sessionActive={sessionActive}
+                           isSelected={selectedPresetNames.has(p.name)}
+                           onToggleSelect={toggleSelectPreset}
+                           currentCfg={cfg}
+                           onSave={(name) => savePreset(name)}
+                           onSaveAsNew={() => handleOpenSaveAsNew(p)}
+                           onRevert={() => {
+                              const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
+                              if (original) loadPreset(original);
+                           }}
+                           onDuplicate={() => {
+                              loadPreset(p);
+                              setLoadedPresetName(null);
+                           }}
+                        />
+                     );
+                  })
                )}
             </div>
 
-            {/* Fixed Footer for Batch & Variants */}
-            {selectedPresetNames.size > 0 ? (
-               <div className="fixed bottom-[68px] sm:bottom-0 left-0 sm:left-auto right-0 sm:right-6 bg-surface border-t border-border p-4 flex flex-col sm:flex-row items-center justify-between gap-4 z-20 sm:rounded-tl-2xl sm:rounded-tr-2xl shadow-[0_-10px_40px_rgba(0,0,0,0.4)]">
-                  <div className="flex items-center justify-between w-full sm:w-auto">
-                     <span className="text-sm font-bold">{selectedPresetNames.size} selected</span>
-                     <button type="button" onClick={() => setSelectedPresetNames(new Set())} className="text-sm font-bold text-dim hover:text-text sm:hidden">Clear</button>
-                  </div>
-                  <div className="flex items-center gap-2 w-full sm:w-auto flex-col sm:flex-row">
-                     <Btn
-                        variant="primary"
-                        onClick={() => {
-                           // Set as variants logic (bulk)
-                           const newVariants = [...(cfg.strategy_variants || [])];
-                           Array.from(selectedPresetNames).forEach(name => {
-                              if (!newVariants.some(v => v.strategy_label === name)) {
-                                 const p = presets.find(x => x.name === name);
-                                 if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
-                                    newVariants.push(p.config);
+            {/* In-flow Variants & Batch Summary Bar — Docked in content, never overlaps sticky modal footer */}
+            <div className="mt-4 px-3 sm:px-4 pb-2">
+               {selectedPresetNames.size > 0 ? (
+                  <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-surface border border-accent/40 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                     <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                           <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+                           <span className="text-xs sm:text-sm font-bold text-text">
+                              {selectedPresetNames.size} preset{selectedPresetNames.size === 1 ? '' : 's'} selected
+                           </span>
+                        </div>
+                        <button
+                           type="button"
+                           onClick={() => setSelectedPresetNames(new Set())}
+                           className="text-xs font-semibold text-dim hover:text-text sm:hidden px-2 py-1"
+                        >
+                           Clear
+                        </button>
+                     </div>
+                     <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                           type="button"
+                           onClick={() => setSelectedPresetNames(new Set())}
+                           className="text-xs font-semibold text-dim hover:text-text hidden sm:inline-block px-3 py-1.5"
+                        >
+                           Clear
+                        </button>
+                        <Btn
+                           variant="primary"
+                           onClick={() => {
+                              const newVariants = [...(cfg.strategy_variants || [])];
+                              Array.from(selectedPresetNames).forEach(name => {
+                                 if (!newVariants.some(v => v.strategy_label === name)) {
+                                    const p = presets.find(x => x.name === name);
+                                    if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
+                                       newVariants.push(p.config);
+                                    }
                                  }
-                              }
-                           });
-                           setCfg(prev => ({ ...prev, strategy_variants: newVariants }));
-                           setSelectedPresetNames(new Set());
-                           addAlert({ level: 'success', title: 'Variants Updated', message: `Added selected to variants.` });
-                        }}
-                        className="w-full sm:w-auto px-8 py-3 bg-accent text-white font-bold"
-                     >
-                        Set as variants
-                     </Btn>
-                     <Btn variant="ghost" onClick={handleExportSelectedPresets} className="w-full sm:w-auto px-8 py-3 border border-border text-text font-bold hover:bg-surface">
-                        Export
-                     </Btn>
-                     <Btn
-                        variant="ghost"
-                        onClick={handleDeleteSelectedPresets}
-                        disabled={sessionActive}
-                        className={cn("w-full sm:w-auto text-sm font-bold", sessionActive ? "text-red/50" : "text-red")}
-                     >
-                        {sessionActive ? "Delete (locked: session active)" : "Delete"}
-                     </Btn>
+                              });
+                              setCfg(prev => ({ ...prev, strategy_variants: newVariants }));
+                              setSelectedPresetNames(new Set());
+                              addAlert({ level: 'success', title: 'Variants Updated', message: `Added selected presets to active variants.` });
+                           }}
+                           className="flex-1 sm:flex-none px-4 py-2 bg-accent hover:bg-accent/90 text-white text-xs font-bold"
+                        >
+                           Set as variants
+                        </Btn>
+                        <Btn
+                           variant="ghost"
+                           onClick={handleExportSelectedPresets}
+                           className="px-3 py-2 border border-border/70 hover:border-accent/40 text-text text-xs font-bold"
+                        >
+                           Export
+                        </Btn>
+                        <Btn
+                           variant="ghost"
+                           onClick={handleDeleteSelectedPresets}
+                           disabled={sessionActive}
+                           className={cn("px-3 py-2 text-xs font-bold", sessionActive ? "text-red/40 cursor-not-allowed" : "text-red hover:bg-red/10")}
+                        >
+                           {sessionActive ? "Delete (locked)" : "Delete"}
+                        </Btn>
+                     </div>
                   </div>
-               </div>
-            ) : (
-               <div className="fixed bottom-[68px] sm:bottom-0 left-0 sm:left-auto right-0 sm:right-6 bg-surface border-t border-border p-4 flex items-center justify-between z-20 sm:rounded-tl-2xl sm:rounded-tr-2xl text-[13px] text-dim">
-                  <span>
-                     Variants {(cfg.strategy_variants || []).length} / {CONFIG_LIMITS.MAX_VARIANTS} · combined risk {((cfg.strategy_variants || []).reduce((acc, v) => acc + (Number(v.risk_pct_per_trade) || 0), 0)).toFixed(1)}% of {cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}% cap
-                  </span>
-                  {(cfg.strategy_variants || []).length > 0 && (
-                     <button type="button" onClick={clearAllVariants} className="text-red font-bold hover:text-red-400 transition-colors">
-                        Clear variants
-                     </button>
-                  )}
-               </div>
-            )}
+               ) : (
+                  <div className="p-3 sm:p-3.5 rounded-xl bg-surface/50 border border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-dim">
+                     <div className="flex items-center gap-2 flex-wrap">
+                        <span className="p-1 rounded-md bg-violet-500/15 text-violet-400 shrink-0">
+                           <Layers size={13} />
+                        </span>
+                        <span className="font-medium text-text/80">
+                           Variants: <strong className="text-violet-400 font-bold">{(cfg.strategy_variants || []).length}</strong> / {CONFIG_LIMITS.MAX_VARIANTS}
+                        </span>
+                        <span className="hidden xs:inline text-dim/40">·</span>
+                        <span className="text-[11px] text-dim">
+                           Combined risk: <strong className="text-text font-bold">{((cfg.strategy_variants || []).reduce((acc, v) => acc + (Number(v.risk_pct_per_trade) || 0), 0)).toFixed(1)}%</strong> of {cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}% cap
+                        </span>
+                     </div>
+                     {(cfg.strategy_variants || []).length > 0 && (
+                        <button
+                           type="button"
+                           onClick={clearAllVariants}
+                           className="text-xs font-bold text-red hover:text-red-400 transition-colors cursor-pointer self-end sm:self-center"
+                        >
+                           Clear variants
+                        </button>
+                     )}
+                  </div>
+               )}
+            </div>
 
             <ConfirmationModal
                 isOpen={!!presetToDelete}
@@ -5488,6 +6161,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 confirmText="Delete Preset"
                 variant="danger"
                 loading={isDeleting}
+            />
+
+            <SavePresetModal
+                isOpen={saveModalState.isOpen}
+                onClose={() => setSaveModalState(prev => ({ ...prev, isOpen: false }))}
+                onSave={handleConfirmSaveAsNew}
+                defaultName={saveModalState.defaultName}
+                configSummary={saveModalState.configSummary}
             />
           </div>
         )}

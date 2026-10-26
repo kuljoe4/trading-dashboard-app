@@ -3434,10 +3434,12 @@ export function DashboardView({ initialStrategy }) {
                 <Suspense fallback={<LoadingFallback />}>
                   {modalConfig && (
                     <ConfigModal
-                      key={isEditMode ? (selectedConfig?.id || strategyId || 'edit') : 'new'}
+                      key={isEditMode ? (selectedConfig?.id || strategyId || (editingVariantIndex !== null ? `variant-${editingVariantIndex}` : 'edit')) : 'new'}
                       initialConfig={modalConfig}
+                      baseConfig={config}
+                      initialEditingVariantIndex={editingVariantIndex}
                       onSave={handleConfigSave}
-                      onClose={() => setShowConfig(false)}
+                      onClose={() => { setShowConfig(false); setEditingVariantIndex(null); }}
                       isEdit={isEditMode}
                       loading={loading}
                     />

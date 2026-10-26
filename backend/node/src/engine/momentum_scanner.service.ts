@@ -136,7 +136,11 @@ export class MomentumScannerService {
             if (activeExcluded.has(t.symbol)) continue;
             if (!this.marketFeed.getSymbolFilters(t.symbol)) continue;
             if (t.open_24h && t.open_24h > 0) {
-              const momentum = Math.abs((t.price - t.open_24h) / t.open_24h) * 100;
+              const allowedSide = (config.entry_side || 'both').toLowerCase();
+              const priceDiff = t.price - t.open_24h;
+              if (allowedSide === 'long' && priceDiff <= 0) continue;
+              if (allowedSide === 'short' && priceDiff >= 0) continue;
+              const momentum = Math.abs(priceDiff / t.open_24h) * 100;
               if (momentum >= threshold) {
                 candidateTickers.push(t);
               }
@@ -306,6 +310,25 @@ export class MomentumScannerService {
 
     // Determine direction based on momentum
     const direction = momentumPct > 0 ? 'LONG' : 'SHORT';
+
+    // Enforce configured entry_side ('both' | 'long' | 'short')
+    const allowedSide = (config.entry_side || 'both').toLowerCase();
+    if (allowedSide === 'long' && direction !== 'LONG') {
+      if (config.debug_mode) {
+        this.logger.debug(
+          `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
+        );
+      }
+      return null;
+    }
+    if (allowedSide === 'short' && direction !== 'SHORT') {
+      if (config.debug_mode) {
+        this.logger.debug(
+          `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
+        );
+      }
+      return null;
+    }
 
     // Get current price and volume
     // BOLT OPTIMIZATION: Use O(1) ticker lookup instead of O(N) array search

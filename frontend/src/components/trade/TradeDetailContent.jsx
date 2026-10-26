@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, memo, useRef } from 'react'
 import { 
   ShieldCheck, Clock, ArrowUpRight, ArrowDownRight, Activity, Zap, 
   Info, ShieldAlert, CheckCircle2, BarChart3, TrendingUp, XCircle, Loader2, Trash2, ArrowRight,
-  Edit3, Sliders, Plus, Trash, Copy, ClipboardPaste, RefreshCw, AlertTriangle
+  Edit3, Sliders, Plus, Trash, Copy, ClipboardPaste, RefreshCw, AlertTriangle, ChevronDown
 } from 'lucide-react'
 import { fmtUSD, pnlColor, pnlClass, fmt } from '../../lib/theme'
 import { useTradingStore } from '../../store/trading'
@@ -1196,6 +1196,40 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
 });
 EntrySignalContext.displayName = 'EntrySignalContext';
 
+const CollapsibleSection = memo(({ title, icon, badge, children, defaultOpen = false, className = '' }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div className={cn("bg-surface border border-border/70 rounded-2xl overflow-hidden transition-all duration-200 shadow-sm", className)}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        aria-expanded={isOpen}
+        className="w-full px-4 py-3 md:py-3.5 flex items-center justify-between text-left hover:bg-white/[0.02] transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+      >
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="text-[11px] font-black uppercase tracking-wider text-text/90">{title}</span>
+          {badge && (
+            <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-full bg-surface-hover border border-border text-dim">
+              {badge}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] font-mono text-dim/60 uppercase">{isOpen ? 'Hide' : 'Show Details'}</span>
+          <ChevronDown size={14} className={cn("text-dim transition-transform duration-200", isOpen && "rotate-180")} />
+        </div>
+      </button>
+      {isOpen && (
+        <div className="px-4 pb-4 pt-2 border-t border-border/40">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+});
+CollapsibleSection.displayName = 'CollapsibleSection';
+
 export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClosing, confirmClose, setConfirmClose, layout = "grid" }) => {
   const activeSessionPnl = useTradingStore(state => state.totalPnl);
   const activeSessionConfig = useTradingStore(state => state.config);
@@ -1990,34 +2024,73 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
           </div>
 
 
-          {/* Indicator Estimation Marker */}
-          {indicatorEstPrice !== null && (() => {
+          {/* Enhanced Exit Signal Markers on Modal Runway Track */}
+          {Object.entries(enhancedExitSignals).map(([key, sig]) => {
+            if (!sig) return null;
+            const sigEst = trade.exit_estimation?.signalEstimations?.[key];
+            let sigPrice = null;
+            if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
+              sigPrice = sig.threshold;
+            } else if (sigEst && typeof sigEst.estimatedExitPrice === 'number' && sigEst.estimatedExitPrice > 0) {
+              sigPrice = sigEst.estimatedExitPrice;
+            }
+            if (!sigPrice || isNaN(sigPrice)) return null;
+
+            let sigPos = 50;
+            if (tp > 0 && sl > 0) {
+              const totalRange = isLong ? (tp - sl) : (sl - tp);
+              if (totalRange > 0) {
+                const distFromSl = isLong ? (sigPrice - sl) : (sl - sigPrice);
+                sigPos = Math.max(0, Math.min(100, (distFromSl / totalRange) * 100));
+              }
+            }
+
+            const isFired = !!sig.fired;
+            const isHighProx = typeof sig.distPct === 'number' && sig.distPct >= 75;
+
             return (
-              <Tooltip content={
-                <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
-                  <div className="font-bold border-b border-white/5 pb-1 mb-1">Indicator Exit Estimation</div>
-                  <div className="text-dim">Est. Exit Price: <span className="text-amber font-mono font-semibold">{fmtUSD(indicatorEstPrice)}</span></div>
-                  <div className="text-dim">Status: <span className="text-amber font-mono font-semibold">Projected Target</span></div>
-                </div>
-              }>
+              <Tooltip
+                key={`runway-sig-${key}`}
+                content={
+                  <div className="flex flex-col gap-1 text-[11px] p-1 font-sans text-left">
+                    <div className="font-bold flex items-center justify-between border-b border-white/5 pb-1 mb-1">
+                      <span className={isFired ? "text-rose-400 font-black" : "text-amber-400 font-bold"}>
+                        ⚡ {sig.label || key}
+                      </span>
+                      <span className={cn(
+                        "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider",
+                        isFired ? "bg-rose-500/20 text-rose-400 border border-rose-500/30" : "bg-amber-400/10 text-amber-400 border border-amber-400/20"
+                      )}>
+                        {isFired ? 'FIRED' : `${Math.round(sig.distPct || 0)}% PROXIMITY`}
+                      </span>
+                    </div>
+                    <div className="text-dim">Trigger Level: <span className="text-text font-mono font-semibold">{fmtUSD(sigPrice)}</span></div>
+                    {sig.value !== undefined && <div className="text-dim">Current Value: <span className="text-accent font-mono">{typeof sig.value === 'number' ? sig.value.toFixed(2) : sig.value} {sig.unit || ''}</span></div>}
+                  </div>
+                }
+              >
                 <div
-                  className="absolute top-0 bottom-0 z-15 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
-                  style={{ left: `${indicatorEstPos}%` }}
+                  className="absolute top-0 bottom-0 z-20 cursor-help transition-all duration-300 flex flex-col items-center -ml-[1px]"
+                  style={{ left: `${sigPos}%` }}
                 >
                   <div className={cn(
                     "px-1 py-0.2 text-[6.5px] font-black uppercase rounded tracking-tighter shadow-sm mb-0.5 leading-none transition-all duration-300 flex items-center gap-0.5",
-                    "bg-surface/90 border border-amber/40 text-amber/80"
+                    isFired
+                      ? "bg-rose-600 text-white shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-pulse"
+                      : isHighProx
+                        ? "bg-amber-500/90 text-black font-extrabold shadow-[0_0_6px_rgba(245,158,11,0.6)]"
+                        : "bg-surface/90 border border-amber/40 text-amber/90"
                   )}>
-                    🎯 EST
+                    ⚡ {sig.label || key}
                   </div>
                   <div className={cn(
-                    "flex-1 w-px border-l border-dashed",
-                    "border-amber/40"
+                    "flex-1 w-px",
+                    isFired ? "bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.9)]" : "border-l border-dashed border-amber/40"
                   )} />
                 </div>
               </Tooltip>
             );
-          })()}
+          })}
 
           {/* Active Trailing Stop Loss Flag Marker on Runway Track */}
           {(trade.strategy_config?.trailing_stop_enabled || trade.strategy_config?.sl_type === 'trailing') && sl > 0 && (() => {
@@ -2128,211 +2201,227 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
          <StatCard label="Entry Price" value={price(entry)} color="text-dim" compact tooltipText="Weighted execution fill price at trade open" />
       </div>
 
-      {/* Entry Signal & Technical Context */}
-      <EntrySignalContext trade={trade} activeSessionConfig={activeSessionConfig} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5">
+      {/* Core Operational Controls: Guard Ladder & Exit Signal Monitors */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5 mt-2">
          <div className="lg:col-span-2 flex flex-col gap-3 md:gap-4">
             <RRLadder trade={trade} interactiveEnabled={interactiveEnabled} />
          </div>
-
          <div className="flex flex-col gap-3 md:gap-4">
             <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} interactiveEnabled={interactiveEnabled} setInteractiveEnabled={setInteractiveEnabled} />
-
-            <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
-              <SectionLabel className="mb-3 md:mb-5">
-                 <Info size={14} className="text-accent" /> Technical Meta
-              </SectionLabel>
-              {(() => {
-                const sessionReturnBlock = (() => {
-                  if (trade.exit_ts || !sessionActive) return null;
-                  const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
-                  const storeBal = activeSessionBalance || 0;
-                  const startingBalance = tradingMode === 'paper'
-                    ? (activeSessionConfig.paper_starting_balance || 10000)
-                    : (tradingMode === 'testnet'
-                        ? (activeSessionConfig.testnet_starting_balance && activeSessionConfig.testnet_starting_balance !== 10000
-                            ? activeSessionConfig.testnet_starting_balance
-                            : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000))
-                        : (activeSessionConfig.live_starting_balance && activeSessionConfig.live_starting_balance !== 10000
-                            ? activeSessionConfig.live_starting_balance
-                            : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000)));
-                  const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
-                  const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
-                  return {
-                    label: `Session Return (${modeLabel})`,
-                    value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%)`,
-                    color: pnlClass(activeSessionPnl)
-                  };
-                })();
-
-                return (
-                  <div className="flex flex-col gap-1 md:gap-3.5">
-                     {[
-                       sessionReturnBlock && {
-                         label: sessionReturnBlock.label,
-                         value: sessionReturnBlock.value,
-                         color: sessionReturnBlock.color
-                       },
-                       {
-                         label: 'Est. Exit Floor P&L',
-                         value: `${fmtUSD(estPnlToRealize)}`,
-                         color: estPnlToRealize >= 0 ? 'text-green' : 'text-red',
-                         tooltip: 'Guaranteed minimum profit or loss locked by the active stop-loss or exit signal floor.'
-                       },
-                       {
-                         label: 'Projected Target P&L',
-                         value: `${fmtUSD(targetProjectedPnl)} (${fmt(trade.tp_ratio || 2.0, 2)}R)`,
-                         color: targetProjectedPnl >= 0 ? 'text-purple' : 'text-dim',
-                         tooltip: 'Target profit and loss if position reaches full fixed target R:R ratio or Take Profit price.'
-                       },
-                       {
-                         label: 'Min RR (Drawdown)',
-                         value: `${(() => {
-                           const v = trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? trade.min_rr_achieved : 0;
-                           return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
-                         })()} R`,
-                         color: (trade.min_rr_achieved || 0) < 0 ? 'text-red' : 'text-dim',
-                         tooltip: 'The lowest RR (deepest drawdown) reached during this trade.'
-                       },
-                        { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70', tooltip: 'Realized trading fees.' },
-                        { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70', tooltip: 'Funding fees paid/received.' },
-                       { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Percentage return on investment from entry price.' },
-                       { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
-                       trade.strategy_config?.trailing_stop_enabled && {
-                         label: 'Trailing Stop',
-                         value: trade.strategy_config.trailing_stop_type === 'rr'
-                           ? `${trade.strategy_config.trailing_stop_rr || 1.0} R`
-                           : `${trade.strategy_config.trailing_stop_distance_pct || 1.0}%`,
-                         color: 'text-purple-400',
-                         tooltip: trade.strategy_config.trailing_stop_type === 'rr'
-                           ? 'Trailing stop-loss distance expressed as initial R multiple.'
-                           : 'Trailing stop-loss distance percentage.'
-                       },
-                       { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
-                           { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },
-                           {
-                             label: 'Risk Lock State',
-                             value: trade.risk_usdt === 0 ? `Released (${trade.risk_lock_reason || 'BE'})` : `Locked (${fmtUSD(trade.risk_usdt)})`,
-                             color: trade.risk_usdt === 0 ? 'text-green' : 'text-amber',
-                             tooltip: `Risk lock state: ${trade.risk_lock_reason || (trade.risk_usdt === 0 ? 'SL at or above breakeven' : 'Active capital at risk')}`
-                           },
-                           {
-                             label: 'Daily Δ at Entry',
-                             value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
-                             color: pnlClass(trade.entry_daily_change_pct),
-                             tooltip: 'Market price change % at trade entry.'
-                           },
-                           trade.exit_ts && {
-                             label: 'Exit Signal',
-                             value: (() => {
-                                const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
-                                const reason = trade.exit_signal_reason || '';
-                                if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
-                                  if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
-                                  if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
-                                  if (reason.includes('RR_sequence_milestone')) {
-                                    const match = reason.match(/milestone_(\d+)/);
-                                    return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
-                                  }
-                                  if (type === 'TRAILING STOP') return 'Trailing Stop';
-                                  return 'Stop Loss';
-                                }
-                                if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
-                                if (type === 'EXCHANGE FILL') return 'Exchange Fill';
-                                if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
-                                return type;
-                             })(),
-                             color: 'text-accent',
-                             tooltip: trade.exit_signal_reason || 'Exit signal details.'
-                           }
-                         ].filter(Boolean).map(item => (
-                           <div key={item.label} className="flex justify-between items-center py-1 md:py-2.5 border-b border-border/40 last:border-0">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
-                                <Tooltip content={item.tooltip || 'No info'}>
-                                  <Info size={10} className="text-dim/50 hover:text-accent cursor-help" />
-                                </Tooltip>
-                              </div>
-                              <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
-                           </div>
-                         ))}
-                      </div>
-                    );
-                })()}
-             </div>
-
-             {/* Active Trade Event Log section */}
-             {(trade.active_trade_events || []).length > 0 && (
-                <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm mt-4">
-                  <SectionLabel className="mb-3 md:mb-5">
-                    <Activity size={14} className="text-accent" /> Active Trade Event Log
-                  </SectionLabel>
-                  <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1 no-scrollbar">
-                    {[...(trade.active_trade_events || [])].reverse().map((evt, i) => (
-                      <div key={i} className="flex flex-col gap-1 text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/evt hover:border-accent/30 transition-colors">
-                        <div className="flex items-center justify-between mb-1">
-                           <div className="flex items-center gap-1.5">
-                              <span className={cn(
-                                 "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest",
-                                 evt.level === 'error' ? "bg-red/10 text-red" :
-                                 evt.level === 'warn' ? "bg-amber/10 text-amber" :
-                                 "bg-blue-500/10 text-blue-400"
-                              )}>
-                                 {evt.type}
-                              </span>
-                           </div>
-                           <span className="text-dim/40 font-mono text-[9px]">{new Date(evt.timestamp).toLocaleTimeString()}</span>
-                        </div>
-                        <span className="text-dim/80 text-[10px] leading-relaxed">{evt.message}</span>
-                        {evt.details && Object.keys(evt.details).length > 0 && (
-                           <div className="mt-2 p-2 bg-black/20 rounded border border-white/[0.02] overflow-hidden">
-                             <pre className="text-[8px] font-mono text-dim/60 whitespace-pre-wrap break-words m-0">
-                               {JSON.stringify(evt.details, null, 2)}
-                             </pre>
-                           </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-             {/* Risk Mitigation Log section */}
-             {(trade.sl_adjustments || []).length > 0 && (
-                <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm">
-                  <SectionLabel className="mb-3 md:mb-5">
-                    <ShieldCheck size={14} className="text-accent" /> Risk Mitigation Log
-                  </SectionLabel>
-                  <div className="flex flex-col gap-2">
-                    {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
-                      <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
-                        <div className="flex flex-col gap-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
-                            <span className="text-dim/30">→</span>
-                            <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                             <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
-                             {adj.adaptive && (
-                                <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
-                                   <Activity size={8} /> Adaptive
-                                </span>
-                             )}
-                          </div>
-                        </div>
-                        {i === 0 && (
-                          <div className="flex flex-col items-end gap-1">
-                            <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
          </div>
+      </div>
+
+      {/* Progressive Disclosure Sections for Technical Meta, Logs & Config */}
+      <div className="flex flex-col gap-3 mt-3">
+        {/* Entry Signal Context */}
+        <CollapsibleSection
+          title="Entry Signal Context & Execution Metadata"
+          icon={<TrendingUp size={14} className="text-accent" />}
+          badge="Entry Signals"
+          defaultOpen={false}
+        >
+          <EntrySignalContext trade={trade} activeSessionConfig={activeSessionConfig} />
+        </CollapsibleSection>
+
+        {/* Technical & Execution Meta */}
+        <CollapsibleSection
+          title="Technical & Session Execution Meta"
+          icon={<Info size={14} className="text-accent" />}
+          badge={`${trade.symbol} · ${trade.direction}`}
+          defaultOpen={false}
+        >
+          {(() => {
+            const sessionReturnBlock = (() => {
+              if (trade.exit_ts || !sessionActive) return null;
+              const tradingMode = activeSessionConfig.trading_mode || (activeSessionConfig.paper_mode ? 'paper' : 'live');
+              const storeBal = activeSessionBalance || 0;
+              const startingBalance = tradingMode === 'paper'
+                ? (activeSessionConfig.paper_starting_balance || 10000)
+                : (tradingMode === 'testnet'
+                    ? (activeSessionConfig.testnet_starting_balance && activeSessionConfig.testnet_starting_balance !== 10000
+                        ? activeSessionConfig.testnet_starting_balance
+                        : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000))
+                    : (activeSessionConfig.live_starting_balance && activeSessionConfig.live_starting_balance !== 10000
+                        ? activeSessionConfig.live_starting_balance
+                        : (storeBal ? Math.max(1, storeBal - activeSessionPnl) : 10000)));
+              const returnPct = startingBalance > 0 ? (activeSessionPnl / startingBalance) * 100 : 0;
+              const modeLabel = tradingMode === 'paper' ? 'Paper' : tradingMode === 'testnet' ? 'Testnet' : 'Live';
+              return {
+                label: `Session Return (${modeLabel})`,
+                value: `${fmtUSD(activeSessionPnl)} (${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(2)}%)`,
+                color: pnlClass(activeSessionPnl)
+              };
+            })();
+            return (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+                 {[
+                   sessionReturnBlock && {
+                     label: sessionReturnBlock.label,
+                     value: sessionReturnBlock.value,
+                     color: sessionReturnBlock.color
+                   },
+                   {
+                     label: 'Est. Exit Floor P&L',
+                     value: `${fmtUSD(estPnlToRealize)}`,
+                     color: estPnlToRealize >= 0 ? 'text-green' : 'text-red',
+                     tooltip: 'Guaranteed minimum profit or loss locked by the active stop-loss or exit signal floor.'
+                   },
+                   {
+                     label: 'Projected Target P&L',
+                     value: `${fmtUSD(targetProjectedPnl)} (${fmt(trade.tp_ratio || 2.0, 2)}R)`,
+                     color: targetProjectedPnl >= 0 ? 'text-purple' : 'text-dim',
+                     tooltip: 'Target profit and loss if position reaches full fixed target R:R ratio or Take Profit price.'
+                   },
+                   {
+                     label: 'Min RR (Drawdown)',
+                     value: `${(() => {
+                       const v = trade.min_rr_achieved !== undefined && trade.min_rr_achieved !== null ? trade.min_rr_achieved : 0;
+                       return v >= 0 ? `+${v.toFixed(2)}` : v.toFixed(2);
+                     })()} R`,
+                     color: (trade.min_rr_achieved || 0) < 0 ? 'text-red' : 'text-dim',
+                     tooltip: 'The lowest RR (deepest drawdown) reached during this trade.'
+                   },
+                    { label: 'Commission', value: fmtUSD(-(trade.realized_fee || 0)), color: 'text-red/70', tooltip: 'Realized trading fees.' },
+                    { label: 'Funding Fee', value: fmtUSD(-(trade.funding_fee || 0)), color: trade.funding_fee > 0 ? 'text-red/70' : 'text-green/70', tooltip: 'Funding fees paid/received.' },
+                   { label: 'ROI from Entry', value: `${pnlPct.toFixed(2)}%`, color: pnlPct >= 0 ? 'text-green' : 'text-red', tooltip: 'Percentage return on investment from entry price.' },
+                   { label: 'Stop Distance (Live)', value: `${slDistPct.toFixed(2)}%`, tooltip: 'Distance between mark price and current SL.' },
+                   trade.strategy_config?.trailing_stop_enabled && {
+                     label: 'Trailing Stop',
+                     value: trade.strategy_config.trailing_stop_type === 'rr'
+                       ? `${trade.strategy_config.trailing_stop_rr || 1.0} R`
+                       : `${trade.strategy_config.trailing_stop_distance_pct || 1.0}%`,
+                     color: 'text-purple-400',
+                     tooltip: trade.strategy_config.trailing_stop_type === 'rr'
+                       ? 'Trailing stop-loss distance expressed as initial R multiple.'
+                       : 'Trailing stop-loss distance percentage.'
+                   },
+                   { label: 'Initial SL Dist', value: `${slInitialDistPct.toFixed(2)}%`, tooltip: 'Initial SL distance percentage from entry.' },
+                   { label: 'Max Entry Risk', value: fmtUSD(trade.initial_risk_usdt || trade.risk_usdt || 0), tooltip: 'Maximum risk defined at trade entry.' },
+                   {
+                     label: 'Risk Lock State',
+                     value: trade.risk_usdt === 0 ? `Released (${trade.risk_lock_reason || 'BE'})` : `Locked (${fmtUSD(trade.risk_usdt)})`,
+                     color: trade.risk_usdt === 0 ? 'text-green' : 'text-amber',
+                     tooltip: `Risk lock state: ${trade.risk_lock_reason || (trade.risk_usdt === 0 ? 'SL at or above breakeven' : 'Active capital at risk')}`
+                   },
+                   {
+                     label: 'Daily Δ at Entry',
+                     value: `${(trade.entry_daily_change_pct || 0) > 0 ? '▲' : (trade.entry_daily_change_pct || 0) < 0 ? '▼' : ''} ${Number(Math.abs(trade.entry_daily_change_pct || 0)).toFixed(2)}%`,
+                     color: pnlClass(trade.entry_daily_change_pct),
+                     tooltip: 'Market price change % at trade entry.'
+                   },
+                   trade.exit_ts && {
+                     label: 'Exit Signal',
+                     value: (() => {
+                        const type = trade.exit_signal_type?.replace(/_/g, ' ') || (trade.exit_reason || 'Manual');
+                        const reason = trade.exit_signal_reason || '';
+                        if (type === 'STOP LOSS' || type === 'SL HIT' || type === 'TRAILING STOP') {
+                          if (reason.includes('INITIAL_SL')) return 'Initial Stop Loss';
+                          if (reason.includes('RR_sequence_milestone_0')) return 'Breakeven SL';
+                          if (reason.includes('RR_sequence_milestone')) {
+                            const match = reason.match(/milestone_(\d+)/);
+                            return match ? `Ratchet SL (M${match[1]})` : 'Ratchet SL';
+                          }
+                          if (type === 'TRAILING STOP') return 'Trailing Stop';
+                          return 'Stop Loss';
+                        }
+                        if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
+                        if (type === 'EXCHANGE FILL') return 'Exchange Fill';
+                        if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
+                        return type;
+                     })(),
+                     color: 'text-accent',
+                     tooltip: trade.exit_signal_reason || 'Exit signal details.'
+                   }
+                 ].filter(Boolean).map(item => (
+                   <div key={item.label} className="flex justify-between items-center py-1 md:py-2 border-b border-border/40 last:border-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] md:text-[10px] text-dim font-bold uppercase tracking-widest">{item.label}</span>
+                        <Tooltip content={item.tooltip || 'No info'}>
+                          <Info size={10} className="text-dim/50 hover:text-accent cursor-help" />
+                        </Tooltip>
+                      </div>
+                      <span className={cn("text-xs font-bold font-mono", item.color)}>{item.value}</span>
+                   </div>
+                 ))}
+              </div>
+            );
+          })()}
+        </CollapsibleSection>
+
+        {/* Active Trade Event Log */}
+        {(trade.active_trade_events || []).length > 0 && (
+          <CollapsibleSection
+            title="Active Trade Event Log"
+            icon={<Activity size={14} className="text-accent" />}
+            badge={`${(trade.active_trade_events || []).length} events`}
+            defaultOpen={false}
+          >
+            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto pr-1 no-scrollbar pt-1">
+              {[...(trade.active_trade_events || [])].reverse().map((evt, i) => (
+                <div key={i} className="flex flex-col gap-1 text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/evt hover:border-accent/30 transition-colors">
+                  <div className="flex items-center justify-between mb-1">
+                     <div className="flex items-center gap-1.5">
+                        <span className={cn(
+                           "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest",
+                           evt.level === 'error' ? "bg-red/10 text-red" :
+                           evt.level === 'warn' ? "bg-amber/10 text-amber" :
+                           "bg-blue-500/10 text-blue-400"
+                        )}>
+                           {evt.type}
+                        </span>
+                     </div>
+                     <span className="text-dim/40 font-mono text-[9px]">{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                  </div>
+                  <span className="text-dim/80 text-[10px] leading-relaxed">{evt.message}</span>
+                  {evt.details && Object.keys(evt.details).length > 0 && (
+                     <div className="mt-2 p-2 bg-black/20 rounded border border-white/[0.02] overflow-hidden">
+                       <pre className="text-[8px] font-mono text-dim/60 whitespace-pre-wrap break-words m-0">
+                         {JSON.stringify(evt.details, null, 2)}
+                       </pre>
+                     </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CollapsibleSection>
+        )}
+
+        {/* Risk Mitigation Log */}
+        {(trade.sl_adjustments || []).length > 0 && (
+          <CollapsibleSection
+            title="Risk Mitigation Log"
+            icon={<ShieldCheck size={14} className="text-accent" />}
+            badge={`${(trade.sl_adjustments || []).length} adjustments`}
+            defaultOpen={false}
+          >
+            <div className="flex flex-col gap-2 pt-1">
+              {(trade.sl_adjustments || []).slice(-3).reverse().map((adj, i) => (
+                <div key={i} className="flex items-center justify-between text-[10px] bg-white/[0.02] border border-white/[0.05] p-3 md:p-4 rounded-2xl group/adj hover:border-accent/30 transition-colors">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold text-text/90">{price(adj.prev_sl)}</span>
+                      <span className="text-dim/30">→</span>
+                      <span className="font-mono font-bold text-accent">{price(adj.new_sl)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                       <span className="text-dim/60 text-[9px] uppercase tracking-[0.1em]">{adj.reason}</span>
+                       {adj.adaptive && (
+                          <span className="bg-amber/10 text-amber px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter flex items-center gap-1 border border-amber/20">
+                             <Activity size={8} /> Adaptive
+                          </span>
+                       )}
+                    </div>
+                  </div>
+                  {i === 0 && (
+                    <div className="flex flex-col items-end gap-1">
+                      <span className="bg-accent/10 text-accent px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-tighter">Current SL</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CollapsibleSection>
+        )}
       </div>
 
       {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}

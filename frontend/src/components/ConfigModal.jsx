@@ -4355,8 +4355,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
                 {renderField('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
-                {renderField('Discovery Mode', 'discovery_mode', 'text', ['volume', 'change_pct', 'abs_change_pct'])}
-                {renderField('Entry side', 'entry_side', 'text', ['both', 'long', 'short'])}
+                {renderField('Entry side', 'entry_side', 'text', [
+                  { value: 'both', label: 'Both (Long & Short)' },
+                  { value: 'long', label: 'Long Only' },
+                  { value: 'short', label: 'Short Only' },
+                ])}
                 <Tooltip content="Number of recent candles evaluated for price momentum percentage change. Shorter lookback captures immediate price velocity, while longer lookback filters short-term wicks.">
                   {renderField('Momentum Lookback', 'scan_lookback', 'number', null, { min: 1, max: 100 })}
                 </Tooltip>

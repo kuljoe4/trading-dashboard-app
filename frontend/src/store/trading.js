@@ -11,6 +11,10 @@ let activeSyncPromise = null;
 let syncRetryTimeout = null;
 let detailRefreshTimeout = null;
 let lastDetailRefreshTs = 0;
+let wsErrorDebounceTimeout = null;
+let wsReconnectTimeout = null;
+let lastAuxFetchTs = 0;
+let resumeSyncSafetyTimeout = null;
 
 const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => {
   const now = Date.now();
@@ -607,16 +611,32 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       isSyncingOnResume
     });
 
-    if (!t) {
-      get().sync();
+    if (resumeSyncSafetyTimeout) {
+      clearTimeout(resumeSyncSafetyTimeout);
+      resumeSyncSafetyTimeout = null;
     }
 
     const ws = get().ws;
     if (ws && ws.readyState === WebSocket.OPEN) {
+      // WS is live: tell backend to unthrottle. Backend immediately broadcasts the authoritative status snapshot over WS
       ws.send(JSON.stringify({ type: 'set_active', active: !t }));
     } else if (!t && get().sessionActive) {
-      // If we are unthrottling (coming back) and WS is dead, reconnect immediately
+      // If returning to the app and WS was disconnected during sleep, reconnect immediately
       get().connectWS();
+    }
+
+    if (!t && get().sessionActive) {
+      // SRE Fallback: Only invoke REST sync if the WebSocket does not deliver an authoritative update within 2500ms
+      resumeSyncSafetyTimeout = setTimeout(() => {
+        resumeSyncSafetyTimeout = null;
+        const state = get();
+        if (state.isThrottled) return;
+        const timeSinceUpdate = Date.now() - (state.lastAuthoritativeUpdateTs || 0);
+        if (timeSinceUpdate > 3000 || state.wsStatus !== 'live') {
+          console.log('[Store] WS update delayed on resume, invoking safety REST sync');
+          get().sync();
+        }
+      }, 2500);
     }
   },
   setFocusMode: (f, tid = null, s = null, scannerSymbol = null) => { const ws = get().ws; if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: f, tradeId: tid, strategyLabel: s, scannerSymbol })); },
@@ -882,6 +902,15 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     // SENTINEL: Use sub-protocol for auth instead of query parameter to prevent credential leakage in logs
     const ws = new WebSocket(u, ak || []);
     ws.onopen = () => {
+      if (wsErrorDebounceTimeout) {
+        clearTimeout(wsErrorDebounceTimeout);
+        wsErrorDebounceTimeout = null;
+      }
+      if (wsReconnectTimeout) {
+        clearTimeout(wsReconnectTimeout);
+        wsReconnectTimeout = null;
+      }
+
       const sessionActive = get().sessionActive;
       set({
         wsStatus: 'live',
@@ -890,19 +919,30 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         isSyncingOnResume: sessionActive // Start sync feedback on reconnect if session is active
       });
       ws.send(JSON.stringify({ type: 'set_active', active: !get().isThrottled }));
-      get().fetchTradeHistory('all');
-      get().fetchAnalytics();
-      get().fetchLogs();
+
+      // SRE: Optimize resume overhead. Avoid heavy multi-endpoint REST bursts on every quick tab resume.
+      // Backend WS immediately broadcasts current active trades, balance, and stats on connect.
+      const now = Date.now();
+      if (now - lastAuxFetchTs > 60000 || !get().tradeHistory?.length) {
+        lastAuxFetchTs = now;
+        get().fetchTradeHistory('all');
+        get().fetchAnalytics();
+        get().fetchLogs();
+      }
     };
     ws.onerror = (e) => {
       console.warn('[WebSocket] Connection failed or error occurred:', e);
-      set({
-        wsStatus: 'error',
-        wsError: {
-          message: 'WebSocket connection failed or was rejected. Real-time updates and live market stream are unavailable.',
-          timestamp: Date.now()
-        }
-      });
+      // SRE: Grace period debounce. On initial error during reconnect, keep 'reconnecting'
+      // to avoid alarm fatigue; only escalate to 'error' if attempts reach 3 or grace timer expires.
+      if (get().reconnectAttempts >= 3) {
+        set({
+          wsStatus: 'error',
+          wsError: {
+            message: 'WebSocket connection failed or was rejected. Real-time updates and live market stream are unavailable.',
+            timestamp: Date.now()
+          }
+        });
+      }
     };
     let lsu = 0;
         let logBuffer = [];
@@ -1246,21 +1286,71 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       else if (d.type === 'session_terminated') get().setSessionActive(false, null);
     };
     ws.onclose = (e) => {
-      const wasExpected = e && e.code === 1000;
-      set((st) => ({
-        ws: null,
-        wsStatus: wasExpected ? 'offline' : 'error',
-        wsError: wasExpected ? null : {
-          message: e?.reason || (e?.code === 1006 ? 'WebSocket connection was rejected or closed abnormally (code 1006).' : `WebSocket disconnected (code ${e?.code || 'unknown'}).`),
-          code: e?.code,
-          timestamp: Date.now()
+      const wasExpected = (e && e.code === 1000) || get().wsStatus === 'offline';
+      if (wsReconnectTimeout) {
+        clearTimeout(wsReconnectTimeout);
+        wsReconnectTimeout = null;
+      }
+
+      if (wasExpected) {
+        if (wsErrorDebounceTimeout) {
+          clearTimeout(wsErrorDebounceTimeout);
+          wsErrorDebounceTimeout = null;
         }
-      }));
+        set({
+          ws: null,
+          wsStatus: 'offline',
+          wsError: null,
+          reconnectAttempts: 0
+        });
+        return;
+      }
+
+      const att = get().reconnectAttempts;
+      const isInitialDrop = att === 0;
+
+      // SRE: Grace period debounce. On transient OS sleep/wake drops, enter 'reconnecting'
+      // instead of screaming 'error'. Only escalate to 'error' if disconnected > 3000ms.
+      set({
+        ws: null,
+        wsStatus: att >= 3 ? 'error' : 'reconnecting'
+      });
+
+      if (att >= 3) {
+        if (wsErrorDebounceTimeout) {
+          clearTimeout(wsErrorDebounceTimeout);
+          wsErrorDebounceTimeout = null;
+        }
+        set({
+          wsError: {
+            message: e?.reason || (e?.code === 1006 ? 'WebSocket connection was closed unexpectedly or rejected by the server.' : `WebSocket disconnected (code ${e?.code || 'unknown'}).`),
+            code: e?.code,
+            timestamp: Date.now()
+          }
+        });
+      } else if (!wsErrorDebounceTimeout) {
+        wsErrorDebounceTimeout = setTimeout(() => {
+          wsErrorDebounceTimeout = null;
+          const currentStatus = get().wsStatus;
+          if (currentStatus !== 'live' && currentStatus !== 'offline') {
+            set({
+              wsStatus: 'error',
+              wsError: {
+                message: e?.reason || (e?.code === 1006 ? 'WebSocket connection was closed unexpectedly or rejected by the server. Real-time ticker stream is paused.' : `WebSocket disconnected (code ${e?.code || 'unknown'}).`),
+                code: e?.code,
+                timestamp: Date.now()
+              }
+            });
+          }
+        }, 3000);
+      }
+
       if (get().sessionActive || !wasExpected) {
-        const att = get().reconnectAttempts;
-        const del = Math.min(1000 * Math.pow(2, att), 30000);
+        // Fast reconnect for wakeups (250ms), then gentle exponential backoff capped at 15s
+        const del = isInitialDrop ? 250 : Math.min(1000 * Math.pow(1.5, att), 15000);
         set({ reconnectAttempts: att + 1 });
-        setTimeout(() => {
+        wsReconnectTimeout = setTimeout(() => {
+          wsReconnectTimeout = null;
           if (!get().ws && get().wsStatus !== 'offline') {
             get().connectWS();
           }
@@ -1269,7 +1359,20 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     };
     set({ ws });
   },
-  disconnectWS: () => { if (get().ws) { get().ws.close(); set({ ws: null, wsStatus: 'offline' }); } },
+  disconnectWS: () => {
+    if (wsErrorDebounceTimeout) {
+      clearTimeout(wsErrorDebounceTimeout);
+      wsErrorDebounceTimeout = null;
+    }
+    if (wsReconnectTimeout) {
+      clearTimeout(wsReconnectTimeout);
+      wsReconnectTimeout = null;
+    }
+    if (get().ws) {
+      try { get().ws.close(1000, 'Normal Closure'); } catch (_) {}
+      set({ ws: null, wsStatus: 'offline', wsError: null, reconnectAttempts: 0 });
+    }
+  },
 }), {
   name: 'momentum_trading_store',
   storage: createJSONStorage(() => localStorage),

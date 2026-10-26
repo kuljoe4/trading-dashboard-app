@@ -129,11 +129,40 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
   <div className={cn("flex items-center gap-4 overflow-hidden", compact ? "justify-center" : "flex-col w-full")}>
     <div className="flex items-center gap-2">
       <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
-        <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
+        <PulseDot
+          color={
+            wsStatus === 'live'
+              ? "bg-green"
+              : wsStatus === 'reconnecting' || wsStatus === 'connecting'
+              ? "bg-amber animate-pulse"
+              : wsStatus === 'error'
+              ? "bg-red-500 animate-ping"
+              : "bg-dim/40"
+          }
+        />
         {!compact && (
           <div className="flex flex-col">
-            <span className={cn("font-bold uppercase tracking-widest truncate", wsStatus === 'live' ? "text-green" : "text-amber", "text-[10px]")}>
-              {wsStatus === 'live' ? 'Live' : 'Offline'}
+            <span
+              className={cn(
+                "font-bold uppercase tracking-widest truncate text-[10px]",
+                wsStatus === 'live'
+                  ? "text-green"
+                  : wsStatus === 'reconnecting' || wsStatus === 'connecting'
+                  ? "text-amber"
+                  : wsStatus === 'error'
+                  ? "text-red-400"
+                  : "text-dim"
+              )}
+            >
+              {wsStatus === 'live'
+                ? 'Live'
+                : wsStatus === 'reconnecting'
+                ? 'Reconnecting'
+                : wsStatus === 'connecting'
+                ? 'Connecting'
+                : wsStatus === 'error'
+                ? 'Failed'
+                : 'Offline'}
             </span>
             {(gateState === 'sleeping' || gateState === 'max_trades' || gateState === 'max_trades_period') && (
               <span className="text-[8px] text-accent font-bold uppercase tracking-tight animate-pulse">Efficiency Active</span>

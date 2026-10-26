@@ -140,13 +140,8 @@ const App = () => {
     if (!hydrated) return;
 
     console.log(`[App] Visibility changed: isHidden=${isHidden}`);
-    // Sync BEFORE setThrottled to ensure data is updated as soon as unthrottling starts
-    if (!isHidden) {
-      console.log(`[App] Tab became visible. Triggering sync.`);
-      sync();
-    }
     setThrottled(isHidden);
-  }, [isHidden, hydrated, setThrottled, sync]);
+  }, [isHidden, hydrated, setThrottled]);
 
   useEffect(() => {
     let script = null;

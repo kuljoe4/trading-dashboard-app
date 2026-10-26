@@ -2202,13 +2202,9 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Core Operational Controls: Guard Ladder & Exit Signal Monitors */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 lg:gap-5 mt-2">
-         <div className="lg:col-span-2 flex flex-col gap-3 md:gap-4">
-            <RRLadder trade={trade} interactiveEnabled={interactiveEnabled} />
-         </div>
-         <div className="flex flex-col gap-3 md:gap-4">
-            <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} interactiveEnabled={interactiveEnabled} setInteractiveEnabled={setInteractiveEnabled} />
-         </div>
+      <div className="flex flex-col gap-4 md:gap-5 mt-2">
+        <RRLadder trade={trade} interactiveEnabled={interactiveEnabled} />
+        <ExitMonitor status={enhancedExitSignals} logic={trade.exit_signal_logic} trade={trade} interactiveEnabled={interactiveEnabled} setInteractiveEnabled={setInteractiveEnabled} />
       </div>
 
       {/* Progressive Disclosure Sections for Technical Meta, Logs & Config */}

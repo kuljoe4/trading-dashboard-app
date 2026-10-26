@@ -35,8 +35,23 @@ export const PersistentAlertBanner = () => {
     };
   }, [setApiError, clearApiError, apiError]);
 
-  const hasWsFailure = !!wsError || wsStatus === 'error';
+  const hasWsFailure = wsStatus === 'error' && !!wsError;
   const hasApiFailure = !!apiError;
+  const [showReconnectingPill, setShowReconnectingPill] = useState(false);
+
+  // SRE: Only show ambient pill if reconnection takes longer than 1.2s.
+  // Sub-second wakeups resolve silently without layout shifts or alarms.
+  useEffect(() => {
+    let timer;
+    if (wsStatus === 'reconnecting') {
+      timer = setTimeout(() => {
+        setShowReconnectingPill(true);
+      }, 1200);
+    } else {
+      setShowReconnectingPill(false);
+    }
+    return () => clearTimeout(timer);
+  }, [wsStatus]);
 
   // SRE: Auto-heal API status in background so transient 502/restart clears automatically
   useEffect(() => {
@@ -71,7 +86,7 @@ export const PersistentAlertBanner = () => {
     }
   };
 
-  if (!hasWsFailure && !hasApiFailure) {
+  if (!hasWsFailure && !hasApiFailure && !showReconnectingPill) {
     return null;
   }
 
@@ -80,6 +95,23 @@ export const PersistentAlertBanner = () => {
       aria-label="System Connectivity and API Diagnostics"
       className="w-full flex flex-col gap-2 p-3 sm:p-4 bg-background border-b border-border/80 z-50 sticky top-0 backdrop-blur-md shadow-lg"
     >
+      {/* Ambient Reconnection Notice - Non-intrusive, polite, zero layout scream */}
+      {showReconnectingPill && !hasWsFailure && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center justify-between gap-3 px-3.5 py-2 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-300 text-xs shadow-xs animate-in fade-in duration-200"
+        >
+          <div className="flex items-center gap-2.5">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400 shrink-0" aria-hidden="true" />
+            <span className="font-medium text-xs text-amber-200/90">
+              Re-establishing live WebSocket market feed...
+            </span>
+          </div>
+          <span className="text-[10px] text-amber-400/80 font-mono tracking-wider uppercase">Auto-reconnecting</span>
+        </div>
+      )}
+
       {/* WebSocket Error Banner */}
       {hasWsFailure && (
         <div

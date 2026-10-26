@@ -47,6 +47,7 @@ const CollapsibleSection = ({ id, icon, title, subtitle, children, isOpen, onTog
 
 const TAB_ERROR_MAP = {
   scan_interval: 'scan',
+  discovery_mode: 'scan',
   scan_lookback: 'scan',
   scan_mode: 'scan',
   trading_mode: 'env',
@@ -2474,6 +2475,7 @@ const flattenConfig = (config) => {
     const flattened = {
       ...config,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
+      discovery_mode: config.discovery_mode || 'volume',
       scanner_weights_momentum: weights.momentum * 100,
       scanner_weights_volatility: weights.volatility * 100,
       scanner_weights_trend: weights.trend * 100,
@@ -2543,7 +2545,7 @@ const coerceAndSanitizeConfig = (rawConfig) => {
   if (!rawConfig) return {};
   try {
     const flat = flattenConfig(rawConfig);
-    const c = { ...flat, strategy_label: (flat.strategy_label || '').trim() };
+    const c = { ...flat, strategy_label: (flat.strategy_label || '').trim(), discovery_mode: flat.discovery_mode || 'volume' };
 
     // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
     const sp = {};
@@ -4352,6 +4354,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
                 {renderField('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
+                <Tooltip content="Determines how candidate symbols are selected from Binance 24h market rankings: Top Volume (liquidity-focused), Top Price Change % (momentum gainers/losers), or Top Absolute Movement (volatile movers).">
+                  {renderField('Discovery Mode', 'discovery_mode', 'text', [
+                    { value: 'volume', label: 'Top 24h Volume' },
+                    { value: 'change_pct', label: 'Top 24h Price Change %' },
+                    { value: 'abs_change_pct', label: 'Top Absolute Movement (Gainers & Losers)' }
+                  ])}
+                </Tooltip>
                 {renderField('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
                 {renderField('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}

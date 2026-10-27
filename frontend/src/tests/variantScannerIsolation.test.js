@@ -54,3 +54,19 @@ test('ScannerOverlay.jsx and StrategyDetailView.jsx isolate variant symbols when
     'StrategyDetailView.jsx must check hasVariantScannerOverride for variant strategyConfig'
   )
 })
+
+test('ScannerOverlay.jsx resolves strategy tab title timeframes using scan_interval from strategy configs', () => {
+  const overlayPath = path.resolve(__dirname, '../components/ScannerOverlay.jsx')
+  const overlayContent = fs.readFileSync(overlayPath, 'utf8')
+
+  assert.ok(
+    overlayContent.includes("timeframe: config.scan_interval || config.timeframe || '5m'"),
+    'ScannerOverlay.jsx must check base config.scan_interval for base strategy timeframe in strategy tabs'
+  )
+
+  assert.ok(
+    overlayContent.includes("timeframe: v.scan_interval || v.timeframe || config?.scan_interval || config?.timeframe || '5m'"),
+    'ScannerOverlay.jsx must check variant v.scan_interval for variant strategy timeframe in strategy tabs'
+  )
+})
+

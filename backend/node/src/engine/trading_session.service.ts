@@ -778,6 +778,13 @@ export class TradingSessionService implements OnApplicationShutdown {
         this._lastGatedScanTs = now;
       }
 
+      const baseScanInterval = this.config.main_loop_interval_ms || 15000;
+      const effectiveScanInterval = (this.isGated() && !this.sessionState.hibernating)
+        ? baseScanInterval * 3
+        : baseScanInterval;
+      this.sessionState.scan_interval_ms = effectiveScanInterval;
+      this.sessionState.next_scan_ts = now + effectiveScanInterval;
+
       // BOLT: Allow scanning even when gated (Light Sleep) to keep UI fresh.
       // Deep Sleep (hibernating) still pauses scanning for resource efficiency.
       if (this.sessionState.hibernating) {
@@ -792,16 +799,18 @@ export class TradingSessionService implements OnApplicationShutdown {
             count: this.lastScannerResults.length,
             hibernating: true,
             last_scan_ts: this.sessionState.last_scan_ts,
+            next_scan_ts: this.sessionState.next_scan_ts,
+            scan_interval_ms: this.sessionState.scan_interval_ms,
             opportunities: this.lastScannerResults.slice(0, 5).map((o) => {
               if (isFull) return o;
-              const { history, ...rest } = o;
+              const { ohlc_history, ...rest } = o;
               return rest;
             }),
             variant_opportunities: this.lastVariantScannerResults.map((v) => ({
               ...v,
               opportunities: v.opportunities.slice(0, 5).map((o: any) => {
                 if (isFull) return o;
-                const { history, ...rest } = o;
+                const { ohlc_history, ...rest } = o;
                 return rest;
               }),
             })),
@@ -870,15 +879,18 @@ export class TradingSessionService implements OnApplicationShutdown {
           if (isFull) this.lastScannerFullBroadcast = now;
           this.lastScannerResultsJson = nextResultsJson;
           this.sessionState.last_scan_ts = Date.now();
+          this.sessionState.next_scan_ts = this.sessionState.last_scan_ts + effectiveScanInterval;
           this.broadcast("scanner", {
             count: this.lastScannerResults.length,
             last_scan_ts: this.sessionState.last_scan_ts,
+            next_scan_ts: this.sessionState.next_scan_ts,
+            scan_interval_ms: this.sessionState.scan_interval_ms,
             // BOLT: Expand broadcast to Top 15 (matching UI "Top 15 results") and ensure full telemetry is sent during full broadcasts
             opportunities: this.lastScannerResults
               .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
               .map((o) => {
                 if (isFull) return o;
-                const { history, ohlc_history, ...rest } = o;
+                const { ohlc_history, ...rest } = o;
                 return rest;
               }),
             variant_opportunities: this.lastVariantScannerResults.map((v) => ({
@@ -887,7 +899,7 @@ export class TradingSessionService implements OnApplicationShutdown {
                 .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
                 .map((o: any) => {
                   if (isFull) return o;
-                  const { history, ohlc_history, ...rest } = o;
+                  const { ohlc_history, ...rest } = o;
                   return rest;
                 }),
             })),

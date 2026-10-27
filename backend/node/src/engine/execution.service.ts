@@ -365,15 +365,32 @@ export class ExecutionService {
 
         // Anti-whipsaw / same-candle re-entry protection
         const uniqueTimeframes = new Set<string>();
-        const resolvedScan = this.marketFeedService.resolveInterval(symbolConfig.scan_interval || '1m', symbolConfig);
-        if (resolvedScan) uniqueTimeframes.add(resolvedScan);
 
-        if (symbolConfig.enabled_signals) {
-          for (const sig of symbolConfig.enabled_signals) {
-            const tf = symbolConfig.signal_timeframes?.[sig];
-            if (tf && tf !== 'default') {
-              const resolvedTf = this.marketFeedService.resolveInterval(tf, symbolConfig);
-              if (resolvedTf) uniqueTimeframes.add(resolvedTf);
+        if (Array.isArray(symbolConfig.anti_whipsaw_timeframes) && symbolConfig.anti_whipsaw_timeframes.length > 0) {
+          for (const rawTf of symbolConfig.anti_whipsaw_timeframes) {
+            const resolved = this.marketFeedService.resolveInterval(rawTf, symbolConfig);
+            if (resolved) uniqueTimeframes.add(resolved);
+          }
+        } else {
+          const resolvedScan = this.marketFeedService.resolveInterval(symbolConfig.scan_interval || '1m', symbolConfig);
+          if (resolvedScan) uniqueTimeframes.add(resolvedScan);
+
+          const maxTf = symbolConfig.anti_whipsaw_max_tf || '4h';
+          const maxTfMs = maxTf === 'none' ? Infinity : this.getTimeframeMs(maxTf);
+
+          if (symbolConfig.enabled_signals) {
+            for (const sig of symbolConfig.enabled_signals) {
+              const tf = symbolConfig.signal_timeframes?.[sig];
+              if (tf && tf !== 'default') {
+                const resolvedTf = this.marketFeedService.resolveInterval(tf, symbolConfig);
+                if (resolvedTf) {
+                  const tfMs = this.getTimeframeMs(resolvedTf);
+                  // Exclude timeframes exceeding max anti-whipsaw cap (default: '4h') unless explicitly specified
+                  if (tfMs <= maxTfMs) {
+                    uniqueTimeframes.add(resolvedTf);
+                  }
+                }
+              }
             }
           }
         }

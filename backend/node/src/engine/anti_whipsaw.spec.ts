@@ -263,4 +263,57 @@ describe('Anti-Whipsaw Protection Unit Tests', () => {
       expect.anything()
     );
   });
+
+  it('should exclude macro confirming timeframes (e.g. 1d) from anti-whipsaw gating by default', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1h';
+    config.enabled_signals = ['ema_dual'];
+    config.signal_timeframes = { ema_dual: '1d' };
+    config.paper_mode = true;
+
+    // Closed trade entered earlier today on ERAUSDT
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'ERAUSDT';
+    closedTrade.entry_ts = new Date(Date.now() - 3600 * 1000 * 3); // 3 hours ago (same 1d candle)
+    closedTrade.exit_ts = new Date(Date.now() - 3600 * 1000 * 2);
+    sessionState.closedTrades = [closedTrade];
+
+    const opportunities = [{ symbol: 'ERAUSDT', direction: 'LONG', score: 1 }];
+
+    await executionService.processEntries(opportunities, config, 'MacroConfirmStrategy');
+
+    // Should ALLOW entry because 1d confirming timeframe is capped out by anti_whipsaw_max_tf ('4h')
+    expect(orderManager.enter).toHaveBeenCalledWith(
+      expect.anything(),
+      'ERAUSDT',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it('should respect explicit anti_whipsaw_timeframes setting when specified', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1m';
+    config.enabled_signals = ['ema_dual'];
+    config.signal_timeframes = { ema_dual: '1h' };
+    config.anti_whipsaw_timeframes = ['1h'];
+    config.paper_mode = true;
+
+    // Trade closed 10 minutes ago (same 1h candle)
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'ERAUSDT';
+    closedTrade.entry_ts = new Date(Date.now() - 600 * 1000);
+    sessionState.closedTrades = [closedTrade];
+
+    const opportunities = [{ symbol: 'ERAUSDT', direction: 'LONG', score: 1 }];
+
+    await executionService.processEntries(opportunities, config, 'ExplicitTfStrategy');
+
+    // Should BLOCK entry because 1h is explicitly specified in anti_whipsaw_timeframes
+    expect(orderManager.enter).not.toHaveBeenCalled();
+  });
 });

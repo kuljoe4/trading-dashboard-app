@@ -228,4 +228,39 @@ describe('Anti-Whipsaw Protection Unit Tests', () => {
     expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
     expect(broadcastService.broadcast).toHaveBeenCalledTimes(1);
   });
+
+  it('should NOT block entry when a trade record for the symbol has ENTRY_FAILED or CANCELLED status (false positive fix)', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1m';
+    config.paper_mode = true;
+
+    // A failed entry attempt for DOODUSDT recorded during the active candle
+    const failedTrade = new Trade();
+    failedTrade.symbol = 'DOODUSDT';
+    failedTrade.status = 'ENTRY_FAILED';
+    failedTrade.entry_ts = new Date(2100);
+
+    const cancelledTrade = new Trade();
+    cancelledTrade.symbol = 'DOODUSDT';
+    cancelledTrade.status = 'CANCELLED';
+    cancelledTrade.entry_ts = new Date(2150);
+
+    sessionState.closedTrades = [failedTrade, cancelledTrade];
+
+    const opportunities = [{ symbol: 'DOODUSDT', direction: 'LONG', score: 1 }];
+
+    await executionService.processEntries(opportunities, config, 'MyStrategy');
+
+    // Should allow entry because neither failed nor cancelled attempts are valid traded positions
+    expect(orderManager.enter).toHaveBeenCalledWith(
+      expect.anything(),
+      'DOODUSDT',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything()
+    );
+  });
 });

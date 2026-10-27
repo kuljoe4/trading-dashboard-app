@@ -369,14 +369,37 @@ function addLog(msg: string, level = 'info') {
   broadcast({ type: 'log', ...logItem });
 }
 
-function getScannerOpportunities() {
+function getScannerOpportunities(cfg?: any) {
+  const targetConfig = cfg || state.config || {};
+  if (targetConfig.global_scanner_enabled === false) {
+    return [];
+  }
   const opps: any[] = [];
-  let rank = 1;
-  const sorted = Array.from(prices.values()).sort((a, b) => Math.abs(b.momentum) - Math.abs(a.momentum));
+  let items = Array.from(prices.values());
 
-  for (const item of sorted) {
+  const staticSymbols = Array.isArray(targetConfig.symbols) && targetConfig.symbols.length > 0 ? targetConfig.symbols : null;
+
+  if (staticSymbols) {
+    const symSet = new Set(staticSymbols.map((s: string) => s.toUpperCase()));
+    items = items.filter(item => symSet.has(item.symbol));
+  } else {
+    const discoveryMode = targetConfig.discovery_mode || 'volume';
+    if (discoveryMode === 'change_pct') {
+      items.sort((a, b) => b.momentum - a.momentum);
+    } else if (discoveryMode === 'abs_change_pct') {
+      items.sort((a, b) => Math.abs(b.momentum) - Math.abs(a.momentum));
+    } else {
+      items.sort((a, b) => b.volume24h - a.volume24h);
+    }
+    const watchlistSize = targetConfig.watchlist_size || 25;
+    items = items.slice(0, watchlistSize);
+  }
+
+  let rank = 1;
+  for (const item of items) {
     const isLong = item.momentum >= 0;
-    const fired = Math.abs(item.momentum) >= 1.2;
+    const thresh = targetConfig.scan_pct_threshold || 1.2;
+    const fired = Math.abs(item.momentum) >= thresh;
     opps.push({
       symbol: item.symbol,
       pct: item.momentum,
@@ -405,7 +428,7 @@ function getScannerOpportunities() {
           momentum_pct: {
             label: 'Momentum %',
             value: item.momentum,
-            threshold: 1.2,
+            threshold: thresh,
             unit: '%',
             fired,
             active: true,
@@ -426,7 +449,7 @@ function getScannerOpportunities() {
 }
 
 function getStatusSnapshot() {
-  const opps = getScannerOpportunities();
+  const { baseOpps, variantData } = getVariantOpportunitiesData();
   let totalPnl = 0;
   for (const t of state.activeTrades) {
     totalPnl += t.pnl || 0;
@@ -449,7 +472,8 @@ function getStatusSnapshot() {
     totalSlUsed: state.totalSlUsed,
     activeTrades: state.activeTrades,
     history: state.tradeHistory,
-    scannerResults: opps,
+    scannerResults: baseOpps,
+    variant_opportunities: variantData,
     logs: state.logs,
     config: state.config,
     apiStatus: state.apiStatus,
@@ -633,11 +657,50 @@ function broadcast(data: any) {
   });
 }
 
+function getVariantOpportunitiesData() {
+  const baseLabel = state.config?.strategy_label || 'Momentum Strategy';
+  const baseOpps = getScannerOpportunities(state.config);
+
+  const baseSymbols = Array.isArray(state.config?.symbols) ? state.config.symbols : [];
+
+  const variants = (state.config?.strategy_variants || []).filter((v: any) => v && v.enabled !== false);
+  const variantData = [
+    {
+      strategy_label: baseLabel,
+      opportunities: baseOpps,
+    },
+    ...variants.map((v: any) => {
+      const hasVariantSymbols = Array.isArray(v.symbols);
+      const hasVariantScannerOverride =
+        v.watchlist_size !== undefined ||
+        v.discovery_mode !== undefined ||
+        v.scan_interval !== undefined ||
+        v.global_scanner_enabled !== undefined;
+
+      const variantSymbols = hasVariantSymbols
+        ? v.symbols
+        : (hasVariantScannerOverride ? [] : baseSymbols);
+
+      const vConfig = {
+        ...state.config,
+        ...v,
+        symbols: variantSymbols,
+      };
+      return {
+        strategy_label: v.strategy_label || 'Variant Strategy',
+        opportunities: getScannerOpportunities(vConfig),
+      };
+    })
+  ];
+
+  return { baseOpps, variantData };
+}
+
 function broadcastTick() {
   if (wss.clients.size === 0) return;
 
-  const opps = getScannerOpportunities();
-  const topSym = opps[0]?.symbol || 'BTCUSDT';
+  const { baseOpps, variantData } = getVariantOpportunitiesData();
+  const topSym = baseOpps[0]?.symbol || 'BTCUSDT';
   const pInfo = prices.get(topSym);
 
   wss.clients.forEach((client: any) => {
@@ -658,8 +721,8 @@ function broadcastTick() {
     // Send scanner
     client.send(JSON.stringify({
       type: 'scanner',
-      opportunities: opps,
-      variant_opportunities: [],
+      opportunities: baseOpps,
+      variant_opportunities: variantData,
     }));
   });
 }

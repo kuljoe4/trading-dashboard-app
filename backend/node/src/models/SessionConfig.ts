@@ -670,6 +670,10 @@ export class SessionConfig {
   @IsOptional()
   anti_whipsaw_allow_knife?: boolean = false;
 
+  @IsBoolean()
+  @IsOptional()
+  anti_whipsaw_per_strategy?: boolean = false;
+
   @IsNumber()
   @Min(0)
   @Max(20)

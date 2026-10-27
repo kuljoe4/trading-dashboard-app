@@ -93,6 +93,11 @@ export class TradingSessionService implements OnApplicationShutdown {
     ).toString();
   }
 
+  public invalidateStrategyCache() {
+    this.cachedStrategyConfigs = null;
+    this.cachedScanSignatures.clear();
+  }
+
   private getStrategyConfigs(): SessionConfig[] {
     if (this.cachedStrategyConfigs) return this.cachedStrategyConfigs;
     if (!this.config) return [];
@@ -103,13 +108,28 @@ export class TradingSessionService implements OnApplicationShutdown {
       base_strategy_label: baseLabel,
       strategy_variants: [],
     } as SessionConfig;
+
+    const baseSymbols = Array.isArray(this.config.symbols) ? this.config.symbols : [];
+
     const variants = (this.config.strategy_variants || [])
       .filter((v: any) => v && v.enabled !== false)
       .map(
-        (v, i) =>
-          ({
+        (v, i) => {
+          const hasVariantSymbols = Array.isArray(v.symbols);
+          const hasVariantScannerOverride =
+            v.watchlist_size !== undefined ||
+            v.discovery_mode !== undefined ||
+            v.scan_interval !== undefined ||
+            v.global_scanner_enabled !== undefined;
+
+          const variantSymbols = hasVariantSymbols
+            ? v.symbols
+            : (hasVariantScannerOverride ? [] : baseSymbols);
+
+          return ({
             ...this.config,
             ...v,
+            symbols: variantSymbols,
             signal_params: {
               ...(this.config?.signal_params || {}),
               ...(v?.signal_params || {}),
@@ -117,7 +137,8 @@ export class TradingSessionService implements OnApplicationShutdown {
             strategy_label: this.getStrategyLabel(v, i + 1),
             base_strategy_label: baseLabel,
             strategy_variants: [],
-          }) as SessionConfig,
+          }) as SessionConfig;
+        },
       );
     this.cachedStrategyConfigs = [base, ...variants];
     return this.cachedStrategyConfigs;
@@ -1050,6 +1071,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         .activeList()
         .map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)),
       scannerResults: this.lastScannerResults,
+      variant_opportunities: this.lastVariantScannerResults,
       activeWindows: this.getActiveWindows(),
       apiStatus: this.sessionState.apiStatus,
       tradesInPeriod:
@@ -1248,6 +1270,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         this.getStrategyConfigs(),
       ),
       scannerResults: this.lastScannerResults,
+      variant_opportunities: this.lastVariantScannerResults,
       activeWindows: this.getActiveWindows(),
       gateState: this.sessionState.gateState,
       hibernating: this.sessionState.hibernating,

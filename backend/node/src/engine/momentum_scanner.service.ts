@@ -254,8 +254,8 @@ export class MomentumScannerService {
     interval: string,
     config: SessionConfig,
   ): { opp: Opportunity, candles: Candle[] } | null {
-    // Enforce USDT quote asset pairing to prevent USDS-M non-USDT errors (-2019/-2010)
-    if (!symbol || !symbol.toUpperCase().endsWith('USDT')) {
+    // Enforce valid USDT quote asset pairing to prevent USDS-M non-USDT errors (-2019/-2010)
+    if (!symbol || typeof symbol !== 'string' || !/^[A-Z0-9]{3,20}USDT$/i.test(symbol)) {
       return null;
     }
 
@@ -361,8 +361,9 @@ export class MomentumScannerService {
       htfPerfResult?.scoreBoost || 0
     );
 
-    const tpRatio = config.tp_ratio || 2.0;
-    const prospectRr = slCheck.slDistPct > 0 ? Number((tpRatio / slCheck.slDistPct).toFixed(2)) : tpRatio;
+    const tpRatio = (config.tp_ratio && Number.isFinite(config.tp_ratio)) ? config.tp_ratio : 2.0;
+    const rawProspectRr = (slCheck.slDistPct && slCheck.slDistPct > 0) ? (tpRatio / slCheck.slDistPct) : tpRatio;
+    const prospectRr = Number.isFinite(rawProspectRr) ? Number(rawProspectRr.toFixed(2)) : tpRatio;
 
     return {
       opp: {
@@ -733,8 +734,8 @@ export class MomentumScannerService {
     if (len >= 2) {
       const avgRange = totalRange / volWindow;
       const basePrice = candles[len - 1].close;
-      const volatility = (avgRange / basePrice) * 100;
-      volRaw = Math.min(100, volatility * 33);
+      const volatility = (basePrice > 0 && Number.isFinite(basePrice)) ? (avgRange / basePrice) * 100 : 0;
+      volRaw = Math.min(100, Math.max(0, volatility * 33));
     }
 
     // 3. Trend confirmation component
@@ -743,11 +744,13 @@ export class MomentumScannerService {
       trendRaw = (Math.max(upCount, downCount) / trendWindow) * 100;
     }
 
-    const momentumScore = momentumRaw * weights.momentum;
-    const volScore = volRaw * weights.volatility;
-    const trendScore = trendRaw * weights.trend;
+    const momentumScore = Number.isFinite(momentumRaw * weights.momentum) ? momentumRaw * weights.momentum : 0;
+    const volScore = Number.isFinite(volRaw * weights.volatility) ? volRaw * weights.volatility : 0;
+    const trendScore = Number.isFinite(trendRaw * weights.trend) ? trendRaw * weights.trend : 0;
+    const htfBoost = Number.isFinite(htfScoreBoost) ? htfScoreBoost : 0;
 
-    const totalScore = Math.min(100, Math.max(0, momentumScore + volScore + trendScore + htfScoreBoost));
+    const rawTotal = momentumScore + volScore + trendScore + htfBoost;
+    const totalScore = Number.isFinite(rawTotal) ? Math.min(100, Math.max(0, rawTotal)) : 0;
 
     return {
       score: totalScore,

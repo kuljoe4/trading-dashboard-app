@@ -61,15 +61,17 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const d = String(rawDir ?? (m >= 0 ? 'long' : 'short')).toLowerCase();
 
   // SEC: Strict property picking and input sanitization to harden against prototype pollution or malformed WebSocket payloads.
+  const cleanScore = Math.min(100, Math.max(0, toNumber(source.score, 0)));
+  const cleanPrice = Math.max(0, toNumber(source.price, 0));
   const res = {
     symbol: String(source.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
-    pct: m,
-    momentum: m,
+    pct: Number.isFinite(m) ? m : 0,
+    momentum: Number.isFinite(m) ? m : 0,
     dir: d,
     direction: d,
-    vol: toNumber(source.vol ?? source.volume ?? source.volume_usdt ?? source.volume_24h),
-    score: toNumber(source.score),
-    price: toNumber(source.price),
+    vol: Math.max(0, toNumber(source.vol ?? source.volume ?? source.volume_usdt ?? source.volume_24h, 0)),
+    score: cleanScore,
+    price: cleanPrice,
     volume_rank: source.volume_rank ? parseInt(String(source.volume_rank), 10) : undefined,
     history: Array.isArray(source.history) ? source.history.map(v => toNumber(v)) : undefined,
     ohlc_history: Array.isArray(source.ohlc_history) ? source.ohlc_history.map(c => {
@@ -1029,6 +1031,16 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             activeTrades: nt,
             logs: nextLogs,
             scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(normalizeOpportunity) : st.scannerResults || []).filter(Boolean),
+            variantScannerResults: Array.isArray(d.variant_opportunities) ? d.variant_opportunities.reduce((acc, v) => {
+              if (!v || !v.strategy_label || !Array.isArray(v.opportunities)) return acc;
+              const prevOppMap = new Map(((st.variantScannerResults && st.variantScannerResults[v.strategy_label]) || []).map(r => [r.symbol, r]));
+              acc[v.strategy_label] = v.opportunities.map(o => {
+                const sym = String(o.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
+                const p = prevOppMap.get(sym);
+                return normalizeOpportunity(o, p);
+              }).filter(Boolean);
+              return acc;
+            }, {}) : (st.variantScannerResults || {}),
             activeWindows: Array.isArray(d.activeWindows) ? d.activeWindows.map(w => ({...w})) : (Array.isArray(st.activeWindows) ? st.activeWindows : []),
             tradeHistory: nextHistory,
             gateState: d.gateState ?? st.gateState,

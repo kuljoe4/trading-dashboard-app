@@ -709,21 +709,25 @@ export class MarketFeedService {
           if (sc !== config) {
             if (sc.symbols && sc.symbols.length > 0) {
               scSymbols = sc.symbols.filter(s => !activeSymbolList.includes(s));
-            } else if (
-              sc.discovery_mode &&
-              (sc.discovery_mode !== config.discovery_mode || (sc.watchlist_size && sc.watchlist_size !== config.watchlist_size))
-            ) {
-              const scWatchlistSize = sc.watchlist_size || config.watchlist_size || 50;
-              const scOffset = sc.watchlist_offset || 0;
-              const scTop = sc.discovery_mode === 'change_pct'
-                ? await this.tickerCache.topByChangePct(scWatchlistSize + scOffset, combinedExcluded)
-                : sc.discovery_mode === 'abs_change_pct'
-                  ? await this.tickerCache.topByAbsChangePct(scWatchlistSize + scOffset, combinedExcluded)
-                  : await this.tickerCache.topByVolume(scWatchlistSize + scOffset, combinedExcluded);
-              scSymbols = scTop
-                .slice(scOffset)
-                .map((t: any) => t.symbol)
-                .filter(s => this.getSymbolFilters(s) !== undefined && !activeExcludedSet.has(s));
+            } else {
+              const effectiveDiscoveryMode = sc.discovery_mode || config.discovery_mode || 'volume';
+              const effectiveWatchlistSize = sc.watchlist_size || config.watchlist_size || 50;
+              const isDifferentDiscovery = sc.discovery_mode !== undefined && sc.discovery_mode !== config.discovery_mode;
+              const isDifferentSize = sc.watchlist_size !== undefined && sc.watchlist_size !== config.watchlist_size;
+              const isDifferentOffset = sc.watchlist_offset !== undefined && sc.watchlist_offset !== (config.watchlist_offset || 0);
+
+              if (isDifferentDiscovery || isDifferentSize || isDifferentOffset) {
+                const scOffset = sc.watchlist_offset || 0;
+                const scTop = effectiveDiscoveryMode === 'change_pct'
+                  ? await this.tickerCache.topByChangePct(effectiveWatchlistSize + scOffset, combinedExcluded)
+                  : effectiveDiscoveryMode === 'abs_change_pct'
+                    ? await this.tickerCache.topByAbsChangePct(effectiveWatchlistSize + scOffset, combinedExcluded)
+                    : await this.tickerCache.topByVolume(effectiveWatchlistSize + scOffset, combinedExcluded);
+                scSymbols = scTop
+                  .slice(scOffset)
+                  .map((t: any) => t.symbol)
+                  .filter(s => this.getSymbolFilters(s) !== undefined && !activeExcludedSet.has(s));
+              }
             }
           }
           const globalInterval = sc.scan_interval || '1m';
@@ -846,8 +850,13 @@ export class MarketFeedService {
         for (const [symbol, intervals] of newWatchlist) {
           for (const interval of intervals) {
             const oldIntervals = prevWatchlist.get(symbol);
-            if (!oldIntervals || !oldIntervals.has(interval)) {
-              this.backfillQueue.push({ symbol, interval });
+            const rawCandles = this.klineStore.getRawCandles(symbol, interval);
+            const needsWarmup = !rawCandles || rawCandles.length < 50;
+            if (!oldIntervals || !oldIntervals.has(interval) || needsWarmup) {
+              const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
+              if (!alreadyQueued) {
+                this.backfillQueue.push({ symbol, interval });
+              }
             }
           }
         }

@@ -634,7 +634,25 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 
 export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) => {
   const searchInputRef = useRef(null);
-  const { scannerResults, variantScannerResults, config, scannerPaused, hibernating, hibernationMode, activeTrades, sessionActive, isThrottled, wsStatus, isSyncingOnResume } = useTradingStore(state => ({
+  const {
+    scannerResults,
+    variantScannerResults,
+    config,
+    scannerPaused,
+    hibernating,
+    hibernationMode,
+    activeTrades,
+    sessionActive,
+    isThrottled,
+    wsStatus,
+    isSyncingOnResume,
+    gateState,
+    gateReason,
+    strategyGateStates,
+    pausedStrategies,
+    sessionPaused,
+    patchConfig
+  } = useTradingStore(state => ({
     scannerResults: state.scannerResults,
     variantScannerResults: state.variantScannerResults || {},
     config: state.config,
@@ -645,24 +663,89 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
     sessionActive: state.sessionActive,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
-    isSyncingOnResume: state.isSyncingOnResume
+    isSyncingOnResume: state.isSyncingOnResume,
+    gateState: state.gateState,
+    gateReason: state.gateReason,
+    strategyGateStates: state.strategyGateStates || {},
+    pausedStrategies: state.pausedStrategies || [],
+    sessionPaused: state.sessionPaused,
+    patchConfig: state.patchConfig,
   }), shallow)
+
+  const [activeStrategyTab, setActiveStrategyTab] = useState(selectedStrategyLabel || config?.strategy_label || 'Base Strategy')
+
+  useEffect(() => {
+    if (selectedStrategyLabel) {
+      setActiveStrategyTab(selectedStrategyLabel)
+    }
+  }, [selectedStrategyLabel])
+
+  const effectiveStrategyLabel = activeStrategyTab || selectedStrategyLabel || config?.strategy_label || 'Base Strategy'
+  const isVariant = Boolean(config?.strategy_label && effectiveStrategyLabel !== config.strategy_label)
+
+  const allStrategies = useMemo(() => {
+    const list = []
+    if (config?.strategy_label) {
+      list.push({
+        label: config.strategy_label,
+        isVariant: false,
+        timeframe: config.timeframe || '1m',
+      })
+    }
+    if (Array.isArray(config?.strategy_variants)) {
+      config.strategy_variants.forEach(v => {
+        if (v && v.strategy_label) {
+          list.push({
+            label: v.strategy_label,
+            isVariant: true,
+            timeframe: v.timeframe || config?.timeframe || '1m',
+          })
+        }
+      })
+    }
+    return list
+  }, [config])
 
   const strategyConfig = useMemo(() => {
     if (!config) return {};
-    if (!selectedStrategyLabel) return config;
-    const idx = config.strategy_variants?.findIndex(v => v.strategy_label === selectedStrategyLabel);
-    return (idx !== -1 && idx !== undefined)
-      ? { ...config, ...config.strategy_variants[idx] }
-      : config;
-  }, [config, selectedStrategyLabel]);
+    if (!effectiveStrategyLabel || effectiveStrategyLabel === config.strategy_label) return config;
+    const variant = config.strategy_variants?.find(v => v.strategy_label === effectiveStrategyLabel);
+    if (!variant) return config;
+
+    const baseSymbols = Array.isArray(config.symbols) ? config.symbols : [];
+    const hasVariantSymbols = Array.isArray(variant.symbols);
+    const hasVariantScannerOverride =
+      variant.watchlist_size !== undefined ||
+      variant.discovery_mode !== undefined ||
+      variant.scan_interval !== undefined ||
+      variant.global_scanner_enabled !== undefined;
+
+    const variantSymbols = hasVariantSymbols
+      ? variant.symbols
+      : (hasVariantScannerOverride ? [] : baseSymbols);
+
+    return {
+      ...config,
+      ...variant,
+      symbols: variantSymbols,
+    };
+  }, [config, effectiveStrategyLabel]);
 
   const strategyScannerResults = useMemo(() => {
-    if (selectedStrategyLabel && variantScannerResults && variantScannerResults[selectedStrategyLabel]) {
-      return variantScannerResults[selectedStrategyLabel];
+    if (isVariant) {
+      return (variantScannerResults && variantScannerResults[effectiveStrategyLabel]) || [];
     }
     return scannerResults || [];
-  }, [variantScannerResults, scannerResults, selectedStrategyLabel]);
+  }, [variantScannerResults, scannerResults, effectiveStrategyLabel, isVariant]);
+
+  const currentGateInfo = strategyGateStates?.[effectiveStrategyLabel] || (!isVariant ? { gateState, gateReason } : null);
+  const currentGateState = currentGateInfo?.gateState || (!isVariant ? gateState : null);
+  const currentGateReason = currentGateInfo?.gateReason || (!isVariant ? gateReason : null);
+  const isStrategyPaused = (pausedStrategies || []).includes(effectiveStrategyLabel) || (!isVariant && sessionPaused);
+  const isStrategyGated = Boolean(
+    isStrategyPaused ||
+    (currentGateState && ['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk'].includes(currentGateState))
+  );
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
   const showResumingFeedback = sessionActive && isResuming;
@@ -673,6 +756,24 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
   const [discoveryMode, setDiscoveryMode] = useState('all') // 'all' | 'volume' | 'pct_change'
   const [sortBy, setSortBy] = useState('score') // 'score' | 'pct_desc' | 'pct_asc' | 'vol_desc'
   const [rangeFilter, setRangeFilter] = useState('all') // 'all' | 'pos' | 'neg' | 'movers' | 'extreme'
+
+  const handleSelectDiscoveryMode = React.useCallback((modeId) => {
+    setDiscoveryMode(modeId);
+    if (modeId === 'all') return;
+    const targetMode = modeId === 'change_pct' ? 'pct_change' : modeId;
+    if (isVariant) {
+      const updatedVariants = (config?.strategy_variants || []).map(v =>
+        v.strategy_label === effectiveStrategyLabel ? { ...v, discovery_mode: targetMode } : v
+      );
+      if (typeof patchConfig === 'function') {
+        patchConfig({ strategy_variants: updatedVariants });
+      }
+    } else {
+      if (typeof patchConfig === 'function') {
+        patchConfig({ discovery_mode: targetMode });
+      }
+    }
+  }, [config, effectiveStrategyLabel, isVariant, patchConfig]);
 
   // UX-MOBILE: Ensure search input is visible when focused
   const handleInputFocus = React.useCallback((e) => {
@@ -830,10 +931,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
                     {hibernationMode === 'light' ? 'Light' : 'Deep'}
                   </span>
                 </div>
-              ) : scannerPaused ? (
-                <div className="flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-red/10 border border-red/20 shadow-md">
-                  <span className="w-1 h-1 rounded-full bg-red animate-pulse" />
-                  <span className="text-[8px] text-red font-black uppercase tracking-wider">Gated</span>
+              ) : (isStrategyGated || scannerPaused) ? (
+                <div className="flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-amber/10 border border-amber/20 shadow-md">
+                  <span className="w-1 h-1 rounded-full bg-amber animate-pulse" />
+                  <span className="text-[8px] text-amber font-black uppercase tracking-wider">
+                    {isStrategyPaused ? 'Paused' : currentGateState === 'max_trades' ? 'Max Trades' : 'Gated'}
+                  </span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-green/10 border border-green/20 shadow-md">
@@ -894,9 +997,84 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       </div>
       <ModalAlertTicker />
 
+      {/* Strategy Switcher Tabs */}
+      {allStrategies.length > 1 && (
+        <div className="bg-surface/80 border-b border-border px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+          <span className="text-[9px] font-black text-dim uppercase tracking-wider shrink-0 mr-1">
+            Strategy:
+          </span>
+          {allStrategies.map(s => {
+            const isSelected = s.label === effectiveStrategyLabel;
+            const count = s.isVariant
+              ? ((variantScannerResults && variantScannerResults[s.label]) || []).length
+              : (scannerResults || []).length;
+            const gate = strategyGateStates?.[s.label]?.gateState || (!s.isVariant ? gateState : null);
+            const isGated = gate && ['max_trades', 'sl_guard', 'max_trades_period'].includes(gate);
+            const isPaused = (pausedStrategies || []).includes(s.label);
+
+            return (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => setActiveStrategyTab(s.label)}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider border flex items-center gap-1.5 transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                  isSelected
+                    ? "bg-accent/20 border-accent/40 text-accent shadow-sm"
+                    : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-border/80"
+                )}
+              >
+                <span>{s.label}</span>
+                <span className="text-[8px] px-1 py-0.2 rounded bg-black/30 border border-white/5 font-mono text-dim">
+                  {s.timeframe}
+                </span>
+                <span className={cn(
+                  "text-[8px] px-1.5 py-0.2 rounded font-mono font-bold",
+                  isSelected ? "bg-accent text-white" : "bg-white/5 text-dim"
+                )}>
+                  {count}
+                </span>
+                {isGated && (
+                  <span className="text-[7.5px] px-1 py-0.2 rounded bg-amber/20 text-amber border border-amber/40 font-mono font-black">
+                    {gate === 'max_trades' ? 'MAX' : 'GATED'}
+                  </span>
+                )}
+                {isPaused && (
+                  <span className="text-[7.5px] px-1 py-0.2 rounded bg-red/20 text-red border border-red/40 font-mono font-black">
+                    PAUSED
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* High-Visibility Gated Alert Banner */}
+      {isStrategyGated && (
+        <div className="bg-amber/10 border-b border-amber/30 px-3.5 py-2 flex items-center justify-between text-xs font-mono shrink-0 shadow-sm animate-in fade-in duration-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <PauseCircle size={14} className="text-amber animate-pulse shrink-0" />
+            <span className="font-bold text-amber uppercase tracking-wider text-[10px] truncate">
+              {isStrategyPaused
+                ? `Strategy "${effectiveStrategyLabel}" is paused. Candidate scanning halted.`
+                : currentGateState === 'max_trades'
+                ? `Strategy "${effectiveStrategyLabel}" max open trades reached. Scanning paused until a trade slot opens.`
+                : currentGateState === 'sl_guard'
+                ? `Strategy "${effectiveStrategyLabel}" stop-loss guard active. Entries blocked.`
+                : `Strategy "${effectiveStrategyLabel}" is gated (${currentGateState}). Scanning paused.`
+              }
+            </span>
+          </div>
+          <span className="text-[8.5px] text-amber/80 font-bold uppercase tracking-widest hidden sm:inline border border-amber/30 px-1.5 py-0.5 rounded shrink-0">
+            Gated Protection
+          </span>
+        </div>
+      )}
+
       {/* Ultra-High-Density Consolidated Market Regime & Telemetry Header Bar */}
       {(() => {
-        const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused, hibernating });
+        const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: scannerPaused || isStrategyGated, hibernating });
         return (
           <>
           <div
@@ -996,7 +1174,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             <button
               key={m.id}
               type="button"
-              onClick={() => setDiscoveryMode(m.id)}
+              onClick={() => handleSelectDiscoveryMode(m.id)}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
                 (discoveryMode === m.id || (m.id === 'change_pct' && discoveryMode === 'pct_change'))
@@ -1087,10 +1265,28 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
       <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
         {strategyScannerResults.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-dim gap-3 py-20">
-             <RefreshCw size={24} className="animate-spin opacity-20" />
-             <div className="text-[13px] font-bold uppercase tracking-widest opacity-40 italic">Initializing scanner...</div>
-          </div>
+          isStrategyGated ? (
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 gap-3 animate-in fade-in duration-300">
+              <div className="w-12 h-12 rounded-2xl bg-amber/10 border border-amber/30 flex items-center justify-center text-amber shadow-sm">
+                <PauseCircle size={24} className="animate-pulse" />
+              </div>
+              <div className="text-[13px] font-black uppercase tracking-wider text-amber">
+                Scanning Paused for {effectiveStrategyLabel}
+              </div>
+              <p className="text-[11px] text-dim max-w-md font-mono">
+                {currentGateState === 'max_trades'
+                  ? 'Maximum open trades reached for this strategy. Candidate evaluation is paused to protect rate limits and will resume immediately once a trade closes.'
+                  : currentGateReason || 'Risk gating is active for this strategy. Scanning will resume once conditions normalize.'}
+              </p>
+            </div>
+          ) : (
+            <div className="h-full flex flex-col items-center justify-center text-dim gap-3 py-20">
+              <RefreshCw size={24} className="animate-spin opacity-20" />
+              <div className="text-[13px] font-bold uppercase tracking-widest opacity-40 italic">
+                {isVariant ? `Scanning candidates for ${effectiveStrategyLabel}...` : 'Initializing scanner...'}
+              </div>
+            </div>
+          )
         ) : filteredResults.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-300">
             <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
@@ -1118,7 +1314,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               config={strategyConfig}
               isInPosition={activeTradeSymbols.has(opp.symbol)}
               isMonitored={monitoredSymbols.has(opp.symbol)}
-              scannerPaused={scannerPaused}
+              scannerPaused={scannerPaused || isStrategyGated}
               hibernating={hibernating}
               hibernationMode={hibernationMode}
             />

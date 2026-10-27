@@ -60,11 +60,29 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
     if (!config) return {};
-    const idx = config.strategy_variants?.findIndex(v => v.strategy_label === s.strategy_label);
-    return (idx !== -1 && idx !== undefined)
-      ? { ...config, ...config.strategy_variants[idx] }
-      : config;
-  }, [config, s.strategy_label]);
+    if (!s || !s.strategy_label || s.strategy_label === config.strategy_label) return config;
+    const variant = config.strategy_variants?.find(v => v.strategy_label === s.strategy_label);
+    if (!variant) return config;
+
+    const baseSymbols = Array.isArray(config.symbols) ? config.symbols : [];
+    const hasVariantSymbols = Array.isArray(variant.symbols);
+    const hasVariantScannerOverride =
+      variant.watchlist_size !== undefined ||
+      variant.discovery_mode !== undefined ||
+      variant.scan_interval !== undefined ||
+      variant.global_scanner_enabled !== undefined;
+
+    const variantSymbols = hasVariantSymbols
+      ? variant.symbols
+      : (hasVariantScannerOverride ? [] : baseSymbols);
+
+    return { ...config, ...variant, symbols: variantSymbols };
+  }, [config, s?.strategy_label]);
+
+  const isVariant = useMemo(() => {
+    if (!config || !s?.strategy_label) return false;
+    return config.strategy_label !== s.strategy_label;
+  }, [config, s?.strategy_label]);
 
   // Resolve variant-aware timeframe and scanner opportunities list
   const strategyScannerResults = useMemo(() => {
@@ -72,15 +90,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     if (variantScannerResults && variantScannerResults[s.strategy_label]) {
       return variantScannerResults[s.strategy_label];
     }
+    // Strict variant isolation: never leak base strategy scanner results into variant view!
+    if (isVariant) {
+      return [];
+    }
     return scannerResults || [];
-  }, [variantScannerResults, scannerResults, s?.strategy_label]);
+  }, [variantScannerResults, scannerResults, s?.strategy_label, isVariant]);
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
   const showResumingFeedback = sessionActive && isResuming
-  const isVariant = useMemo(() => {
-    if (!config) return false;
-    return config.strategy_label !== s.strategy_label;
-  }, [config, s.strategy_label]);
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);

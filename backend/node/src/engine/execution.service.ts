@@ -252,13 +252,17 @@ export class ExecutionService {
 
   private toTimestampMs(val: any): number {
     if (!val) return 0;
-    if (typeof val === 'number') return val;
+    if (typeof val === 'number') return val < 1e11 ? val * 1000 : val;
     if (val instanceof Date) return val.getTime();
     if (typeof val === 'string') {
-      const parsed = Date.parse(val);
-      if (!isNaN(parsed)) return parsed;
       const trimmed = val.trim();
       if (!trimmed) return 0;
+      if (!isNaN(Number(trimmed))) {
+        const num = Number(trimmed);
+        return num < 1e11 ? num * 1000 : num;
+      }
+      const parsed = Date.parse(trimmed);
+      if (!isNaN(parsed)) return parsed;
       const normalized = trimmed.includes(' ') ? trimmed.replace(' ', 'T') : trimmed;
       const iso = (!normalized.endsWith('Z') && !normalized.includes('+') && !normalized.includes(' -')) ? normalized + 'Z' : normalized;
       const parsedFallback = Date.parse(iso);
@@ -382,9 +386,14 @@ export class ExecutionService {
 
         const symbolClosedTrades = [];
         for (let i = 0; i < closedTrades.length; i++) {
-          if (closedTrades[i].symbol === opp.symbol) {
-            hasClosedForSymbol = true;
-            symbolClosedTrades.push(closedTrades[i]);
+          const t = closedTrades[i];
+          if (t && t.symbol === opp.symbol) {
+            const isFailedOrCancelled = t.status === 'ENTRY_FAILED' || t.status === 'CANCELLED' || t.status === 'REJECTED' || (t as any).is_reconciliation;
+            const isDifferentStrategy = symbolConfig.anti_whipsaw_per_strategy && t.strategy_label && t.strategy_label !== currentStrategyLabel;
+            if (!isFailedOrCancelled && !isDifferentStrategy) {
+              hasClosedForSymbol = true;
+              symbolClosedTrades.push(t);
+            }
           }
         }
 
@@ -411,8 +420,6 @@ export class ExecutionService {
           let sameCandleGated = false;
           let gatedTimeframe = '';
           let gateReason = '';
-
-
 
           for (const tf of uniqueTimeframes) {
             const tfCandles = this.klineStore.getRawCandles(opp.symbol, tf);
@@ -446,9 +453,10 @@ export class ExecutionService {
                     continue;
                   }
 
-                  if (t.entry_ts) {
-                    const entryTsMs = this.toTimestampMs(t.entry_ts);
-                    if (entryTsMs > 0 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
+                  const rawEntryTs = t.entry_ts || t.opened_at || t.timestamp || t.created_at;
+                  if (rawEntryTs) {
+                    const entryTsMs = this.toTimestampMs(rawEntryTs);
+                    if (entryTsMs > 0 && entryTsMs <= nowMs + 60000 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
                       sameCandleGated = true;
                       gatedTimeframe = tf;
                       gateReason = `entered during the current ${tf} candle period`;
@@ -456,8 +464,9 @@ export class ExecutionService {
                     }
                   }
 
-                  if (t.exit_ts) {
-                    const exitTsMs = this.toTimestampMs(t.exit_ts);
+                  const rawExitTs = t.exit_ts || t.closed_at;
+                  if (rawExitTs) {
+                    const exitTsMs = this.toTimestampMs(rawExitTs);
                     const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
                     if (validExitTsMs > 0 && (validExitTsMs >= currentCandleStart || nowMs < validExitTsMs + effectiveDelayMs)) {
                       sameCandleGated = true;

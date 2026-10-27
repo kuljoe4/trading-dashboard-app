@@ -2863,6 +2863,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         ? engineStatus.activeTrades
         : activeTrades,
       scannerResults: engineStatus.scannerResults,
+      variant_opportunities: engineStatus.variant_opportunities || engineStatus.variantScannerResults || [],
       activeWindows: engineStatus.activeWindows,
       gateState: engineStatus.gateState,
       scannerPaused: engineStatus.scannerPaused,

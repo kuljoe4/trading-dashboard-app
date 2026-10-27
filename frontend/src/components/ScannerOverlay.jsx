@@ -62,9 +62,7 @@ const ActiveWindowsList = React.memo(({ search }) => {
     return windows.filter(w => w.symbol.toLowerCase().includes(term))
   }, [activeWindows, search])
 
-  if (filteredWindows.length === 0) return (
-    <div className="h-0 p-0 opacity-0 border-none transition-all duration-300" />
-  );
+  if (filteredWindows.length === 0) return null;
 
   return (
     <div className="bg-accent/5 border-b border-border overflow-x-auto no-scrollbar shrink-0 transition-all duration-300 ease-in-out h-[42px] p-2.5 opacity-100">
@@ -912,7 +910,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
   }, [strategyConfig?.single_symbol_configs]);
 
   return (
-    <div className="flex flex-col h-full bg-surface text-text overflow-hidden">
+    <div className="flex flex-col h-full min-h-[500px] sm:min-h-[600px] bg-surface text-text overflow-hidden">
       <div className="p-3 border-b border-border flex justify-between items-center shrink-0 h-[52px]">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex flex-col justify-center">
@@ -1298,7 +1296,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
         {strategyScannerResults.length === 0 ? (
           isStrategyGated ? (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8 gap-3 animate-in fade-in duration-300">
+            <div className="h-full min-h-[360px] flex flex-col items-center justify-center text-center p-8 gap-3 animate-in fade-in duration-300">
               <div className="w-12 h-12 rounded-2xl bg-amber/10 border border-amber/30 flex items-center justify-center text-amber shadow-sm">
                 <PauseCircle size={24} className="animate-pulse" />
               </div>
@@ -1312,7 +1310,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               </p>
             </div>
           ) : (
-            <div className="h-full flex flex-col items-center justify-center text-dim gap-3 py-20">
+            <div className="h-full min-h-[360px] flex flex-col items-center justify-center text-dim gap-3 py-20">
               <RefreshCw size={24} className="animate-spin opacity-20" />
               <div className="text-[13px] font-bold uppercase tracking-widest opacity-40 italic">
                 {isVariant ? `Scanning candidates for ${effectiveStrategyLabel}...` : 'Initializing scanner...'}
@@ -1320,7 +1318,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             </div>
           )
         ) : filteredResults.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-300">
+          <div className="h-full min-h-[360px] flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-300">
             <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
               <Search size={24} />
             </div>

@@ -2500,6 +2500,10 @@ const flattenConfig = (config) => {
       knife_auto_ratchet_lock_rr: config.knife_auto_ratchet_lock_rr !== undefined ? config.knife_auto_ratchet_lock_rr : 1.0,
       anti_whipsaw_allow_knife: !!config.anti_whipsaw_allow_knife,
       allow_knife_when_gated: !!config.allow_knife_when_gated,
+      anti_whipsaw_candle_delay: config.anti_whipsaw_candle_delay !== undefined ? config.anti_whipsaw_candle_delay : 1,
+      anti_whipsaw_tf_delay_min: config.anti_whipsaw_tf_delay_min !== undefined ? config.anti_whipsaw_tf_delay_min : 0,
+      anti_whipsaw_max_tf: config.anti_whipsaw_max_tf || '4h',
+      anti_whipsaw_timeframes: Array.isArray(config.anti_whipsaw_timeframes) ? config.anti_whipsaw_timeframes : [],
       release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
@@ -2579,6 +2583,8 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'knife_trailing_distance_pct',
       'knife_auto_ratchet_be_rr',
       'knife_auto_ratchet_lock_rr',
+      'anti_whipsaw_candle_delay',
+      'anti_whipsaw_tf_delay_min',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
@@ -4940,9 +4946,33 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <Tooltip content="Custom time delay (in minutes) after an exit before re-entry is permitted on the symbol. Overrides candle delay if time delay is longer.">
                       {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, { min: 0, max: 1440 })}
                     </Tooltip>
+                    <Tooltip content="Maximum signal timeframe evaluated for anti-whipsaw same-candle gating. Signals with larger timeframes (e.g. 1d confirming entry signals) will not lock out re-entries for 24 hours. Default: 4h.">
+                      {renderField('Max Anti-Whipsaw Timeframe', 'anti_whipsaw_max_tf', 'text', [
+                        { value: '1m', label: '1m' },
+                        { value: '3m', label: '3m' },
+                        { value: '5m', label: '5m' },
+                        { value: '15m', label: '15m' },
+                        { value: '30m', label: '30m' },
+                        { value: '1h', label: '1h' },
+                        { value: '4h', label: '4h (Default - Excludes 1d+ macro)' },
+                        { value: '1d', label: '1d' },
+                        { value: 'none', label: 'None (No limit)' }
+                      ])}
+                    </Tooltip>
+                    <div className="flex flex-col gap-1 text-left">
+                      <label htmlFor="anti-whipsaw-tfs" className="text-[9px] text-dim font-black tracking-widest uppercase">
+                        Explicit Timeframes Override (Comma-separated)
+                      </label>
+                      <ListInput
+                        id="anti-whipsaw-tfs"
+                        placeholder="e.g. 1m, 1h (leave empty for auto)"
+                        value={cfg.anti_whipsaw_timeframes}
+                        onChange={(val) => setField('anti_whipsaw_timeframes', val)}
+                      />
+                    </div>
                   </div>
                   <p className="text-[8.5px] text-dim/70 leading-snug">
-                    Anti-whipsaw gating prevents rapid oscillation and double-dipping on the same symbol right after an exit. High-velocity Knife Catch trades can optionally bypass this delay via the "Allow Knife Re-entry" setting under Knife Catch.
+                    Anti-whipsaw gating prevents rapid oscillation and double-dipping on the same symbol right after an exit. Signals above the Max Timeframe (like a 1d confirming signal) are automatically excluded so macro confirmation does not freeze candidate re-entries for 24 hours. High-velocity Knife Catch trades can optionally bypass this delay via "Allow Knife Re-entry".
                   </p>
                 </div>
               </div>

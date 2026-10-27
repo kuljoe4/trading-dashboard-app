@@ -535,8 +535,8 @@ export const VisuallyHidden = ({ children }) => (
   </span>
 )
 
-export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming }) => {
-  const { config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false }) => {
+  const { balance, totalPnl, activeTrades, gateState, totalRiskPct, config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume
@@ -634,6 +634,22 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
   const activeAlert = !hasActiveModal && alerts && alerts.length > 0 ? alerts[alertIndex % alerts.length] : null
 
+  // Compute live metrics for Row 2 strip
+  const netBal = Number(balance) || 0;
+  const netPnlVal = Number(totalPnl) || 0;
+  const startingBal = tradingMode === 'paper'
+    ? (config.paper_starting_balance || 10000)
+    : (tradingMode === 'testnet'
+        ? (config.testnet_starting_balance || 10000)
+        : (config.live_starting_balance || Math.max(1, netBal - netPnlVal)));
+  const pnlPct = startingBal > 0 ? (netPnlVal / startingBal) * 100 : 0;
+
+  const openPositions = Array.isArray(activeTrades) ? activeTrades : [];
+  const maxOpen = config.max_open_trades || 1;
+  const activePnlSum = openPositions.reduce((acc, t) => acc + (Number(t.pnl) || 0), 0);
+  const liveRisk = Number(totalRiskPct) || 0;
+  const gate = gateState || 'ACTIVE';
+
   return (
     <div
       ref={headerRef}
@@ -641,14 +657,15 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
       tabIndex={0}
       className={cn(
-        "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset mb-3 lg:mb-4 py-2 px-2 sm:px-3 rounded-2xl",
+        "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset mb-3 lg:mb-4 py-2 px-2.5 sm:px-3.5 rounded-2xl",
         sticky && "sticky top-0 backdrop-blur-xl border-b transition-colors",
         sticky && isScrolled
-          ? "bg-background/90 border-border/40 shadow-md shadow-black/30"
+          ? "bg-background/90 border-border/40 shadow-md shadow-black/30 py-1.5"
           : "bg-background/60 border-border/20 shadow-none"
       )}
     >
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 relative w-full min-h-[38px]">
+      {/* ROW 1: Brand / Title / Navigation & Action Controls */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 relative w-full min-h-[36px]">
         {/* Left Side: Title, Icon and Badges */}
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {backAction && (
@@ -713,119 +730,164 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         )}
       </div>
 
-      {/* Integrated Non-Blocking Horizontal Alert Ticker Row */}
-      {activeAlert && (
-        <div className="w-full mt-1.5 pt-1.5 border-t border-border/20 flex items-center justify-center">
-          <div
-            onClick={() => setShowDropdown(!showDropdown)}
-            className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full px-3 py-1 text-[10px] max-w-full sm:max-w-[480px] shadow-xs"
-            title="Click to view all recent alerts"
-          >
-            {triggerRippleKey > 0 && (
-              <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
-            )}
-
-            <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[18px]">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={activeAlert.id + '-' + activeAlert.count}
-                  initial={{ y: 12, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: -12, opacity: 0 }}
-                  transition={{ type: 'spring', stiffness: 350, damping: 25 }}
-                  className="flex items-center gap-1.5 min-w-0 w-full h-full"
-                >
-                  <span className={cn(
-                    "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
-                    activeAlert.level === 'error' ? "bg-red" :
-                    activeAlert.level === 'warn' ? "bg-amber" :
-                    activeAlert.level === 'success' ? "bg-green" :
-                    "bg-accent"
-                  )} />
-                  <span className="font-black uppercase tracking-wider shrink-0 opacity-90 text-[8px] sm:text-[8.5px] text-white">
-                    {activeAlert.title || 'Alert'}
+      {/* ROW 2: Ultra-Dense Critical Metrics Strip & Integrated Alert Ticker */}
+      {!hideMetrics && (
+        <div className={cn(
+          "w-full transition-all duration-300 overflow-hidden",
+          isScrolled ? "max-h-0 opacity-0 mt-0 pointer-events-none" : "max-h-16 opacity-100 mt-2 pt-1.5 border-t border-border/20"
+        )}>
+          <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+            {/* Live Metrics Strip */}
+            <div className="flex items-center gap-2 sm:gap-3 font-mono text-[9.5px] sm:text-[10px] tabular-nums font-bold flex-wrap min-w-0">
+              <div className="flex items-center gap-1 text-dim shrink-0">
+                <span className="text-[8.5px] uppercase tracking-wider opacity-60 font-sans">BAL</span>
+                <span className="text-text font-black">${netBal.toFixed(2)}</span>
+              </div>
+              <span className="text-border/40 select-none">|</span>
+              <div className="flex items-center gap-1 shrink-0">
+                <span className="text-[8.5px] uppercase tracking-wider text-dim opacity-60 font-sans">PNL</span>
+                <span className={cn(
+                  "font-black",
+                  netPnlVal > 0 ? "text-green" : netPnlVal < 0 ? "text-red" : "text-text"
+                )}>
+                  {netPnlVal >= 0 ? '+' : ''}${netPnlVal.toFixed(2)} ({netPnlVal >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%)
+                </span>
+              </div>
+              <span className="text-border/40 select-none hidden xs:inline">|</span>
+              <div className="flex items-center gap-1 shrink-0 hidden xs:flex">
+                <span className="text-[8.5px] uppercase tracking-wider text-dim opacity-60 font-sans">POS</span>
+                <span className="text-text font-black">{openPositions.length}/{maxOpen}</span>
+                {openPositions.length > 0 && (
+                  <span className={cn("text-[9px] font-black", activePnlSum >= 0 ? "text-green" : "text-red")}>
+                    ({activePnlSum >= 0 ? '+' : ''}${activePnlSum.toFixed(2)})
                   </span>
-                  <span className="opacity-30 shrink-0 font-black">|</span>
-                  <span className="font-semibold truncate text-text/90 group-hover:text-text transition-colors">
-                    {activeAlert.message}
-                  </span>
-                  {activeAlert.count > 1 && (
-                    <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
-                  )}
-                  {alerts.length > 1 && (
-                    <span className="text-[7.5px] font-bold text-accent shrink-0 uppercase tracking-tighter ml-auto hidden sm:inline">
-                      +{alerts.length - 1} more
-                    </span>
-                  )}
-                </motion.div>
-              </AnimatePresence>
+                )}
+              </div>
+              <span className="text-border/40 select-none hidden sm:inline">|</span>
+              <div className="flex items-center gap-1 shrink-0 hidden sm:flex">
+                <span className="text-[8.5px] uppercase tracking-wider text-dim opacity-60 font-sans">RISK</span>
+                <span className="text-text font-black">{liveRisk.toFixed(1)}%</span>
+              </div>
+              <span className="text-border/40 select-none hidden md:inline">|</span>
+              <div className="flex items-center gap-1 shrink-0 hidden md:flex">
+                <span className="text-[8.5px] uppercase tracking-wider text-dim opacity-60 font-sans">GATE</span>
+                <span className={cn("font-black uppercase text-[9px]", gate === 'ACTIVE' ? "text-green" : "text-amber")}>
+                  {gate}
+                </span>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
-                updateStats({ alerts: nextAlerts })
-                if (nextAlerts.length === 0) setShowDropdown(false)
-              }}
-              className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10 cursor-pointer"
-              aria-label="Dismiss this alert"
-            >
-              <X size={10} />
-            </button>
-          </div>
 
-          {/* Dropdown Overlay containing the exact alert history */}
-          {showDropdown && (
-            <>
-              <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
-              <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 bg-surface/98 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-w-[calc(100vw-2rem)] max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
-                <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+            {/* Integrated Non-Blocking Alert Ticker Pill in Row 2 */}
+            {activeAlert && (
+              <div className="flex items-center shrink-0 ml-auto max-w-full sm:max-w-[360px]">
+                <div
+                  onClick={() => setShowDropdown(!showDropdown)}
+                  className="group relative pointer-events-auto cursor-pointer flex items-center justify-between gap-1.5 bg-surface/80 hover:bg-surface border border-border/60 hover:border-accent/50 rounded-full text-text transition-all duration-300 select-none animate-in fade-in w-full px-2.5 py-0.5 text-[9.5px] shadow-xs"
+                  title="Click to view all recent alerts"
+                >
+                  {triggerRippleKey > 0 && (
+                    <AlertRipple key={triggerRippleKey} level={lastProcessedAlert?.level} />
+                  )}
+
+                  <div className="flex items-center min-w-0 flex-1 relative overflow-hidden h-[16px]">
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={activeAlert.id + '-' + activeAlert.count}
+                        initial={{ y: 10, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: -10, opacity: 0 }}
+                        transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                        className="flex items-center gap-1.5 min-w-0 w-full h-full"
+                      >
+                        <span className={cn(
+                          "w-1.5 h-1.5 rounded-full shrink-0 animate-pulse",
+                          activeAlert.level === 'error' ? "bg-red" :
+                          activeAlert.level === 'warn' ? "bg-amber" :
+                          activeAlert.level === 'success' ? "bg-green" :
+                          "bg-accent"
+                        )} />
+                        <span className="font-black uppercase tracking-wider shrink-0 opacity-90 text-[8px] text-white">
+                          {activeAlert.title || 'Alert'}
+                        </span>
+                        <span className="opacity-30 shrink-0 font-black">|</span>
+                        <span className="font-semibold truncate text-text/90 group-hover:text-text transition-colors">
+                          {activeAlert.message}
+                        </span>
+                        {activeAlert.count > 1 && (
+                          <span className="bg-white/10 px-1 py-0.2 rounded text-[7px] font-black shrink-0">x{activeAlert.count}</span>
+                        )}
+                      </motion.div>
+                    </AnimatePresence>
+                  </div>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
-                    className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1 cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      const nextAlerts = alerts.filter(a => a.id !== activeAlert.id)
+                      updateStats({ alerts: nextAlerts })
+                      if (nextAlerts.length === 0) setShowDropdown(false)
+                    }}
+                    className="p-0.5 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none z-10 cursor-pointer ml-1"
+                    aria-label="Dismiss this alert"
                   >
-                    Clear All
+                    <X size={10} />
                   </button>
                 </div>
-                <div className="flex flex-col gap-1.5">
-                  {alerts.map(a => (
-                    <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
-                      <div className="min-w-0 flex-1 text-[9.5px]">
-                        <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
-                          <span className={cn(
-                            "w-1 h-1 rounded-full shrink-0",
-                            a.level === 'error' ? "bg-red" :
-                            a.level === 'warn' ? "bg-amber" :
-                            a.level === 'success' ? "bg-green" :
-                            "bg-accent"
-                          )} />
-                          {a.title || 'System Alert'}
-                          {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
-                        </div>
-                        <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+
+                {/* Dropdown Overlay containing the exact alert history */}
+                {showDropdown && (
+                  <>
+                    <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
+                    <div className="absolute top-full mt-2 right-0 bg-surface/98 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-w-[calc(100vw-2rem)] max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+                      <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
+                        <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); updateStats({ alerts: [] }); setShowDropdown(false); }}
+                          className="text-[8.5px] font-black text-red hover:text-red-400 uppercase tracking-widest transition-colors focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none rounded px-1 cursor-pointer"
+                        >
+                          Clear All
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          const nextAlerts = alerts.filter(item => item.id !== a.id)
-                          updateStats({ alerts: nextAlerts })
-                          if (nextAlerts.length === 0) setShowDropdown(false)
-                        }}
-                        className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none cursor-pointer"
-                        aria-label="Dismiss"
-                      >
-                        <X size={10} />
-                      </button>
+                      <div className="flex flex-col gap-1.5">
+                        {alerts.map(a => (
+                          <div key={a.id} className="flex items-start justify-between gap-2 p-2 bg-background/40 hover:bg-background/80 border border-border/30 rounded-xl transition-all">
+                            <div className="min-w-0 flex-1 text-[9.5px]">
+                              <div className="flex items-center gap-1.5 font-black uppercase tracking-wider text-white">
+                                <span className={cn(
+                                  "w-1 h-1 rounded-full shrink-0",
+                                  a.level === 'error' ? "bg-red" :
+                                  a.level === 'warn' ? "bg-amber" :
+                                  a.level === 'success' ? "bg-green" :
+                                  "bg-accent"
+                                )} />
+                                {a.title || 'System Alert'}
+                                {a.count > 1 && <span className="text-[7.5px] bg-white/10 px-1 py-0.2 rounded text-text/80">x{a.count}</span>}
+                              </div>
+                              <p className="font-semibold text-dim mt-0.5 leading-normal break-words">{a.message}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const nextAlerts = alerts.filter(item => item.id !== a.id)
+                                updateStats({ alerts: nextAlerts })
+                                if (nextAlerts.length === 0) setShowDropdown(false)
+                              }}
+                              className="p-1 rounded text-dim hover:text-red hover:bg-white/5 transition-all shrink-0 focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none cursor-pointer"
+                              aria-label="Dismiss"
+                            >
+                              <X size={10} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  </>
+                )}
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>

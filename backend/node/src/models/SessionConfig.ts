@@ -674,6 +674,18 @@ export class SessionConfig {
   @IsOptional()
   anti_whipsaw_per_strategy?: boolean = false;
 
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @ArrayMaxSize(10)
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { each: true, message: 'anti_whipsaw_timeframes must be valid Binance kline intervals' })
+  anti_whipsaw_timeframes?: string[];
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M|none)$/)
+  anti_whipsaw_max_tf?: string = "4h";
+
   @IsNumber()
   @Min(0)
   @Max(20)

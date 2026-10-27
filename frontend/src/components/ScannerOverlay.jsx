@@ -911,223 +911,96 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
   return (
     <div className="flex flex-col h-full min-h-[500px] sm:min-h-[600px] bg-surface text-text overflow-hidden">
-      <div className="p-3 border-b border-border flex justify-between items-center shrink-0 h-[52px]">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex flex-col justify-center">
-            <div className="flex items-center gap-2">
-              <div className="relative flex items-center justify-center w-4 h-4">
-                 <PulseDot color={showResumingFeedback ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
-                 {!hibernating && !scannerPaused && !showResumingFeedback && (
-                   <span className="absolute inset-0 rounded-full border border-green animate-ping opacity-20 scale-125" />
-                 )}
-                 {showResumingFeedback && (
-                   <span className="absolute inset-0 rounded-full border border-accent animate-ping opacity-20 scale-125" />
-                 )}
-              </div>
-                <div className="flex flex-col">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-black tracking-tight hidden sm:inline uppercase leading-none">{showResumingFeedback ? 'Resuming...' : 'Live Scanner'}</span>
-                    <span className={cn(
-                      "text-[8px] font-black uppercase tracking-wider px-1.5 py-0.2 rounded-full border shadow-sm leading-none",
-                      discoveryMode === 'all'
-                        ? "bg-accent/10 border-accent/20 text-accent"
-                        : discoveryMode === 'volume'
-                        ? "bg-green/10 border-green/20 text-green"
-                        : "bg-purple/10 border-purple/20 text-purple"
-                    )}>
-                      {discoveryMode === 'all' ? 'All' : discoveryMode === 'volume' ? 'Volume Rank' : 'Change Rank'}
+      {/* ==================== ROW 1: MINIMIZED HIGH-DENSITY TITLE, STATUS, TELEMETRY & SEARCH ==================== */}
+      <div className="px-3 py-1 border-b border-border bg-surface flex items-center justify-between gap-2 shrink-0 h-[38px] min-h-[38px]">
+        {/* Left: Status, Wordmark & Strategy Switcher */}
+        <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">
+          <div className="relative flex items-center justify-center w-3.5 h-3.5 shrink-0">
+            <PulseDot color={showResumingFeedback ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
+          </div>
+          <span className="text-[12px] font-black tracking-tight uppercase leading-none shrink-0 whitespace-nowrap">
+            {showResumingFeedback ? 'Resuming...' : 'Live Scanner'}
+          </span>
+          <ScanStatus />
+
+          {/* Strategy Switcher Tabs inline */}
+          {allStrategies.length > 1 && (
+            <div className="flex items-center gap-1 shrink-0 ml-1">
+              <span className="text-[8px] font-black text-dim uppercase tracking-wider hidden lg:inline">
+                Strat:
+              </span>
+              {allStrategies.map(s => {
+                const isSelected = s.label === effectiveStrategyLabel;
+                const count = s.isVariant
+                  ? ((variantScannerResults && variantScannerResults[s.label]) || []).length
+                  : (scannerResults || []).length;
+                const gate = strategyGateStates?.[s.label]?.gateState || (!s.isVariant ? gateState : null);
+                const isGated = gate && ['max_trades', 'sl_guard', 'max_trades_period'].includes(gate);
+                const isPaused = (pausedStrategies || []).includes(s.label);
+
+                return (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => setActiveStrategyTab(s.label)}
+                    className={cn(
+                      "px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border flex items-center gap-1 transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer leading-none",
+                      isSelected
+                        ? "bg-accent/20 border-accent/40 text-accent shadow-xs"
+                        : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-border/80"
+                    )}
+                  >
+                    <span>{s.label}</span>
+                    <span className="text-[7.5px] px-1 py-0.2 rounded bg-black/30 border border-white/5 font-mono text-dim">
+                      {s.timeframe}
                     </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 opacity-60 mt-0.5">
-                    <div className="text-[7.5px] text-dim font-black uppercase tracking-tighter leading-none">Weights</div>
-                    <div className="px-1 py-0.2 rounded bg-background border border-border/50 font-mono text-[7.5px] font-bold text-text/60 leading-none">
-                      {strategyConfig.scanner_weights ? `${Number((strategyConfig.scanner_weights.momentum || 0)*100).toFixed(0)}:${Number((strategyConfig.scanner_weights.volatility || 0)*100).toFixed(0)}:${Number((strategyConfig.scanner_weights.trend || 0)*100).toFixed(0)}` : '50:30:20'}
-                    </div>
-                  </div>
-                </div>
-                <div className="h-6 w-px bg-border/40 hidden sm:block mx-0.5" />
-              {showResumingFeedback ? (
-                <div className="flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-accent/10 border border-accent/20 shadow-md">
-                  <RefreshCw size={8} className="text-accent animate-spin" />
-                  <span className="text-[8px] text-accent font-black uppercase tracking-wider">Resuming</span>
-                </div>
-              ) : hibernating ? (
-                <div className={cn(
-                  "flex items-center gap-1 px-1.5 py-0.2 rounded-full border shadow-md",
-                  hibernationMode === 'light' ? "bg-accent/10 border-accent/20" : "bg-amber/10 border-amber/20"
-                )}>
-                  <span className={cn("w-1 h-1 rounded-full animate-pulse", hibernationMode === 'light' ? "bg-accent" : "bg-amber")} />
-                  <span className={cn("text-[8px] font-black uppercase tracking-wider", hibernationMode === 'light' ? "text-accent" : "text-amber")}>
-                    {hibernationMode === 'light' ? 'Light' : 'Deep'}
-                  </span>
-                </div>
-              ) : (isStrategyGated || scannerPaused) ? (
-                <div className="flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-amber/10 border border-amber/20 shadow-md">
-                  <span className="w-1 h-1 rounded-full bg-amber animate-pulse" />
-                  <span className="text-[8px] text-amber font-black uppercase tracking-wider">
-                    {isStrategyPaused ? 'Paused' : currentGateState === 'max_trades' ? 'Max Trades' : 'Gated'}
-                  </span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-green/10 border border-green/20 shadow-md">
-                  <span className="w-1 h-1 rounded-full bg-green animate-pulse" />
-                  <span className="text-[8px] text-green font-black uppercase tracking-wider">Active</span>
-                </div>
-              )}
+                    <span className={cn(
+                      "text-[7.5px] px-1 py-0.2 rounded font-mono font-bold",
+                      isSelected ? "bg-accent text-white" : "bg-white/5 text-dim"
+                    )}>
+                      {count}
+                    </span>
+                    {isGated && (
+                      <span className="text-[7px] px-1 py-0.2 rounded bg-amber/20 text-amber border border-amber/40 font-mono font-black">
+                        {gate === 'max_trades' ? 'MAX' : 'GATED'}
+                      </span>
+                    )}
+                    {isPaused && (
+                      <span className="text-[7px] px-1 py-0.2 rounded bg-red/20 text-red border border-red/40 font-mono font-black">
+                        PAUSED
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
             </div>
-            <ScanStatus />
-          </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-2 flex-1 justify-end max-w-xs md:max-w-md">
-          <div className="relative group flex-1">
-            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onFocus={handleInputFocus}
-              onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-background border border-border rounded-lg pl-8 pr-8 py-1 text-[10px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all"
-              aria-label="Filter scanner symbols"
-            />
-            {search ? (
-              <Tooltip content="Clear Filter">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearch('');
-                    searchInputRef.current?.focus();
-                  }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors cursor-pointer"
-                  aria-label="Clear Filter"
-                >
-                  <XCircle size={14} />
-                </button>
-              </Tooltip>
-            ) : (
-              <kbd className="absolute right-3 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
-                /
-              </kbd>
-            )}
-          </div>
-          <Tooltip content="Close Scanner">
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full transition-colors shrink-0 cursor-pointer"
-              aria-label="Close scanner"
+        {/* Center: Consolidated Market Regime & Telemetry Bar */}
+        {(() => {
+          const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: scannerPaused || isStrategyGated, hibernating });
+          return (
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold. 24h Universe Range Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(2)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(2)}%`}
+              className="hidden md:flex items-center gap-2 text-[9px] font-mono shrink-0"
             >
-              <X size={18} className="text-dim" />
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-      <ModalAlertTicker />
-
-      {/* Strategy Switcher Tabs */}
-      {allStrategies.length > 1 && (
-        <div className="bg-surface/80 border-b border-border px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
-          <span className="text-[9px] font-black text-dim uppercase tracking-wider shrink-0 mr-1">
-            Strategy:
-          </span>
-          {allStrategies.map(s => {
-            const isSelected = s.label === effectiveStrategyLabel;
-            const count = s.isVariant
-              ? ((variantScannerResults && variantScannerResults[s.label]) || []).length
-              : (scannerResults || []).length;
-            const gate = strategyGateStates?.[s.label]?.gateState || (!s.isVariant ? gateState : null);
-            const isGated = gate && ['max_trades', 'sl_guard', 'max_trades_period'].includes(gate);
-            const isPaused = (pausedStrategies || []).includes(s.label);
-
-            return (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => setActiveStrategyTab(s.label)}
-                className={cn(
-                  "px-2.5 py-1 rounded-lg text-[9.5px] font-black uppercase tracking-wider border flex items-center gap-1.5 transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
-                  isSelected
-                    ? "bg-accent/20 border-accent/40 text-accent shadow-sm"
-                    : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-border/80"
-                )}
-              >
-                <span>{s.label}</span>
-                <span className="text-[8px] px-1 py-0.2 rounded bg-black/30 border border-white/5 font-mono text-dim">
-                  {s.timeframe}
-                </span>
-                <span className={cn(
-                  "text-[8px] px-1.5 py-0.2 rounded font-mono font-bold",
-                  isSelected ? "bg-accent text-white" : "bg-white/5 text-dim"
-                )}>
-                  {count}
-                </span>
-                {isGated && (
-                  <span className="text-[7.5px] px-1 py-0.2 rounded bg-amber/20 text-amber border border-amber/40 font-mono font-black">
-                    {gate === 'max_trades' ? 'MAX' : 'GATED'}
-                  </span>
-                )}
-                {isPaused && (
-                  <span className="text-[7.5px] px-1 py-0.2 rounded bg-red/20 text-red border border-red/40 font-mono font-black">
-                    PAUSED
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* High-Visibility Gated Alert Banner */}
-      {isStrategyGated && (
-        <div className="bg-amber/10 border-b border-amber/30 px-3.5 py-2 flex items-center justify-between text-xs font-mono shrink-0 shadow-sm animate-in fade-in duration-200">
-          <div className="flex items-center gap-2 min-w-0">
-            <PauseCircle size={14} className="text-amber animate-pulse shrink-0" />
-            <span className="font-bold text-amber uppercase tracking-wider text-[10px] truncate">
-              {isStrategyPaused
-                ? `Strategy "${effectiveStrategyLabel}" is paused. Candidate scanning halted.`
-                : currentGateState === 'max_trades'
-                ? `Strategy "${effectiveStrategyLabel}" max open trades reached. Scanning paused until a trade slot opens.`
-                : currentGateState === 'sl_guard'
-                ? `Strategy "${effectiveStrategyLabel}" stop-loss guard active. Entries blocked.`
-                : `Strategy "${effectiveStrategyLabel}" is gated (${currentGateState}). Scanning paused.`
-              }
-            </span>
-          </div>
-          <span className="text-[8.5px] text-amber/80 font-bold uppercase tracking-widest hidden sm:inline border border-amber/30 px-1.5 py-0.5 rounded shrink-0">
-            Gated Protection
-          </span>
-        </div>
-      )}
-
-      {/* Ultra-High-Density Consolidated Market Regime & Telemetry Header Bar */}
-      {(() => {
-        const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: scannerPaused || isStrategyGated, hibernating });
-        return (
-          <>
-          <div
-            tabIndex={0}
-            role="region"
-            aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold. 24h Universe Range Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(2)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(2)}%`}
-            className="bg-surface/50 border-b border-border px-3 py-1.5 flex flex-wrap items-center justify-between gap-2 shrink-0 text-[9.5px] font-mono"
-          >
-            <div className="flex items-center gap-2 flex-wrap min-w-0">
               <Tooltip content={overlayRegime.guidance}>
                 <div className={cn(
-                  "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-sm font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0",
+                  "px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-xs font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0 leading-none",
                   overlayRegime.badgeClass
                 )}>
-                  {overlayRegime.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
-                  {overlayRegime.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
-                  {overlayRegime.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
-                  {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={11} className="shrink-0 opacity-70" />}
+                  {overlayRegime.regime === 'slow' && <Turtle size={10} className="shrink-0 text-cyan-400" />}
+                  {overlayRegime.regime === 'active' && <Flame size={10} className="shrink-0 text-accent animate-pulse" />}
+                  {overlayRegime.regime === 'moderate' && <Zap size={10} className="shrink-0 text-amber" />}
+                  {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={10} className="shrink-0 opacity-70" />}
                   <span>{overlayRegime.label}</span>
                 </div>
               </Tooltip>
 
-              <div className="flex items-center gap-1.5 font-mono font-bold flex-wrap">
+              <div className="flex items-center gap-1.5 font-mono font-bold whitespace-nowrap">
                 <span className="text-text/90">
                   Avg Mom: <strong className="text-accent">{overlayRegime.avgMomentum.toFixed(2)}%</strong>
                 </span>
@@ -1140,63 +1013,79 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
                 <span className="text-dim/40">•</span>
                 <span className="text-green">Max <strong>{overlayRegime.maxPct >= 0 ? '+' : ''}{overlayRegime.maxPct.toFixed(1)}%</strong></span>
               </div>
-            </div>
 
-            {/* Speed Meter Bar */}
-            <div className="flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
-              <span className="text-[8.5px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
-              <div className="w-20 sm:w-28 h-1.5 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
-                <div
-                  className={cn("h-full transition-all duration-500 rounded-full", overlayRegime.meterClass || "bg-accent")}
-                  style={{ width: `${overlayRegime.speedPct}%` }}
-                />
+              {/* Speed Meter Bar */}
+              <div className="hidden lg:flex items-center gap-1 shrink-0">
+                <span className="text-[8px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
+                <div className="w-14 sm:w-20 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
+                  <div
+                    className={cn("h-full transition-all duration-500 rounded-full", overlayRegime.meterClass || "bg-accent")}
+                    style={{ width: `${overlayRegime.speedPct}%` }}
+                  />
+                </div>
+                <span className="text-[8px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
               </div>
-              <span className="text-[8.5px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
             </div>
-          </div>
+          );
+        })()}
 
-          {/* Active Fast Market Speed Alert Bar */}
-          {overlayRegime.regime === 'active' && (
-            <div
-              tabIndex={0}
-              role="region"
-              aria-label={`Fast Market Alert: ${overlayRegime.passingCount} candidates passing scan threshold ${overlayRegime.threshold}%, max momentum ${overlayRegime.maxAbsMomentum.toFixed(2)}%`}
-              className="bg-accent/10 border-b border-accent/30 px-3 py-1.5 flex items-center justify-between gap-3 text-xs font-mono shrink-0 shadow-sm"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <Flame size={13} className="text-accent animate-pulse shrink-0" />
-                <span className="font-black text-accent uppercase tracking-wider text-[10px] truncate">
-                  🔥 Fast Market Expansion ({overlayRegime.passingCount}/{overlayRegime.totalCount} Candidates &gt; {overlayRegime.threshold}%)
-                </span>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-[9px] font-bold text-accent/80 uppercase tracking-widest hidden sm:inline">
-                  Max Velocity {overlayRegime.maxAbsMomentum.toFixed(2)}%
-                </span>
+        {/* Right: Search & Close Utility Controls */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          <div className="relative group w-28 sm:w-40">
+            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onFocus={handleInputFocus}
+              onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
+              className="w-full bg-background border border-border rounded-md pl-7 pr-7 py-0.5 text-[9.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all h-6"
+              aria-label="Filter scanner symbols"
+            />
+            {search ? (
+              <Tooltip content="Clear Filter">
                 <button
                   type="button"
-                  onClick={() => setRangeFilter(rangeFilter === 'movers' ? 'all' : 'movers')}
-                  className="px-2 py-0.5 rounded bg-accent/20 border border-accent/40 text-[9px] font-black uppercase text-accent hover:bg-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer"
-                  aria-label={rangeFilter === 'movers' ? "Show all candidates" : "Filter movers"}
+                  onClick={() => {
+                    setSearch('');
+                    searchInputRef.current?.focus();
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors cursor-pointer"
+                  aria-label="Clear Filter"
                 >
-                  {rangeFilter === 'movers' ? 'Show All' : 'Focus Movers'}
+                  <XCircle size={12} />
                 </button>
-              </div>
-            </div>
-          )}
-          </>
-        );
-      })()}
+              </Tooltip>
+            ) : (
+              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[8px] font-black text-accent/80 shadow-xs font-mono px-1 py-0.2 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+                /
+              </kbd>
+            )}
+          </div>
+          <Tooltip content="Close Scanner">
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 hover:bg-white/5 focus-visible:bg-white/5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md transition-colors shrink-0 cursor-pointer text-dim hover:text-text"
+              aria-label="Close scanner"
+            >
+              <X size={16} />
+            </button>
+          </Tooltip>
+        </div>
+      </div>
 
-      <ActiveWindowsList search={search} />
-
-      {/* Real-time Discovery & Leaderboard Toolbar */}
-      <div className="bg-background/25 border-b border-border/40 p-2.5 flex flex-col gap-2 shrink-0 sm:flex-row sm:items-center sm:justify-between">
-        {/* Discovery Mode Selector */}
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 sm:pb-0">
-          <span className="text-[9px] font-black text-dim uppercase tracking-wider shrink-0 mr-1.5">Discovery:</span>
+      {/* ==================== ROW 2: DISCOVERY, ALERTS & TOOLBAR CONTROLS ==================== */}
+      <div className="px-3 py-1 border-b border-border/80 bg-background/30 flex items-center justify-between gap-2 shrink-0 h-[32px] min-h-[32px] text-[9.5px] font-mono">
+        {/* Left: Discovery Mode Selector */}
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0">
+          <span className="text-[8.5px] font-black text-dim uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">
+            Discovery:
+          </span>
           {[
-            { id: 'all', label: 'All Scanned', color: 'accent' },
+            { id: 'all', label: 'All', color: 'accent' },
             { id: 'volume', label: 'Top Volume', color: 'green' },
             { id: 'change_pct', label: 'Top Gainers/Losers', color: 'purple' },
             { id: 'abs_change_pct', label: 'Top Volatile', color: 'amber' }
@@ -1206,7 +1095,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               type="button"
               onClick={() => handleSelectDiscoveryMode(m.id)}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer",
+                "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer leading-none",
                 (discoveryMode === m.id || (m.id === 'change_pct' && discoveryMode === 'pct_change'))
                   ? m.color === 'accent'
                     ? "bg-accent/15 border-accent/40 text-accent"
@@ -1221,21 +1110,70 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               {m.label}
             </button>
           ))}
+          <ActiveWindowsList search={search} />
         </div>
 
-        {/* Filters and Sorting dropdowns */}
-        <div className="flex items-center gap-2">
-          {/* Filter Dropdown */}
-          <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
-            <span className="text-[9px] font-black text-dim uppercase tracking-wider hidden md:inline">Filter:</span>
+        {/* Center: Conditional Banner Alerts Inline */}
+        <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+          {(() => {
+            const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: scannerPaused || isStrategyGated, hibernating });
+            if (overlayRegime.regime === 'active') {
+              return (
+                <div
+                  tabIndex={0}
+                  role="region"
+                  aria-label={`Fast Market Alert: ${overlayRegime.passingCount} candidates passing scan threshold ${overlayRegime.threshold}%, max momentum ${overlayRegime.maxAbsMomentum.toFixed(2)}%`}
+                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-accent/10 border border-accent/30 text-accent font-mono text-[8.5px] font-bold shrink-0 truncate"
+                >
+                  <Flame size={11} className="text-accent animate-pulse shrink-0" />
+                  <span className="font-black text-accent uppercase tracking-wider text-[8.5px] truncate">
+                    🔥 Fast Market Expansion ({overlayRegime.passingCount}/{overlayRegime.totalCount} &gt; {overlayRegime.threshold}%)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setRangeFilter(rangeFilter === 'movers' ? 'all' : 'movers')}
+                    className="px-1.5 py-0.2 rounded bg-accent/20 border border-accent/40 text-[8px] font-black uppercase text-accent hover:bg-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer shrink-0"
+                    aria-label={rangeFilter === 'movers' ? "Show all candidates" : "Filter movers"}
+                  >
+                    {rangeFilter === 'movers' ? 'Show All' : 'Focus Movers'}
+                  </button>
+                </div>
+              );
+            }
+            if (isStrategyGated) {
+              return (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber/10 border border-amber/30 text-amber font-mono text-[8.5px] font-bold shrink-0 truncate">
+                  <PauseCircle size={11} className="text-amber animate-pulse shrink-0" />
+                  <span className="font-bold text-amber uppercase tracking-wider text-[8.5px] truncate">
+                    {isStrategyPaused
+                      ? `Strategy "${effectiveStrategyLabel}" is paused`
+                      : currentGateState === 'max_trades'
+                      ? `Strategy "${effectiveStrategyLabel}" max trades reached`
+                      : `Strategy "${effectiveStrategyLabel}" gated (${currentGateState})`
+                    }
+                  </span>
+                  <span className="text-[7.5px] text-amber/80 font-bold uppercase tracking-widest hidden lg:inline border border-amber/30 px-1 py-0.2 rounded shrink-0 ml-1">
+                    Gated Protection
+                  </span>
+                </div>
+              );
+            }
+            return null;
+          })()}
+        </div>
+
+        {/* Right: Filter & Sort Dropdowns */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          <div className="flex items-center gap-1">
+            <span className="text-[8.5px] font-black text-dim uppercase tracking-wider hidden xl:inline">Filter:</span>
             <select
               value={rangeFilter}
               onChange={(e) => setRangeFilter(e.target.value)}
-              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-40 transition-colors"
+              className="bg-surface border border-border/40 rounded px-1.5 py-0.5 text-[9px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-6 transition-colors cursor-pointer"
               aria-label="Filter by 24h change range or quote pair"
             >
               <option value="all">All Movements</option>
-              <option value="usdt">USDT Pairs Only</option>
+              <option value="usdt">USDT Pairs</option>
               <option value="non_usdt">Non-USDT Pairs</option>
               <option value="pos">Positive (&gt;0%)</option>
               <option value="neg">Negative (&lt;0%)</option>
@@ -1244,20 +1182,19 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             </select>
           </div>
 
-          {/* Sort Dropdown */}
-          <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
-            <span className="text-[9px] font-black text-dim uppercase tracking-wider hidden md:inline">Sort:</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[8.5px] font-black text-dim uppercase tracking-wider hidden xl:inline">Sort:</span>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="bg-surface border border-border/40 rounded-lg px-2.5 py-1 text-[10px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-7 w-full sm:w-44 transition-colors"
+              className="bg-surface border border-border/40 rounded px-1.5 py-0.5 text-[9px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-6 transition-colors cursor-pointer"
               aria-label="Sort options"
             >
-              <option value="score">Scanner Score (Default)</option>
-              <option value="proximity">🔥 Proximity (Near Trigger)</option>
+              <option value="score">Score</option>
+              <option value="proximity">Proximity</option>
               <option value="pct_desc">Change % (High → Low)</option>
               <option value="pct_asc">Change % (Low → High)</option>
-              <option value="vol_desc">Volume (High → Low)</option>
+              <option value="vol_desc">Volume</option>
             </select>
           </div>
         </div>

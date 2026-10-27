@@ -388,8 +388,9 @@ export class ExecutionService {
         for (let i = 0; i < closedTrades.length; i++) {
           const t = closedTrades[i];
           if (t && t.symbol === opp.symbol) {
-            const isFailedOrCancelled = t.status === 'ENTRY_FAILED' || t.status === 'CANCELLED' || t.status === 'REJECTED' || (t as any).is_reconciliation;
-            const isDifferentStrategy = symbolConfig.anti_whipsaw_per_strategy && t.strategy_label && t.strategy_label !== currentStrategyLabel;
+            const status = (t as any).status as string;
+            const isFailedOrCancelled = status === 'ENTRY_FAILED' || status === 'CANCELLED' || status === 'REJECTED' || Boolean((t as any).is_reconciliation);
+            const isDifferentStrategy = Boolean(symbolConfig.anti_whipsaw_per_strategy && t.strategy_label && t.strategy_label !== currentStrategyLabel);
             if (!isFailedOrCancelled && !isDifferentStrategy) {
               hasClosedForSymbol = true;
               symbolClosedTrades.push(t);
@@ -453,7 +454,7 @@ export class ExecutionService {
                     continue;
                   }
 
-                  const rawEntryTs = t.entry_ts || t.opened_at || t.timestamp || t.created_at;
+                  const rawEntryTs = t.entry_ts || (t as any).opened_at || (t as any).timestamp || (t as any).created_at;
                   if (rawEntryTs) {
                     const entryTsMs = this.toTimestampMs(rawEntryTs);
                     if (entryTsMs > 0 && entryTsMs <= nowMs + 60000 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
@@ -464,7 +465,7 @@ export class ExecutionService {
                     }
                   }
 
-                  const rawExitTs = t.exit_ts || t.closed_at;
+                  const rawExitTs = t.exit_ts || (t as any).closed_at;
                   if (rawExitTs) {
                     const exitTsMs = this.toTimestampMs(rawExitTs);
                     const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;

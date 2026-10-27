@@ -381,8 +381,6 @@ async function bootstrap() {
         return;
       }
 
-      if (payload.type === "scanner" && client.focusMode === true && !client.focusScannerSymbol) return;
-
       if (payload.type === "tick") {
         const tick = engineBroadcaster.getFidelityTick(payload, client);
         client.send(JSON.stringify(tick));
@@ -390,20 +388,12 @@ async function bootstrap() {
       }
 
       if (payload.type === "scanner") {
-        // Optimization: Prune sparkline history and ohlc_history to save bandwidth (keep signalResult for visual check lists and auth status)
+        // Optimization: Prune heavy ohlc_history to save bandwidth unless specifically focused on this symbol
         const pruneOpp = (opp: any) => {
           const keepOhlc = client.focusScannerSymbol && opp.symbol === client.focusScannerSymbol;
-          if (client.focusMode) {
-            if (keepOhlc) return opp;
-            const { ohlc_history, ...rest } = opp;
-            return rest;
-          } else {
-            const { history, ohlc_history, ...thin } = opp;
-            return {
-              ...thin,
-              ...(keepOhlc ? { ohlc_history } : {})
-            };
-          }
+          if (keepOhlc) return opp;
+          const { ohlc_history, ...rest } = opp;
+          return rest;
         };
 
         const pruned = {

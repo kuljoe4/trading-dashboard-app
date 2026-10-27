@@ -59,6 +59,8 @@ export class SessionStateService {
   public agreementRequired = false;
   public isAdaptiveTightened = false;
   public last_scan_ts = 0;
+  public next_scan_ts = 0;
+  public scan_interval_ms = 15000;
   public realTimePositions: Map<string, { amount: number; entryPrice: number }> = new Map();
   public realTimeOrders: Map<string, any[]> = new Map();
 

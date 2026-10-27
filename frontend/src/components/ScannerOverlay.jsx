@@ -25,6 +25,33 @@ const FreshnessIndicator = React.memo(({ ts }) => {
 });
 FreshnessIndicator.displayName = 'FreshnessIndicator';
 
+export const FreshnessPill = React.memo(({ ts }) => {
+  const now = useNow();
+  if (!ts || ts <= 0) return null;
+  const age = Math.max(0, now - ts);
+  const ageSec = Math.floor(age / 1000);
+  const label = age < 2000 ? 'Live' : ageSec < 60 ? `${ageSec}s` : formatDuration(age);
+
+  const colorClass = age < 5000
+    ? 'bg-green/10 text-green border-green/30'
+    : age < 15000
+    ? 'bg-surface text-dim border-border/50'
+    : 'bg-amber/10 text-amber border-amber/30';
+
+  return (
+    <Tooltip content={`Telemetry & quote timestamped ${formatDuration(age)} ago`}>
+      <span className={cn(
+        "px-1.5 py-0.2 rounded text-[7.5px] font-mono font-black uppercase tracking-tighter border transition-colors cursor-help leading-none inline-flex items-center gap-1 shrink-0 select-none",
+        colorClass
+      )}>
+        <span className={cn("w-1 h-1 rounded-full shrink-0", age < 5000 ? "bg-green animate-pulse" : age < 15000 ? "bg-dim/60" : "bg-amber")} />
+        {label}
+      </span>
+    </Tooltip>
+  );
+});
+FreshnessPill.displayName = 'FreshnessPill';
+
 const ActiveWindowsList = React.memo(({ search }) => {
   const activeWindows = useTradingStore(state => state.activeWindows || []);
 
@@ -57,18 +84,26 @@ const ActiveWindowsList = React.memo(({ search }) => {
 ActiveWindowsList.displayName = 'ActiveWindowsList';
 
 const ScanStatus = React.memo(() => {
-  const { lastScanTs, intervalSec } = useTradingStore(state => ({
+  const { lastScanTs, nextScanTs, scanIntervalMs, configIntervalSec } = useTradingStore(state => ({
     lastScanTs: state.lastScanTs,
-    intervalSec: state.config?.scan_check_interval_sec || 5
+    nextScanTs: state.nextScanTs,
+    scanIntervalMs: state.scanIntervalMs,
+    configIntervalSec: state.config?.scan_check_interval_sec || 15
   }), shallow);
 
   const now = useNow();
-  const lastUpdateRef = useRef(lastScanTs)
-  const isUpdating = lastScanTs !== lastUpdateRef.current
-  if (isUpdating) lastUpdateRef.current = lastScanTs
+  const lastUpdateRef = useRef(lastScanTs);
+  const isUpdating = lastScanTs !== lastUpdateRef.current;
+  if (isUpdating) lastUpdateRef.current = lastScanTs;
 
   const scanAge = lastScanTs > 0 ? Math.max(0, now - lastScanTs) : null;
-  const nextSlotSec = Math.max(0, intervalSec - Math.floor((scanAge || 0) / 1000));
+  let nextSlotSec = 0;
+  if (nextScanTs && nextScanTs > now) {
+    nextSlotSec = Math.max(0, Math.ceil((nextScanTs - now) / 1000));
+  } else if (lastScanTs > 0) {
+    const intervalSec = scanIntervalMs ? Math.round(scanIntervalMs / 1000) : (configIntervalSec || 15);
+    nextSlotSec = Math.max(0, intervalSec - Math.floor((scanAge || 0) / 1000));
+  }
 
   return (
     <div className="flex items-center gap-2.5 mt-1">
@@ -434,7 +469,7 @@ ExpandedScannerRowContent.displayName = 'ExpandedScannerRowContent';
 
 const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const setFocusMode = useTradingStore(state => state.setFocusMode);
+  const now = useNow();
 
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
@@ -452,19 +487,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
   const status = getStatus();
   const proximity = calculateOpportunityProximity(opp, config);
 
-  // Focus expanded symbol to request live telemetry/candle charts on demand
-  useEffect(() => {
-    if (isExpanded) {
-      setFocusMode(true, null, null, opp.symbol);
-    } else {
-      setFocusMode(false, null, null, null);
-    }
-    return () => {
-      if (isExpanded) {
-        setFocusMode(false, null, null, null);
-      }
-    };
-  }, [isExpanded, opp.symbol, setFocusMode]);
+  const isRecentlyChanged = opp.priceChangeTs && (now - opp.priceChangeTs < 1200);
 
   // DEBUG: Track telemetry presence in expanded state to identify synchronization gaps
   useEffect(() => {
@@ -503,6 +526,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
            <div className="flex items-center gap-2 leading-none">
              <span className="text-[12px] md:text-[13px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
              <span className="text-[8px] text-dim font-mono opacity-50">/U</span>
+             <FreshnessPill ts={opp.lastUpdate} />
              <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-0.5 p-0.5 scale-75" />
              <div className="hidden md:block ml-2 opacity-80 group-hover:opacity-100 transition-opacity">
                <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={14} />
@@ -538,12 +562,19 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
             )}
            </div>
         </div>
-        <div className="flex flex-col items-end w-14 shrink-0 md:w-auto md:shrink md:items-start md:pl-2">
+        <div className="flex flex-col items-end w-16 shrink-0 md:w-auto md:shrink md:items-start md:pl-2">
           <span className={cn(
-            "text-[12px] md:text-[13px] font-bold font-mono leading-none",
-            isLong ? "text-green" : "text-red"
+            "text-[12px] md:text-[13px] font-bold font-mono leading-none transition-all duration-300",
+            isLong ? "text-green" : "text-red",
+            isRecentlyChanged && (opp.priceChangeDir === 'up' ? "text-green drop-shadow-[0_0_6px_rgba(34,197,94,0.6)]" : "text-red drop-shadow-[0_0_6px_rgba(239,68,68,0.6)]")
           )}>
             {isLong ? "+" : "-"}{Number(Math.abs(opp.pct || 0)).toFixed(2)}%
+          </span>
+          <span className={cn(
+            "text-[9px] font-mono text-dim/80 mt-0.5 tabular-nums transition-colors duration-300",
+            isRecentlyChanged && (opp.priceChangeDir === 'up' ? "text-green font-bold" : "text-red font-bold")
+          )}>
+            ${opp.price ? (opp.price >= 1 ? opp.price.toFixed(2) : opp.price.toPrecision(4)) : '--'}
           </span>
           <div className="md:hidden mt-1 scale-90">
             <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={36} height={10} />
@@ -633,6 +664,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 });
 
 export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) => {
+  useResourceFocus('scanner');
   const searchInputRef = useRef(null);
   const {
     scannerResults,
@@ -833,19 +865,19 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
     results = filtered;
 
-    // 4. Apply Discovery Mode Slicing (Top 24)
+    // 4. Apply Discovery Mode Slicing (Top 15)
     if (discoveryMode === 'volume') {
       results = results
         .sort((a, b) => (a.volume_rank || 999) - (b.volume_rank || 999))
-        .slice(0, 24);
+        .slice(0, 15);
     } else if (discoveryMode === 'pct_change' || discoveryMode === 'change_pct') {
       results = results
         .sort((a, b) => (a.change_rank || 999) - (b.change_rank || 999))
-        .slice(0, 24);
+        .slice(0, 15);
     } else if (discoveryMode === 'abs_change_pct') {
       results = results
         .sort((a, b) => Math.abs(b.pct || 0) - Math.abs(a.pct || 0))
-        .slice(0, 24);
+        .slice(0, 15);
     }
 
     // 5. Apply sorting
@@ -1167,8 +1199,8 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
           <span className="text-[9px] font-black text-dim uppercase tracking-wider shrink-0 mr-1.5">Discovery:</span>
           {[
             { id: 'all', label: 'All Scanned', color: 'accent' },
-            { id: 'volume', label: 'Top 24 Volume', color: 'green' },
-            { id: 'change_pct', label: 'Top 24h Change', color: 'purple' },
+            { id: 'volume', label: 'Top Volume', color: 'green' },
+            { id: 'change_pct', label: 'Top Gainers/Losers', color: 'purple' },
             { id: 'abs_change_pct', label: 'Top Volatile', color: 'amber' }
           ].map(m => (
             <button

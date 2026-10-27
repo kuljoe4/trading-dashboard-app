@@ -63,6 +63,11 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   // SEC: Strict property picking and input sanitization to harden against prototype pollution or malformed WebSocket payloads.
   const cleanScore = Math.min(100, Math.max(0, toNumber(source.score, 0)));
   const cleanPrice = Math.max(0, toNumber(source.price, 0));
+  const prevPrice = prev ? toNumber(prev.price, cleanPrice) : cleanPrice;
+  const priceChanged = prev && (Math.abs(cleanPrice - prevPrice) > 0.0000001 || Math.abs((prev.pct || 0) - m) > 0.0001);
+  const effectiveLastUpdate = source.last_update ?? source.lastUpdate ?? source.ts ?? (priceChanged ? Date.now() : (prev?.lastUpdate || Date.now()));
+  const priceChangeDir = cleanPrice > prevPrice ? 'up' : cleanPrice < prevPrice ? 'down' : (prev?.priceChangeDir || null);
+
   const res = {
     symbol: String(source.symbol ?? '---').replace(/[^A-Z0-9]/gi, '').substring(0, 20),
     pct: Number.isFinite(m) ? m : 0,
@@ -72,6 +77,9 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
     vol: Math.max(0, toNumber(source.vol ?? source.volume ?? source.volume_usdt ?? source.volume_24h, 0)),
     score: cleanScore,
     price: cleanPrice,
+    prevPrice: prevPrice,
+    priceChangeDir: priceChangeDir,
+    priceChangeTs: priceChanged ? Date.now() : (prev?.priceChangeTs || 0),
     volume_rank: source.volume_rank ? parseInt(String(source.volume_rank), 10) : undefined,
     history: Array.isArray(source.history) ? source.history.map(v => toNumber(v)) : undefined,
     ohlc_history: Array.isArray(source.ohlc_history) ? source.ohlc_history.map(c => {
@@ -98,7 +106,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
       cross_count: toNumber(source.htf_ema_cross_perf.cross_count),
       last_cross_direction: source.htf_ema_cross_perf.last_cross_direction
     } : undefined,
-    lastUpdate: source.last_update ?? source.ts ?? Date.now(),
+    lastUpdate: effectiveLastUpdate,
     signalResult: source.signalResult && typeof source.signalResult === 'object' ? {
       allFired: !!source.signalResult.allFired,
       firedSignals: Array.isArray(source.signalResult.firedSignals) ? source.signalResult.firedSignals.map(s => String(s)) : [],
@@ -414,7 +422,7 @@ const defaultConfig = {
 export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   sessionActive: false, sessionPaused: false, pausedStrategies: [], strategyGateStates: {}, strategyId: null, balance: 10000, totalPnl: 0, totalRiskPct: 0, totalSlUsed: 0, totalEstPnlToRealize: 0,
   activeTrades: [], logs: [], logLimit: 50, logFilters: DEFAULT_LOG_FILTERS, scannerResults: [], variantScannerResults: {}, variantStats: {}, activeWindows: [], tradeHistory: [], lifetimeAnalytics: null,
-  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
+  gateState: null, gateReason: null, nextSlotTs: null, hibernating: false, hibernationMode: 'adaptive', isAdaptiveTightened: false, agreementRequired: false, scannerPaused: false, lastScanTs: 0, nextScanTs: null, scanIntervalMs: 15000, lastAuthoritativeUpdateTs: 0, wsStatus: 'offline', sessionList: [], monitoring: null, isEcoMode: false, analytics: null, lastUdsBalanceReason: null, lastUdsBalanceTs: null,
   apiStatus: { isBanned: false, isRateLimited: false, isGeoBlocked: false, banUntil: null, lastErrorMessage: null },
   tradesInPeriod: undefined, maxTradesPeriod: undefined, tradesIn24h: undefined, maxTrades24h: undefined,
   effectivePeriodMs: undefined, jitterFactor: undefined,
@@ -493,12 +501,18 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       const subs = get()._subscriptions;
       const ws = get().ws;
       if (ws && ws.readyState === WebSocket.OPEN) {
-        if (subs.trades.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, tradeId: Array.from(subs.trades.keys())[0] }));
-        else if (subs.strategies.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, strategyLabel: Array.from(subs.strategies.keys())[0] }));
-        else if (subs.scannerSymbols.size > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false, scannerSymbol: Array.from(subs.scannerSymbols.keys())[0] }));
-        else if (subs.globalTrades > 0 || subs.scanner > 0) ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false }));
+        const scannerSymbol = subs.scannerSymbols.size > 0 ? Array.from(subs.scannerSymbols.keys())[0] : null;
+        if (subs.trades.size > 0) {
+          ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, tradeId: Array.from(subs.trades.keys())[0], scannerSymbol }));
+        } else if (subs.strategies.size > 0) {
+          ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, strategyLabel: Array.from(subs.strategies.keys())[0], scannerSymbol }));
+        } else if (scannerSymbol) {
+          ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, scannerSymbol }));
+        } else if (subs.globalTrades > 0 || subs.scanner > 0) {
+          ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false, scannerSymbol: null }));
+        }
       }
-    }, 100) });
+    }, 50) });
   },
   
   toggleSidebar: () => { const n = !get().sidebarCollapsed; localStorage.setItem('sidebar_collapsed', n); set({ sidebarCollapsed: n }); },
@@ -669,7 +683,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         isSyncingOnResume: false,
         sessionPaused: false,
         pausedStrategies: [],
-        strategyGateStates: {}
+        strategyGateStates: {},
+        nextScanTs: null
       });
       // Fetch fresh history and analytics after termination
       if (wasActive) {
@@ -1051,6 +1066,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             agreementRequired: d.agreementRequired ?? st.agreementRequired,
             scannerPaused: d.scannerPaused ?? st.scannerPaused,
             lastScanTs: d.last_scan_ts ?? st.lastScanTs,
+            nextScanTs: d.next_scan_ts ?? st.nextScanTs,
+            scanIntervalMs: d.scan_interval_ms ?? st.scanIntervalMs,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod,
             maxTradesPeriod: d.maxTradesPeriod,
@@ -1107,7 +1124,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             totalRiskPct: resolveNonZeroMetric(d.total_risk_pct, st.totalRiskPct, isResuming),
             totalSlUsed: resolveNonZeroMetric(d.total_sl_used, st.totalSlUsed, isResuming),
             totalEstPnlToRealize: resolveNonZeroMetric(d.total_est_pnl_to_realize, st.totalEstPnlToRealize, isResuming),
-            entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
+            entryCount: d.stats?.entryCount ?? st.entryCount, hitCount: d.stats?.hitCount ?? st.hitCount, activeTrades: nt, variantStats: d.variant_stats || st.variantStats, activeWindows: d.activeWindows || st.activeWindows, gateState: d.gateState ?? st.gateState, nextSlotTs: d.nextSlotTs ?? st.nextSlotTs, hibernating: d.hibernating ?? st.hibernating, hibernationMode: d.hibernation_mode ?? st.hibernationMode, isAdaptiveTightened: d.isAdaptiveTightened ?? st.isAdaptiveTightened, agreementRequired: d.agreementRequired ?? st.agreementRequired, gateReason: d.reason || st.gateReason, sessionPaused: d.paused ?? st.sessionPaused, pausedStrategies: d.paused_strategies ?? st.pausedStrategies ?? [], strategyGateStates: d.strategy_gate_states ?? st.strategyGateStates ?? {}, scannerPaused: d.scannerPaused ?? st.scannerPaused, lastScanTs: d.last_scan_ts ?? st.lastScanTs, nextScanTs: d.next_scan_ts ?? st.nextScanTs, scanIntervalMs: d.scan_interval_ms ?? st.scanIntervalMs, rateLimit: d.rateLimit || st.rateLimit, rateLimitLastSync: d.rateLimit ? new Date().toISOString() : st.rateLimitLastSync, monitoring: d.monitoring || st.monitoring, isEcoMode: d.isEcoMode ?? st.isEcoMode, analytics: d.analytics || st.analytics,
             config: nextConfig,
             tradesInPeriod: d.tradesInPeriod, maxTradesPeriod: d.maxTradesPeriod, tradesIn24h: d.tradesIn24h, maxTrades24h: d.maxTrades24h,
             effectivePeriodMs: d.effectivePeriodMs, jitterFactor: d.jitterFactor,
@@ -1243,7 +1260,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             }, {}) : st.variantScannerResults,
             activeWindows: d.activeWindows || st.activeWindows,
             hibernating: d.hibernating ?? st.hibernating,
-            lastScanTs: d.last_scan_ts ?? st.lastScanTs
+            lastScanTs: d.last_scan_ts ?? st.lastScanTs,
+            nextScanTs: d.next_scan_ts ?? st.nextScanTs,
+            scanIntervalMs: d.scan_interval_ms ?? st.scanIntervalMs
           };
         });
       } else if (d.type === 'trade_event') {

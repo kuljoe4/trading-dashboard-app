@@ -689,16 +689,16 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       list.push({
         label: config.strategy_label,
         isVariant: false,
-        timeframe: config.timeframe || '1m',
+        timeframe: config.scan_interval || config.timeframe || '5m',
       })
     }
     if (Array.isArray(config?.strategy_variants)) {
       config.strategy_variants.forEach(v => {
-        if (v && v.strategy_label) {
+        if (v && v.strategy_label && v.enabled !== false) {
           list.push({
             label: v.strategy_label,
             isVariant: true,
-            timeframe: v.timeframe || config?.timeframe || '1m',
+            timeframe: v.scan_interval || v.timeframe || config?.scan_interval || config?.timeframe || '5m',
           })
         }
       })

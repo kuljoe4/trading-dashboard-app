@@ -93,11 +93,12 @@ export class MaintenanceService {
       let slOrdersBySymbol = new Map<string, (BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]>();
 
       const isSlOrder = (o: BinanceOrderReceipt | BinanceAlgoOrderReceipt) => {
-        const type = ((o as any).type || (o as any).algoType || "").toUpperCase();
-        const isStandardSl = (type === 'STOP_MARKET' || type === 'STOP')
-          && ((o as any).closePosition === true || String((o as any).closePosition) === 'true' || (o as any).reduceOnly === true || String((o as any).reduceOnly) === 'true');
-        const isConditionalAlgoSl = !!(o as any).algoId && ((o as any).algoType === 'CONDITIONAL' || type === 'STOP_MARKET');
-        return isStandardSl || isConditionalAlgoSl;
+        const type = ((o as any).type || (o as any).algoType || (o as any).ot || "").toUpperCase();
+        const isStandardSl = (type === 'STOP_MARKET' || type === 'STOP' || type === 'TRAILING_STOP_MARKET')
+          && ((o as any).closePosition === true || String((o as any).closePosition) === 'true' || (o as any).reduceOnly === true || String((o as any).reduceOnly) === 'true' || (o as any).cp === true || (o as any).R === true);
+        const isConditionalAlgoSl = !!(o as any).algoId && ((o as any).algoType === 'CONDITIONAL' || type === 'STOP_MARKET' || type === 'STOP');
+        const hasStopPrice = parseFloat((o as any).stopPrice || (o as any).triggerPrice || (o as any).sp || '0') > 0;
+        return isStandardSl || isConditionalAlgoSl || (hasStopPrice && (type === 'STOP_MARKET' || type === 'STOP' || type === 'TRAILING_STOP_MARKET'));
       };
 
       const uniqueSymbols = Array.from(new Set(tradesToAudit.map(t => t.symbol)));
@@ -260,7 +261,15 @@ export class MaintenanceService {
             );
 
             if (!matchingOrder && slOrders.length > 0) {
-              const validSl = slOrders.find(o => Math.abs(this.getOrderQty(o) - trade.qty) < 0.00000001);
+              const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
+              const validSl = slOrders.find(o => {
+                const oSide = String((o as any).side || (o as any).S || '').toUpperCase();
+                const sideMatches = !oSide || oSide === closeDirection;
+                const isClosePos = (o as any).closePosition === true || String((o as any).closePosition) === 'true' || (o as any).cp === true;
+                const isMatchingQty = Math.abs(this.getOrderQty(o) - trade.qty) < 0.00000001;
+                const isZeroQty = this.getOrderQty(o) === 0;
+                return sideMatches && (isClosePos || isMatchingQty || isZeroQty);
+              });
               if (validSl) {
                 const slId = this.getOrderId(validSl);
                 this.logger.log(`[Watchdog] ${trade.symbol} adopting untracked exchange SL: ${slId}`);
@@ -273,7 +282,21 @@ export class MaintenanceService {
                   const isLocalMoreProtective = currentSlNum > 0 && (trade.direction === 'LONG' ? currentSlNum > exSlPrice : currentSlNum < exSlPrice);
                   if (isLocalMoreProtective) {
                     this.logger.log(`[Watchdog] ${trade.symbol} local SL (${currentSlNum}) is more protective than adopted exchange SL (${exSlPrice}). Updating exchange...`);
-                    await this.orderManager.updateStopLoss(trade, currentSlNum, exSlPrice);
+                    const updateRes = await this.orderManager.updateStopLoss(trade, currentSlNum, exSlPrice);
+                    if (!updateRes.success) {
+                      const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
+                      const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
+                      const logMsg = `[Watchdog] ${trade.symbol} parity SL update failed on Binance${errCodeStr}${errDetail}`;
+                      this.logger.warn(logMsg);
+                      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+                      this.positionTracker.recordActiveTradeEvent(
+                        trade,
+                        'SL_SYNC_FAILED',
+                        `Watchdog parity SL update ${exSlPrice} → ${currentSlNum} failed on Binance${errCodeStr}${errDetail}.`,
+                        'warn',
+                        { currentSl: currentSlNum, exchangeSl: exSlPrice, errorCode: updateRes.errorCode, error: updateRes.error }
+                      );
+                    }
                   } else {
                     this.logger.log(`[Watchdog] ${trade.symbol} syncing SL price from exchange: ${trade.current_sl} -> ${exSlPrice}`);
                     trade.current_sl = exSlPrice;

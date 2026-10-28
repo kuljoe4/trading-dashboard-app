@@ -361,4 +361,74 @@ describe('SL Ratchet Simulation & Synchronization Suite', () => {
       expect.objectContaining({ algoId: '999111' })
     );
   });
+
+  it('9. Ratchet updates exchange order even when trailing_execution_mode is local', async () => {
+    mockSessionState.config.trailing_execution_mode = 'local';
+    const trade = {
+      id: 'trade-local-cfg',
+      symbol: 'DOTUSDT',
+      direction: 'LONG',
+      qty: 140.5,
+      entry_price: 1.0128,
+      current_sl: 1.0162,
+      binance_stop_order_id: '3000002281552472',
+      binance_stop_order_type: 'algo',
+      binance_order_id: '27409555306',
+      strategy_config: { trailing_execution_mode: 'local' }
+    } as any as Trade;
+
+    mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
+      data: () => Promise.resolve({ code: 200, algoId: 3000002281999999, msg: 'Success' }),
+      headers: { get: () => '0' }
+    });
+
+    const result = await orderManager.updateStopLoss(trade, 1.0162, 0.9886);
+
+    expect(result.success).toBe(true);
+    expect(mockBinanceClient.restAPI.cancelAlgoOrder).toHaveBeenCalledWith({
+      symbol: 'DOTUSDT',
+      algoId: '3000002281552472'
+    });
+    expect(mockBinanceClient.restAPI.newAlgoOrder).toHaveBeenCalled();
+    expect(trade.binance_stop_order_id).toBe('3000002281999999');
+  });
+
+  it('10. Watchdog adopts tighter chart-dragged SL from exchange when exchange is more protective', async () => {
+    const trade = {
+      id: 'trade-chart-protective',
+      symbol: 'DOTUSDT',
+      direction: 'LONG',
+      qty: 140.5,
+      entry_price: 1.0128,
+      current_sl: 1.0162,
+      binance_stop_order_id: '3000002281552472',
+      binance_stop_order_type: 'algo',
+      status: 'OPEN',
+      updated_at: new Date(Date.now() - 60000)
+    } as any as Trade;
+
+    mockPositionTracker.activeList.mockReturnValue([trade]);
+    mockSessionState.realTimePositions.set('DOTUSDT', { amount: 140.5, entryPrice: 1.0128 });
+    // User dragged SL higher to 1.0250 on Binance chart
+    mockSessionState.realTimeOrders.set('DOTUSDT', [{
+      algoId: 3000002281552472,
+      symbol: 'DOTUSDT',
+      triggerPrice: 1.0250,
+      stopPrice: 1.0250,
+      quantity: 140.5,
+      type: 'STOP_MARKET',
+      algoType: 'CONDITIONAL',
+      side: 'SELL',
+      status: 'NEW'
+    }]);
+
+    const spyUpdateSl = jest.spyOn(orderManager, 'updateStopLoss');
+
+    await maintenanceService.protectionWatchdog(true, { paper_mode: false } as any);
+
+    // Watchdog should adopt 1.0250 locally and NOT overwrite exchange with 1.0162
+    expect(trade.current_sl).toBe(1.0250);
+    expect(spyUpdateSl).not.toHaveBeenCalled();
+    expect(mockPositionTracker.refreshTradeRisk).toHaveBeenCalledWith(trade);
+  });
 });

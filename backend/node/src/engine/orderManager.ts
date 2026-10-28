@@ -219,7 +219,7 @@ export class OrderManagerService {
     const clientOrderId = order.c;
     const orderId = String(order.i);
     const side = order.S;
-    const type = order.ot;
+    const type = (order as any).o || order.ot;
     const executionType = order.x; // Execution Type
 
     // IDEMPOTENCY: Check if this execution has already been processed via REST response
@@ -259,12 +259,12 @@ export class OrderManagerService {
         origQty: parseFloat(order.q || '0'),
         executedQty: parseFloat(order.z || '0'),
         status,
-        type: order.ot,
+        type: (order as any).o || order.ot,
         side: order.S,
         stopPrice: parseFloat(order.sp || '0'),
         triggerPrice: parseFloat(order.sp || '0'),
         algoId: order.i, // SRE: Explicitly map algoId from UDS for watchdog consistency
-        algoType: order.ot === 'STOP_MARKET' || order.ot === 'STOP' ? 'CONDITIONAL' : undefined,
+        algoType: ((order as any).o === 'STOP_MARKET' || (order as any).o === 'STOP' || order.ot === 'STOP_MARKET' || order.ot === 'STOP') ? 'CONDITIONAL' : undefined,
         workingType: order.wt,
         reduceOnly: order.R,
         closePosition: order.cp,
@@ -284,13 +284,14 @@ export class OrderManagerService {
       if (trade && trade.status === 'OPEN') {
         const closeSide = trade.direction === 'LONG' ? 'SELL' : 'BUY';
         const isCloseSide = side === closeSide;
-        const isStopType = type === 'STOP_MARKET' || type === 'STOP' || type === 'TRAILING_STOP_MARKET' || order.ot === 'STOP_MARKET' || order.ot === 'STOP';
-        const stopPrice = parseFloat(order.sp || '0');
+        const rawType = (order as any).o || order.ot || type;
+        const isStopType = rawType === 'STOP_MARKET' || rawType === 'STOP' || rawType === 'TRAILING_STOP_MARKET' || order.ot === 'STOP_MARKET' || order.ot === 'STOP' || (order as any).o === 'STOP_MARKET' || (order as any).o === 'STOP';
+        const stopPrice = parseFloat(order.sp || '0') || (isStopType ? parseFloat(order.p || '0') : 0);
 
         if (isCloseSide && isStopType && stopPrice > 0) {
           const oldSl = Number(trade.current_sl);
           trade.binance_stop_order_id = orderId;
-          trade.binance_stop_order_type = (order.i || order.ot === 'STOP_MARKET') ? 'algo' : 'standard';
+          trade.binance_stop_order_type = (order.i || rawType === 'STOP_MARKET') ? 'algo' : 'standard';
 
           if (Math.abs(oldSl - stopPrice) > 0.00000001) {
             this.logger.log(`[UDS] Instantly synced external SL update/drag for ${symbol}: ${oldSl} -> ${stopPrice} (Order ID: ${orderId})`);
@@ -386,13 +387,16 @@ export class OrderManagerService {
         }
 
         const isOppositeSide = side === (trade.direction === 'LONG' ? 'SELL' : 'BUY');
-        const isStopOrderType = type === 'STOP_MARKET' || type === 'STOP' || type === 'TRAILING_STOP_MARKET' || order.ot === 'STOP_MARKET' || order.ot === 'STOP';
+        const rawType = (order as any).o || order.ot || type;
+        const isStopOrderType = rawType === 'STOP_MARKET' || rawType === 'STOP' || rawType === 'TRAILING_STOP_MARKET' || order.ot === 'STOP_MARKET' || order.ot === 'STOP' || (order as any).o === 'STOP_MARKET' || (order as any).o === 'STOP';
+        const isClosePositionOrReduceOnly = order.cp === true || String((order as any).closePosition) === 'true' || order.R === true || String((order as any).reduceOnly) === 'true';
 
         // BOLT: Handle REST order IDs, Client IDs, and external chart-dragged SL matching
         const isSlOrder =
           trade.binance_stop_order_id === orderId ||
           (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`)) ||
-          (isOppositeSide && isStopOrderType);
+          (isOppositeSide && isStopOrderType) ||
+          (isOppositeSide && isClosePositionOrReduceOnly && (clientOrderId?.includes('autoclose') || clientOrderId?.includes('strategy') || clientOrderId?.includes('web_') || clientOrderId?.includes('chart')));
 
         const isEntryOrder =
           trade.binance_order_id === orderId ||
@@ -2001,18 +2005,6 @@ export class OrderManagerService {
    * Update an existing stop loss without protection gaps (Ratcheting)
    */
   async updateStopLoss(trade: Trade, newSlPrice: number, prevSlPrice?: number): Promise<{ success: boolean; price?: number; errorCode?: number | string; error?: string }> {
-    const activeConfig = trade.strategy_config || this.sessionState.config;
-    if (activeConfig?.trailing_execution_mode === "local") {
-      // P0 Capital Safety: In local trailing mode, keep a wide disaster STOP_MARKET on the exchange at initial_sl
-      // so in-process crashes, redeploys, or bans never leave the position unprotected.
-      if (!trade.binance_stop_order_id && !this.paperMode && this.binanceClient && trade.initial_sl) {
-        this.logger.log(`[SL Ratchet] Placing disaster fallback exchange SL for ${trade.symbol} @ ${trade.initial_sl}`);
-        this.placeStopLoss(trade, Number(trade.initial_sl)).catch(err => {
-          this.logger.warn(`[SL Ratchet] Failed to place disaster exchange SL in local mode: ${err instanceof Error ? err.message : String(err)}`);
-        });
-      }
-      return { success: true, price: newSlPrice };
-    }
     if (this.paperMode || !this.binanceClient) return { success: true, price: newSlPrice };
 
     const filteredNewSl = this.applyFilters(trade.symbol, newSlPrice, trade.qty, { skipNotionalCheck: true, clampToPercentPrice: true });
@@ -2063,11 +2055,15 @@ export class OrderManagerService {
       }
     }
 
-    // SRE: Block ratchets until the entry's first SL is confirmed to prevent entry race.
+    // SRE: If the trade lacks an active exchange SL order, place it directly
     if (!trade.binance_stop_order_id) {
-       this.logger.warn(`[SL Ratchet] Ratchet blocked for ${trade.symbol}: Initial SL is not yet confirmed.`);
-       this.positionTracker.markDirty(trade.symbol, (trade.strategy_config || this.sessionState.config) as any, 'INITIAL_SL_PENDING');
-       return { success: false, errorCode: 'INITIAL_SL_PENDING', error: 'Ratchet blocked: Initial SL is not yet confirmed.' };
+       this.logger.log(`[SL Ratchet] No active exchange SL found for ${trade.symbol}. Placing SL directly @ ${filteredNewSl.price}`);
+       const placeRes = await this.placeStopLoss(trade, filteredNewSl.price);
+       if (placeRes && placeRes.orderId && placeRes.orderId !== '' && !placeRes.orderId.startsWith('FAILED_')) {
+          trade.updated_at = new Date();
+          return { success: true, price: placeRes.price || filteredNewSl.price };
+       }
+       return { success: false, errorCode: placeRes?.errorCode || 'PLACEMENT_FAILED', error: placeRes?.error || 'Failed to place initial SL' };
     }
 
     // LOCK: Prevent Watchdog from interfering during the cancel/replace window

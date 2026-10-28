@@ -1,4 +1,4 @@
-import React, { useMemo, useState, Suspense } from 'react'
+import React, { useMemo, useState, useEffect, Suspense } from 'react'
 import { pnlColor, pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
@@ -13,7 +13,8 @@ import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame
+  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame,
+  RefreshCw, Clock, CheckCircle2, AlertCircle, Radio, Layers, Search, ShieldCheck, Cpu, ArrowUpRight
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
@@ -54,8 +55,23 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [showSortino, setShowSortino] = useState(false)
   const [isPausing, setIsPausing] = useState(false)
   const [isCalendarOpen, setIsCalendarOpen] = useState(false)
-  const [isChecklistOpen, setIsChecklistOpen] = useState(false)
-  const [closingMap, setClosingMap] = useState({})
+  const [isChecklistOpen, setIsChecklistOpen] = useState(true)
+  const [syncingTfMap, setSyncingTfMap] = useState({})
+  const [isBatchSyncing, setIsBatchSyncing] = useState(false)
+
+  // Real-time telemetry & store timestamps
+  const lastAuthoritativeUpdateTs = useTradingStore(state => state.lastAuthoritativeUpdateTs || Date.now());
+  const lastScanTs = useTradingStore(state => state.lastScanTs);
+  const nextScanTs = useTradingStore(state => state.nextScanTs);
+  const gateState = useTradingStore(state => state.gateState || 'ACTIVE');
+  const gateReason = useTradingStore(state => state.gateReason || 'OK');
+
+  // Live timer tick for data stream age calculation
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -168,7 +184,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       };
     })
     .filter(opp => {
-      // Exclude opportunities that have crossed already (fired/triggered or >= 100% proximity)
       const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
       return !isFired && opp.proximity < 100;
     })
@@ -184,24 +199,23 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard]);
 
   const bestOpp = focusedOpp;
-  const scanMet = Math.abs(bestOpp.pct) >= strategyConfig.scan_pct_threshold
-  const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] }
-  const entryMet = scanMet && signalResult.allFired
-  const signalsCount = strategyConfig.enabled_signals?.length || 0
-  const firedCount = signalResult.firedSignals?.length || 0
-  const signalLogic = strategyConfig.signal_logic || 'all'
-  const requiredSignals = strategyConfig.required_signals || []
+  const scanMet = Math.abs(bestOpp.pct) >= strategyConfig.scan_pct_threshold;
+  const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] };
+  const entryMet = scanMet && signalResult.allFired;
+  const signalsCount = strategyConfig.enabled_signals?.length || 0;
+  const firedCount = signalResult.firedSignals?.length || 0;
+  const signalLogic = strategyConfig.signal_logic || 'all';
+  const requiredSignals = strategyConfig.required_signals || [];
 
-  // BOLT OPTIMIZATION: Single-pass signal label classification
-  // Eliminates dual .filter().map() intermediate array allocations (~2.4x faster)
+  // Single-pass signal label classification
   const { reqLabels, optLabels } = useMemo(() => {
     const req = [];
     const opt = [];
     const enabled = strategyConfig.enabled_signals || [];
     for (let i = 0; i < enabled.length; i++) {
-      const s = enabled[i];
-      const label = SIGNAL_LABELS[s] || s;
-      if (requiredSignals.includes(s)) {
+      const sig = enabled[i];
+      const label = SIGNAL_LABELS[sig] || sig;
+      if (requiredSignals.includes(sig)) {
         req.push(label);
       } else {
         opt.push(label);
@@ -212,44 +226,147 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   const conditionFormula = signalLogic === 'combo'
     ? `${reqLabels.length > 0 ? `[Req: ${reqLabels.join(' AND ')}]` : '[Req: Base]'} AND ${optLabels.length > 0 ? `[Any: ${optLabels.join(' | ')}]` : '[Any]'}`
-    : signalLogic === 'all' ? 'Match All (AND)' : 'Match Any (OR)'
+    : signalLogic === 'all' ? 'Match All (AND)' : 'Match Any (OR)';
 
   const isStrategyPaused = pausedStrategies?.includes(s.strategy_label) || sessionPaused;
 
   const strategyActiveTrades = useMemo(() => {
-    if (!activeTrades || !s?.strategy_label) return []
-    return activeTrades.filter(t => t.strategy_label === s.strategy_label)
-  }, [activeTrades, s?.strategy_label])
+    if (!activeTrades || !s?.strategy_label) return [];
+    return activeTrades.filter(t => t.strategy_label === s.strategy_label);
+  }, [activeTrades, s?.strategy_label]);
 
-  const activeTradeCount = strategyActiveTrades.length
+  const activeTradeCount = strategyActiveTrades.length;
 
   const selectedTrade = useMemo(() => {
-    return (strategyActiveTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId)
-  }, [strategyActiveTrades, selectedTradeId])
+    return (strategyActiveTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId);
+  }, [strategyActiveTrades, selectedTradeId]);
 
   const handleCloseTrade = async (symbol) => {
     try {
-      await sessionAPI.closeTrade(symbol)
-      setSelectedTradeId(null)
+      await sessionAPI.closeTrade(symbol);
+      setSelectedTradeId(null);
       useTradingStore.getState().addAlert({ level: 'success', title: 'Liquidation Started', message: `Manual closure request for ${symbol} sent to exchange.` });
     } catch (e) {
       useTradingStore.getState().addAlert({ level: 'error', title: 'Closure Failed', message: e?.response?.data?.message || e.message || 'Could not close position.' });
     }
-  }
+  };
+
+  // Manual Kline Backfill / Sync Action
+  const handleSyncTimeframe = async (tf, targetSymbol) => {
+    const symbol = targetSymbol || bestOpp.symbol;
+    if (!symbol || symbol === '---' || !tf) return;
+
+    setSyncingTfMap(prev => ({ ...prev, [tf]: true }));
+    try {
+      const res = await sessionAPI.backfillKlines(symbol, tf);
+      const data = res?.data;
+
+      useTradingStore.getState().addAlert({
+        level: data?.isWarmupComplete ? 'success' : 'info',
+        title: data?.isWarmupComplete ? 'Warmup Complete' : 'Timeframe Synced',
+        message: data?.message || `Synced ${tf} candles for ${symbol}.`
+      });
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || 'Failed to sync candles.';
+      useTradingStore.getState().addAlert({
+        level: 'warn',
+        title: 'Sync Notice',
+        message: msg
+      });
+    } finally {
+      setSyncingTfMap(prev => ({ ...prev, [tf]: false }));
+    }
+  };
+
+  // Batch sync all evaluation timeframes for current strategy
+  const handleBatchSyncTimeframes = async () => {
+    const symbol = bestOpp.symbol;
+    if (!symbol || symbol === '---') return;
+
+    setIsBatchSyncing(true);
+    try {
+      const timeframes = new Set();
+      const enabled = strategyConfig.enabled_signals || [];
+      const scanTf = strategyConfig.scan_interval || '1m';
+      timeframes.add(scanTf);
+
+      for (const sig of enabled) {
+        const rawTf = (strategyConfig.signal_timeframes || {})[sig];
+        const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
+        timeframes.add(tf);
+      }
+
+      for (const tf of timeframes) {
+        await handleSyncTimeframe(tf, symbol);
+      }
+    } finally {
+      setIsBatchSyncing(false);
+    }
+  };
+
+  // Evaluation Timeframe Debug Table Data Construction
+  const timeframeDebugItems = useMemo(() => {
+    const enabled = strategyConfig.enabled_signals || [];
+    const scanTf = strategyConfig.scan_interval || '1m';
+    const items = [];
+
+    // 1. Primary Scanner Timeframe
+    const ohlcLen = bestOpp.ohlc_history?.length || bestOpp.history?.length || 0;
+    const reqScanWarmup = 50;
+    items.push({
+      key: 'scanner',
+      label: 'Scanner Velocity',
+      tf: scanTf,
+      candles: ohlcLen > 0 ? ohlcLen : 200,
+      required: reqScanWarmup,
+      isWarming: ohlcLen > 0 && ohlcLen < reqScanWarmup,
+      statusMsg: ohlcLen >= reqScanWarmup || ohlcLen === 0 ? 'Ready' : `Warming (${ohlcLen}/${reqScanWarmup})`
+    });
+
+    // 2. Technical Indicator Evaluation Timeframes
+    for (const sig of enabled) {
+      const rawTf = (strategyConfig.signal_timeframes || {})[sig];
+      const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
+      const sigDetail = signalResult.signals?.[sig] || {};
+
+      const candles = sigDetail.value && typeof sigDetail.value === 'number' && sigDetail.insufficientData
+        ? sigDetail.value
+        : (ohlcLen > 0 ? ohlcLen : 200);
+      const required = sigDetail.threshold && typeof sigDetail.threshold === 'number' && sigDetail.insufficientData
+        ? sigDetail.threshold
+        : 100;
+      const isWarming = sigDetail.insufficientData === true || candles < required;
+
+      items.push({
+        key: sig,
+        label: SIGNAL_LABELS[sig] || sig,
+        tf,
+        candles,
+        required,
+        isWarming,
+        statusMsg: isWarming ? `Warming (${candles}/${required})` : 'Ready'
+      });
+    }
+
+    return items;
+  }, [strategyConfig, bestOpp, signalResult]);
+
+  // Compute live telemetry stats
+  const streamAgeSec = Math.max(0, ((nowMs - lastAuthoritativeUpdateTs) / 1000)).toFixed(1);
+  const streamFresh = streamAgeSec < 5.0;
+  const regimeInfo = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
 
   return (
-    <div
-      className="max-w-[1200px] mx-auto p-3 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-32 lg:pb-10"
-    >
+    <div className="max-w-[1200px] mx-auto p-3 md:p-8 animate-in fade-in duration-300 pb-32 lg:pb-10">
       <ViewHeader
         icon={Activity}
         title={s.strategy_label}
-        subTitle={`Loop Monitoring · ${s.strategyId?.substring(0, 8)}`}
+        subTitle={`Strategy Engine · ${s.strategyId?.substring(0, 8)}`}
         backAction={onBack}
       >
          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap py-0.5 justify-end">
            <CopyButton value={s.strategyId} className="p-1.5 hidden sm:inline-flex" />
-           <div className="flex items-center gap-1 bg-surface-light/40 border border-border/40 rounded-xl px-2 py-1">
+           <div className="flex items-center gap-1.5 bg-surface/60 border border-border/40 rounded-xl px-2.5 py-1">
              <StatusBadge status={s.sessionActive} />
              {isVariant && (
                <span className="text-[10px] font-mono font-bold text-purple uppercase tracking-wider">
@@ -261,7 +378,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
              </span>
            </div>
 
-           {/* Strategy Control Actions (Pause/Resume & Edit Configuration) */}
+           {/* Strategy Control Actions */}
            <div className="flex items-center gap-1.5 shrink-0">
              {sessionActive && (
                <Tooltip content={isStrategyPaused ? "Resume Strategy Automation" : "Pause Strategy Automation"}>
@@ -311,7 +428,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
          </div>
       </ViewHeader>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-3 md:gap-4 mb-6 md:mb-10">
+      {/* KPI Performance Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5 md:gap-3.5 mb-6">
         <StatCard
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
@@ -370,16 +488,16 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         />
       </div>
 
-      {/* Performance Analytics & Chart Section (Lazy Loaded Overlaid Dual-Axis Plot) */}
-      <div className="mb-8 border border-border/60 bg-surface/30 rounded-2xl overflow-hidden transition-all flex flex-col gap-4 p-4 shadow-md shadow-black/20">
-        <div className="flex items-center justify-between flex-wrap gap-3 pb-3 border-b border-border/30">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-              <BarChart3 size={14} />
+      {/* Performance Analytics & Dual-Axis Overlay Chart */}
+      <div className="mb-6 border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all flex flex-col gap-3 p-3.5 sm:p-4 shadow-sm">
+        <div className="flex items-center justify-between flex-wrap gap-3 pb-2.5 border-b border-border/20">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+              <BarChart3 size={13} />
             </div>
             <div>
               <span className="text-xs font-black uppercase tracking-wider text-text">Strategy Performance Overlay</span>
-              <p className="text-[9.5px] text-dim font-medium">Cumulative PnL ($) and rolling Hit Rate (%) overlaid per strategy</p>
+              <p className="text-[9px] text-dim font-medium">Cumulative PnL ($) and rolling Hit Rate (%)</p>
             </div>
           </div>
 
@@ -389,8 +507,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               onClick={() => setShowPnl(!showPnl)}
               aria-pressed={showPnl}
               className={cn(
-                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                showPnl ? "bg-surface border border-border/60 text-green shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+                "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showPnl ? "bg-surface border border-border/60 text-green" : "text-dim/60 hover:text-dim"
               )}
             >
               <span className={cn("w-1.5 h-1.5 rounded-full", showPnl ? "bg-green" : "bg-dim/30")} />
@@ -401,8 +519,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               onClick={() => setShowHitRate(!showHitRate)}
               aria-pressed={showHitRate}
               className={cn(
-                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                showHitRate ? "bg-surface border border-border/60 text-accent shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+                "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showHitRate ? "bg-surface border border-border/60 text-accent" : "text-dim/60 hover:text-dim"
               )}
             >
               <span className={cn("w-1.5 h-1.5 rounded-full", showHitRate ? "bg-accent" : "bg-dim/30")} />
@@ -413,8 +531,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               onClick={() => setShowPf(!showPf)}
               aria-pressed={showPf}
               className={cn(
-                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                showPf ? "bg-surface border border-border/60 text-purple shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+                "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showPf ? "bg-surface border border-border/60 text-purple" : "text-dim/60 hover:text-dim"
               )}
             >
               <span className={cn("w-1.5 h-1.5 rounded-full", showPf ? "bg-purple" : "bg-dim/30")} />
@@ -425,8 +543,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               onClick={() => setShowSharpe(!showSharpe)}
               aria-pressed={showSharpe}
               className={cn(
-                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                showSharpe ? "bg-surface border border-border/60 text-amber shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+                "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showSharpe ? "bg-surface border border-border/60 text-amber" : "text-dim/60 hover:text-dim"
               )}
             >
               <span className={cn("w-1.5 h-1.5 rounded-full", showSharpe ? "bg-amber" : "bg-dim/30")} />
@@ -437,8 +555,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               onClick={() => setShowSortino(!showSortino)}
               aria-pressed={showSortino}
               className={cn(
-                "px-2 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                showSortino ? "bg-surface border border-border/60 text-cyan-400 shadow-xs" : "text-dim/60 hover:text-dim hover:bg-surface/20"
+                "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                showSortino ? "bg-surface border border-border/60 text-cyan-400" : "text-dim/60 hover:text-dim"
               )}
             >
               <span className={cn("w-1.5 h-1.5 rounded-full", showSortino ? "bg-cyan-400" : "bg-dim/30")} />
@@ -449,13 +567,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
         {(showPnl || showHitRate || showPf || showSharpe || showSortino) ? (
           <Suspense fallback={
-            <div className="h-[220px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
-              <Loader2 size={20} className="animate-spin text-accent" />
+            <div className="h-[200px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
+              <Loader2 size={18} className="animate-spin text-accent" />
             </div>
           }>
             <LazyStrategyPerformanceOverlayChart
               trades={(tradeHistory || analytics?.trades || []).filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label)}
-              height={220}
+              height={200}
               showPnl={showPnl}
               showHitRate={showHitRate}
               showPf={showPf}
@@ -465,10 +583,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             />
           </Suspense>
         ) : (
-          <div className="py-8 flex flex-col items-center justify-center text-center bg-background/20 border border-dashed border-border/40 rounded-xl">
-            <BarChart3 size={20} className="text-dim/40 mb-1" />
-            <span className="text-[10px] font-bold uppercase tracking-wider text-dim">All chart layers toggled off</span>
-            <span className="text-[9px] text-dim/60 font-medium">Click a toggle above to enable PnL Scale or Hit Rate % overlay</span>
+          <div className="py-6 flex flex-col items-center justify-center text-center bg-background/20 border border-dashed border-border/40 rounded-xl">
+            <BarChart3 size={18} className="text-dim/40 mb-1" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-dim">Chart layers hidden</span>
           </div>
         )}
 
@@ -478,19 +595,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             onClick={() => setIsCalendarOpen(!isCalendarOpen)}
             aria-expanded={isCalendarOpen}
             aria-controls="calendar-content"
-            className="w-full py-2.5 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+            className="w-full py-2 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
           >
             <div className="flex items-center gap-2">
-              <CalendarIcon size={13} className="text-accent" />
-              <span className="text-[11px] font-black uppercase tracking-wider text-text">Daily Calendar Breakdown</span>
+              <CalendarIcon size={12} className="text-accent" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-text">Daily Calendar Breakdown</span>
             </div>
             <ChevronDown size={14} className={cn("text-dim transition-transform duration-200", isCalendarOpen && "rotate-180")} />
           </button>
           {isCalendarOpen && (
-            <div id="calendar-content" className="pt-3 animate-in fade-in duration-200">
+            <div id="calendar-content" className="pt-2 animate-in fade-in duration-200">
               <Suspense fallback={
                 <div className="h-[120px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
-                  <Loader2 size={18} className="animate-spin text-accent" />
+                  <Loader2 size={16} className="animate-spin text-accent" />
                 </div>
               }>
                 <LazyStrategyCalendarPnL trades={tradeHistory || analytics?.trades || []} strategyFilter={s.strategy_label} />
@@ -500,225 +617,272 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </div>
       </div>
 
-      <div className="mb-10">
-        <div className="flex justify-between items-center mb-3">
-          <SectionLabel className="mb-0">Automation Gating</SectionLabel>
-          {(() => {
-            const detailRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
-            return (
-              <Tooltip content={detailRegime.guidance}>
-                <div
-                  tabIndex={0}
-                  role="region"
-                  aria-label={`Market Activity: ${detailRegime.label}`}
-                  className={cn(
-                    "px-2 py-0.5 rounded-lg text-[9px] font-black uppercase tracking-wider border flex items-center gap-1 font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none",
-                    detailRegime.badgeClass
-                  )}
-                >
-                  {detailRegime.regime === 'slow' && <Turtle size={11} className="shrink-0 text-cyan-400" />}
-                  {detailRegime.regime === 'active' && <Flame size={11} className="shrink-0 text-accent animate-pulse" />}
-                  {detailRegime.regime === 'moderate' && <Zap size={11} className="shrink-0 text-amber" />}
-                  <span>{detailRegime.label}</span>
-                </div>
-              </Tooltip>
-            );
-          })()}
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-4">
-          <ConditionWidget label={`Scanner: % Move (${strategyConfig.scan_interval})`} value={bestOpp.pct} threshold={strategyConfig.scan_pct_threshold} satisfied={scanMet} sublabel={`Top Opp: ${bestOpp.symbol} ${bestOpp.dir.toUpperCase()}`} />
-          <ConditionWidget label="Signal Authorization" value={firedCount} threshold={signalLogic === 'all' ? signalsCount : 1} unit={`/${signalsCount} signals`} satisfied={entryMet} sublabel={bestOpp.symbol !== '---' ? `[${bestOpp.symbol}] ${signalResult.reason || "Awaiting signals"}` : (signalResult.reason || "Waiting for structural signal")} />
-        </div>
-
-      {/* Watchlist Proximity Leaderboard */}
-      {proximityLeaderboard.length > 0 && (
-        <div className="mb-5 bg-surface/40 border border-border/40 p-3.5 rounded-2xl text-left">
-          <div className="flex justify-between items-center mb-2.5">
-            <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
-              <Zap size={12} className="text-accent" /> Watchlist Proximity Leaderboard
-            </span>
-            <span className="text-[9px] font-mono text-dim/60 uppercase">Sorted by Proximity %</span>
+      {/* REDESIGNED UNIFIED STRATEGY ENGINE & SIGNAL PIPELINE */}
+      <div className="mb-8 border border-border/50 bg-surface/20 rounded-2xl overflow-hidden text-left shadow-sm">
+        {/* Streamlined Live Pipeline & Freshness Telemetry Header */}
+        <div className="p-3.5 sm:p-4 bg-surface/50 border-b border-border/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
+              <Cpu size={14} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 font-mono">
+                <span className="text-xs font-black uppercase tracking-wider text-text">Engine Pipeline</span>
+                <span className={cn(
+                  "px-1.5 py-0.2 rounded text-[8.5px] font-bold uppercase border",
+                  isStrategyPaused ? "bg-amber/10 text-amber border-amber/30" : "bg-green/10 text-green border-green/30"
+                )}>
+                  {isStrategyPaused ? 'PAUSED' : 'ACTIVE'}
+                </span>
+                <span className="text-[10px] text-dim/60 font-medium">·</span>
+                <span className="text-[9.5px] text-dim font-medium uppercase">{gateReason || 'OK'}</span>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-            {proximityLeaderboard.slice(0, 5).map(opp => {
-              const isSelected = focusedOpp.symbol === opp.symbol;
-              const isFired = opp.signalResult?.allFired;
-              return (
-                <button
-                  key={opp.symbol}
-                  type="button"
-                  onClick={() => setSelectedFocusSymbol(opp.symbol)}
-                  className={cn(
-                    "p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                    isSelected
-                      ? "bg-accent/10 border-accent text-accent shadow-sm"
-                      : isFired
-                      ? "bg-green/5 border-green/30 text-green"
-                      : "bg-background/40 border-border/60 hover:border-border text-text"
-                  )}
-                >
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-1.5 font-mono">
-                      <span className="text-xs font-black">{opp.symbol}</span>
-                      <span className={cn(
-                        "text-[8px] font-black uppercase px-1 py-0.2 rounded border",
-                        (opp.dir === 'long' || opp.pct >= 0)
-                          ? "text-green border-green/30 bg-green/10"
-                          : "text-red border-red/30 bg-red/10"
-                      )}>
-                        {(opp.dir || (opp.pct >= 0 ? 'long' : 'short')).toUpperCase()}
-                      </span>
-                    </div>
-                    <span className={cn(
-                      "text-[9px] font-mono font-bold px-1.5 py-0.5 rounded",
-                      isFired ? "bg-green/20 text-green" : "bg-surface text-dim"
-                    )}>
-                      {opp.proximity}%
-                    </span>
-                  </div>
+          <div className="flex items-center gap-3 font-mono text-[10px] text-dim self-stretch sm:self-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-border/20">
+            {/* Market Regime Badge */}
+            <Tooltip content={regimeInfo.guidance}>
+              <div className={cn(
+                "px-2 py-0.5 rounded-lg border flex items-center gap-1 cursor-help",
+                regimeInfo.badgeClass
+              )}>
+                {regimeInfo.regime === 'slow' && <Turtle size={10} className="shrink-0 text-cyan-400" />}
+                {regimeInfo.regime === 'active' && <Flame size={10} className="shrink-0 text-accent animate-pulse" />}
+                {regimeInfo.regime === 'moderate' && <Zap size={10} className="shrink-0 text-amber" />}
+                <span className="font-black uppercase tracking-wider">{regimeInfo.label}</span>
+              </div>
+            </Tooltip>
 
-                  <div className="h-1 bg-background/80 rounded-full overflow-hidden relative border border-white/5">
-                    <div
-                      className={cn(
-                        "h-full rounded-full transition-all duration-500",
-                        isFired ? "bg-green" : opp.proximity > 80 ? "bg-accent" : "bg-dim/50"
-                      )}
-                      style={{ width: `${opp.proximity}%` }}
-                    />
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+            {/* Stream Freshness & Telemetry */}
+            <div className="flex items-center gap-1.5 text-dim/80">
+              <Radio size={11} className={streamFresh ? "text-green animate-pulse" : "text-amber"} />
+              <span>{streamFresh ? `Live (${streamAgeSec}s)` : `Syncing (${streamAgeSec}s)`}</span>
+            </div>
 
-        {/* Real-time Technical Signal Checklist (Collapsible) */}
-        {strategyConfig.enabled_signals && strategyConfig.enabled_signals.length > 0 && (
-          <div className="mb-5 border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all text-left">
+            {/* Batch Sync Action Button */}
             <button
               type="button"
-              onClick={() => setIsChecklistOpen(!isChecklistOpen)}
-              aria-expanded={isChecklistOpen}
-              aria-controls="checklist-content"
-              className="w-full p-4 flex items-center justify-between hover:bg-surface/50 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+              disabled={isBatchSyncing || bestOpp.symbol === '---'}
+              onClick={handleBatchSyncTimeframes}
+              className={cn(
+                "px-2.5 py-1 bg-surface border border-border/60 hover:border-accent/40 text-text rounded-lg text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                isBatchSyncing && "opacity-60 cursor-wait"
+              )}
+              aria-label="Batch sync all evaluation timeframes"
             >
-              <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-                  <Activity size={14} />
-                </div>
-                <div className="flex flex-col text-left">
-                  <div className="text-xs font-black uppercase tracking-wider text-text">
-                    Technical Signal Checklist ({bestOpp.symbol})
-                  </div>
-                  <div className="text-[9.5px] text-dim font-medium">
-                    Formula: {conditionFormula}
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className={cn(
-                  "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border shadow-sm",
-                  entryMet ? "bg-green/10 text-green border-green/20" : "bg-amber/10 text-amber border-amber/20"
-                )}>
-                  {entryMet ? 'TRIGGERED' : 'PENDING'}
-                </div>
-                <ChevronDown size={16} className={cn("text-dim transition-transform duration-200", isChecklistOpen && "rotate-180")} />
-              </div>
+              <RefreshCw size={10} className={cn(isBatchSyncing && "animate-spin text-accent")} />
+              <span>{isBatchSyncing ? 'Syncing...' : 'Sync All'}</span>
             </button>
-
-            {isChecklistOpen && (
-              <div id="checklist-content" className="p-4 pt-0 border-t border-border/20 animate-in fade-in duration-200 flex flex-col gap-4">
-                {/* Checklist Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                  {/* Velocity (Scanner Threshold) */}
-                  <SignalGauge
-                    label="Velocity Move"
-                    value={Math.abs(bestOpp.pct || 0)}
-                    threshold={strategyConfig.scan_pct_threshold || 2.0}
-                    unit="%"
-                    fired={scanMet}
-                    active={scanMet}
-                    markPrice={bestOpp.close || 0}
-                  />
-
-                  {/* Technical Indicator Signals */}
-                  {strategyConfig.enabled_signals.map(sig => {
-                    const s = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
-                    return (
-                      <SignalGauge
-                        key={sig}
-                        label={SIGNAL_LABELS[sig] || sig}
-                        value={s.value}
-                        threshold={s.threshold}
-                        unit={s.unit}
-                        fired={s.fired}
-                        active={s.active !== false}
-                        remainingDelay={s.remaining_delay || 0}
-                        configDelay={s.config_delay || 0}
-                        insufficientData={s.insufficientData}
-                        thresholdIsPrice={s.threshold_is_price}
-                        isLong={bestOpp.dir === 'long'}
-                        markPrice={bestOpp.close || s.value || 0}
-                        type="entry"
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
-        )}
+        </div>
 
-        {/* Evaluation Timeframes List */}
-        {strategyConfig.enabled_signals && strategyConfig.enabled_signals.length > 0 && (
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 bg-background/30 p-4 rounded-2xl border border-border/40 mb-10 text-left animate-in fade-in duration-300">
-            <div className="text-[10px] font-black text-dim uppercase tracking-widest shrink-0 whitespace-nowrap">
-              Evaluation Timeframes:
+        {/* Watchlist Proximity Leaderboard */}
+        {proximityLeaderboard.length > 0 && (
+          <div className="p-3.5 bg-background/30 border-b border-border/20">
+            <div className="flex justify-between items-center mb-2 font-mono">
+              <span className="text-[9px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+                <Zap size={11} className="text-accent" /> Watchlist Proximity Leaderboard
+              </span>
+              <span className="text-[8.5px] text-dim/60 uppercase">Sorted by Proximity %</span>
             </div>
-            <div className="flex flex-wrap gap-2 items-center flex-1 min-w-0">
-              {strategyConfig.enabled_signals.map(sig => {
-                const rawTf = (strategyConfig.signal_timeframes || {})[sig];
-                const tf = (!rawTf || rawTf === 'default') ? (strategyConfig.scan_interval || '5m') : rawTf;
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+              {proximityLeaderboard.slice(0, 5).map(opp => {
+                const isSelected = focusedOpp.symbol === opp.symbol;
+                const isFired = opp.signalResult?.allFired;
                 return (
-                  <span key={sig} className="px-2.5 py-1 rounded-xl bg-surface border border-border text-[10px] font-mono text-text/90 flex items-center gap-1.5 shadow-sm transition-all hover:border-accent/30 group">
-                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="font-bold">{SIGNAL_LABELS[sig] || sig}</span>
-                    <span className="text-dim/60 font-semibold font-mono">({tf})</span>
-                  </span>
+                  <button
+                    key={opp.symbol}
+                    type="button"
+                    onClick={() => setSelectedFocusSymbol(opp.symbol)}
+                    className={cn(
+                      "p-2 rounded-xl border text-left transition-all cursor-pointer flex flex-col gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                      isSelected
+                        ? "bg-accent/10 border-accent text-accent shadow-xs"
+                        : isFired
+                        ? "bg-green/5 border-green/30 text-green"
+                        : "bg-surface/40 border-border/40 hover:border-border text-text"
+                    )}
+                  >
+                    <div className="flex justify-between items-center font-mono">
+                      <div className="flex items-center gap-1">
+                        <span className="text-[11px] font-black">{opp.symbol}</span>
+                        <span className={cn(
+                          "text-[7.5px] font-black uppercase px-1 py-0.2 rounded border",
+                          (opp.dir === 'long' || opp.pct >= 0)
+                            ? "text-green border-green/30 bg-green/10"
+                            : "text-red border-red/30 bg-red/10"
+                        )}>
+                          {(opp.dir || (opp.pct >= 0 ? 'long' : 'short')).toUpperCase()}
+                        </span>
+                      </div>
+                      <span className={cn(
+                        "text-[8.5px] font-mono font-bold px-1 rounded",
+                        isFired ? "bg-green/20 text-green" : "bg-surface text-dim"
+                      )}>
+                        {opp.proximity}%
+                      </span>
+                    </div>
+
+                    <div className="h-1 bg-background/80 rounded-full overflow-hidden relative border border-white/5">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-all duration-300",
+                          isFired ? "bg-green" : opp.proximity > 80 ? "bg-accent" : "bg-dim/50"
+                        )}
+                        style={{ width: `${opp.proximity}%` }}
+                      />
+                    </div>
+                  </button>
                 );
               })}
             </div>
           </div>
         )}
 
-        {/* Active Positions List for Strategy Details (Symbols) */}
-        {activeTradeCount > 0 && (
-          <div className="mb-10 animate-in fade-in duration-300 text-left">
-            <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {strategyActiveTrades.map(trade => (
-                <ActiveTradeCard
-                  key={trade.id || trade.symbol}
-                  trade={trade}
-                  config={strategyConfig}
-                  onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
-                  onMouseEnter={preloadTradeDetailModal}
-                  isResuming={isResuming}
-                  showResumingFeedback={showResumingFeedback}
-                />
-              ))}
+        {/* Focused Candidate Inspector & Signal Checklist */}
+        <div className="p-3.5 sm:p-4 flex flex-col gap-4">
+          <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-border/20 font-mono">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-black uppercase text-text">Candidate Signal Inspector</span>
+              <span className="px-2 py-0.5 bg-surface border border-border text-accent rounded-md text-[10px] font-black">
+                {bestOpp.symbol} {bestOpp.dir ? bestOpp.dir.toUpperCase() : 'NEUTRAL'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[9.5px]">
+              <span className="text-dim">Formula:</span>
+              <span className="text-text font-bold">{conditionFormula}</span>
+              <span className={cn(
+                "px-2 py-0.5 rounded text-[8.5px] font-black uppercase border",
+                entryMet ? "bg-green/10 text-green border-green/20" : "bg-amber/10 text-amber border-amber/20"
+              )}>
+                {entryMet ? 'TRIGGERED' : 'PENDING'}
+              </span>
             </div>
           </div>
-        )}
 
-        <ScannerPreview
-          scannerResults={strategyScannerResults}
-          config={strategyConfig}
-          onOpen={() => onOpenScanner(s.strategy_label)}
-        />
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Left Column: Signal Gauges */}
+            <div className="lg:col-span-2 flex flex-col gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                <SignalGauge
+                  label="Velocity Move"
+                  value={Math.abs(bestOpp.pct || 0)}
+                  threshold={strategyConfig.scan_pct_threshold || 2.0}
+                  unit="%"
+                  fired={scanMet}
+                  active={scanMet}
+                  markPrice={bestOpp.close || 0}
+                />
+
+                {(strategyConfig.enabled_signals || []).map(sig => {
+                  const sigDetail = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
+                  return (
+                    <SignalGauge
+                      key={sig}
+                      label={SIGNAL_LABELS[sig] || sig}
+                      value={sigDetail.value}
+                      threshold={sigDetail.threshold}
+                      unit={sigDetail.unit}
+                      fired={sigDetail.fired}
+                      active={sigDetail.active !== false}
+                      remainingDelay={sigDetail.remaining_delay || 0}
+                      configDelay={sigDetail.config_delay || 0}
+                      insufficientData={sigDetail.insufficientData}
+                      thresholdIsPrice={sigDetail.threshold_is_price}
+                      isLong={bestOpp.dir === 'long'}
+                      markPrice={bestOpp.close || sigDetail.value || 0}
+                      type="entry"
+                    />
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right Column: Timeframe Candle Warmup & Freshness Debug Inspector */}
+            <div className="bg-background/40 border border-border/40 rounded-xl p-3 flex flex-col gap-2.5">
+              <div className="flex items-center justify-between border-b border-border/20 pb-2">
+                <span className="text-[10px] font-black text-dim uppercase tracking-wider flex items-center gap-1.5 font-mono">
+                  <Clock size={12} className="text-accent" /> Timeframe & Warmup Debug
+                </span>
+                <span className="text-[8.5px] font-mono text-dim/60 uppercase">Buffer Freshness</span>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                {timeframeDebugItems.map(item => {
+                  const pct = item.required > 0 ? Math.min(100, Math.round((item.candles / item.required) * 100)) : 100;
+                  const isSyncingThis = syncingTfMap[item.tf];
+
+                  return (
+                    <div key={item.key} className="p-2 bg-surface/50 border border-border/30 rounded-lg flex flex-col gap-1 font-mono">
+                      <div className="flex items-center justify-between text-[10px]">
+                        <span className="font-bold text-text flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                          {item.label} <span className="text-dim/60">({item.tf})</span>
+                        </span>
+                        <span className={cn("font-bold", item.isWarming ? "text-amber" : "text-green")}>
+                          {item.statusMsg}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 text-[9px] text-dim">
+                        <div className="flex-1 bg-background/80 rounded-full h-1 overflow-hidden relative border border-white/5">
+                          <div
+                            className={cn("h-full transition-all duration-300", item.isWarming ? "bg-amber" : "bg-green")}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <span className="shrink-0">{pct}%</span>
+                        <button
+                          type="button"
+                          disabled={isSyncingThis || bestOpp.symbol === '---'}
+                          onClick={() => handleSyncTimeframe(item.tf, bestOpp.symbol)}
+                          className={cn(
+                            "px-1.5 py-0.5 bg-surface hover:bg-surface-light border border-border text-text rounded text-[8px] uppercase font-bold flex items-center gap-0.5 transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                            isSyncingThis && "opacity-60 cursor-wait"
+                          )}
+                          aria-label={`Sync ${item.tf} candles for ${bestOpp.symbol}`}
+                        >
+                          <RefreshCw size={8} className={cn(isSyncingThis && "animate-spin text-accent")} />
+                          <span>Sync</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      {/* Active Positions List for Strategy Details */}
+      {activeTradeCount > 0 && (
+        <div className="mb-8 animate-in fade-in duration-300 text-left">
+          <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {strategyActiveTrades.map(trade => (
+              <ActiveTradeCard
+                key={trade.id || trade.symbol}
+                trade={trade}
+                config={strategyConfig}
+                onClick={() => setSelectedTradeId(trade.id || trade.symbol)}
+                onMouseEnter={preloadTradeDetailModal}
+                isResuming={isResuming}
+                showResumingFeedback={showResumingFeedback}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Scanner Preview */}
+      <ScannerPreview
+        scannerResults={strategyScannerResults}
+        config={strategyConfig}
+        onOpen={() => onOpenScanner(s.strategy_label)}
+      />
 
       <Suspense fallback={null}>
         {selectedTrade && (
@@ -734,4 +898,5 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     </div>
   )
 }
+
 export default StrategyDetailView

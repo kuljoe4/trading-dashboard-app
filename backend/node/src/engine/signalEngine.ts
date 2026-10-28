@@ -26,6 +26,9 @@ interface SignalDetail {
   streak_end_ts?: number;
   slPrice?: number;
   mode?: string;
+  expansion_pct?: number;
+  max_expansion_pct?: number;
+  [key: string]: any;
 }
 
 @Injectable()
@@ -530,12 +533,14 @@ export class SignalEngineService {
       const sequentialVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_sequential', config.engulfing_sequential !== false);
       const modeVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_mode', config.engulfing_mode || 'range');
       const volConfirmVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_volume_confirm', config.engulfing_volume_confirm || false);
+      const maxExpansionVal = this.resolveSignalParam(params, signalType, 'engulfing', 'engulfing_max_expansion_pct', config.engulfing_max_expansion_pct ?? config.engulfing_expansion_cap_pct ?? 0);
 
       const lookback = Math.max(parseInt(String(lookbackVal), 10) || 1, 1);
       const streakReq = Math.min(Math.max(parseInt(String(streakVal), 10) || lookback, 1), lookback);
       const sequential = sequentialVal === true || sequentialVal === 'true';
       const mode = String(modeVal);
       const volConfirm = volConfirmVal === true || volConfirmVal === 'true';
+      const maxExpansion = Math.max(0, parseFloat(String(maxExpansionVal)) || 0);
 
       const closeOnlyMode = mode === 'close_range' || mode === 'close_body';
       const softMode = mode === 'soft_range' || mode === 'soft_body';
@@ -694,6 +699,24 @@ export class SignalEngineService {
           if (evalFired && isVolConfirmReq && !volumeConfirms) evalFired = false;
         }
 
+        if (evalFired && maxExpansion > 0) {
+          let expansionPct = 0;
+          if (side === 'LONG') {
+            expansionPct = aggregateHigh > 0 ? ((candle.close - aggregateHigh) / aggregateHigh) * 100 : 0;
+          } else if (side === 'SHORT') {
+            expansionPct = aggregateLow > 0 ? ((aggregateLow - candle.close) / aggregateLow) * 100 : 0;
+          } else {
+            const longExp = aggregateHigh > 0 ? ((candle.close - aggregateHigh) / aggregateHigh) * 100 : 0;
+            const shortExp = aggregateLow > 0 ? ((aggregateLow - candle.close) / aggregateLow) * 100 : 0;
+            expansionPct = Math.max(longExp, shortExp);
+          }
+
+          if (expansionPct > maxExpansion) {
+            evalFired = false;
+            evalReason = `Entry overextended: expansion (${expansionPct.toFixed(2)}%) exceeds cap (${maxExpansion}%)`;
+          }
+        }
+
         return { fired: evalFired, reason: evalReason };
       };
 
@@ -722,6 +745,10 @@ export class SignalEngineService {
 
       const predictedSl = side === 'LONG' ? aggregateLow : aggregateHigh;
 
+      const currExpansionPct = side === 'SHORT'
+        ? (aggregateLow > 0 ? ((aggregateLow - curr.close) / aggregateLow) * 100 : 0)
+        : (aggregateHigh > 0 ? ((curr.close - aggregateHigh) / aggregateHigh) * 100 : 0);
+
       if (minimal) return fired;
 
       return {
@@ -744,6 +771,8 @@ export class SignalEngineService {
         streak_end_ts: candles[foundStreakEnd - 1]?.time,
         slPrice: predictedSl !== Infinity && predictedSl !== -Infinity ? predictedSl : undefined,
         mode,
+        expansion_pct: currExpansionPct > 0 ? parseFloat(currExpansionPct.toFixed(2)) : 0,
+        max_expansion_pct: maxExpansion > 0 ? maxExpansion : undefined,
       };
     } catch (error) {
       this.logger.debug(`Engulfing signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -1963,11 +1992,13 @@ export class SignalEngineService {
   ): boolean | SignalDetail {
     try {
       const params = config.signal_params || {};
-      const fastPeriod = parseInt(params.macd_fast || '12', 10);
-      const slowPeriod = parseInt(params.macd_slow || '26', 10);
-      const signalPeriod = parseInt(params.macd_signal || '9', 10);
-      const trendEmaPeriod = parseInt(params.macd_pbc_trend_ema || '50', 10);
-      const lookbackWindow = parseInt(params.macd_pbc_lookback || '10', 10);
+      const signalType = 'macd_pbc';
+      const fastPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_fast', config.macd_fast || '12')), 10) || 12;
+      const slowPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_slow', config.macd_slow || '26')), 10) || 26;
+      const signalPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_signal', config.macd_signal || '9')), 10) || 9;
+      const trendEmaPeriod = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_pbc_trend_ema', config.macd_pbc_trend_ema || '50')), 10) || 50;
+      const lookbackWindow = parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_pbc_lookback', config.macd_pbc_lookback || '10')), 10) || 10;
+      const maxContinuation = Math.max(1, parseInt(String(this.resolveSignalParam(params, signalType, 'macd_pbc', 'macd_pbc_max_continuation', config.macd_pbc_max_continuation || '2')), 10) || 2);
 
       const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
       const absoluteMin = Math.max(Math.max(fastPeriod, slowPeriod) + signalPeriod, trendEmaPeriod + 1);
@@ -2076,9 +2107,9 @@ export class SignalEngineService {
             idx--;
           }
 
-          if (purpose !== 'exit' && continuationCount > 2) {
+          if (purpose !== 'exit' && continuationCount > maxContinuation) {
             fired = false;
-            description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-2)`;
+            description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-${maxContinuation})`;
           } else {
             fired = true;
             description = `MACD Pullback-to-Continuation LONG confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing Low: ${roundTo(slPrice, 8)}`;
@@ -2099,9 +2130,9 @@ export class SignalEngineService {
             idx--;
           }
 
-          if (purpose !== 'exit' && continuationCount > 2) {
+          if (purpose !== 'exit' && continuationCount > maxContinuation) {
             fired = false;
-            description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-2)`;
+            description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-${maxContinuation})`;
           } else {
             fired = true;
             description = `MACD Pullback-to-Continuation SHORT confirmed. Slope reversed: ${roundTo(prevHist, 8)} -> ${roundTo(currHist, 8)}. Stop-Loss armed at Swing High: ${roundTo(slPrice, 8)}`;

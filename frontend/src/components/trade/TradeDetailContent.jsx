@@ -406,8 +406,10 @@ const getSignalInfo = (key, config) => {
       if (base === 'macd_pbc') {
         const trendEma = resolve('macd_pbc_trend_ema', 50);
         const lb = resolve('macd_pbc_lookback', 10);
+        const maxCont = resolve('macd_pbc_max_continuation', 2);
         params.push({ label: 'Trend EMA', value: trendEma, key: 'macd_pbc_trend_ema', type: 'number' });
         params.push({ label: 'Lookback', value: lb, key: 'macd_pbc_lookback', type: 'number' });
+        params.push({ label: 'Max Continuation Bar', value: maxCont, key: 'macd_pbc_max_continuation', type: 'number' });
       } else if (base === 'macd_impulse') {
         const strict = resolve('macd_strict_expansion', true);
         params.push({ label: 'Strict', value: strict ? 'Yes' : 'No', rawValue: strict, key: 'macd_strict_expansion', type: 'boolean' });
@@ -438,6 +440,7 @@ const getSignalInfo = (key, config) => {
       const streak = resolve('engulfing_streak', config?.engulfing_streak ?? 1);
       const mode = resolve('engulfing_mode', config?.engulfing_mode ?? 'range');
       const volConfirm = resolve('engulfing_volume_confirm', config?.engulfing_volume_confirm ?? false);
+      const maxExp = resolve('engulfing_max_expansion_pct', config?.engulfing_max_expansion_pct ?? 0);
       params.push({ label: 'Lookback', value: lookback, key: 'engulfing_lookback', type: 'number' });
       params.push({ label: 'Streak', value: streak, key: 'engulfing_streak', type: 'number' });
       params.push({
@@ -456,6 +459,7 @@ const getSignalInfo = (key, config) => {
         ]
       });
       params.push({ label: 'Vol Conf', value: volConfirm ? 'Yes' : 'No', rawValue: volConfirm, key: 'engulfing_volume_confirm', type: 'boolean' });
+      params.push({ label: 'Max Expansion Cap', value: maxExp > 0 ? `${maxExp}%` : 'Disabled', rawValue: maxExp, key: 'engulfing_max_expansion_pct', type: 'number' });
       break;
     }
     case 'ema':

@@ -413,8 +413,34 @@ export class MaintenanceService {
             if (exSlPrice > 0 && currentSlNum > 0) {
               const deltaPct = (Math.abs(exSlPrice - currentSlNum) / currentSlNum) * 100;
               if (deltaPct >= 0.01) {
-                this.logger.warn(`[Watchdog] ${trade.symbol} exchange SL price (${exSlPrice}) differs from local target SL (${currentSlNum}) by ${deltaPct.toFixed(4)}%. Triggering ratchet to sync exchange...`);
-                await this.orderManager.updateStopLoss(trade, currentSlNum, exSlPrice);
+                const isLocalMoreProtective = trade.direction === 'LONG' ? currentSlNum > exSlPrice : currentSlNum < exSlPrice;
+                if (isLocalMoreProtective) {
+                  this.logger.warn(`[Watchdog] ${trade.symbol} exchange SL price (${exSlPrice}) differs from local target SL (${currentSlNum}) by ${deltaPct.toFixed(4)}%. Triggering ratchet to sync exchange...`);
+                  const updateRes = await this.orderManager.updateStopLoss(trade, currentSlNum, exSlPrice);
+                  if (updateRes.success) {
+                    this.logger.log(`[Watchdog] ${trade.symbol} successfully synced exchange SL to ${updateRes.price || currentSlNum}`);
+                  } else {
+                    const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
+                    const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
+                    const logMsg = `[Watchdog] ${trade.symbol} parity SL ratchet failed on Binance${errCodeStr}${errDetail}`;
+                    this.logger.warn(logMsg);
+                    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+                    this.positionTracker.recordActiveTradeEvent(
+                      trade,
+                      'SL_SYNC_FAILED',
+                      `Watchdog parity SL ratchet ${exSlPrice} → ${currentSlNum} failed on Binance${errCodeStr}${errDetail}.`,
+                      'warn',
+                      { currentSl: currentSlNum, exchangeSl: exSlPrice, errorCode: updateRes.errorCode, error: updateRes.error }
+                    );
+                  }
+                } else {
+                  this.logger.log(`[Watchdog] ${trade.symbol} exchange SL (${exSlPrice}) is more protective than local SL (${currentSlNum}) (e.g. chart drag). Syncing local SL from exchange...`);
+                  trade.current_sl = exSlPrice;
+                  this.positionTracker.refreshTradeRisk(trade);
+                  this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
+                  trade.updated_at = new Date();
+                  this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+                }
               }
             }
           }

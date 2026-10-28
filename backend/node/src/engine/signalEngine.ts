@@ -26,6 +26,9 @@ interface SignalDetail {
   streak_end_ts?: number;
   slPrice?: number;
   mode?: string;
+  expansion_pct?: number;
+  max_expansion_pct?: number;
+  [key: string]: any;
 }
 
 @Injectable()

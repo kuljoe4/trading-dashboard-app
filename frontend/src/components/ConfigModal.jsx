@@ -153,6 +153,7 @@ const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) 
     ], {}, 'Timing');
     addParam('engulfing_sequential', 'boolean', true, null, {}, 'Sequential');
     addParam('engulfing_volume_confirm', 'boolean', false, null, {}, 'Vol Confirmation');
+    addParam('engulfing_max_expansion_pct', 'number', 0, null, { min: 0, max: 100, step: 0.5 }, 'Max Expansion Cap %');
   } else if (['macd_impulse', 'macd_fade', 'macd_pbc'].includes(baseType)) {
     addParam('macd_fast', 'number', 12, null, { min: 1 }, 'MACD Fast');
     addParam('macd_slow', 'number', 26, null, { min: 1 }, 'MACD Slow');
@@ -163,6 +164,7 @@ const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) 
     if (sigKey.includes('pbc')) {
       addParam('macd_pbc_trend_ema', 'number', 50, null, { min: 1 }, 'PBC Trend EMA');
       addParam('macd_pbc_lookback', 'number', 10, null, { min: 1 }, 'PBC Lookback');
+      addParam('macd_pbc_max_continuation', 'number', 2, null, { min: 1, max: 50 }, 'Max Continuation Window');
     }
   } else if (baseType === 'supertrend') {
     addParam('supertrend_period', 'number', 10, null, { min: 1, max: 39 }, 'ATR Period');
@@ -185,6 +187,7 @@ const TOOLTIPS = {
   engulfing_streak: "Required streak: Number of consecutive reversal candles to find within the window.",
   engulfing_sequential: "If enabled, the reversal streak MUST be immediately adjacent to the signal candle. If disabled, finds the NEAREST streak within the window.",
   engulfing_volume_confirm: "When enabled, the engulfing candle MUST have higher volume than the engulfed candle.",
+  engulfing_max_expansion_pct: "Maximum allowed expansion percentage beyond the lookback extreme/boundary (0 = disabled). If signal candle close extends beyond this cap %, entry is rejected to prevent overextended/late entries.",
   ema_dual_macd_filter: "When enabled, requires MACD histogram to be Red (bearish) when fast EMA crosses below slow EMA for SHORT, or Green (bullish) when fast EMA crosses above slow EMA for LONG.",
   macd_fast: "The fast EMA period for MACD line calculation.",
   macd_slow: "The slow EMA period for MACD line calculation.",
@@ -192,6 +195,7 @@ const TOOLTIPS = {
   macd_strict_expansion: "When enabled, consecutive MACD histogram bars must strictly increase (bullish) or decrease (bearish) in magnitude.",
   macd_pbc_trend_ema: "The EMA period used as the trend filter. Price must be above this for long entries, and below for short entries.",
   macd_pbc_lookback: "The number of previous candles scanned to find a valid histogram contraction pullback.",
+  macd_pbc_max_continuation: "Maximum allowed continuation candle index after MACD histogram slope reversal (e.g. 1 limits entry strictly to the 1st candle of continuation, 2 allows 1st or 2nd candle).",
   supertrend_period: "The ATR lookback period for calculating band offsets.",
   supertrend_multiplier: "The multiplier value applied to the ATR.",
   supertrend_mode: "Trend State: Signal fires while trend matches side. Crossover Trigger: Signal fires only on the crossover candle."
@@ -2518,6 +2522,10 @@ const flattenConfig = (config) => {
       engulfing_lookback: config.engulfing_lookback || 1,
       engulfing_streak: config.engulfing_streak || 1,
       engulfing_sequential: config.engulfing_sequential !== false,
+      engulfing_max_expansion_pct: config.engulfing_max_expansion_pct || 0,
+      macd_pbc_trend_ema: config.macd_pbc_trend_ema || 50,
+      macd_pbc_lookback: config.macd_pbc_lookback || 10,
+      macd_pbc_max_continuation: config.macd_pbc_max_continuation || 2,
       required_signals: Array.isArray(config.required_signals) ? config.required_signals : [],
       required_exit_signals: Array.isArray(config.required_exit_signals) ? config.required_exit_signals : [],
       exit_signals: Array.isArray(config.exit_signals) ? config.exit_signals : [],
@@ -2589,7 +2597,8 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'scanner_signal_depth',
-      'engulfing_lookback', 'engulfing_streak',
+      'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',

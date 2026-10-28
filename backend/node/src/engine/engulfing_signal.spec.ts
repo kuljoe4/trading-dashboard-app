@@ -287,4 +287,34 @@ describe('SignalEngineService - Engulfing Expert Mode', () => {
     });
   });
 
+  describe('Max Expansion Cap', () => {
+    it('should REJECT LONG entry if candle expansion exceeds max_expansion_pct', () => {
+      const candles = [
+        createCandle(100, 100, 95, 96), // Prev bearish (High: 100)
+        createCandle(95, 115, 94, 112), // Bullish signal close 112 (+12% expansion beyond 100)
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_max_expansion_pct: 8.0 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(false);
+      expect(result.details?.engulfing.fired).toBe(false);
+      expect(result.details?.engulfing.description).toContain('Entry overextended: expansion (12.00%) exceeds cap (8%)');
+    });
+
+    it('should PASS LONG entry if candle expansion is within max_expansion_pct', () => {
+      const candles = [
+        createCandle(100, 100, 95, 96), // Prev bearish (High: 100)
+        createCandle(95, 106, 94, 105), // Bullish signal close 105 (+5% expansion beyond 100)
+      ];
+      mockKlineStore.getRawCandles.mockReturnValue(candles);
+      const config = { enabled_signals: ['engulfing'], engulfing_mode: 'range', engulfing_max_expansion_pct: 8.0 };
+
+      const result = service.checkEntry('BTCUSDT', config as any, '1m', 'LONG');
+      expect(result.allFired).toBe(true);
+      expect(result.details?.engulfing.fired).toBe(true);
+      expect(result.details?.engulfing.expansion_pct).toBe(5);
+    });
+  });
+
 });

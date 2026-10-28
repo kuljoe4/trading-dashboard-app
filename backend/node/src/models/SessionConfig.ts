@@ -225,6 +225,30 @@ export class SessionConfig {
   @IsOptional()
   engulfing_sequential?: boolean = true;
 
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  engulfing_max_expansion_pct?: number = 0;
+
+  @IsNumber()
+  @Min(2)
+  @Max(200)
+  @IsOptional()
+  macd_pbc_trend_ema?: number = 50;
+
+  @IsNumber()
+  @Min(1)
+  @Max(50)
+  @IsOptional()
+  macd_pbc_lookback?: number = 10;
+
+  @IsNumber()
+  @Min(1)
+  @Max(50)
+  @IsOptional()
+  macd_pbc_max_continuation?: number = 2;
+
   // Stop Loss Configuration
   @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme', 'trailing', 'supertrend'])
   @IsOptional()

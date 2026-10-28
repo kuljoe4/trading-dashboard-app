@@ -69,7 +69,7 @@ export class MaintenanceService {
       if (activeTrades.length === 0) return;
 
       const tradesToAudit = activeTrades.filter(trade => {
-        if (!trade.binance_order_id) return false;
+        if (trade.status !== 'OPEN') return false;
         if (targetSymbol) {
           return trade.symbol === targetSymbol;
         }
@@ -268,18 +268,25 @@ export class MaintenanceService {
                 trade.binance_stop_order_type = this.isAlgoType(validSl) ? 'algo' : 'standard';
                 const exSlPrice = this.getOrderStopPrice(validSl);
 
-                if (exSlPrice > 0 && Math.abs(exSlPrice - trade.current_sl) > 0.00000001) {
-                  this.logger.log(`[Watchdog] ${trade.symbol} syncing SL price from exchange: ${trade.current_sl} -> ${exSlPrice}`);
-                  trade.current_sl = exSlPrice;
+                if (exSlPrice > 0 && Math.abs(exSlPrice - Number(trade.current_sl)) > 0.00000001) {
+                  const currentSlNum = Number(trade.current_sl);
+                  const isLocalMoreProtective = currentSlNum > 0 && (trade.direction === 'LONG' ? currentSlNum > exSlPrice : currentSlNum < exSlPrice);
+                  if (isLocalMoreProtective) {
+                    this.logger.log(`[Watchdog] ${trade.symbol} local SL (${currentSlNum}) is more protective than adopted exchange SL (${exSlPrice}). Updating exchange...`);
+                    await this.orderManager.updateStopLoss(trade, currentSlNum, exSlPrice);
+                  } else {
+                    this.logger.log(`[Watchdog] ${trade.symbol} syncing SL price from exchange: ${trade.current_sl} -> ${exSlPrice}`);
+                    trade.current_sl = exSlPrice;
 
-                  // SRE: Live Risk Mitigation during SL sync
-                  this.positionTracker.refreshTradeRisk(trade);
+                    // SRE: Live Risk Mitigation during SL sync
+                    this.positionTracker.refreshTradeRisk(trade);
 
-                  // SRE: Reconcile rr_sequence_index based on adopted SL price
-                  this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
+                    // SRE: Reconcile rr_sequence_index based on adopted SL price
+                    this.positionTracker.reconcileMilestoneFromSl(trade, exSlPrice, tradeConfig);
 
-                  // Re-seed to ensure all internal maps and risk totals are in sync
-                  this.positionTracker.addTrade(trade);
+                    // Re-seed to ensure all internal maps and risk totals are in sync
+                    this.positionTracker.addTrade(trade);
+                  }
                 }
 
                 trade.updated_at = new Date();
@@ -374,6 +381,17 @@ export class MaintenanceService {
                   trade.updated_at = new Date();
                   this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
                 }
+              }
+            }
+
+            // SRE: Stop-Loss Price Parity Audit. Ensure exchange SL trigger price matches local current_sl
+            const exSlPrice = this.getOrderStopPrice(matchingOrder);
+            const currentSlNum = Number(trade.current_sl);
+            if (exSlPrice > 0 && currentSlNum > 0) {
+              const deltaPct = (Math.abs(exSlPrice - currentSlNum) / currentSlNum) * 100;
+              if (deltaPct >= 0.01) {
+                this.logger.warn(`[Watchdog] ${trade.symbol} exchange SL price (${exSlPrice}) differs from local target SL (${currentSlNum}) by ${deltaPct.toFixed(4)}%. Triggering ratchet to sync exchange...`);
+                await this.orderManager.updateStopLoss(trade, currentSlNum, exSlPrice);
               }
             }
           }

@@ -582,13 +582,17 @@ export class PositionTrackerService {
              this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
              return true;
           } else {
-             this.logger.warn(`[SL Ratchet] Local state for ${symbol} SL update rolled back / deferred due to exchange rejection or capacity limit.`);
+             const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
+             const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
+             const logMsg = `[SL Ratchet] Local state for ${symbol} SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}. Local SL remains ${Number(trade.current_sl)}.`;
+             this.logger.warn(logMsg);
+             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
              this.recordActiveTradeEvent(
                trade,
                'SL_RATCHET_FAILED',
-               `SL move ${prevSl} → ${newSl} was not confirmed by the exchange; local SL remains ${Number(trade.current_sl)}.`,
+               `SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}. Local SL remains ${Number(trade.current_sl)}.`,
                'warn',
-               { prevSl, targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, updateRes }
+               { prevSl, targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, errorCode: updateRes.errorCode, error: updateRes.error, updateRes }
              );
           }
         } else {
@@ -620,7 +624,7 @@ export class PositionTrackerService {
     return false;
   }
 
-  private recordActiveTradeEvent(
+  public recordActiveTradeEvent(
     trade: Trade,
     type: string,
     message: string,
@@ -835,6 +839,19 @@ export class PositionTrackerService {
                   this.refreshTradeRisk(trade, false, currentPrice, config);
                   this.logSlAdjustment(trade, prevSl, finalSl, -3, !!updateRes.price && updateRes.price !== roundedSl);
                   this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+                } else {
+                  const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
+                  const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
+                  const logMsg = `[Multi-Layer Exit] Lock SL for ${symbol} failed on Binance${errCodeStr}${errDetail}.`;
+                  this.logger.warn(logMsg);
+                  this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+                  this.recordActiveTradeEvent(
+                    trade,
+                    'SL_LOCK_FAILED',
+                    `Lock SL move ${prevSl} → ${roundedSl} for signal ${sigKey} failed on Binance${errCodeStr}${errDetail}.`,
+                    'warn',
+                    { prevSl, attemptedSl: roundedSl, signal: sigKey, errorCode: updateRes.errorCode, error: updateRes.error }
+                  );
                 }
               }).catch(err => {
                 this.logger.error(`[Multi-Layer Exit] Failed to update SL via lock_sl action for ${symbol}: ${err.message}`);
@@ -1315,6 +1332,19 @@ export class PositionTrackerService {
         this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
         this.logSlAdjustment(trade, prevSl, finalSl, -4, !!updateRes.price && updateRes.price !== newSl);
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      } else {
+        const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
+        const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
+        const logMsg = `[Knife Engine] Knife trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`;
+        this.logger.warn(logMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+        this.recordActiveTradeEvent(
+          trade,
+          'SL_TRAILING_FAILED',
+          `Knife trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`,
+          'warn',
+          { prevSl, attemptedSl: newSl, type: 'knife_trailing', errorCode: updateRes.errorCode, error: updateRes.error }
+        );
       }
     }
   }
@@ -1508,6 +1538,19 @@ export class PositionTrackerService {
         this.refreshTradeRisk(trade, false, currentPrice, activeConfig);
         this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      } else {
+        const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
+        const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
+        const logMsg = `[TrailingStop] Trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`;
+        this.logger.warn(logMsg);
+        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+        this.recordActiveTradeEvent(
+          trade,
+          'SL_TRAILING_FAILED',
+          `Trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`,
+          'warn',
+          { prevSl, attemptedSl: newSl, type: 'trailing_stop', errorCode: updateRes.errorCode, error: updateRes.error }
+        );
       }
     }
   }

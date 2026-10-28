@@ -1004,7 +1004,7 @@ export class OrderManagerService {
             this.cleanupExecutionCache();
           }
 
-          if (entryReceipt.code && entryReceipt.code !== 0) {
+          if (entryReceipt.code !== undefined && entryReceipt.code !== null && Number(entryReceipt.code) !== 0 && Number(entryReceipt.code) !== 200) {
             const code = entryReceipt.code;
             const msg = entryReceipt.msg || '';
             this.logger.warn(`[${symbol}] Entry order failed. Code: ${code}, Message: ${msg}, Raw: ${JSON.stringify(entryReceipt)}`);
@@ -1493,7 +1493,6 @@ export class OrderManagerService {
 
     if (this.paperMode) return { orderId: 'PAPER_SL', price: currentSlPrice };
     if (!this.binanceClient) return { orderId: '', price: 0, error: 'Binance client is not initialized.' };
-    if (!trade.binance_order_id) return { orderId: '', price: 0, error: 'Trade missing binance_order_id.' };
 
     // BOLT: Fail early if no filters found for live mode to prevent "Invalid symbol"
     if (!this.marketFeed.getSymbolFilters(trade.symbol)) {
@@ -1548,7 +1547,7 @@ export class OrderManagerService {
         this.updateWeight(response?.headers);
         const orderData = (await response.data()) as BinanceAlgoOrderReceipt;
 
-        if (orderData.code && orderData.code !== 0) {
+        if (orderData.code !== undefined && orderData.code !== null && Number(orderData.code) !== 0 && Number(orderData.code) !== 200) {
           const code = orderData.code;
           const msg = orderData.msg || '';
             this.logger.warn(`[${symbol}] SL placement failed. Code: ${code}, Message: ${msg}, Raw: ${JSON.stringify(orderData)}`);
@@ -1891,23 +1890,23 @@ export class OrderManagerService {
       }
       return { success: true, price: newSlPrice };
     }
-    if (this.paperMode || !this.binanceClient || !trade.binance_order_id) return { success: true, price: newSlPrice };
+    if (this.paperMode || !this.binanceClient) return { success: true, price: newSlPrice };
 
     const filteredNewSl = this.applyFilters(trade.symbol, newSlPrice, trade.qty, { skipNotionalCheck: true, clampToPercentPrice: true });
 
-    // Prevent duplicate placement if tick-rounded price matches existing SL exactly
-    const currentSlNum = Number(trade.current_sl);
-    if (currentSlNum === filteredNewSl.price) {
-      this.logger.debug(`[SL Ratchet] Skipped replacement for ${trade.symbol}: Filtered new SL (${filteredNewSl.price}) is identical to current SL.`);
+    // Prevent duplicate placement if tick-rounded price matches existing SL on exchange exactly
+    const referenceSl = (prevSlPrice !== undefined && prevSlPrice > 0) ? prevSlPrice : Number(trade.current_sl);
+    if (referenceSl === filteredNewSl.price) {
+      this.logger.debug(`[SL Ratchet] Skipped replacement for ${trade.symbol}: Filtered new SL (${filteredNewSl.price}) is identical to reference SL (${referenceSl}).`);
       return { success: true, price: filteredNewSl.price };
     }
 
     // Minimum-move guard: Apply a minimum 0.01% price delta guard before replacing SL orders to minimize order-count rate limit pressure
-    if (currentSlNum > 0) {
-      const priceDeltaPct = (Math.abs(filteredNewSl.price - currentSlNum) / currentSlNum) * 100;
+    if (referenceSl > 0) {
+      const priceDeltaPct = (Math.abs(filteredNewSl.price - referenceSl) / referenceSl) * 100;
       if (priceDeltaPct < 0.01) {
-        this.logger.debug(`[SL Ratchet] Skipped replacement for ${trade.symbol}: Filtered new SL (${filteredNewSl.price}) delta from current SL (${currentSlNum}) is ${priceDeltaPct.toFixed(4)}%, below 0.01% guard.`);
-        return { success: true, price: currentSlNum };
+        this.logger.debug(`[SL Ratchet] Skipped replacement for ${trade.symbol}: Filtered new SL (${filteredNewSl.price}) delta from reference SL (${referenceSl}) is ${priceDeltaPct.toFixed(4)}%, below 0.01% guard.`);
+        return { success: true, price: referenceSl };
       }
     }
 
@@ -2081,8 +2080,20 @@ export class OrderManagerService {
       // If order is already filled or canceled, we can ignore the error
       const errMsg = err instanceof Error ? err.message : String(err);
       const upperMsg = errMsg.toUpperCase();
-      if (upperMsg.includes('ORDER HAS BEEN FILLED') || upperMsg.includes('UNKNOWN_ORDER') || upperMsg.includes('UNKNOWN ORDER')) {
-        this.logger.debug(`Order ${orderId} already closed: ${errMsg}`);
+      const isAlreadyClosed =
+        upperMsg.includes('ORDER HAS BEEN FILLED') ||
+        upperMsg.includes('UNKNOWN_ORDER') ||
+        upperMsg.includes('UNKNOWN ORDER') ||
+        upperMsg.includes('ORDER DOES NOT EXIST') ||
+        upperMsg.includes('ALGO_ORDER_NOT_FOUND') ||
+        upperMsg.includes('ALGO_NOT_EXIST') ||
+        upperMsg.includes('CANCEL_REJECTED') ||
+        upperMsg.includes('-2011') ||
+        upperMsg.includes('-2013') ||
+        upperMsg.includes('-2022');
+
+      if (isAlreadyClosed) {
+        this.logger.debug(`Order ${orderId} already closed or not found on exchange: ${errMsg}`);
 
         // SRE: Even if it failed with UNKNOWN_ORDER, we must purge it from local cache
         // to prevent infinite retry loops in the Watchdog.
@@ -3231,7 +3242,7 @@ export class OrderManagerService {
               this.updateWeight(response?.headers);
               orderData = (await response.data()) as BinanceOrderReceipt;
 
-              if (orderData && orderData.code && orderData.code !== 0) {
+              if (orderData && orderData.code !== undefined && orderData.code !== null && Number(orderData.code) !== 0 && Number(orderData.code) !== 200) {
                 const code = orderData.code;
                 const msg = orderData.msg || '';
 

@@ -2503,11 +2503,16 @@ const flattenConfig = (config) => {
       knife_auto_ratchet_be_rr: config.knife_auto_ratchet_be_rr !== undefined ? config.knife_auto_ratchet_be_rr : 0.5,
       knife_auto_ratchet_lock_rr: config.knife_auto_ratchet_lock_rr !== undefined ? config.knife_auto_ratchet_lock_rr : 1.0,
       anti_whipsaw_allow_knife: !!config.anti_whipsaw_allow_knife,
+      anti_whipsaw_per_strategy: !!config.anti_whipsaw_per_strategy,
       allow_knife_when_gated: !!config.allow_knife_when_gated,
       anti_whipsaw_candle_delay: config.anti_whipsaw_candle_delay !== undefined ? config.anti_whipsaw_candle_delay : 1,
       anti_whipsaw_tf_delay_min: config.anti_whipsaw_tf_delay_min !== undefined ? config.anti_whipsaw_tf_delay_min : 0,
       anti_whipsaw_max_tf: config.anti_whipsaw_max_tf || '4h',
-      anti_whipsaw_timeframes: Array.isArray(config.anti_whipsaw_timeframes) ? config.anti_whipsaw_timeframes : [],
+      anti_whipsaw_timeframes: Array.isArray(config.anti_whipsaw_timeframes)
+        ? config.anti_whipsaw_timeframes
+        : (typeof config.anti_whipsaw_timeframes === 'string' && config.anti_whipsaw_timeframes
+            ? config.anti_whipsaw_timeframes.split(',').map(s => s.trim()).filter(Boolean)
+            : []),
       release_risk_on_est_pnl_be: !!config.release_risk_on_est_pnl_be,
       smart_watchlist_enabled: !!config.smart_watchlist_enabled,
       smart_watchlist_sensitivity: config.smart_watchlist_sensitivity || 0.7,
@@ -2631,6 +2636,17 @@ const coerceAndSanitizeConfig = (rawConfig) => {
     // UI Conversion: UI percentage back to backend decimal
     if (c.slippage_warning_threshold !== undefined) {
       c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
+    }
+
+    // Format anti_whipsaw_timeframes as an array of strings
+    if (typeof c.anti_whipsaw_timeframes === 'string') {
+      c.anti_whipsaw_timeframes = c.anti_whipsaw_timeframes.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (!Array.isArray(c.anti_whipsaw_timeframes)) {
+      c.anti_whipsaw_timeframes = [];
+    }
+
+    if (c.anti_whipsaw_max_tf) {
+      c.anti_whipsaw_max_tf = String(c.anti_whipsaw_max_tf).trim();
     }
 
     // Zero out nested variants to prevent runaway nesting

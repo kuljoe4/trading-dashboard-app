@@ -309,6 +309,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
 
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { EquityCurve, TODPerformance, RrOptimizationChart, StrategyCalendarPnL } from '../components/Analytics'
+import { BacktestPanel } from '../components/BacktestPanel'
 
 const price = (value) => {
   if (value == null || isNaN(Number(value))) return 'None'
@@ -1646,11 +1647,49 @@ SessionGroup.displayName = 'SessionGroup'
 const PAGE_SIZE = 10
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus } = useTradingStore()
-  // WISP OPTIMIZATION: Removed unused `fullAnalytics` state and redundant `sessionAPI.analytics()` call
-  // from the mount useEffect. HistoryView relies on `lifetimeAnalytics` (via `fetchLifetimeAnalytics`)
-  // for all its lifetime stats and analytical calculations, while active/session-level analytics
-  // are already handled by other components or the global store, making the local fetch redundant.
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus, config, updateConfig, sessionActive, strategyId, addAlert } = useTradingStore()
+
+  const [activeViewTab, setActiveViewTab] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash || ''
+      if (hash.includes('backtest') || hash.includes('tab=backtest')) return 'backtest'
+    }
+    return 'history'
+  }) // 'history' | 'backtest'
+
+  const handleApplyBacktestConfig = React.useCallback(async (newConfig) => {
+    try {
+      if (sessionActive && strategyId) {
+        await sessionAPI.update(strategyId, newConfig)
+        updateConfig(newConfig)
+        if (addAlert) {
+          addAlert({
+            level: 'success',
+            title: 'Config Applied',
+            message: `Updated active trading session with backtested strategy "${newConfig.strategy_label || 'Strategy'}".`
+          })
+        }
+      } else {
+        updateConfig(newConfig)
+        if (addAlert) {
+          addAlert({
+            level: 'success',
+            title: 'Config Draft Saved',
+            message: `Saved backtested strategy parameters for "${newConfig.strategy_label || 'Strategy'}". Ready for next session.`
+          })
+        }
+      }
+    } catch (err) {
+      if (addAlert) {
+        addAlert({
+          level: 'error',
+          title: 'Apply Failed',
+          message: err?.response?.data?.message || 'Could not update session config.'
+        })
+      }
+    }
+  }, [sessionActive, strategyId, updateConfig, addAlert])
+
   const [lifetimeMode, setLifetimeMode] = useState(() => localStorage.getItem('history_trade_mode') || 'paper')
   const [timeRange, setTimeRange] = useState(() => localStorage.getItem('history_time_range') || 'ALL') // '24H', '7D', '30D', 'ALL'
   const [tradeLimit, setTradeLimit] = useState(() => {
@@ -2036,17 +2075,48 @@ export const HistoryView = () => {
         healthEnabled ? "pb-48" : "pb-32"
       )}>
         <ViewHeader
-          icon={HistoryIcon}
-          title="Trade History"
-          subTitle="Verified records of all closed positions"
+          icon={activeViewTab === 'backtest' ? BarChart3 : HistoryIcon}
+          title={activeViewTab === 'backtest' ? "Strategy Backtest Engine" : "Trade History"}
+          subTitle={activeViewTab === 'backtest' ? "Multi-strategy resolution & historical simulation" : "Verified records of all closed positions"}
           backAction={() => window.location.hash = '#/'}
         >
-          <div className="flex items-center gap-3">
-             <span className="text-[9px] text-accent font-bold font-mono uppercase tracking-widest bg-accent/5 border border-accent/20 px-2.5 py-1 rounded-xl whitespace-nowrap">
-               Showing {modeTrades.length} of {(tradeHistory || []).length} Trades
-             </span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 bg-surface border border-border/40 p-1 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setActiveViewTab('history')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                  activeViewTab === 'history' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                )}
+              >
+                <HistoryIcon size={14} />
+                Trade Records
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveViewTab('backtest')}
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1.5",
+                  activeViewTab === 'backtest' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                )}
+              >
+                <BarChart3 size={14} />
+                Strategy Backtest
+              </button>
+            </div>
+            {activeViewTab === 'history' && (
+              <span className="hidden md:inline-block text-[9px] text-accent font-bold font-mono uppercase tracking-widest bg-accent/5 border border-accent/20 px-2.5 py-1 rounded-xl whitespace-nowrap">
+                Showing {modeTrades.length} of {(tradeHistory || []).length} Trades
+              </span>
+            )}
           </div>
         </ViewHeader>
+
+        {activeViewTab === 'backtest' ? (
+          <BacktestPanel onApplyConfig={handleApplyBacktestConfig} />
+        ) : (
+          <>
 
 
         {/* Unified Non-Sticky Filter Toolbar */}
@@ -2821,6 +2891,8 @@ export const HistoryView = () => {
             </div>
           )}
         </div>
+        </>
+        )}
         <BottomNav />
       </div>
       </React.Suspense>

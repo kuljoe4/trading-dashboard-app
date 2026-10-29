@@ -2574,33 +2574,6 @@ export const HistoryView = () => {
                         </div>
                       </div>
 
-                      {currentAnalytics.rrOptimization.recommendedExitSignals && currentAnalytics.rrOptimization.recommendedExitSignals.length > 0 && (
-                        <div className="mt-8 pt-6 border-t border-border/10">
-                          <div className="flex items-center gap-2 mb-4">
-                            <LineChart size={14} className="text-accent" />
-                            <span className="text-[10px] text-dim font-black uppercase tracking-widest">Recommended Exit Indicator Parameters</span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {currentAnalytics.rrOptimization.recommendedExitSignals.map((rec) => (
-                              <div key={rec.signalType} className="p-4 bg-background/20 border border-border/40 rounded-2xl flex flex-col gap-1.5 hover:border-accent/15 transition-all">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] text-text font-black uppercase tracking-wider">
-                                    {rec.signalType.replace(/_/g, ' ')}
-                                  </span>
-                                  <span className="text-[8px] text-dim font-black uppercase bg-accent/5 border border-accent/20 px-1.5 py-0.5 rounded">
-                                    Conf: {rec.confidence}%
-                                  </span>
-                                </div>
-                                <div className="flex items-baseline gap-1.5 mt-0.5">
-                                  <span className="text-xs font-bold text-accent font-mono">{rec.recommendedValue}</span>
-                                  <span className="text-[8.5px] text-dim font-medium uppercase font-mono">({rec.parameterName})</span>
-                                </div>
-                                <p className="text-[9px] text-dim/70 leading-relaxed mt-1 font-medium">{rec.reasoning}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
 
                     <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm flex flex-col justify-between">

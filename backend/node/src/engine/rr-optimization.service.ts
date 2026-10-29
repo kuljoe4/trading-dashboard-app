@@ -2,14 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TradeEntity } from '../models/entities/Trade.entity';
 import { roundTo } from '../lib/math';
 
-export interface ExitSignalRecommendation {
-  signalType: string;
-  parameterName: string;
-  recommendedValue: any;
-  reasoning: string;
-  confidence: number;
-}
-
 export interface RrOptimizationPoint {
   threshold: number;
   winRate: number;
@@ -31,7 +23,6 @@ export interface RrOptimizationResult {
   curve: RrOptimizationPoint[];
   sampleSize: number;
   status: 'OPTIMAL' | 'PRELIMINARY' | 'INSUFFICIENT_DATA' | 'STALE';
-  recommendedExitSignals?: ExitSignalRecommendation[];
 
   // Time-to-Breakeven & Duration Dynamics Metrics
   avgDurationMs?: number;
@@ -204,7 +195,6 @@ export class RrOptimizationService {
         curve: [],
         sampleSize: n,
         status: 'INSUFFICIENT_DATA',
-        recommendedExitSignals: [],
         avgDurationMs: 0,
         avgDurationToBreakevenMs: 0,
         avgDurationToBreakevenCandles: 0,
@@ -467,70 +457,6 @@ export class RrOptimizationService {
       conservativeRr = firstProfitable ? firstProfitable.threshold : curve[0].threshold;
     }
 
-    // --- PREDICTIVE MODELLING FOR OPTIMAL EXIT SIGNAL PARAMETERS & STRATEGY SETTINGS ---
-    const ttbeCandles = avgDurationToBreakevenCandles;
-
-    const recommendedExitSignals: ExitSignalRecommendation[] = [
-      {
-        signalType: 'ema_close',
-        parameterName: 'exit_ema_period',
-        recommendedValue: Math.max(5, Math.min(40, Math.round(ttbeCandles * 1.5))),
-        reasoning: `Optimizes exit timing by setting the EMA period relative to average duration to breakeven (${ttbeCandles} candles) to prevent premature exits before breakeven is reached.`,
-        confidence: Math.min(95, Math.max(50, 40 + n)),
-      },
-      {
-        signalType: 'ema_dual_close',
-        parameterName: 'exit_ema_fast / exit_ema_slow',
-        recommendedValue: `${Math.max(5, Math.min(30, Math.round(ttbeCandles)))} / ${Math.max(10, Math.min(80, Math.round(ttbeCandles * 2.5)))}`,
-        reasoning: `Aligns fast/slow EMA cross to the ${ttbeCandles}-candle breakeven cycle, establishing a robust trend-following exit line.`,
-        confidence: Math.min(95, Math.max(50, 45 + n)),
-      },
-      {
-        signalType: 'supertrend',
-        parameterName: 'supertrend_period / supertrend_multiplier',
-        recommendedValue: `${Math.max(7, Math.min(20, Math.round(avgDurationCandles / 2)))} / ${Math.max(1.5, Math.min(4.0, Number((2.0 + (avgMaePct * 0.5)).toFixed(1))))}`,
-        reasoning: `Dynamically adjusts ATR multiplier based on historical adverse excursion (avg MAE: ${avgMaePct.toFixed(2)}%), giving breathing room under normal volatility while preventing severe drawdowns.`,
-        confidence: Math.min(95, Math.max(50, 50 + n)),
-      },
-      {
-        signalType: 'macd_fade',
-        parameterName: 'macd_fast / macd_slow / macd_signal',
-        recommendedValue: `${Math.max(6, Math.min(24, Math.round(ttbeCandles)))} / ${Math.max(12, Math.min(50, Math.round(ttbeCandles * 2)))} / ${Math.max(4, Math.min(18, Math.round(ttbeCandles / 2)))}`,
-        reasoning: `Synchronizes MACD momentum decay detection to contract exactly when trade duration reaches the breakeven threshold of ${ttbeCandles} candles.`,
-        confidence: Math.min(95, Math.max(50, 40 + n)),
-      },
-      {
-        signalType: 'entry_spacing',
-        parameterName: 'min_trade_interval_min',
-        recommendedValue: recommendedMinTradeIntervalMin,
-        reasoning: `Prevents over-trading by setting entry cooldown to ${recommendedMinTradeIntervalMin}m, matching your average time to breakeven (${(avgDurationToBreakevenMs / 60000).toFixed(1)}m).`,
-        confidence: Math.min(95, Math.max(50, 50 + n)),
-      },
-      {
-        signalType: 'exit_delays',
-        parameterName: 'exit_signal_delays',
-        recommendedValue: `${recommendedExitSignalDelayCandles}c`,
-        reasoning: `Requires a ${recommendedExitSignalDelayCandles}-candle delay before exit signals trigger, filtering initial entry noise before price reaches breakeven.`,
-        confidence: Math.min(95, Math.max(50, 45 + n)),
-      },
-      {
-        signalType: 'ratchet_spacing',
-        parameterName: 'live_rr_sequence / exit_rr_sequence',
-        recommendedValue: ratchetOscillationRate > 50 ? '1.0, 2.5, 4.5 -> 0, 1.0, 2.0' : '0.5, 1.5, 3.0 -> 0, 0.5, 1.5',
-        reasoning: ratchetOscillationRate > 50
-          ? `${ratchetOscillationRate}% of milestone trades experienced pullback oscillations. Widening ratchet step spacing (1.0R, 2.5R, 4.5R) prevents routine market noise from triggering premature stop-outs.`
-          : `Ratchet oscillation rate is low (${ratchetOscillationRate}%). Standard milestone spacing (0.5R, 1.5R, 3.0R) is effective for current market volatility.`,
-        confidence: Math.min(95, Math.max(50, 45 + n)),
-      },
-      {
-        signalType: 'frequency_shaping',
-        parameterName: 'max_trades_per_period / trades_period_min',
-        recommendedValue: `${recLimit} trades / ${recPeriod}m`,
-        reasoning: shapingReasoning,
-        confidence: Math.min(95, Math.max(50, 50 + n)),
-      }
-    ];
-
     return {
       recommendedRr: balancedRr,
       conservativeRr,
@@ -542,7 +468,6 @@ export class RrOptimizationService {
       curve: curve.reverse(),
       sampleSize: n,
       status: n >= 20 ? 'OPTIMAL' : 'PRELIMINARY',
-      recommendedExitSignals,
       avgDurationMs,
       avgDurationToBreakevenMs,
       avgDurationToBreakevenCandles,

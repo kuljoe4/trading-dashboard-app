@@ -106,7 +106,7 @@ export class MomentumScannerService {
 
       // 1. Task Collection (Deduplication)
       // BOLT: Collect all unique symbols and their configs before execution to avoid redundant scans.
-      const tasks = new Map<string, { config: SessionConfig; volume_rank?: number; is_smart?: boolean }>();
+      const tasks = new Map<string, { config: SessionConfig; volume_rank?: number; is_smart?: boolean; is_explicit_symbol?: boolean }>();
 
       // Global Scan Collection
       if (config.global_scanner_enabled !== false) {
@@ -206,7 +206,7 @@ export class MomentumScannerService {
       for (const [symbol, task] of tasks) {
         try {
           const interval = this.marketFeed.resolveInterval(task.config.scan_interval || '1m', task.config) || '1m';
-          const res = this.scanSymbol(symbol, interval, task.config, (task as any).is_explicit_symbol || false);
+          const res = this.scanSymbol(symbol, interval, task.config, task.is_explicit_symbol || false);
           if (res) {
             if (task.volume_rank) res.opp.volume_rank = task.volume_rank;
             if (task.is_smart) res.opp.is_smart_candidate = true;

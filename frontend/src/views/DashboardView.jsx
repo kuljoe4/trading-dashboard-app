@@ -1656,8 +1656,8 @@ const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, a
         message: `Successfully adopted ${symbol} under strategy "${chosenStrategy}".`
       });
       await fetchUntracked();
-      useTradingStore.getState().fetchTradeHistory('all');
-      useTradingStore.getState().fetchAnalytics();
+      if (typeof useTradingStore.getState().fetchTradeHistory === 'function') useTradingStore.getState().fetchTradeHistory('all');
+      if (typeof useTradingStore.getState().fetchAnalytics === 'function') useTradingStore.getState().fetchAnalytics();
     } catch (e) {
       const msg = e?.response?.data?.message || 'Failed to adopt position';
       addAlert({
@@ -2283,9 +2283,9 @@ export function DashboardView({ initialStrategy }) {
     }
   }, [showScanner]);
   useEffect(() => {
-    fetchSessions();
-    fetchTradeHistory(strategyId || 'all');
-    fetchAnalytics();
+    if (typeof fetchSessions === 'function') fetchSessions();
+    if (typeof fetchTradeHistory === 'function') fetchTradeHistory(strategyId || 'all');
+    if (typeof fetchAnalytics === 'function') fetchAnalytics();
 
     const toggleScanner = () => setShowScanner(prev => !prev);
     window.addEventListener('toggle-scanner', toggleScanner);

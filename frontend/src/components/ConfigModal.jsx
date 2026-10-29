@@ -78,6 +78,8 @@ const SIGNALS = [
   ['macd_pbc', 'MACD PBC', 'Premium Pullback-to-Continuation pullback entry.'],
   ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
   ['knife_catch', 'Knife Catch', 'Velocity ROC & wick rejection burst entry.'],
+  ['htf_breakout', 'HTF / Prev-Day Breakout', 'Trigger candle close vs higher-timeframe extreme (e.g. 1h close > prev 1d high).'],
+  ['trigger_candle_exit', 'Trigger Candle Exit', 'Exit when candle closes beyond trigger candle low (long) or high (short), or ±N surrounding candles.'],
 ]
 
 const getBaseSignalType = (signalType) => {
@@ -173,6 +175,69 @@ const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) 
       { value: 'trend', label: 'Trend State' },
       { value: 'crossover', label: 'Crossover Trigger' }
     ], {}, 'Supertrend Mode');
+  } else if (['htf_breakout', 'prev_day_breakout'].includes(baseType)) {
+    addParam('htf_breakout_ref_timeframe', 'text', '1d', [
+      { value: '15m', label: '15m' },
+      { value: '30m', label: '30m' },
+      { value: '1h', label: '1h' },
+      { value: '2h', label: '2h' },
+      { value: '4h', label: '4h' },
+      { value: '6h', label: '6h' },
+      { value: '8h', label: '8h' },
+      { value: '12h', label: '12h' },
+      { value: '1d', label: '1d (Daily)' },
+      { value: '3d', label: '3d' },
+      { value: '1w', label: '1w (Weekly)' },
+    ], {}, 'Ref Timeframe');
+    addParam('htf_breakout_trigger_timeframe', 'text', '1h', [
+      { value: 'default', label: 'Default (Scan TF)' },
+      { value: '1m', label: '1m' },
+      { value: '3m', label: '3m' },
+      { value: '5m', label: '5m' },
+      { value: '15m', label: '15m' },
+      { value: '30m', label: '30m' },
+      { value: '1h', label: '1h (Hourly)' },
+      { value: '2h', label: '2h' },
+      { value: '4h', label: '4h' },
+    ], {}, 'Trigger Timeframe');
+    addParam('htf_breakout_mode', 'text', 'close_break', [
+      { value: 'close_break', label: 'Close > Extreme (1h Close)' },
+      { value: 'closed_candle_confirm', label: 'Confirmed Closed Candle' },
+      { value: 'wick_break', label: 'Live Wick / Touch' },
+    ], {}, 'Breakout Mode');
+    addParam('htf_breakout_reference_level', 'text', 'high_low', [
+      { value: 'high_low', label: 'High / Low (Wicks)' },
+      { value: 'open_close_body', label: 'Body (Open / Close)' },
+      { value: 'close_only', label: 'Close Only' },
+    ], {}, 'Reference Level');
+    addParam('htf_breakout_lookback', 'number', 1, null, { min: 1, max: 30 }, 'Ref Lookback (Bars)');
+    addParam('htf_breakout_buffer_pct', 'number', 0, null, { min: 0, max: 10, step: 0.05 }, 'Breakout Buffer %');
+    addParam('htf_breakout_max_expansion_pct', 'number', 0, null, { min: 0, max: 20, step: 0.1 }, 'Max Expansion Cap %');
+  }
+
+  if (baseType === 'trigger_candle_exit') {
+    addParam('trigger_candle_exit_n', 'number', 0, null, { min: 0, max: 20 }, 'Surrounding Candles (±N)');
+    addParam('trigger_candle_exit_offset_mode', 'text', 'prev_and_next', [
+      { value: 'prev_and_next', label: 'Prev & Next (±N)' },
+      { value: 'prev_only', label: 'Previous Only (-N)' },
+      { value: 'next_only', label: 'Next Only (+N)' },
+    ], {}, 'Window Direction');
+    addParam('trigger_candle_exit_mode', 'text', 'close', [
+      { value: 'close', label: 'Candle Close' },
+      { value: 'wick', label: 'Wick / Touch' },
+    ], {}, 'Exit Evaluation');
+    addParam('trigger_candle_exit_timeframe', 'text', 'default', [
+      { value: 'default', label: 'Default (Trigger TF)' },
+      { value: '1m', label: '1m' },
+      { value: '3m', label: '3m' },
+      { value: '5m', label: '5m' },
+      { value: '15m', label: '15m' },
+      { value: '30m', label: '30m' },
+      { value: '1h', label: '1h (Hourly)' },
+      { value: '2h', label: '2h' },
+      { value: '4h', label: '4h' },
+    ], {}, 'Exit Timeframe');
+    addParam('trigger_candle_exit_buffer_pct', 'number', 0, null, { min: 0, max: 5, step: 0.05 }, 'Exit Buffer %');
   }
 
   return schema;
@@ -198,7 +263,19 @@ const TOOLTIPS = {
   macd_pbc_max_continuation: "Maximum allowed continuation candle index after MACD histogram slope reversal (e.g. 1 limits entry strictly to the 1st candle of continuation, 2 allows 1st or 2nd candle).",
   supertrend_period: "The ATR lookback period for calculating band offsets.",
   supertrend_multiplier: "The multiplier value applied to the ATR.",
-  supertrend_mode: "Trend State: Signal fires while trend matches side. Crossover Trigger: Signal fires only on the crossover candle."
+  supertrend_mode: "Trend State: Signal fires while trend matches side. Crossover Trigger: Signal fires only on the crossover candle.",
+  htf_breakout_ref_timeframe: "The higher timeframe used to identify key price extremes (e.g. 1d for Previous Day High/Low).",
+  htf_breakout_trigger_timeframe: "The lower timeframe evaluated for the breakout (e.g. 1h candle close).",
+  htf_breakout_mode: "Close > Extreme: Fires when trigger candle close breaches the level. Confirmed Closed Candle: Strictly waits for the completed candle close. Live Wick: Triggers as soon as price wicks past.",
+  htf_breakout_reference_level: "High/Low uses candle wicks. Body uses max/min of Open and Close. Close Only uses previous candle close.",
+  htf_breakout_lookback: "Number of completed higher-timeframe candles to scan (1 = previous 1 day/bar; >1 scans the highest high/lowest low of past N bars).",
+  htf_breakout_buffer_pct: "Required percentage above/below the HTF level before a breakout is confirmed, filtering false wicks.",
+  htf_breakout_max_expansion_pct: "Ceiling percentage beyond the level. If price has expanded more than this %, entry is rejected to avoid chasing overextended moves (0 = disabled).",
+  trigger_candle_exit_n: "Number of candles adjacent to the trigger candle to include when computing the exit boundary. 0 uses only the trigger candle; N > 0 uses the lowest low (long) or highest high (short) within the ±N window.",
+  trigger_candle_exit_offset_mode: "Window direction around trigger candle: Prev & Next (both sides), Previous Only (candles prior to entry), or Next Only (candles after entry).",
+  trigger_candle_exit_mode: "Candle Close requires the bar to close beyond the level. Wick / Touch fires immediately upon touching or wicking past the boundary.",
+  trigger_candle_exit_timeframe: "Timeframe used to monitor the trigger candle exit boundary (default uses the entry trigger timeframe, e.g. 1h).",
+  trigger_candle_exit_buffer_pct: "Additional safety buffer percentage beyond the boundary before triggering exit."
 };
 
 const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (

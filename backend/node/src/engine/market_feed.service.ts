@@ -818,6 +818,41 @@ export class MarketFeedService {
             if (resolvedTf) mtfIntervals.add(resolvedTf);
           }
         }
+
+        // HTF / Prev-Day Breakout: Automatically extract and subscribe both reference and trigger timeframes
+        const allActive = [
+          ...(sc.enabled_signals || []),
+          ...(sc.exit_signals || [])
+        ];
+        for (const sig of allActive) {
+          if (sig.startsWith('htf_breakout') || sig.startsWith('prev_day_breakout')) {
+            const params = sc.signal_params || {};
+            const refTf = this.signalEngine.resolveSignalParam(params, sig, 'htf_breakout', 'htf_breakout_ref_timeframe', (sc as any).htf_breakout_ref_timeframe || '1d');
+            const resolvedRef = this.resolveInterval(refTf, sc);
+            if (resolvedRef) mtfIntervals.add(resolvedRef);
+
+            const trigTf = this.signalEngine.resolveSignalParam(params, sig, 'htf_breakout', 'htf_breakout_trigger_timeframe', (sc as any).htf_breakout_trigger_timeframe || '1h');
+            if (trigTf && trigTf !== 'default') {
+              const resolvedTrig = this.resolveInterval(trigTf, sc);
+              if (resolvedTrig) mtfIntervals.add(resolvedTrig);
+            }
+          }
+          if (sig.startsWith('trigger_candle_exit') || sig.startsWith('entry_candle_boundary')) {
+            const params = sc.signal_params || {};
+            const exitTf = this.signalEngine.resolveSignalParam(params, sig, 'trigger_candle_exit', 'trigger_candle_exit_timeframe', (sc as any).trigger_candle_exit_timeframe || 'default');
+            const effectiveExitTf = (exitTf && exitTf !== 'default') ? exitTf : ((sc as any).htf_breakout_trigger_timeframe || '1h');
+            const resolvedExit = this.resolveInterval(effectiveExitTf, sc);
+            if (resolvedExit) mtfIntervals.add(resolvedExit);
+          }
+        }
+
+        if (sc.trigger_candle_exit_enabled) {
+          const effectiveExitTf = (sc.trigger_candle_exit_timeframe && sc.trigger_candle_exit_timeframe !== 'default')
+            ? sc.trigger_candle_exit_timeframe
+            : (sc.htf_breakout_trigger_timeframe || '1h');
+          const resolvedExit = this.resolveInterval(effectiveExitTf, sc);
+          if (resolvedExit) mtfIntervals.add(resolvedExit);
+        }
       }
       if (mtfIntervals.size > 0) {
         for (const [symbol, intervals] of newWatchlist) {

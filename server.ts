@@ -126,6 +126,7 @@ const state = {
   tradeHistory: [
     {
       id: 'trade-init-1',
+      sessionId: 'default-session',
       symbol: 'SOLUSDT',
       side: 'LONG',
       direction: 'long',
@@ -145,6 +146,7 @@ const state = {
     },
     {
       id: 'trade-init-2',
+      sessionId: 'default-session',
       symbol: 'BTCUSDT',
       side: 'LONG',
       direction: 'long',
@@ -267,6 +269,33 @@ const state = {
         max_open_trades: 6,
       },
     },
+    {
+      id: '3',
+      name: 'Previous Day Breakout (1h/1d)',
+      config: {
+        scan_interval: '1h',
+        enabled_signals: ['htf_breakout'],
+        exit_signals: ['trigger_candle_exit'],
+        signal_params: {
+          htf_breakout_ref_timeframe: '1d',
+          htf_breakout_trigger_timeframe: '1h',
+          htf_breakout_mode: 'close_break',
+          htf_breakout_reference_level: 'high_low',
+          htf_breakout_lookback: 1,
+          htf_breakout_buffer_pct: 0,
+          htf_breakout_max_expansion_pct: 0,
+          trigger_candle_exit_n: 0,
+          trigger_candle_exit_offset_mode: 'prev_and_next',
+          trigger_candle_exit_mode: 'close',
+          trigger_candle_exit_timeframe: '1h',
+        },
+        risk_pct_per_trade: 1.0,
+        sl_type: 'pct',
+        sl_distance_pct: 1.0,
+        tp_ratio: 2.0,
+        max_open_trades: 4,
+      },
+    },
   ],
   settingsKeys: {
     apiKey: process.env.BINANCE_API_KEY ? '••••••••' + process.env.BINANCE_API_KEY.slice(-4) : '',
@@ -315,6 +344,7 @@ async function syncLiveAccountBaseline() {
         const notional = Math.abs(parseFloat(p.notional || (amt * mark).toString()));
         return {
           id: `live-${p.symbol}-${p.positionSide || 'BOTH'}`,
+          sessionId: state.strategyId || 'default-session',
           symbol: p.symbol,
           side: isLong ? 'LONG' : 'SHORT',
           direction: isLong ? 'long' : 'short',
@@ -344,6 +374,42 @@ async function syncLiveAccountBaseline() {
       };
 
       if (state.config.trading_mode === 'live') {
+        const prevActive = state.activeTrades || [];
+        const currentSyms = new Set(activePositions.map((p: any) => p.symbol));
+
+        for (const oldTrade of prevActive) {
+          if (!currentSyms.has(oldTrade.symbol)) {
+            // Position was closed on exchange
+            const pInfo = prices.get(oldTrade.symbol);
+            const exitPrice = pInfo?.price || oldTrade.current_price || oldTrade.entry_price;
+            const isLong = oldTrade.side === 'LONG' || oldTrade.direction === 'long';
+            const priceDiff = isLong ? exitPrice - oldTrade.entry_price : oldTrade.entry_price - exitPrice;
+            const finalPnl = oldTrade.pnl !== undefined ? oldTrade.pnl : parseFloat((priceDiff * (oldTrade.quantity || 1)).toFixed(2));
+            const closedTrade = {
+              ...oldTrade,
+              status: 'CLOSED',
+              exit_reason: 'EXCHANGE_MANUAL',
+              exit_signal_type: 'EXCHANGE_MANUAL',
+              exit_price: exitPrice,
+              closed_at: Date.now(),
+              exit_ts: Date.now(),
+              pnl: finalPnl,
+              sessionId: oldTrade.sessionId || state.strategyId || 'default-session',
+              strategy_label: oldTrade.strategy_label || state.strategyLabel || 'Momentum Strategy',
+            };
+            state.tradeHistory.unshift(closedTrade);
+            addLog(`Position for ${oldTrade.symbol} closed externally on exchange at ${exitPrice} (PnL: $${finalPnl})`, 'info');
+            broadcast({
+              type: 'trade',
+              event: 'closed',
+              symbol: oldTrade.symbol,
+              pnl: finalPnl,
+              reason: 'EXCHANGE_MANUAL',
+              trade: closedTrade,
+            });
+          }
+        }
+
         state.balance = liveWalletBal;
         state.activeTrades = mappedTrades;
       }
@@ -567,6 +633,8 @@ setInterval(() => {
     if (closedIndices.length > 0) {
       for (let i = closedIndices.length - 1; i >= 0; i--) {
         const closed = state.activeTrades.splice(closedIndices[i], 1)[0];
+        closed.sessionId = closed.sessionId || state.strategyId || 'default-session';
+        closed.exit_ts = closed.closed_at || ts;
         state.balance = parseFloat((state.balance + closed.pnl).toFixed(2));
         state.tradeHistory.unshift(closed);
       }
@@ -593,6 +661,7 @@ setInterval(() => {
 
         const newTrade = {
           id: `trade-${ts}-${Math.random().toString(36).substring(2, 6)}`,
+          sessionId: state.strategyId || 'default-session',
           symbol: picked.symbol,
           side: isLong ? 'LONG' : 'SHORT',
           direction: isLong ? 'long' : 'short',
@@ -1417,7 +1486,9 @@ app.post('/session/trade/:symbol/close', (req, res) => {
     trade.status = 'CLOSED';
     trade.exit_reason = 'MANUAL_CLOSE';
     trade.closed_at = Date.now();
+    trade.exit_ts = trade.closed_at;
     trade.exit_price = trade.current_price;
+    trade.sessionId = trade.sessionId || state.strategyId || 'default-session';
     state.balance = parseFloat((state.balance + trade.pnl).toFixed(2));
     state.tradeHistory.unshift(trade);
     addLog(`Manually closed position for ${sym} at ${trade.exit_price} (PnL: $${trade.pnl})`);

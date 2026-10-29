@@ -24,9 +24,9 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
       clearTimeout(detailRefreshTimeout);
       detailRefreshTimeout = null;
     }
-    get().fetchAnalytics();
-    get().fetchTradeHistory('all');
-    if (fetchSessions) get().fetchSessions();
+    if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
+    if (typeof get().fetchTradeHistory === 'function') get().fetchTradeHistory('all');
+    if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
     return;
   }
 
@@ -34,9 +34,9 @@ const triggerDetailRefresh = (get, fetchSessions = false, immediate = false) => 
   detailRefreshTimeout = setTimeout(() => {
     detailRefreshTimeout = null;
     lastDetailRefreshTs = Date.now();
-    get().fetchAnalytics();
-    get().fetchTradeHistory('all');
-    if (fetchSessions) get().fetchSessions();
+    if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
+    if (typeof get().fetchTradeHistory === 'function') get().fetchTradeHistory('all');
+    if (fetchSessions && typeof get().fetchSessions === 'function') get().fetchSessions();
   }, 25);
 };
 
@@ -695,8 +695,38 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   },
   fetchSessions: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.list(); const sessions = (r.data || []).map(s => ({ ...s, startTimeMs: s.startTime ? new Date(s.startTime).getTime() : 0 })); set({ sessionList: sessions }); } catch (e) {} finally { set({ isSyncing: false }); } },
   fetchLifetimeAnalytics: async (m = 'paper') => { set({ isSyncing: true }); try { const r = await sessionAPI.getLifetimeAnalytics(m); set({ lifetimeAnalytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  fetchAnalytics: async () => { set({ isSyncing: true }); try { const r = await sessionAPI.analytics(); set({ analytics: r.data }); } catch (e) {} finally { set({ isSyncing: false }); } },
-  fetchTradeHistory: async (sid = 'all', limit = 100) => { set({ isSyncing: true }); try { const parsedLimit = limit === 'ALL' || limit === 'all' ? 500 : Math.min(Number(limit) || 100, 500); const r = await sessionAPI.history(sid, parsedLimit); set({ tradeHistory: r.data.trades || [] }); } catch (e) {} finally { set({ isSyncing: false }); } },
+  fetchAnalytics: async () => {
+    try {
+      const r = await sessionAPI.analytics();
+      if (r && r.data) {
+        set({ analytics: r.data });
+      }
+    } catch (e) {
+      console.warn('[Store] fetchAnalytics error:', e);
+    }
+  },
+  fetchTradeHistory: async (sid = 'all', limit = 100) => {
+    set({ isSyncing: true });
+    try {
+      const parsedLimit = limit === 'ALL' || limit === 'all' ? 500 : Math.min(Number(limit) || 100, 500);
+      const r = await sessionAPI.history(sid, parsedLimit);
+      const incoming = (r.data.trades || []).map(t => normalizeTrade(t, null, false)).filter(Boolean);
+      set(st => {
+        const existing = st.tradeHistory || [];
+        const incomingIds = new Set(incoming.map(t => t.id || `${t.symbol}-${t.exit_ts}`));
+        const now = Date.now();
+        const unpropagated = existing.filter(t => {
+          const key = t.id || `${t.symbol}-${t.exit_ts}`;
+          if (incomingIds.has(key)) return false;
+          const ts = t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+          return now - ts < 30000;
+        });
+        return { tradeHistory: [...unpropagated, ...incoming].slice(0, 1000) };
+      });
+    } catch (e) {} finally {
+      set({ isSyncing: false });
+    }
+  },
   fetchLogs: async (limit = 50) => {
     try {
       const res = await sessionAPI.logs(limit);
@@ -942,9 +972,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       const now = Date.now();
       if (now - lastAuxFetchTs > 60000 || !get().tradeHistory?.length) {
         lastAuxFetchTs = now;
-        get().fetchTradeHistory('all');
-        get().fetchAnalytics();
-        get().fetchLogs();
+        if (typeof get().fetchTradeHistory === 'function') get().fetchTradeHistory('all');
+        if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
+        if (typeof get().fetchLogs === 'function') get().fetchLogs();
       }
     };
     ws.onerror = (e) => {
@@ -1281,19 +1311,28 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const tradeHistory = st.tradeHistory || [];
           let updatedHistory = tradeHistory;
           if (d.event === 'closed') {
-            const closedTradeObj = t || (d.trade ? normalizeTrade(d.trade) : null) || {
+            const rawClosed = t || (d.trade ? normalizeTrade(d.trade) : null) || {
               symbol: d.symbol,
               pnl: d.pnl ?? 0,
               exit_reason: d.reason || 'Closed',
               exit_ts: Date.now()
             };
-            if (d.reason && closedTradeObj) {
-              closedTradeObj.exit_reason = d.reason;
-            }
-            updatedHistory = [closedTradeObj, ...tradeHistory.filter(x => x.id !== closedTradeObj.id)].slice(0, 1000);
+            const currentSessionId = st.strategyId || (st.sessionList && st.sessionList[0]?.id) || 'default-session';
+            const closedTradeObj = {
+              ...rawClosed,
+              status: rawClosed.status && rawClosed.status !== 'OPEN' ? rawClosed.status : 'CLOSED',
+              exit_reason: d.reason || rawClosed.exit_reason || 'Closed',
+              exit_ts: rawClosed.exit_ts || Date.now(),
+              exit_ts_ms: rawClosed.exit_ts_ms || (rawClosed.exit_ts ? new Date(rawClosed.exit_ts).getTime() : Date.now()),
+              sessionId: rawClosed.sessionId || rawClosed.session_id || currentSessionId,
+              session_id: rawClosed.sessionId || rawClosed.session_id || currentSessionId,
+              trading_mode: rawClosed.trading_mode || (rawClosed.paper_mode || rawClosed.paperMode ? 'paper' : (st.config?.trading_mode || 'live')),
+              paper_mode: rawClosed.paper_mode ?? rawClosed.paperMode ?? (st.config?.paper_mode ?? true),
+            };
+            updatedHistory = [closedTradeObj, ...tradeHistory.filter(x => x.id !== closedTradeObj.id && (x.id || `${x.symbol}-${x.exit_ts}`) !== (closedTradeObj.id || `${closedTradeObj.symbol}-${closedTradeObj.exit_ts}`))].slice(0, 1000);
             setTimeout(() => {
-              get().fetchAnalytics();
-              get().fetchTradeHistory('all');
+              if (typeof get().fetchAnalytics === 'function') get().fetchAnalytics();
+              if (typeof get().fetchTradeHistory === 'function') get().fetchTradeHistory('all');
             }, 100);
           }
           return {

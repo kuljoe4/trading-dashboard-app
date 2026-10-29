@@ -489,7 +489,9 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
                     if (type === 'TRAILING STOP') return 'Trailing Stop';
                     return 'Stop Loss';
                   }
-                  if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
+                  if (type === 'EXCHANGE SYNC' || trade.exit_reason === 'EXCHANGE_SYNC' || trade.exit_reason === 'EXCHANGE_SYNC_RECOVERY' || trade.exit_reason === 'AUTO_RECONCILED_EXIT') return 'Exchange Sync';
+                  if (type === 'EXCHANGE MANUAL' || trade.exit_reason === 'EXCHANGE_SL_OR_MANUAL' || trade.exit_reason === 'EXCHANGE_MANUAL') return 'Exchange Manual';
+                  if (type === 'MANUAL' && (reason.toLowerCase().includes('exchange') || reason.toLowerCase().includes('external'))) return 'Exchange Manual';
                   return type;
                 })()}
               </span>
@@ -1756,8 +1758,8 @@ export const HistoryView = () => {
       const t = arr[i];
       if (!t) continue;
 
-      // SRE: Exclude CLOSED_ORPHANED and ENTRY_FAILED from mode trades (which feed top wins/losses and general stats)
-      if (t.status === 'CLOSED_ORPHANED' || t.status === 'ENTRY_FAILED') continue;
+      // Exclude ENTRY_FAILED from mode trades, but include all executed/closed trades (including external exchange closures)
+      if (t.status === 'ENTRY_FAILED') continue;
 
       const mode = t.paperMode || t.paper_mode ? 'paper' : (t.trading_mode || 'live');
       if (mode !== lifetimeMode) continue;
@@ -1813,11 +1815,16 @@ export const HistoryView = () => {
     const trades = tradeHistory || [];
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
-      if (t && t.sessionId && t.status !== 'CLOSED_ORPHANED' && t.status !== 'ENTRY_FAILED') {
-        if (!tradesBySession[t.sessionId]) {
-          tradesBySession[t.sessionId] = [];
+      if (!t || t.status === 'ENTRY_FAILED') continue;
+      let sId = t.sessionId || t.session_id;
+      if (!sId && sessionList && sessionList.length === 1) {
+        sId = sessionList[0].id;
+      }
+      if (sId) {
+        if (!tradesBySession[sId]) {
+          tradesBySession[sId] = [];
         }
-        tradesBySession[t.sessionId].push(t);
+        tradesBySession[sId].push(t);
       }
     }
 
@@ -1913,7 +1920,9 @@ export const HistoryView = () => {
     const tradesLen = tradeHistory?.length || 0;
     for (let i = 0; i < tradesLen; i++) {
       const t = tradeHistory[i];
-      if (t && (!t.sessionId || !sessionIds.has(t.sessionId))) {
+      if (!t || t.status === 'ENTRY_FAILED') continue;
+      const sId = t.sessionId || t.session_id || (listLen === 1 ? sessionList[0].id : null);
+      if (!sId || !sessionIds.has(sId)) {
         result.push(t);
       }
     }

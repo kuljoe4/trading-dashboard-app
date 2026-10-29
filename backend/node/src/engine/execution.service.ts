@@ -740,6 +740,36 @@ export class ExecutionService {
         this.sessionState.entryInProgress = true;
         this.positionTracker.setEntering(opp.symbol, true, reservedRisk);
 
+        // Extract trigger candle metrics for trigger_candle_exit / reference
+        let triggerCandleLow: number | undefined;
+        let triggerCandleHigh: number | undefined;
+        let triggerCandleOpen: number | undefined;
+        let triggerCandleClose: number | undefined;
+        let triggerCandleTime: number | undefined;
+        let triggerCandleTf = resolvedConfig.htf_breakout_trigger_timeframe || resolvedConfig.trigger_candle_exit_timeframe || resolvedConfig.scan_interval || '1h';
+        if (triggerCandleTf === 'default') triggerCandleTf = resolvedConfig.scan_interval || '1h';
+
+        const htfDetails = (signalResult.details?.htf_breakout?.details as any) || (signalResult.details?.prev_day_breakout?.details as any);
+        if (htfDetails && htfDetails.trigger_candle_low !== undefined) {
+          triggerCandleLow = htfDetails.trigger_candle_low;
+          triggerCandleHigh = htfDetails.trigger_candle_high;
+          triggerCandleOpen = htfDetails.trigger_candle_open;
+          triggerCandleClose = htfDetails.trigger_candle_close;
+          triggerCandleTime = htfDetails.trigger_candle_time;
+        } else {
+          // General fallback: fetch candles on the trigger timeframe
+          const triggerCandles = this.klineStore?.getRawCandles(opp.symbol, triggerCandleTf) || [];
+          if (triggerCandles.length > 0) {
+            const lastCandle = triggerCandles[triggerCandles.length - 1];
+            const completedCandle = triggerCandles.length > 1 ? triggerCandles[triggerCandles.length - 2] : lastCandle;
+            triggerCandleLow = completedCandle.low;
+            triggerCandleHigh = completedCandle.high;
+            triggerCandleOpen = completedCandle.open;
+            triggerCandleClose = completedCandle.close;
+            triggerCandleTime = completedCandle.time;
+          }
+        }
+
         try {
           const result = await this.orderManager.enter(
             this.sessionState.currentSessionId || uuid().substring(0, 8),
@@ -756,6 +786,12 @@ export class ExecutionService {
               entry_reason: signalResult.reason,
               entry_signal_type: signalResult.firedSignals?.join(', ') || 'combo',
               entry_signal_reason: signalResult.reason,
+              trigger_candle_low: triggerCandleLow,
+              trigger_candle_high: triggerCandleHigh,
+              trigger_candle_open: triggerCandleOpen,
+              trigger_candle_close: triggerCandleClose,
+              trigger_candle_time: triggerCandleTime,
+              trigger_candle_timeframe: triggerCandleTf,
             }
           );
 

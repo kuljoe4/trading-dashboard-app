@@ -249,6 +249,76 @@ export class SessionConfig {
   @IsOptional()
   macd_pbc_max_continuation?: number = 2;
 
+  // HTF / Previous-Day Breakout Configuration
+  @IsString()
+  @IsOptional()
+  @MaxLength(10)
+  @Matches(/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'htf_breakout_ref_timeframe must be a valid Binance kline interval' })
+  htf_breakout_ref_timeframe?: string = "1d";
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(10)
+  @Matches(/^(default|1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'htf_breakout_trigger_timeframe must be a valid Binance kline interval or default' })
+  htf_breakout_trigger_timeframe?: string = "1h";
+
+  @IsEnum(['close_break', 'closed_candle_confirm', 'wick_break'])
+  @IsOptional()
+  htf_breakout_mode?: 'close_break' | 'closed_candle_confirm' | 'wick_break' = 'close_break';
+
+  @IsEnum(['high_low', 'open_close_body', 'close_only'])
+  @IsOptional()
+  htf_breakout_reference_level?: 'high_low' | 'open_close_body' | 'close_only' = 'high_low';
+
+  @IsNumber()
+  @Min(1)
+  @Max(100)
+  @IsOptional()
+  htf_breakout_lookback?: number = 1;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  htf_breakout_buffer_pct?: number = 0;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  htf_breakout_max_expansion_pct?: number = 0;
+
+  // Trigger Candle Exit Configuration
+  @IsBoolean()
+  @IsOptional()
+  trigger_candle_exit_enabled?: boolean = false;
+
+  @IsNumber()
+  @Min(0)
+  @Max(50)
+  @IsOptional()
+  trigger_candle_exit_n?: number = 0;
+
+  @IsEnum(['prev_and_next', 'prev_only', 'next_only'])
+  @IsOptional()
+  trigger_candle_exit_offset_mode?: 'prev_and_next' | 'prev_only' | 'next_only' = 'prev_and_next';
+
+  @IsEnum(['close', 'wick'])
+  @IsOptional()
+  trigger_candle_exit_mode?: 'close' | 'wick' = 'close';
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(10)
+  @Matches(/^(default|1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M)$/, { message: 'trigger_candle_exit_timeframe must be a valid Binance kline interval or default' })
+  trigger_candle_exit_timeframe?: string = "default";
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  trigger_candle_exit_buffer_pct?: number = 0;
+
   // Stop Loss Configuration
   @IsEnum(['pct', 'lookback_low/high', 'engulfing_boundary', 'streak_extreme', 'trailing', 'supertrend'])
   @IsOptional()

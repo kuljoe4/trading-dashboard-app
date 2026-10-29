@@ -1,5 +1,8 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import { SessionConfig } from '../models/SessionConfig';
+import { StrategyPreset as StrategyPresetEntity } from '../models/entities/StrategyPreset.entity';
 import { SignalEngineService } from './signalEngine';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { BinanceClientFactory } from '../lib/binanceClientFactory';
@@ -76,6 +79,17 @@ export class RunBacktestDto {
   @Type(() => SessionConfig)
   config?: SessionConfig;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  presetId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(20)
+  variantIndex?: number;
+
   // SEC-SENTINEL: Defense-in-depth array size, string length, and character-level gating
   // Prevents Denial of Service (DoS) via massive symbol arrays and script/header injection vectors
   @IsOptional()
@@ -106,16 +120,40 @@ export class RunBacktestDto {
 @Injectable()
 export class BacktestService {
   private readonly logger = new Logger(BacktestService.name);
+  private readonly candleCacheMap = new Map<string, { candles: Candle[]; fetchedAt: number }>();
+  private readonly CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes cache TTL for instant backtest reruns
 
   constructor(
     private readonly signalEngine: SignalEngineService,
     private readonly klineStore: KlineStoreService,
     private readonly binanceClientFactory: BinanceClientFactory,
+    @Optional()
+    @InjectRepository(StrategyPresetEntity)
+    private readonly presetRepository?: Repository<StrategyPresetEntity>,
   ) {}
 
   public async runBacktest(dto: RunBacktestDto): Promise<BacktestResultDto> {
     const startMs = Date.now();
-    const config = dto.config || new SessionConfig();
+    let config = dto.config ? Object.assign(new SessionConfig(), dto.config) : new SessionConfig();
+
+    // 0. Resolve Strategy Preset or Strategy Variant if specified
+    if (dto.presetId && this.presetRepository) {
+      try {
+        const preset = await this.presetRepository.findOne({
+          where: [{ id: dto.presetId }, { name: dto.presetId }],
+        });
+        if (preset && preset.config) {
+          config = Object.assign(new SessionConfig(), config, preset.config);
+          this.logger.log(`Backtest resolving preset "${preset.name}" (${dto.presetId})`);
+        }
+      } catch (err) {
+        this.logger.warn(`Could not resolve presetId "${dto.presetId}": ${err instanceof Error ? err.message : String(err)}`);
+      }
+    } else if (dto.variantIndex !== undefined && dto.variantIndex >= 0 && Array.isArray(config.strategy_variants) && config.strategy_variants[dto.variantIndex]) {
+      const variant = config.strategy_variants[dto.variantIndex];
+      config = Object.assign(new SessionConfig(), config, variant);
+      this.logger.log(`Backtest resolving strategy variant #${dto.variantIndex} "${config.strategy_label}"`);
+    }
     const days = Math.min(Math.max(dto.days || 14, 1), 90);
     const startingBalance = Math.max(dto.startingBalance || 10000, 10);
     const scanInterval = config.scan_interval || '5m';
@@ -738,6 +776,14 @@ export class BacktestService {
   }
 
   private async fetchHistoricalCandles(symbol: string, interval: string, totalCount: number): Promise<Candle[]> {
+    const cacheKey = `${symbol}_${interval}_${totalCount}`;
+    const cached = this.candleCacheMap.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && (now - cached.fetchedAt) < this.CACHE_TTL_MS) {
+      return cached.candles;
+    }
+
     try {
       const limit = Math.min(totalCount, 1000);
       const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
@@ -747,7 +793,7 @@ export class BacktestService {
       const raw = (await response.json()) as any[][];
       if (!Array.isArray(raw)) return [];
 
-      return raw.map(k => ({
+      const candles: Candle[] = raw.map(k => ({
         time: Number(k[0]),
         open: parseFloat(String(k[1])),
         high: parseFloat(String(k[2])),
@@ -756,6 +802,23 @@ export class BacktestService {
         volume: parseFloat(String(k[5])),
         closeTime: Number(k[6]),
       }));
+
+      if (candles.length > 0) {
+        if (this.candleCacheMap.size > 200) {
+          for (const [k, v] of this.candleCacheMap.entries()) {
+            if (now - v.fetchedAt > this.CACHE_TTL_MS) {
+              this.candleCacheMap.delete(k);
+            }
+          }
+          if (this.candleCacheMap.size > 200) {
+            const firstKey = this.candleCacheMap.keys().next().value;
+            if (firstKey) this.candleCacheMap.delete(firstKey);
+          }
+        }
+        this.candleCacheMap.set(cacheKey, { candles, fetchedAt: now });
+      }
+
+      return candles;
     } catch (err) {
       this.logger.warn(`Failed to fetch historical klines for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
       return [];

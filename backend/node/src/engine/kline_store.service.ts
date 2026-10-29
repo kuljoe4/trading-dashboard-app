@@ -24,6 +24,9 @@ export class KlineStoreService {
   // BOLT OPTIMIZATION: Cache pre-parsed milliseconds values for interval strings
   private readonly intervalMsCache = new Map<string, number>();
 
+  // DOWNSAMPLING OPTIMIZATION: Metadata cache to make downsampling lazy & O(1) during the same tick
+  private readonly synthMeta = new Map<string, { last1mTime: number; last1mClose: number }>();
+
   constructor(
     @InjectRepository(KlineEntity)
     private readonly klineRepository: Repository<KlineEntity>,
@@ -119,20 +122,93 @@ export class KlineStoreService {
     }
   }
 
+  /**
+   * Synthesize higher timeframe candles by downsampling 1m candles in memory.
+   */
+  synthesizeHigherInterval(symbol: string, targetInterval: string, sourceInterval: string = '1m'): Candle[] {
+    const sourceKey = `${symbol}_${sourceInterval}`;
+    const sourceCandles = this.klines.get(sourceKey);
+    if (!sourceCandles || sourceCandles.length === 0) {
+      return KlineStoreService.EMPTY_ARRAY;
+    }
+
+    const targetMs = this.parseIntervalToMs(targetInterval);
+    const sourceMs = this.parseIntervalToMs(sourceInterval);
+
+    if (targetMs <= sourceMs) {
+      return sourceCandles;
+    }
+
+    const buckets = new Map<number, Candle>();
+
+    for (let i = 0; i < sourceCandles.length; i++) {
+      const c = sourceCandles[i];
+      const bucketTime = Math.floor(c.time / targetMs) * targetMs;
+      let b = buckets.get(bucketTime);
+      if (!b) {
+        b = {
+          time: bucketTime,
+          open: c.open,
+          high: c.high,
+          low: c.low,
+          close: c.close,
+          volume: c.volume,
+        };
+        buckets.set(bucketTime, b);
+      } else {
+        if (c.high > b.high) b.high = c.high;
+        if (c.low < b.low) b.low = c.low;
+        b.close = c.close;
+        b.volume += c.volume;
+      }
+    }
+
+    const synthesized = Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+    const targetKey = `${symbol}_${targetInterval}`;
+    this.klines.set(targetKey, synthesized);
+
+    // Track metadata for lazy freshness validation
+    const last1m = sourceCandles[sourceCandles.length - 1];
+    if (last1m) {
+      this.synthMeta.set(targetKey, {
+        last1mTime: last1m.time,
+        last1mClose: last1m.close,
+      });
+    }
+
+    return synthesized;
+  }
+
   getRecentCandles(symbol: string, interval: string, count: number): Candle[] {
-    const key = `${symbol}_${interval}`;
-    const candles = this.klines.get(key);
-    if (!candles) return KlineStoreService.EMPTY_ARRAY;
-    return candles.slice(-count);
+    const raw = this.getRawCandles(symbol, interval);
+    if (!raw || raw.length === 0) return KlineStoreService.EMPTY_ARRAY;
+    return raw.slice(-count);
   }
 
   /**
    * BOLT OPTIMIZATION: Provides direct access to the internal candle array.
-   * Consumers MUST NOT mutate this array. Use for indexing to avoid slice() allocations.
+   * Synthesizes higher intervals lazily on demand when requested.
    */
   getRawCandles(symbol: string, interval: string): Candle[] {
     const key = `${symbol}_${interval}`;
-    return this.klines.get(key) || KlineStoreService.EMPTY_ARRAY;
+    let candles = this.klines.get(key);
+
+    if (interval !== '1m') {
+      const source1mKey = `${symbol}_1m`;
+      const source1m = this.klines.get(source1mKey);
+
+      if (source1m && source1m.length > 0) {
+        const last1m = source1m[source1m.length - 1];
+        const meta = this.synthMeta.get(key);
+
+        // Check if synthesized cache is missing or stale
+        if (!candles || !meta || meta.last1mTime !== last1m.time || meta.last1mClose !== last1m.close) {
+          candles = this.synthesizeHigherInterval(symbol, interval, '1m');
+        }
+      }
+    }
+
+    return candles || KlineStoreService.EMPTY_ARRAY;
   }
 
   /**
@@ -368,6 +444,7 @@ export class KlineStoreService {
   clear() {
     this.klines.clear();
     this.hlStableCache.clear();
+    this.synthMeta.clear();
     this.logger.verbose('KlineStore cleared');
   }
 }

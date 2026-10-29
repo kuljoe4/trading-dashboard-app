@@ -14,7 +14,7 @@ import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame,
-  RefreshCw, Clock, CheckCircle2, AlertCircle, Radio, Layers, Search, ShieldCheck, Cpu, ArrowUpRight
+  RefreshCw, Clock, CheckCircle2, AlertCircle, Radio, Layers, Search, ShieldCheck, Cpu, ArrowUpRight, Target, Compass, ArrowRight, Lock
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
@@ -236,6 +236,102 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, [activeTrades, s?.strategy_label]);
 
   const activeTradeCount = strategyActiveTrades.length;
+
+  // Static vs Dynamic Watchlist Metadata
+  const staticSymbols = useMemo(() => {
+    return Array.isArray(strategyConfig.symbols) ? strategyConfig.symbols.filter(Boolean) : [];
+  }, [strategyConfig.symbols]);
+
+  const isStaticWatchlist = staticSymbols.length > 0;
+
+  // Symbol Status Mapping for Static Symbols
+  const staticSymbolStatuses = useMemo(() => {
+    const map = {};
+    for (const sym of staticSymbols) {
+      const activeTrade = strategyActiveTrades.find(t => t.symbol === sym);
+      if (activeTrade) {
+        map[sym] = { state: 'POSITION', label: 'IN POSITION', badgeClass: 'text-green border-green/30 bg-green/10', trade: activeTrade };
+        continue;
+      }
+      const opp = strategyScannerResults.find(r => r.symbol === sym);
+      if (opp?.signalResult?.allFired) {
+        map[sym] = { state: 'TRIGGERED', label: 'SIGNAL FIRED', badgeClass: 'text-amber border-amber/30 bg-amber/10', opp };
+        continue;
+      }
+      if (opp) {
+        const prox = calculateOpportunityProximity(opp, strategyConfig);
+        map[sym] = { state: 'EVALUATING', label: `EVALUATING (${prox}%)`, badgeClass: 'text-accent border-accent/30 bg-accent/10', opp };
+        continue;
+      }
+      map[sym] = { state: 'MONITORING', label: 'STATIC TARGET', badgeClass: 'text-dim border-border/40 bg-surface/40' };
+    }
+    return map;
+  }, [staticSymbols, strategyActiveTrades, strategyScannerResults, strategyConfig]);
+
+  // Active Trade / Candidate End-to-End Lifecycle Stage Resolution
+  const currentLifecycleStage = useMemo(() => {
+    const activeTrade = strategyActiveTrades.find(t => t.symbol === focusedOpp.symbol);
+    if (activeTrade) {
+      const sl = Number(activeTrade.current_sl ?? activeTrade.sl_price ?? 0);
+      const entry = Number(activeTrade.entry_price || 0);
+      const isLong = activeTrade.direction === 'LONG';
+      const isSlAtBreakeven = sl > 0 && (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6);
+      
+      if (activeTrade.exit_signals_status && Object.values(activeTrade.exit_signals_status).some(s => s?.fired)) {
+        return {
+          stageNumber: 5,
+          title: 'Stage 5: Exit Signal Triggered',
+          statusLabel: 'EXIT TRIGGERED',
+          colorClass: 'text-red border-red/30 bg-red/10',
+          desc: 'Strategy exit condition crossed; order execution or stop loss close pending.'
+        };
+      }
+      if (isSlAtBreakeven || activeTrade.risk_usdt === 0) {
+        return {
+          stageNumber: 4,
+          title: 'Stage 4: Risk Protected Position',
+          statusLabel: 'RISK PROTECTED',
+          colorClass: 'text-green border-green/30 bg-green/10',
+          desc: 'Stop loss ratcheted to breakeven or better (0.00R capital risk).'
+        };
+      }
+      return {
+        stageNumber: 4,
+        title: 'Stage 4: Active Managed Position',
+        statusLabel: 'IN POSITION',
+        colorClass: 'text-accent border-accent/30 bg-accent/10',
+        desc: 'Position active on exchange with active SL/TP and trailing ratchet monitoring.'
+      };
+    }
+
+    if (entryMet) {
+      return {
+        stageNumber: 3,
+        title: 'Stage 3: Risk Guard & Execution',
+        statusLabel: 'SIGNAL FIRED',
+        colorClass: 'text-amber border-amber/30 bg-amber/10',
+        desc: 'All entry signals matched; anti-whipsaw, leverage, and capital risk checks executing.'
+      };
+    }
+
+    if (scanMet || firedCount > 0) {
+      return {
+        stageNumber: 2,
+        title: 'Stage 2: Technical Signal Evaluation',
+        statusLabel: 'EVALUATING',
+        colorClass: 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
+        desc: `${firedCount}/${signalsCount} entry rules satisfied; evaluating trigger formula.`
+      };
+    }
+
+    return {
+      stageNumber: 1,
+      title: 'Stage 1: Scope & Discovery',
+      statusLabel: 'MONITORING',
+      colorClass: 'text-dim border-border/40 bg-surface/40',
+      desc: isStaticWatchlist ? 'Monitored in defined Static Watchlist target list.' : 'Scanned via Smart Watchlist discovery feed.'
+    };
+  }, [focusedOpp, strategyActiveTrades, entryMet, scanMet, firedCount, signalsCount, isStaticWatchlist]);
 
   const selectedTrade = useMemo(() => {
     return (strategyActiveTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId);
@@ -740,6 +836,100 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </div>
           </div>
         )}
+
+        {/* Watchlist Scope & Target Universe */}
+        <div className="p-3 bg-surface/30 border-b border-border/20 flex flex-col gap-2">
+          <div className="flex items-center justify-between font-mono flex-wrap gap-2">
+            <div className="flex items-center gap-1.5">
+              <Target size={12} className="text-accent" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-text">Watchlist Scope & Universe</span>
+              <span className={cn(
+                "px-2 py-0.5 rounded text-[8.5px] font-bold uppercase border",
+                isStaticWatchlist ? "bg-purple/10 text-purple border-purple/30" : "bg-cyan-400/10 text-cyan-400 border-cyan-400/30"
+              )}>
+                {isStaticWatchlist ? `STATIC WATCHLIST (${staticSymbols.length})` : `SMART WATCHLIST (Top ${strategyConfig.watchlist_size || 15})`}
+              </span>
+            </div>
+
+            <span className="text-[9px] text-dim font-mono">
+              {isStaticWatchlist
+                ? 'Target pairs explicitly defined in strategy config'
+                : `Discovery: ${(strategyConfig.discovery_mode || 'volume').toUpperCase()} · Interval: ${strategyConfig.scan_interval || '5m'}`}
+            </span>
+          </div>
+
+          {/* Static Watchlist Symbol Chips */}
+          {isStaticWatchlist && staticSymbols.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap pt-1 font-mono">
+              {staticSymbols.map(sym => {
+                const info = staticSymbolStatuses[sym] || { label: 'STATIC TARGET', badgeClass: 'text-dim border-border/40 bg-surface/40' };
+                const isSelected = focusedOpp.symbol === sym;
+
+                return (
+                  <button
+                    key={sym}
+                    type="button"
+                    onClick={() => setSelectedFocusSymbol(sym)}
+                    className={cn(
+                      "px-2.5 py-1 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                      isSelected ? "bg-accent/20 border-accent text-accent shadow-xs" : info.badgeClass
+                    )}
+                  >
+                    <span>{sym}</span>
+                    <span className="text-[8px] opacity-80 uppercase font-black font-mono tracking-tight">· {info.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* End-to-End Trade Lifecycle Pipeline Visualizer */}
+        <div className="p-3.5 bg-background/20 border-b border-border/20 font-mono flex flex-col gap-2.5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <Compass size={13} className="text-accent" />
+              <span className="text-[10px] font-black uppercase tracking-wider text-text">Trade Lifecycle Pipeline</span>
+              <span className={cn("px-2 py-0.5 rounded text-[8.5px] font-black uppercase border", currentLifecycleStage.colorClass)}>
+                {currentLifecycleStage.statusLabel}
+              </span>
+            </div>
+            <span className="text-[9px] text-dim">
+              Target: <strong className="text-text">{focusedOpp.symbol}</strong> · {currentLifecycleStage.desc}
+            </span>
+          </div>
+
+          {/* 5-Stage Step Visualizer Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 relative">
+            {[
+              { num: 1, label: '1. Discovery', short: 'Scope' },
+              { num: 2, label: '2. Signals', short: 'Evaluation' },
+              { num: 3, label: '3. Risk Check', short: 'Execution' },
+              { num: 4, label: '4. Active Trade', short: 'Protection' },
+              { num: 5, label: '5. Resolution', short: 'Exit' }
+            ].map(step => {
+              const isCurrent = currentLifecycleStage.stageNumber === step.num;
+              const isPassed = currentLifecycleStage.stageNumber > step.num;
+
+              return (
+                <div
+                  key={step.num}
+                  className={cn(
+                    "p-1.5 rounded-lg border text-center flex flex-col items-center justify-center gap-0.5 transition-all",
+                    isCurrent
+                      ? "bg-accent/15 border-accent text-accent shadow-xs font-black"
+                      : isPassed
+                      ? "bg-green/10 border-green/30 text-green font-bold"
+                      : "bg-surface/30 border-border/30 text-dim/60 font-medium"
+                  )}
+                >
+                  <span className="text-[9.5px] leading-tight font-black uppercase">{step.label}</span>
+                  <span className="text-[7.5px] text-dim/70 font-mono uppercase">{step.short}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Focused Candidate Inspector & Signal Checklist */}
         <div className="p-3.5 sm:p-4 flex flex-col gap-4">

@@ -54,6 +54,7 @@ export class MarketFeedService {
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
   private lastBackfillAttemptMap: Map<string, number> = new Map();
+  private inFlightBackfills: Map<string, Promise<void>> = new Map();
   private binanceClient: any = null;
 
   private currentConfig: SessionConfig | null = null;
@@ -1449,66 +1450,97 @@ export class MarketFeedService {
       }
     }
 
-    // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
-    let existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
-
-    if (existingCandles.length < requiredWarmup) {
-       this.logger.debug(`[MarketFeed] Low local memory cache for ${symbol} ${resolvedInterval}. Checking database...`);
-       const loadedCount = await this.klineStore.loadFromDb(symbol, resolvedInterval, requiredWarmup);
-       if (loadedCount > 0) {
-          this.logger.log(`[MarketFeed] Successfully restored ${loadedCount} candles from local DB for ${symbol} ${resolvedInterval}.`);
-          existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
-       }
+    // DOWNSAMPLING OPTIMIZATION: If requested interval is higher than 1m and 1m candles are available, synthesize directly in-memory!
+    if (resolvedInterval !== '1m') {
+      const source1m = this.klineStore.getRawCandles(symbol, '1m');
+      if (source1m && source1m.length >= Math.min(50, requiredWarmup)) {
+        const synthesized = this.klineStore.synthesizeHigherInterval(symbol, resolvedInterval, '1m');
+        if (synthesized && synthesized.length > 0) {
+          this.logger.debug(`[MarketFeed] Synthesized ${synthesized.length} ${resolvedInterval} candles for ${symbol} from 1m cache (0 REST calls).`);
+          return;
+        }
+      }
     }
 
-    const cacheKey = `${symbol}:${resolvedInterval}`;
-    const lastAttempt = this.lastBackfillAttemptMap.get(cacheKey) || 0;
-    if (Date.now() - lastAttempt < 5 * 60 * 1000) {
-      this.logger.debug(`[MarketFeed] Skipping recent kline backfill attempt for ${cacheKey} (Cooldown active).`);
+    // IN-FLIGHT DEDUPLICATION: Avoid duplicate concurrent REST requests for the same symbol & interval
+    const inFlightKey = `${symbol}_${resolvedInterval}`;
+    if (this.inFlightBackfills.has(inFlightKey)) {
+      this.logger.debug(`[MarketFeed] Reusing in-flight backfill promise for ${inFlightKey}`);
+      await this.inFlightBackfills.get(inFlightKey);
       return;
     }
 
-    if (existingCandles.length > 0) {
-      // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order.
-      // If the most recent candle is fresh, skip backfill to avoid endless REST/DB thrashing.
-      const lastCandle = existingCandles[existingCandles.length - 1];
-      const intervalMs = this.parseIntervalToMs(resolvedInterval);
-      const isFresh = (lastCandle.time + intervalMs) >= (Date.now() - (intervalMs * 2));
+    const backfillTask = (async () => {
+      // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
+      let existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
 
-      if (isFresh && existingCandles.length >= requiredWarmup) {
-        this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
+      if (existingCandles.length < requiredWarmup) {
+         this.logger.debug(`[MarketFeed] Low local memory cache for ${symbol} ${resolvedInterval}. Checking database...`);
+         const loadedCount = await this.klineStore.loadFromDb(symbol, resolvedInterval, requiredWarmup);
+         if (loadedCount > 0) {
+            this.logger.log(`[MarketFeed] Successfully restored ${loadedCount} candles from local DB for ${symbol} ${resolvedInterval}.`);
+            existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
+         }
+      }
+
+      const cacheKey = `${symbol}:${resolvedInterval}`;
+      const lastAttempt = this.lastBackfillAttemptMap.get(cacheKey) || 0;
+      if (Date.now() - lastAttempt < 5 * 60 * 1000) {
+        this.logger.debug(`[MarketFeed] Skipping recent kline backfill attempt for ${cacheKey} (Cooldown active).`);
         return;
       }
-    }
 
-    this.lastBackfillAttemptMap.set(cacheKey, Date.now());
-    this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
+      if (existingCandles.length > 0) {
+        // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order.
+        // If the most recent candle is fresh, skip backfill to avoid endless REST/DB thrashing.
+        const lastCandle = existingCandles[existingCandles.length - 1];
+        const intervalMs = this.parseIntervalToMs(resolvedInterval);
+        const isFresh = (lastCandle.time + intervalMs) >= (Date.now() - (intervalMs * 2));
 
-    await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
-    try {
-      let klines: any[][];
-
-      if (this.binanceClient) {
-        const response = await this.binanceClient.restAPI.klineCandlestickData({
-          symbol,
-          interval: resolvedInterval as any,
-          limit: this.klineStore.getMaxCandles()
-        });
-        this.updateWeight(response.headers);
-        klines = (await response.data()) as any[][];
-      } else {
-        const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
-        const response = await this.binanceClientFactory.genericRequest(
-          () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
-          'klineCandlestickData'
-        );
-        if (!response.ok) return;
-        klines = (await response.json()) as any[][];
+        if (isFresh && existingCandles.length >= requiredWarmup) {
+          this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
+          return;
+        }
       }
 
-      if (Array.isArray(klines)) await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
-    } catch (err) {
-      this.logger.error(`Kline backfill failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      this.lastBackfillAttemptMap.set(cacheKey, Date.now());
+      this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
+
+      await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
+      try {
+        let klines: any[][];
+
+        if (this.binanceClient) {
+          const response = await this.binanceClient.restAPI.klineCandlestickData({
+            symbol,
+            interval: resolvedInterval as any,
+            limit: this.klineStore.getMaxCandles()
+          });
+          this.updateWeight(response.headers);
+          klines = (await response.data()) as any[][];
+        } else {
+          const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
+          const response = await this.binanceClientFactory.genericRequest(
+            () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
+            'klineCandlestickData'
+          );
+          if (!response.ok) return;
+          klines = (await response.json()) as any[][];
+        }
+
+        if (Array.isArray(klines)) {
+          await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
+        }
+      } catch (err) {
+        this.logger.error(`Kline backfill failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    })();
+
+    this.inFlightBackfills.set(inFlightKey, backfillTask);
+    try {
+      await backfillTask;
+    } finally {
+      this.inFlightBackfills.delete(inFlightKey);
     }
   }
 }

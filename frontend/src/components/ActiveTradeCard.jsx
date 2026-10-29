@@ -1,7 +1,7 @@
 import React from 'react'
 import { cn, Tooltip, CopyButton, MonitoredBadge } from './ui/primitives'
 import { fmtUSD, pnlClass, safeNum } from '../lib/theme'
-import { ShieldCheck, RefreshCw, Clock, Lock, Activity, AlertTriangle } from 'lucide-react'
+import { ShieldCheck, RefreshCw, Clock, Lock, Activity, AlertTriangle, Zap } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { formatDuration, calculateProximity } from '../lib/formatters'
 import { useNow } from '../hooks/useNow'

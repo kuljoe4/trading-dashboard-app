@@ -131,3 +131,19 @@ test('R-multiple Price Runway: SHORT position trailing SL past entry', () => {
   assert.ok(res.slPos < res.progress)
   assert.ok(res.progress < res.tpPos)
 })
+
+test('ActiveTradeCard.jsx imports all used lucide-react icons including Zap', async () => {
+  const fs = await import('node:fs')
+  const path = await import('node:path')
+  const cardPath = path.resolve('frontend/src/components/ActiveTradeCard.jsx')
+  const content = fs.readFileSync(cardPath, 'utf8')
+
+  // Verify Zap is imported from lucide-react
+  const lucideImportMatch = content.match(/import\s*\{([^}]+)\}\s*from\s*['"]lucide-react['"]/)
+  assert.ok(lucideImportMatch, 'lucide-react import statement exists in ActiveTradeCard.jsx')
+  const importedIcons = lucideImportMatch[1].split(',').map(s => s.trim())
+  assert.ok(importedIcons.includes('Zap'), 'Zap is imported from lucide-react')
+  assert.ok(importedIcons.includes('ShieldCheck'), 'ShieldCheck is imported from lucide-react')
+  assert.ok(importedIcons.includes('Activity'), 'Activity is imported from lucide-react')
+})
+

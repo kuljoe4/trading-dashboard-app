@@ -2631,6 +2631,36 @@ const flattenConfig = (config) => {
       flattened[`signal_params_${k}`] = params[k];
     });
 
+    // Populate active signal schema defaults and resolve alias fallbacks
+    const activeSignals = Array.from(new Set([
+      ...(Array.isArray(config.enabled_signals) ? config.enabled_signals : []),
+      ...(Array.isArray(config.exit_signals) ? config.exit_signals : [])
+    ]));
+
+    activeSignals.forEach(sigKey => {
+      const baseType = getBaseSignalType(sigKey);
+      const isEntry = (config.enabled_signals || []).includes(sigKey);
+      const isExit = (config.exit_signals || []).includes(sigKey);
+      const schema = getSignalParamsSchema(sigKey, baseType, isEntry, isExit);
+
+      schema.forEach(field => {
+        if (flattened[field.key] === undefined || flattened[field.key] === null) {
+          const pKey = field.baseParamKey;
+          let aliasVal = undefined;
+
+          if (pKey === 'entry_ema_fast' || pKey === 'exit_ema_fast') {
+            aliasVal = params.exit_ema_fast ?? params.entry_ema_fast ?? params.ema_dual_fast ?? params.ema_fast ?? params.fast_ema;
+          } else if (pKey === 'entry_ema_slow' || pKey === 'exit_ema_slow') {
+            aliasVal = params.exit_ema_slow ?? params.entry_ema_slow ?? params.ema_dual_slow ?? params.ema_slow ?? params.slow_ema;
+          } else if (pKey === 'entry_ema_period' || pKey === 'exit_ema_period') {
+            aliasVal = params.exit_ema_period ?? params.entry_ema_period ?? params.ema_period;
+          }
+
+          flattened[field.key] = aliasVal !== undefined && aliasVal !== null ? aliasVal : field.defaultValue;
+        }
+      });
+    });
+
     return flattened;
   } catch (e) { return { ...config }; }
 };
@@ -2725,6 +2755,13 @@ const coerceAndSanitizeConfig = (rawConfig) => {
     if (c.anti_whipsaw_max_tf) {
       c.anti_whipsaw_max_tf = String(c.anti_whipsaw_max_tf).trim();
     }
+
+    // Clean up temporary signal_params_* UI fields
+    Object.keys(c).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        delete c[k];
+      }
+    });
 
     // Zero out nested variants to prevent runaway nesting
     c.strategy_variants = [];
@@ -3157,10 +3194,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         // Toggling ON: add base signal
         next.exit_signals = [...currentExitSignals, baseKey];
 
-        // Initialize base signal delay, action, timeframe
+        // Initialize base signal delay, action, timeframe, and schema defaults
         next.exit_signal_delays = { ...(prev.exit_signal_delays || {}), [baseKey]: 0 };
         next.exit_signal_actions = { ...(prev.exit_signal_actions || {}), [baseKey]: 'close' };
         next.signal_timeframes = { ...(prev.signal_timeframes || {}), [baseKey]: 'default' };
+
+        const schema = getSignalParamsSchema(baseKey, baseKey, (prev.enabled_signals || []).includes(baseKey), true);
+        schema.forEach(field => {
+          if (next[field.key] === undefined) {
+            next[field.key] = field.defaultValue;
+          }
+        });
       }
       return next;
     });
@@ -3176,13 +3220,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       }
       const newLayerKey = `${baseKey}_${suffixNum}`;
 
-      return {
+      const next = {
         ...prev,
         exit_signals: [...currentExitSignals, newLayerKey],
         exit_signal_delays: { ...(prev.exit_signal_delays || {}), [newLayerKey]: 0 },
         exit_signal_actions: { ...(prev.exit_signal_actions || {}), [newLayerKey]: 'close' },
         signal_timeframes: { ...(prev.signal_timeframes || {}), [newLayerKey]: 'default' }
       };
+
+      const schema = getSignalParamsSchema(newLayerKey, baseKey, (prev.enabled_signals || []).includes(newLayerKey), true);
+      schema.forEach(field => {
+        if (next[field.key] === undefined) {
+          next[field.key] = field.defaultValue;
+        }
+      });
+
+      return next;
     });
   }, []);
 
@@ -3248,6 +3301,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       } else {
         next.enabled_signals = [...currentEntrySignals, baseKey];
         next.signal_timeframes = { ...(prev.signal_timeframes || {}), [baseKey]: 'default' };
+
+        const schema = getSignalParamsSchema(baseKey, baseKey, true, (prev.exit_signals || []).includes(baseKey));
+        schema.forEach(field => {
+          if (next[field.key] === undefined) {
+            next[field.key] = field.defaultValue;
+          }
+        });
       }
       return next;
     });
@@ -3263,11 +3323,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       }
       const newLayerKey = `${baseKey}_${suffixNum}`;
 
-      return {
+      const next = {
         ...prev,
         enabled_signals: [...currentEntrySignals, newLayerKey],
         signal_timeframes: { ...(prev.signal_timeframes || {}), [newLayerKey]: 'default' }
       };
+
+      const schema = getSignalParamsSchema(newLayerKey, baseKey, true, (prev.exit_signals || []).includes(newLayerKey));
+      schema.forEach(field => {
+        if (next[field.key] === undefined) {
+          next[field.key] = field.defaultValue;
+        }
+      });
+
+      return next;
     });
   }, []);
 

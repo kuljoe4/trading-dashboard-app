@@ -660,11 +660,11 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     ];
 
     const getBaseSignalType = (sig: string): string => {
-      if (sig === "ema_dual_cross" || sig === "ema_dual_close") return sig;
+      if (sig === "ema_dual" || sig === "ema_dual_cross" || sig === "ema_dual_close") return sig;
       const lastUnderscore = sig.lastIndexOf("_");
       if (lastUnderscore > 0) {
         const base = sig.substring(0, lastUnderscore);
-        if (base === "ema_dual_cross" || base === "ema_dual_close") return base;
+        if (base === "ema_dual" || base === "ema_dual_cross" || base === "ema_dual_close") return base;
       }
       return sig;
     };
@@ -741,26 +741,26 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       const { fast, slow } = resolveDualEmaPeriods(sig, purpose);
       if (isNaN(fast) || fast <= 0 || isNaN(slow) || slow <= 0) {
         throw new BadRequestException(
-          "EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)",
+          "EMA Dual requires both fast and slow periods (e.g., 9 and 21)",
         );
       }
       if (fast >= slow) {
         throw new BadRequestException(
-          "EMA Dual Cross: Fast period must be less than slow period",
+          "EMA Dual: Fast period must be less than slow period",
         );
       }
     };
 
     for (const sig of enabledEntries) {
       const base = getBaseSignalType(sig);
-      if (base === "ema_dual_cross" || base === "ema_dual_close") {
+      if (base === "ema_dual" || base === "ema_dual_cross" || base === "ema_dual_close") {
         validateDualEma(sig, "entry");
       }
     }
 
     for (const sig of enabledExits) {
       const base = getBaseSignalType(sig);
-      if (base === "ema_dual_cross" || base === "ema_dual_close") {
+      if (base === "ema_dual" || base === "ema_dual_cross" || base === "ema_dual_close") {
         validateDualEma(sig, "exit");
       }
     }

@@ -489,7 +489,9 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
                     if (type === 'TRAILING STOP') return 'Trailing Stop';
                     return 'Stop Loss';
                   }
-                  if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
+                  if (type === 'EXCHANGE SYNC' || trade.exit_reason === 'EXCHANGE_SYNC' || trade.exit_reason === 'EXCHANGE_SYNC_RECOVERY' || trade.exit_reason === 'AUTO_RECONCILED_EXIT') return 'Exchange Sync';
+                  if (type === 'EXCHANGE MANUAL' || trade.exit_reason === 'EXCHANGE_SL_OR_MANUAL' || trade.exit_reason === 'EXCHANGE_MANUAL') return 'Exchange Manual';
+                  if (type === 'MANUAL' && (reason.toLowerCase().includes('exchange') || reason.toLowerCase().includes('external'))) return 'Exchange Manual';
                   return type;
                 })()}
               </span>
@@ -1756,8 +1758,8 @@ export const HistoryView = () => {
       const t = arr[i];
       if (!t) continue;
 
-      // SRE: Exclude CLOSED_ORPHANED and ENTRY_FAILED from mode trades (which feed top wins/losses and general stats)
-      if (t.status === 'CLOSED_ORPHANED' || t.status === 'ENTRY_FAILED') continue;
+      // Exclude ENTRY_FAILED from mode trades, but include all executed/closed trades (including external exchange closures)
+      if (t.status === 'ENTRY_FAILED') continue;
 
       const mode = t.paperMode || t.paper_mode ? 'paper' : (t.trading_mode || 'live');
       if (mode !== lifetimeMode) continue;
@@ -1813,11 +1815,16 @@ export const HistoryView = () => {
     const trades = tradeHistory || [];
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
-      if (t && t.sessionId && t.status !== 'CLOSED_ORPHANED' && t.status !== 'ENTRY_FAILED') {
-        if (!tradesBySession[t.sessionId]) {
-          tradesBySession[t.sessionId] = [];
+      if (!t || t.status === 'ENTRY_FAILED') continue;
+      let sId = t.sessionId || t.session_id;
+      if (!sId && sessionList && sessionList.length === 1) {
+        sId = sessionList[0].id;
+      }
+      if (sId) {
+        if (!tradesBySession[sId]) {
+          tradesBySession[sId] = [];
         }
-        tradesBySession[t.sessionId].push(t);
+        tradesBySession[sId].push(t);
       }
     }
 
@@ -1913,7 +1920,9 @@ export const HistoryView = () => {
     const tradesLen = tradeHistory?.length || 0;
     for (let i = 0; i < tradesLen; i++) {
       const t = tradeHistory[i];
-      if (t && (!t.sessionId || !sessionIds.has(t.sessionId))) {
+      if (!t || t.status === 'ENTRY_FAILED') continue;
+      const sId = t.sessionId || t.session_id || (listLen === 1 ? sessionList[0].id : null);
+      if (!sId || !sessionIds.has(sId)) {
         result.push(t);
       }
     }
@@ -2565,33 +2574,6 @@ export const HistoryView = () => {
                         </div>
                       </div>
 
-                      {currentAnalytics.rrOptimization.recommendedExitSignals && currentAnalytics.rrOptimization.recommendedExitSignals.length > 0 && (
-                        <div className="mt-8 pt-6 border-t border-border/10">
-                          <div className="flex items-center gap-2 mb-4">
-                            <LineChart size={14} className="text-accent" />
-                            <span className="text-[10px] text-dim font-black uppercase tracking-widest">Recommended Exit Indicator Parameters</span>
-                          </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            {currentAnalytics.rrOptimization.recommendedExitSignals.map((rec) => (
-                              <div key={rec.signalType} className="p-4 bg-background/20 border border-border/40 rounded-2xl flex flex-col gap-1.5 hover:border-accent/15 transition-all">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[10px] text-text font-black uppercase tracking-wider">
-                                    {rec.signalType.replace(/_/g, ' ')}
-                                  </span>
-                                  <span className="text-[8px] text-dim font-black uppercase bg-accent/5 border border-accent/20 px-1.5 py-0.5 rounded">
-                                    Conf: {rec.confidence}%
-                                  </span>
-                                </div>
-                                <div className="flex items-baseline gap-1.5 mt-0.5">
-                                  <span className="text-xs font-bold text-accent font-mono">{rec.recommendedValue}</span>
-                                  <span className="text-[8.5px] text-dim font-medium uppercase font-mono">({rec.parameterName})</span>
-                                </div>
-                                <p className="text-[9px] text-dim/70 leading-relaxed mt-1 font-medium">{rec.reasoning}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                     </div>
 
                     <div className="bg-surface border border-border rounded-3xl p-6 shadow-sm flex flex-col justify-between">

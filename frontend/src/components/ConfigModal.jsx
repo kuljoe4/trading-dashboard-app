@@ -78,6 +78,8 @@ const SIGNALS = [
   ['macd_pbc', 'MACD PBC', 'Premium Pullback-to-Continuation pullback entry.'],
   ['supertrend', 'Supertrend', 'Entry & Exit trend follower based on ATR.'],
   ['knife_catch', 'Knife Catch', 'Velocity ROC & wick rejection burst entry.'],
+  ['htf_breakout', 'HTF / Prev-Day Breakout', 'Trigger candle close vs higher-timeframe extreme (e.g. 1h close > prev 1d high).'],
+  ['trigger_candle_exit', 'Trigger Candle Exit', 'Exit when candle closes beyond trigger candle low (long) or high (short), or ±N surrounding candles.'],
 ]
 
 const getBaseSignalType = (signalType) => {
@@ -173,6 +175,69 @@ const getSignalParamsSchema = (sigKey, baseType, isEntry = true, isExit = true) 
       { value: 'trend', label: 'Trend State' },
       { value: 'crossover', label: 'Crossover Trigger' }
     ], {}, 'Supertrend Mode');
+  } else if (['htf_breakout', 'prev_day_breakout'].includes(baseType)) {
+    addParam('htf_breakout_ref_timeframe', 'text', '1d', [
+      { value: '15m', label: '15m' },
+      { value: '30m', label: '30m' },
+      { value: '1h', label: '1h' },
+      { value: '2h', label: '2h' },
+      { value: '4h', label: '4h' },
+      { value: '6h', label: '6h' },
+      { value: '8h', label: '8h' },
+      { value: '12h', label: '12h' },
+      { value: '1d', label: '1d (Daily)' },
+      { value: '3d', label: '3d' },
+      { value: '1w', label: '1w (Weekly)' },
+    ], {}, 'Ref Timeframe');
+    addParam('htf_breakout_trigger_timeframe', 'text', '1h', [
+      { value: 'default', label: 'Default (Scan TF)' },
+      { value: '1m', label: '1m' },
+      { value: '3m', label: '3m' },
+      { value: '5m', label: '5m' },
+      { value: '15m', label: '15m' },
+      { value: '30m', label: '30m' },
+      { value: '1h', label: '1h (Hourly)' },
+      { value: '2h', label: '2h' },
+      { value: '4h', label: '4h' },
+    ], {}, 'Trigger Timeframe');
+    addParam('htf_breakout_mode', 'text', 'close_break', [
+      { value: 'close_break', label: 'Close > Extreme (1h Close)' },
+      { value: 'closed_candle_confirm', label: 'Confirmed Closed Candle' },
+      { value: 'wick_break', label: 'Live Wick / Touch' },
+    ], {}, 'Breakout Mode');
+    addParam('htf_breakout_reference_level', 'text', 'high_low', [
+      { value: 'high_low', label: 'High / Low (Wicks)' },
+      { value: 'open_close_body', label: 'Body (Open / Close)' },
+      { value: 'close_only', label: 'Close Only' },
+    ], {}, 'Reference Level');
+    addParam('htf_breakout_lookback', 'number', 1, null, { min: 1, max: 30 }, 'Ref Lookback (Bars)');
+    addParam('htf_breakout_buffer_pct', 'number', 0, null, { min: 0, max: 10, step: 0.05 }, 'Breakout Buffer %');
+    addParam('htf_breakout_max_expansion_pct', 'number', 0, null, { min: 0, max: 20, step: 0.1 }, 'Max Expansion Cap %');
+  }
+
+  if (baseType === 'trigger_candle_exit') {
+    addParam('trigger_candle_exit_n', 'number', 0, null, { min: 0, max: 20 }, 'Surrounding Candles (±N)');
+    addParam('trigger_candle_exit_offset_mode', 'text', 'prev_and_next', [
+      { value: 'prev_and_next', label: 'Prev & Next (±N)' },
+      { value: 'prev_only', label: 'Previous Only (-N)' },
+      { value: 'next_only', label: 'Next Only (+N)' },
+    ], {}, 'Window Direction');
+    addParam('trigger_candle_exit_mode', 'text', 'close', [
+      { value: 'close', label: 'Candle Close' },
+      { value: 'wick', label: 'Wick / Touch' },
+    ], {}, 'Exit Evaluation');
+    addParam('trigger_candle_exit_timeframe', 'text', 'default', [
+      { value: 'default', label: 'Default (Trigger TF)' },
+      { value: '1m', label: '1m' },
+      { value: '3m', label: '3m' },
+      { value: '5m', label: '5m' },
+      { value: '15m', label: '15m' },
+      { value: '30m', label: '30m' },
+      { value: '1h', label: '1h (Hourly)' },
+      { value: '2h', label: '2h' },
+      { value: '4h', label: '4h' },
+    ], {}, 'Exit Timeframe');
+    addParam('trigger_candle_exit_buffer_pct', 'number', 0, null, { min: 0, max: 5, step: 0.05 }, 'Exit Buffer %');
   }
 
   return schema;
@@ -198,7 +263,19 @@ const TOOLTIPS = {
   macd_pbc_max_continuation: "Maximum allowed continuation candle index after MACD histogram slope reversal (e.g. 1 limits entry strictly to the 1st candle of continuation, 2 allows 1st or 2nd candle).",
   supertrend_period: "The ATR lookback period for calculating band offsets.",
   supertrend_multiplier: "The multiplier value applied to the ATR.",
-  supertrend_mode: "Trend State: Signal fires while trend matches side. Crossover Trigger: Signal fires only on the crossover candle."
+  supertrend_mode: "Trend State: Signal fires while trend matches side. Crossover Trigger: Signal fires only on the crossover candle.",
+  htf_breakout_ref_timeframe: "The higher timeframe used to identify key price extremes (e.g. 1d for Previous Day High/Low).",
+  htf_breakout_trigger_timeframe: "The lower timeframe evaluated for the breakout (e.g. 1h candle close).",
+  htf_breakout_mode: "Close > Extreme: Fires when trigger candle close breaches the level. Confirmed Closed Candle: Strictly waits for the completed candle close. Live Wick: Triggers as soon as price wicks past.",
+  htf_breakout_reference_level: "High/Low uses candle wicks. Body uses max/min of Open and Close. Close Only uses previous candle close.",
+  htf_breakout_lookback: "Number of completed higher-timeframe candles to scan (1 = previous 1 day/bar; >1 scans the highest high/lowest low of past N bars).",
+  htf_breakout_buffer_pct: "Required percentage above/below the HTF level before a breakout is confirmed, filtering false wicks.",
+  htf_breakout_max_expansion_pct: "Ceiling percentage beyond the level. If price has expanded more than this %, entry is rejected to avoid chasing overextended moves (0 = disabled).",
+  trigger_candle_exit_n: "Number of candles adjacent to the trigger candle to include when computing the exit boundary. 0 uses only the trigger candle; N > 0 uses the lowest low (long) or highest high (short) within the ±N window.",
+  trigger_candle_exit_offset_mode: "Window direction around trigger candle: Prev & Next (both sides), Previous Only (candles prior to entry), or Next Only (candles after entry).",
+  trigger_candle_exit_mode: "Candle Close requires the bar to close beyond the level. Wick / Touch fires immediately upon touching or wicking past the boundary.",
+  trigger_candle_exit_timeframe: "Timeframe used to monitor the trigger candle exit boundary (default uses the entry trigger timeframe, e.g. 1h).",
+  trigger_candle_exit_buffer_pct: "Additional safety buffer percentage beyond the boundary before triggering exit."
 };
 
 const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
@@ -2554,6 +2631,36 @@ const flattenConfig = (config) => {
       flattened[`signal_params_${k}`] = params[k];
     });
 
+    // Populate active signal schema defaults and resolve alias fallbacks
+    const activeSignals = Array.from(new Set([
+      ...(Array.isArray(config.enabled_signals) ? config.enabled_signals : []),
+      ...(Array.isArray(config.exit_signals) ? config.exit_signals : [])
+    ]));
+
+    activeSignals.forEach(sigKey => {
+      const baseType = getBaseSignalType(sigKey);
+      const isEntry = (config.enabled_signals || []).includes(sigKey);
+      const isExit = (config.exit_signals || []).includes(sigKey);
+      const schema = getSignalParamsSchema(sigKey, baseType, isEntry, isExit);
+
+      schema.forEach(field => {
+        if (flattened[field.key] === undefined || flattened[field.key] === null) {
+          const pKey = field.baseParamKey;
+          let aliasVal = undefined;
+
+          if (pKey === 'entry_ema_fast' || pKey === 'exit_ema_fast') {
+            aliasVal = params.exit_ema_fast ?? params.entry_ema_fast ?? params.ema_dual_fast ?? params.ema_fast ?? params.fast_ema;
+          } else if (pKey === 'entry_ema_slow' || pKey === 'exit_ema_slow') {
+            aliasVal = params.exit_ema_slow ?? params.entry_ema_slow ?? params.ema_dual_slow ?? params.ema_slow ?? params.slow_ema;
+          } else if (pKey === 'entry_ema_period' || pKey === 'exit_ema_period') {
+            aliasVal = params.exit_ema_period ?? params.entry_ema_period ?? params.ema_period;
+          }
+
+          flattened[field.key] = aliasVal !== undefined && aliasVal !== null ? aliasVal : field.defaultValue;
+        }
+      });
+    });
+
     return flattened;
   } catch (e) { return { ...config }; }
 };
@@ -2648,6 +2755,13 @@ const coerceAndSanitizeConfig = (rawConfig) => {
     if (c.anti_whipsaw_max_tf) {
       c.anti_whipsaw_max_tf = String(c.anti_whipsaw_max_tf).trim();
     }
+
+    // Clean up temporary signal_params_* UI fields
+    Object.keys(c).forEach(k => {
+      if (k.startsWith('signal_params_') && k !== 'signal_params') {
+        delete c[k];
+      }
+    });
 
     // Zero out nested variants to prevent runaway nesting
     c.strategy_variants = [];
@@ -3080,10 +3194,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         // Toggling ON: add base signal
         next.exit_signals = [...currentExitSignals, baseKey];
 
-        // Initialize base signal delay, action, timeframe
+        // Initialize base signal delay, action, timeframe, and schema defaults
         next.exit_signal_delays = { ...(prev.exit_signal_delays || {}), [baseKey]: 0 };
         next.exit_signal_actions = { ...(prev.exit_signal_actions || {}), [baseKey]: 'close' };
         next.signal_timeframes = { ...(prev.signal_timeframes || {}), [baseKey]: 'default' };
+
+        const schema = getSignalParamsSchema(baseKey, baseKey, (prev.enabled_signals || []).includes(baseKey), true);
+        schema.forEach(field => {
+          if (next[field.key] === undefined) {
+            next[field.key] = field.defaultValue;
+          }
+        });
       }
       return next;
     });
@@ -3099,13 +3220,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       }
       const newLayerKey = `${baseKey}_${suffixNum}`;
 
-      return {
+      const next = {
         ...prev,
         exit_signals: [...currentExitSignals, newLayerKey],
         exit_signal_delays: { ...(prev.exit_signal_delays || {}), [newLayerKey]: 0 },
         exit_signal_actions: { ...(prev.exit_signal_actions || {}), [newLayerKey]: 'close' },
         signal_timeframes: { ...(prev.signal_timeframes || {}), [newLayerKey]: 'default' }
       };
+
+      const schema = getSignalParamsSchema(newLayerKey, baseKey, (prev.enabled_signals || []).includes(newLayerKey), true);
+      schema.forEach(field => {
+        if (next[field.key] === undefined) {
+          next[field.key] = field.defaultValue;
+        }
+      });
+
+      return next;
     });
   }, []);
 
@@ -3171,6 +3301,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       } else {
         next.enabled_signals = [...currentEntrySignals, baseKey];
         next.signal_timeframes = { ...(prev.signal_timeframes || {}), [baseKey]: 'default' };
+
+        const schema = getSignalParamsSchema(baseKey, baseKey, true, (prev.exit_signals || []).includes(baseKey));
+        schema.forEach(field => {
+          if (next[field.key] === undefined) {
+            next[field.key] = field.defaultValue;
+          }
+        });
       }
       return next;
     });
@@ -3186,11 +3323,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       }
       const newLayerKey = `${baseKey}_${suffixNum}`;
 
-      return {
+      const next = {
         ...prev,
         enabled_signals: [...currentEntrySignals, newLayerKey],
         signal_timeframes: { ...(prev.signal_timeframes || {}), [newLayerKey]: 'default' }
       };
+
+      const schema = getSignalParamsSchema(newLayerKey, baseKey, true, (prev.exit_signals || []).includes(newLayerKey));
+      schema.forEach(field => {
+        if (next[field.key] === undefined) {
+          next[field.key] = field.defaultValue;
+        }
+      });
+
+      return next;
     });
   }, []);
 
@@ -4777,124 +4923,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               )}
 
-              {lifetimeAnalytics?.rrOptimization?.recommendedExitSignals && lifetimeAnalytics.rrOptimization.recommendedExitSignals.length > 0 && (
-                <div className="mt-8 p-5 bg-background/20 border border-border/50 rounded-2xl flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-500">
-                  <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
-                    <Target size={14} className="text-accent" />
-                    Optimal Exit Parameters (Statistical Recommendation)
-                  </div>
-                  <p className="text-[11px] text-dim leading-relaxed font-medium">
-                    Based on your actual history of <span className="text-text font-bold">{lifetimeAnalytics.rrOptimization.sampleSize}</span> closed trades, the statistical model recommends the following optimized parameter settings:
-                  </p>
-
-                  {lifetimeAnalytics.rrOptimization.avgDurationToBreakevenMs !== undefined && (
-                    <div className="p-3 bg-surface/40 border border-border/40 rounded-xl flex flex-col gap-2">
-                      <div className="flex items-center justify-between text-[9.5px] font-black uppercase text-accent tracking-wider">
-                        <span className="flex items-center gap-1.5"><Clock size={12} /> Time-to-Breakeven Dynamics</span>
-                        <span className="bg-accent/10 border border-accent/20 px-2 py-0.5 rounded text-[8.5px] font-mono font-bold">
-                          {lifetimeAnalytics.rrOptimization.breakevenEfficiencyRatio || 0}% BE Rate
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
-                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg BE Time</span>
-                          <span className="text-xs font-bold font-mono text-text">
-                            {(lifetimeAnalytics.rrOptimization.avgDurationToBreakevenMs / 60000).toFixed(1)}m
-                          </span>
-                        </div>
-                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
-                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg Peak Time</span>
-                          <span className="text-xs font-bold font-mono text-text">
-                            {((lifetimeAnalytics.rrOptimization.avgDurationToPeakMs || 0) / 60000).toFixed(1)}m
-                          </span>
-                        </div>
-                        <div className="bg-background/40 p-2 rounded-lg border border-border/20">
-                          <span className="block text-[7.5px] text-dim font-black uppercase tracking-widest">Avg Loss Time</span>
-                          <span className="text-xs font-bold font-mono text-text">
-                            {((lifetimeAnalytics.rrOptimization.avgDurationToLossMs || 0) / 60000).toFixed(1)}m
-                          </span>
-                        </div>
-                      </div>
-                      {lifetimeAnalytics.rrOptimization.ratchetOscillationRate !== undefined && (
-                        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-border/20 text-center">
-                          <div className="bg-background/40 p-1.5 rounded-lg border border-border/20">
-                            <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Oscillation Rate</span>
-                            <span className="text-[11px] font-bold font-mono text-accent">
-                              {lifetimeAnalytics.rrOptimization.ratchetOscillationRate}% Trades
-                            </span>
-                          </div>
-                          <div className="bg-background/40 p-1.5 rounded-lg border border-border/20">
-                            <span className="block text-[7px] text-dim font-black uppercase tracking-widest">Peak Realization</span>
-                            <span className="text-[11px] font-bold font-mono text-green">
-                              {lifetimeAnalytics.rrOptimization.ratchetProgressionEfficiency}% Efficiency
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {(Array.isArray(lifetimeAnalytics?.rrOptimization?.recommendedExitSignals) ? lifetimeAnalytics.rrOptimization.recommendedExitSignals : []).map((rec) => (
-                      <div key={rec.signalType} className="p-3 bg-surface/30 border border-border/40 rounded-xl flex flex-col gap-1.5 hover:border-accent/20 transition-all relative group/rec">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[9px] text-text font-black uppercase tracking-wider">{rec.signalType.replace(/_/g, ' ')}</span>
-                          <span className="text-[8px] text-dim font-black uppercase bg-accent/5 border border-accent/20 px-1.5 py-0.5 rounded">Conf: {rec.confidence}%</span>
-                        </div>
-                        <div className="flex items-baseline gap-1.5 mt-0.5">
-                          <span className="text-xs font-bold text-accent font-mono">{rec.recommendedValue}</span>
-                          <span className="text-[8.5px] text-dim font-medium uppercase font-mono">({rec.parameterName})</span>
-                        </div>
-                        <p className="text-[8.5px] text-dim/70 leading-normal font-medium">{rec.reasoning}</p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (rec.signalType === 'ema_close') {
-                              setField('signal_params_exit_ema_period', rec.recommendedValue);
-                              addAlert({ level: 'success', title: 'Applied EMA Period', message: `Set exit EMA period to ${rec.recommendedValue}.` });
-                            } else if (rec.signalType === 'ema_dual_close' || rec.signalType === 'ema_dual') {
-                              const [fast, slow] = rec.recommendedValue.split(' / ').map(Number);
-                              setField('signal_params_exit_ema_fast', fast);
-                              setField('signal_params_exit_ema_slow', slow);
-                              addAlert({ level: 'success', title: 'Applied Dual EMAs', message: `Set exit fast/slow EMAs to ${fast}/${slow}.` });
-                            } else if (rec.signalType === 'supertrend') {
-                              const [period, mult] = rec.recommendedValue.split(' / ').map(Number);
-                              setField('signal_params_supertrend_period', period);
-                              setField('signal_params_supertrend_multiplier', mult);
-                              addAlert({ level: 'success', title: 'Applied Supertrend', message: `Set ATR Period/Multiplier to ${period}/${mult}.` });
-                            } else if (rec.signalType === 'macd_fade') {
-                              const [fast, slow, signal] = rec.recommendedValue.split(' / ').map(Number);
-                              setField('signal_params_macd_fast', fast);
-                              setField('signal_params_macd_slow', slow);
-                              setField('signal_params_macd_signal', signal);
-                              addAlert({ level: 'success', title: 'Applied MACD Parameters', message: `Set MACD to ${fast}/${slow}/${signal}.` });
-                            } else if (rec.signalType === 'entry_spacing') {
-                              setField('min_trade_interval_min', Number(rec.recommendedValue));
-                              addAlert({ level: 'success', title: 'Applied Entry Spacing', message: `Set minimum trade interval to ${rec.recommendedValue}m based on TTBE.` });
-                            } else if (rec.signalType === 'exit_delays') {
-                              const val = String(rec.recommendedValue);
-                              setField('exit_signal_delays', { default: val });
-                              addAlert({ level: 'success', title: 'Applied Exit Delay', message: `Set default exit signal delay to ${val} based on TTBE.` });
-                            } else if (rec.signalType === 'ratchet_spacing') {
-                              const parts = String(rec.recommendedValue).split(' -> ');
-                              if (parts.length === 2) {
-                                const liveSeq = parts[0].split(',').map(s => Number(s.trim()));
-                                const exitSeq = parts[1].split(',').map(s => Number(s.trim()));
-                                setField('live_rr_sequence', liveSeq);
-                                setField('exit_rr_sequence', exitSeq);
-                                addAlert({ level: 'success', title: 'Applied Ratchet Milestones', message: `Updated Live/Exit RR sequences to ${parts[0]} -> ${parts[1]}.` });
-                              }
-                            }
-                          }}
-                          className="absolute bottom-2 right-2 opacity-0 group-hover/rec:opacity-100 transition-opacity bg-accent text-white px-2 py-1 rounded text-[8px] font-black uppercase tracking-wider hover:bg-accent/80 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white"
-                        >
-                          Apply
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </CollapsibleSection>
 
             <CollapsibleSection

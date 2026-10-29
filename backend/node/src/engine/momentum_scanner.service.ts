@@ -106,7 +106,7 @@ export class MomentumScannerService {
 
       // 1. Task Collection (Deduplication)
       // BOLT: Collect all unique symbols and their configs before execution to avoid redundant scans.
-      const tasks = new Map<string, { config: SessionConfig; volume_rank?: number; is_smart?: boolean }>();
+      const tasks = new Map<string, { config: SessionConfig; volume_rank?: number; is_smart?: boolean; is_explicit_symbol?: boolean }>();
 
       // Global Scan Collection
       if (config.global_scanner_enabled !== false) {
@@ -117,7 +117,7 @@ export class MomentumScannerService {
           const syms = config.symbols;
           for (let i = 0; i < syms.length; i++) {
             if (syms[i] && syms[i].toUpperCase().endsWith('USDT') && !activeExcluded.has(syms[i])) {
-              tasks.set(syms[i], { config, volume_rank: offset + i + 1 });
+              tasks.set(syms[i], { config, volume_rank: offset + i + 1, is_explicit_symbol: true });
             }
           }
         } else if (config.smart_watchlist_enabled) {
@@ -196,6 +196,7 @@ export class MomentumScannerService {
           tasks.set(sc.symbol, {
             config: symbolConfig,
             volume_rank: existing?.volume_rank,
+            is_explicit_symbol: true,
           });
         }
       }
@@ -205,7 +206,7 @@ export class MomentumScannerService {
       for (const [symbol, task] of tasks) {
         try {
           const interval = this.marketFeed.resolveInterval(task.config.scan_interval || '1m', task.config) || '1m';
-          const res = this.scanSymbol(symbol, interval, task.config);
+          const res = this.scanSymbol(symbol, interval, task.config, task.is_explicit_symbol || false);
           if (res) {
             if (task.volume_rank) res.opp.volume_rank = task.volume_rank;
             if (task.is_smart) res.opp.is_smart_candidate = true;
@@ -253,6 +254,7 @@ export class MomentumScannerService {
     symbol: string,
     interval: string,
     config: SessionConfig,
+    isExplicitSymbol = false,
   ): { opp: Opportunity, candles: Candle[] } | null {
     // Enforce valid USDT quote asset pairing to prevent USDS-M non-USDT errors (-2019/-2010)
     if (!symbol || typeof symbol !== 'string' || !/^[A-Z0-9]{3,20}USDT$/i.test(symbol)) {
@@ -270,6 +272,25 @@ export class MomentumScannerService {
     const lookback = Math.max(config.scan_lookback || 1, 1);
     const candles = this.klineStore.getRawCandles(symbol, interval);
     if (candles.length < lookback + 1) {
+      if (isExplicitSymbol) {
+        const tickerData = this.tickerCache.getTicker(symbol);
+        const displayPrice = tickerData?.price || 0;
+        if (displayPrice > 0) {
+          return {
+            opp: {
+              symbol,
+              price: displayPrice,
+              momentum: 0,
+              volume_24h: Number(tickerData?.volume_24h || 0),
+              score: 50,
+              direction: 'LONG',
+              sl_dist_pct: config.sl_distance_pct || 0.8,
+              prospect_rr: config.tp_ratio || 2.0,
+            },
+            candles: candles.length > 0 ? candles : [{ time: Date.now(), open: displayPrice, high: displayPrice, low: displayPrice, close: displayPrice, volume: 0 }],
+          };
+        }
+      }
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: insufficient candles (${candles.length} < ${lookback + 1}) for interval ${interval}`,
@@ -297,9 +318,9 @@ export class MomentumScannerService {
       return null;
     }
 
-    // BOLT OPTIMIZATION: Early return if momentum is below threshold to avoid expensive volatility/trend calculations
+    // BOLT OPTIMIZATION: Early return if momentum is below threshold (unless explicit watchlist target)
     const threshold = config.scan_pct_threshold ?? 0;
-    if (Math.abs(momentumPct) < threshold) {
+    if (!isExplicitSymbol && Math.abs(momentumPct) < threshold) {
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: momentum ${momentumPct.toFixed(2)}% below threshold ${threshold}% (${interval} timeframe)`,
@@ -309,11 +330,11 @@ export class MomentumScannerService {
     }
 
     // Determine direction based on momentum
-    const direction = momentumPct > 0 ? 'LONG' : 'SHORT';
+    const direction = momentumPct >= 0 ? 'LONG' : 'SHORT';
 
     // Enforce configured entry_side ('both' | 'long' | 'short')
     const allowedSide = (config.entry_side || 'both').toLowerCase();
-    if (allowedSide === 'long' && direction !== 'LONG') {
+    if (!isExplicitSymbol && allowedSide === 'long' && direction !== 'LONG') {
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
@@ -321,7 +342,7 @@ export class MomentumScannerService {
       }
       return null;
     }
-    if (allowedSide === 'short' && direction !== 'SHORT') {
+    if (!isExplicitSymbol && allowedSide === 'short' && direction !== 'SHORT') {
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
@@ -338,9 +359,9 @@ export class MomentumScannerService {
       ? tickerData!.price
       : currentPrice;
 
-    // 1. PRE-FILTER SL BOUNDS: Reject moves where calculated SL distance exceeds sl_max_pct
+    // 1. PRE-FILTER SL BOUNDS: Reject move if SL distance exceeds sl_max_pct (unless explicit watchlist target)
     const slCheck = this.checkSlBounds(symbol, displayPrice || currentPrice, direction, config, candles);
-    if (slCheck.rejected) {
+    if (!isExplicitSymbol && slCheck.rejected) {
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} pre-filtered: prospective SL distance ${slCheck.slDistPct.toFixed(2)}% exceeds sl_max_pct ${config.sl_max_pct || 3.0}% (Reason: ${slCheck.reason})`,

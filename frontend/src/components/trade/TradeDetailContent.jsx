@@ -2324,9 +2324,10 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
                           if (type === 'TRAILING STOP') return 'Trailing Stop';
                           return 'Stop Loss';
                         }
-                        if (type === 'EXCHANGE MANUAL') return 'Exchange Manual';
+                        if (type === 'EXCHANGE MANUAL' || trade.exit_reason === 'EXCHANGE_SL_OR_MANUAL' || trade.exit_reason === 'EXCHANGE_MANUAL') return 'Exchange Manual';
                         if (type === 'EXCHANGE FILL') return 'Exchange Fill';
-                        if (type === 'EXCHANGE SYNC') return 'Exchange Sync';
+                        if (type === 'EXCHANGE SYNC' || trade.exit_reason === 'EXCHANGE_SYNC' || trade.exit_reason === 'EXCHANGE_SYNC_RECOVERY' || trade.exit_reason === 'AUTO_RECONCILED_EXIT') return 'Exchange Sync';
+                        if (type === 'MANUAL' && (reason.toLowerCase().includes('exchange') || reason.toLowerCase().includes('external'))) return 'Exchange Manual';
                         return type;
                      })(),
                      color: 'text-accent',

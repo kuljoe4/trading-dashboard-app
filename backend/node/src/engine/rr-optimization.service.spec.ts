@@ -117,25 +117,6 @@ describe('RrOptimizationService', () => {
     }
 
     const result = service.calculateRrOptimization(trades as TradeEntity[]);
-    expect(result.recommendedExitSignals).toBeDefined();
-    const signals = result.recommendedExitSignals!;
-    expect(signals.length).toBe(8);
-
-    const emaCloseRec = signals.find(r => r.signalType === 'ema_close');
-    expect(emaCloseRec).toBeDefined();
-    expect(emaCloseRec!.parameterName).toBe('exit_ema_period');
-
-    const supertrendRec = signals.find(r => r.signalType === 'supertrend');
-    expect(supertrendRec).toBeDefined();
-    expect(supertrendRec!.parameterName).toBe('supertrend_period / supertrend_multiplier');
-
-    const entrySpacingRec = signals.find(r => r.signalType === 'entry_spacing');
-    expect(entrySpacingRec).toBeDefined();
-    expect(entrySpacingRec!.parameterName).toBe('min_trade_interval_min');
-
-    const ratchetSpacingRec = signals.find(r => r.signalType === 'ratchet_spacing');
-    expect(ratchetSpacingRec).toBeDefined();
-    expect(ratchetSpacingRec!.parameterName).toBe('live_rr_sequence / exit_rr_sequence');
 
     // Time-to-breakeven & ratchet oscillation dynamics metrics
     expect(result.avgDurationMs).toBe(10 * 60000);

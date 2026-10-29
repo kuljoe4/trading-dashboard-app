@@ -149,6 +149,18 @@ export class Trade {
 
   illiquid_blocked?: boolean;
 
+  trigger_candle_low?: number;
+
+  trigger_candle_high?: number;
+
+  trigger_candle_open?: number;
+
+  trigger_candle_close?: number;
+
+  trigger_candle_time?: number;
+
+  trigger_candle_timeframe?: string;
+
   _sig_json?: string;
 
   updated_at?: Date;

@@ -875,7 +875,7 @@ export class OrderManagerService {
     qty: number,
     slPrice: number,
     tpPrice: number | null,
-    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct' | 'entry_reason' | 'entry_signal_type' | 'entry_signal_reason'> = {},
+    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct' | 'entry_reason' | 'entry_signal_type' | 'entry_signal_reason' | 'trigger_candle_low' | 'trigger_candle_high' | 'trigger_candle_open' | 'trigger_candle_close' | 'trigger_candle_time' | 'trigger_candle_timeframe'> = {},
   ): Promise<ExecutionResult<Trade>> {
     const filters = this.marketFeed.getSymbolFilters(symbol);
 
@@ -1014,6 +1014,12 @@ export class OrderManagerService {
         strategy_label: metadata.strategy_label,
         strategy_config: metadata.strategy_config,
         entry_daily_change_pct: metadata.entry_daily_change_pct,
+        trigger_candle_low: metadata.trigger_candle_low,
+        trigger_candle_high: metadata.trigger_candle_high,
+        trigger_candle_open: metadata.trigger_candle_open,
+        trigger_candle_close: metadata.trigger_candle_close,
+        trigger_candle_time: metadata.trigger_candle_time,
+        trigger_candle_timeframe: metadata.trigger_candle_timeframe,
         updated_at: new Date(),
       } as Trade;
 
@@ -2339,7 +2345,8 @@ export class OrderManagerService {
     config: SessionConfig,
     interval: string = '1m',
   ): { exitTriggered: boolean; exitSignalType?: string } {
-    if (!config.exit_signals || config.exit_signals.length === 0) {
+    const hasExitSignals = (config.exit_signals && config.exit_signals.length > 0) || config.trigger_candle_exit_enabled;
+    if (!hasExitSignals) {
       return { exitTriggered: false };
     }
 
@@ -2373,20 +2380,28 @@ export class OrderManagerService {
     let activeCount = 0;
 
     // BOLT OPTIMIZATION: Call signalEngine once for all exit signals
-    // Pass original config directly to avoid redundant SessionConfig cloning/allocations
+    // Pass original config and trade directly to avoid redundant SessionConfig cloning/allocations
     const consolidatedResult = this.signalEngine.checkEntry(
       symbol,
       config,
       interval,
       trade.direction,
-      'exit'
+      'exit',
+      false,
+      undefined,
+      trade
     );
 
     // BOLT OPTIMIZATION: In-loop accumulation of satisfied active signal keys to avoid Object.keys().filter() allocations
     const satisfiedActiveKeys: string[] = [];
 
+    const effectiveExitSignals = [
+      ...(config.exit_signals || []),
+      ...(config.trigger_candle_exit_enabled && !(config.exit_signals || []).includes('trigger_candle_exit') ? ['trigger_candle_exit'] : []),
+    ];
+
     // Check each exit signal
-    for (const exitSignal of config.exit_signals) {
+    for (const exitSignal of effectiveExitSignals) {
       try {
         const delay = delays[exitSignal] !== undefined ? delays[exitSignal] : 0;
         let delaySec = 0;
@@ -2503,7 +2518,7 @@ export class OrderManagerService {
     // BOLT OPTIMIZATION: Pre-calculate JSON string for hot-loop change detection
     trade._sig_json = JSON.stringify(statuses);
 
-    const allEnabled = config.exit_signals.length;
+    const allEnabled = effectiveExitSignals.length;
     let exitTriggered = false;
     let exitSignalType: string | undefined;
 
@@ -2524,19 +2539,19 @@ export class OrderManagerService {
       let optionalSet: string[] = [];
 
       if (requiredConfigured.length > 0) {
-        requiredSet = config.exit_signals.filter(s => requiredConfigured.includes(s));
-        optionalSet = config.exit_signals.filter(s => !requiredConfigured.includes(s));
+        requiredSet = effectiveExitSignals.filter(s => requiredConfigured.includes(s));
+        optionalSet = effectiveExitSignals.filter(s => !requiredConfigured.includes(s));
       } else {
-        const baseSignals = config.exit_signals.filter(s => {
+        const baseSignals = effectiveExitSignals.filter(s => {
           const lastUnderscore = s.lastIndexOf('_');
           return lastUnderscore <= 0;
         });
-        if (baseSignals.length > 0 && baseSignals.length < config.exit_signals.length) {
+        if (baseSignals.length > 0 && baseSignals.length < effectiveExitSignals.length) {
           requiredSet = baseSignals;
-          optionalSet = config.exit_signals.filter(s => !baseSignals.includes(s));
+          optionalSet = effectiveExitSignals.filter(s => !baseSignals.includes(s));
         } else {
-          requiredSet = [config.exit_signals[0]];
-          optionalSet = config.exit_signals.slice(1);
+          requiredSet = [effectiveExitSignals[0]];
+          optionalSet = effectiveExitSignals.slice(1);
         }
       }
 
@@ -2837,21 +2852,38 @@ export class OrderManagerService {
       // If no orderId provided, check if the trade has an active stop loss order we can query
       if (!orderId && trade.binance_stop_order_id) {
          try {
-            const queryParams: any = { symbol };
-            try {
-              if (/^\d+$/.test(trade.binance_stop_order_id)) {
-                queryParams.orderId = BigInt(trade.binance_stop_order_id);
-              } else {
+            if (trade.binance_stop_order_type === 'algo') {
+              try {
+                const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({
+                  symbol,
+                  algoId: trade.binance_stop_order_id,
+                });
+                const data = (await queryRes.data()) as BinanceAlgoOrderReceipt;
+                if (data && (data.algoStatus === 'FINISHED' || (data as any).status === 'FILLED' || (data as any).status === 'PARTIALLY_FILLED')) {
+                   orderId = trade.binance_stop_order_id;
+                   this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] [Sync] Found filled tracked stop-loss algo order ${orderId} on exchange. Using for recovery.`);
+                }
+              } catch (algoErr) {
+                this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] [Sync] Failed to query stop algo order ${trade.binance_stop_order_id}: ${algoErr instanceof Error ? algoErr.message : String(algoErr)}`);
+              }
+            }
+            if (!orderId) {
+              const queryParams: any = { symbol };
+              try {
+                if (/^\d+$/.test(trade.binance_stop_order_id)) {
+                  queryParams.orderId = BigInt(trade.binance_stop_order_id);
+                } else {
+                  queryParams.origClientOrderId = trade.binance_stop_order_id;
+                }
+              } catch (err) {
                 queryParams.origClientOrderId = trade.binance_stop_order_id;
               }
-            } catch (err) {
-              queryParams.origClientOrderId = trade.binance_stop_order_id;
-            }
-            const stopOrderRes = await this.binanceClient.restAPI.queryOrder(queryParams);
-            const stopOrderData = (await stopOrderRes.data()) as BinanceOrderReceipt;
-            if (stopOrderData && (stopOrderData.status === 'FILLED' || stopOrderData.status === 'PARTIALLY_FILLED')) {
-               orderId = trade.binance_stop_order_id;
-               this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] [Sync] Found filled tracked stop-loss order ${orderId} on exchange. Using for recovery.`);
+              const stopOrderRes = await this.binanceClient.restAPI.queryOrder(queryParams);
+              const stopOrderData = (await stopOrderRes.data()) as BinanceOrderReceipt;
+              if (stopOrderData && (stopOrderData.status === 'FILLED' || stopOrderData.status === 'PARTIALLY_FILLED')) {
+                 orderId = trade.binance_stop_order_id;
+                 this.logger.log(`[${(trade.id || 'N/A').substring(0, 8)}] [Sync] Found filled tracked stop-loss order ${orderId} on exchange. Using for recovery.`);
+              }
             }
          } catch (e) {
             this.logger.debug(`[${(trade.id || 'N/A').substring(0, 8)}] [Sync] Failed to query stop order ${trade.binance_stop_order_id}: ${e instanceof Error ? e.message : String(e)}`);
@@ -2893,29 +2925,49 @@ export class OrderManagerService {
             } catch (err) {
               queryParams.origClientOrderId = orderId;
             }
-            const orderRes = await this.binanceClient.restAPI.queryOrder(queryParams);
-            const orderData = (await orderRes.data()) as BinanceOrderReceipt;
+            let orderData: any = null;
+            if (trade.binance_stop_order_type === 'algo' && orderId === trade.binance_stop_order_id) {
+              try {
+                const queryRes = await (this.binanceClient.restAPI as any).queryAlgoOrder({ symbol, algoId: orderId });
+                orderData = (await queryRes.data()) as BinanceAlgoOrderReceipt;
+              } catch (e) {}
+            }
+            if (!orderData) {
+              const orderRes = await this.binanceClient.restAPI.queryOrder(queryParams);
+              orderData = (await orderRes.data()) as BinanceOrderReceipt;
+            }
 
-            if (orderData && orderData.type) {
+            if (orderData && (orderData.type || (orderData as any).algoType)) {
                 const fillPrice = parseFloat(orderData.avgPrice || orderData.price || '0');
 
                 // SRE: Price sanity check against estimate
                 if (estimate > 0 && fillPrice > 0 && Math.abs(fillPrice - estimate) / estimate > 0.05) {
                    this.logger.warn(`[Sync] Recovered price ${fillPrice} for ${symbol} deviates significantly from estimate ${estimate}. Using authoritative price anyway.`);
                 }
-                   const type = orderData.type;
-                   const clientOrderId = orderData.clientOrderId;
+                   const type = ((orderData as any).type || (orderData as any).algoType || '').toUpperCase();
+                   const clientOrderId = orderData.clientOrderId || (orderData as any).clientAlgoId;
                    let reason = undefined;
 
                    // SRE: Map exchange order type to engine-specific EXIT_REASONS
                    if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {
                       reason = EXIT_REASONS.TP_HIT;
-                   } else if (type === 'STOP' || type === 'STOP_MARKET') {
+                   } else if (type === 'STOP' || type === 'STOP_MARKET' || type === 'CONDITIONAL') {
                       // Distinguish between initial SL and ratchet milestones if possible
-                      const isInitial = Math.abs(parseFloat(orderData.stopPrice || orderData.triggerPrice || '0') - Number(trade.initial_sl)) < Number(trade.initial_sl) * 0.0001;
+                      const stopPrice = parseFloat(orderData.stopPrice || orderData.triggerPrice || (orderData as any).sp || '0');
+                      const isInitial = Math.abs(stopPrice - Number(trade.initial_sl)) < Number(trade.initial_sl) * 0.0001;
                       const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
 
                       // Explicitly preserve slType (e.g. SL_HIT_M1, SL_HIT_BREAKEVEN, SL_HIT_TRAILING_STOP)
+                      if (!isInitial && (slType === 'TRAILING_STOP' || slType === 'trailing')) {
+                        reason = EXIT_REASONS.TRAILING_STOP;
+                      } else {
+                        reason = `${EXIT_REASONS.SL_HIT}_${slType}`;
+                      }
+                   } else if (clientOrderId && (clientOrderId.startsWith('sl-') || clientOrderId.startsWith('sl_'))) {
+                      const currentSl = Number(trade.current_sl || trade.sl_price || trade.initial_sl);
+                      const initialSl = Number(trade.initial_sl);
+                      const isInitial = Math.abs(currentSl - initialSl) <= initialSl * 0.0001;
+                      const slType = isInitial ? 'INITIAL_SL' : (trade.sl_adjustments?.length ? trade.sl_adjustments[trade.sl_adjustments.length - 1].reason : 'ADJUSTED_SL');
                       if (!isInitial && (slType === 'TRAILING_STOP' || slType === 'trailing')) {
                         reason = EXIT_REASONS.TRAILING_STOP;
                       } else {

@@ -386,7 +386,7 @@ const DecisionPipeline = React.memo(({ steps }) => {
 });
 DecisionPipeline.displayName = 'DecisionPipeline';
 
-const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, threshold, status, scannerPaused, hibernating, hibernationMode }) => {
+const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, threshold, status, scannerPaused, hibernating, hibernationMode, effectiveStrategyLabel }) => {
   useResourceFocus('scanner_symbol', opp.symbol);
   const addToWatchlist = useTradingStore(state => state.addToWatchlist);
   const removeFromWatchlist = useTradingStore(state => state.removeFromWatchlist);
@@ -461,8 +461,8 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
              type="button"
              onClick={(e) => {
                e.stopPropagation();
-               if (inWatchlist) removeFromWatchlist(opp.symbol);
-               else addToWatchlist(opp.symbol);
+               if (inWatchlist) removeFromWatchlist(opp.symbol, effectiveStrategyLabel);
+               else addToWatchlist(opp.symbol, effectiveStrategyLabel);
              }}
              className={cn(
                "px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent",
@@ -653,7 +653,7 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
 });
 ExpandedScannerRowContent.displayName = 'ExpandedScannerRowContent';
 
-const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
+const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode, effectiveStrategyLabel }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const now = useNow();
   const addToWatchlist = useTradingStore(state => state.addToWatchlist);
@@ -722,8 +722,8 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                  type="button"
                  onClick={(e) => {
                    e.stopPropagation();
-                   if (inWatchlist) removeFromWatchlist(opp.symbol);
-                   else addToWatchlist(opp.symbol);
+                   if (inWatchlist) removeFromWatchlist(opp.symbol, effectiveStrategyLabel);
+                   else addToWatchlist(opp.symbol, effectiveStrategyLabel);
                  }}
                  className={cn(
                    "p-0.5 rounded transition-all text-[9px] font-mono font-bold flex items-center justify-center outline-none focus-visible:ring-1 focus-visible:ring-accent ml-0.5",
@@ -863,6 +863,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
               scannerPaused={scannerPaused}
               hibernating={hibernating}
               hibernationMode={hibernationMode}
+              effectiveStrategyLabel={effectiveStrategyLabel}
             />
           </motion.div>
         )}
@@ -1156,7 +1157,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       {/* ==================== ROW 1: MINIMIZED HIGH-DENSITY TITLE, STATUS, TELEMETRY & SEARCH ==================== */}
       <div className="px-3 py-1 border-b border-border bg-surface flex items-center justify-between gap-2 shrink-0 h-[38px] min-h-[38px]">
         {/* Left: Status, Wordmark & Strategy Switcher */}
-        <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">
+        <div className="flex items-center gap-2 min-w-0">
           <div className="relative flex items-center justify-center w-3.5 h-3.5 shrink-0">
             <PulseDot color={showResumingFeedback ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
           </div>
@@ -1387,7 +1388,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="overflow-hidden border-b border-border/40 p-2.5 sm:p-3 bg-surface/50"
+                className="overflow-visible border-b border-border/40 p-2.5 sm:p-3 bg-surface/50 relative z-30"
               >
                 <WatchlistManager
                   activeStrategyLabel={effectiveStrategyLabel}
@@ -1550,6 +1551,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
               scannerPaused={scannerPaused || isStrategyGated}
               hibernating={hibernating}
               hibernationMode={hibernationMode}
+              effectiveStrategyLabel={effectiveStrategyLabel}
             />
           ))
         )}

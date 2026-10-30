@@ -766,7 +766,7 @@ export class SessionConfig {
 
   @IsBoolean()
   @IsOptional()
-  anti_whipsaw_per_strategy?: boolean = false;
+  anti_whipsaw_per_strategy?: boolean = true;
 
   @IsArray()
   @IsString({ each: true })

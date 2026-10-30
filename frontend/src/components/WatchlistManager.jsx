@@ -132,7 +132,9 @@ export const WatchlistManager = React.memo(({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Consolidate live opportunities and market candidate pool
+  const variantScannerResults = useTradingStore(state => state.variantScannerResults || {});
+
+  // Consolidate live opportunities across base/variants and market candidate pool
   const availableCandidates = useMemo(() => {
     const q = search.trim().toUpperCase();
     const currentSet = new Set(symbols);
@@ -144,7 +146,7 @@ export const WatchlistManager = React.memo(({
       candidatesMap.set(p.symbol, { ...p });
     });
 
-    // 2. Overlay live scanner opportunities if available
+    // 2. Overlay base scanner opportunities
     (scannerResults || []).forEach(opp => {
       if (opp && opp.symbol) {
         const existing = candidatesMap.get(opp.symbol) || {};
@@ -158,6 +160,37 @@ export const WatchlistManager = React.memo(({
       }
     });
 
+    // 3. Overlay variant scanner opportunities
+    Object.values(variantScannerResults || {}).forEach(resultsArr => {
+      if (Array.isArray(resultsArr)) {
+        resultsArr.forEach(opp => {
+          if (opp && opp.symbol) {
+            const existing = candidatesMap.get(opp.symbol) || {};
+            candidatesMap.set(opp.symbol, {
+              ...existing,
+              symbol: opp.symbol,
+              price: opp.price ?? existing.price,
+              pct: opp.pct ?? opp.momentum ?? existing.pct ?? 0,
+              score: opp.score ?? existing.score ?? 70,
+            });
+          }
+        });
+      }
+    });
+
+    // 4. Dynamic query candidate generator (allows picking ANY typed USDT pair)
+    if (q) {
+      const cleanQ = q.endsWith('USDT') ? q : `${q}USDT`;
+      if (!candidatesMap.has(cleanQ)) {
+        candidatesMap.set(cleanQ, {
+          symbol: cleanQ,
+          price: undefined,
+          pct: 0,
+          score: 75
+        });
+      }
+    }
+
     return Array.from(candidatesMap.values())
       .filter(item => {
         if (!item || !item.symbol) return false;
@@ -165,8 +198,8 @@ export const WatchlistManager = React.memo(({
         if (!q) return true;
         return item.symbol.includes(q);
       })
-      .slice(0, 10);
-  }, [scannerResults, symbols, search]);
+      .slice(0, 12);
+  }, [scannerResults, variantScannerResults, symbols, search]);
 
   // Target-aware Watchlist Update Handler (Supports Strategy Variant Isolation)
   const handleUpdateTargetSymbols = async (nextSymbols) => {
@@ -838,7 +871,7 @@ export const WatchlistManager = React.memo(({
               initial={{ opacity: 0, y: -5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
-              className="absolute left-0 right-0 top-full mt-1.5 bg-surface border border-border rounded-xl shadow-xl z-50 overflow-hidden max-h-56 overflow-y-auto"
+              className="absolute left-0 right-0 bottom-full mb-1.5 bg-surface/95 backdrop-blur-xl border border-border/80 rounded-xl shadow-2xl z-50 overflow-hidden max-h-64 overflow-y-auto"
             >
               <div className="p-1.5 flex flex-col gap-0.5">
                 <div className="px-2 py-1 text-[8.5px] font-black uppercase tracking-wider text-dim border-b border-border/20 flex justify-between">

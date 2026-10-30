@@ -2580,7 +2580,7 @@ const flattenConfig = (config) => {
       knife_auto_ratchet_be_rr: config.knife_auto_ratchet_be_rr !== undefined ? config.knife_auto_ratchet_be_rr : 0.5,
       knife_auto_ratchet_lock_rr: config.knife_auto_ratchet_lock_rr !== undefined ? config.knife_auto_ratchet_lock_rr : 1.0,
       anti_whipsaw_allow_knife: !!config.anti_whipsaw_allow_knife,
-      anti_whipsaw_per_strategy: !!config.anti_whipsaw_per_strategy,
+      anti_whipsaw_per_strategy: config.anti_whipsaw_per_strategy !== undefined ? !!config.anti_whipsaw_per_strategy : true,
       allow_knife_when_gated: !!config.allow_knife_when_gated,
       anti_whipsaw_candle_delay: config.anti_whipsaw_candle_delay !== undefined ? config.anti_whipsaw_candle_delay : 1,
       anti_whipsaw_tf_delay_min: config.anti_whipsaw_tf_delay_min !== undefined ? config.anti_whipsaw_tf_delay_min : 0,
@@ -2828,13 +2828,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const savedDraft = sessionStorage.getItem('config_draft');
     if (savedDraft) {
       try {
-        return JSON.parse(savedDraft);
+        const parsed = JSON.parse(savedDraft);
+        if (parsed && (parsed.strategy_label === initialConfig?.strategy_label || (!parsed.strategy_label && !initialConfig?.strategy_label))) {
+          return parsed;
+        }
       } catch (e) {
         console.error('[ConfigModal] Failed to parse draft:', e);
       }
     }
     return flattenConfig(initialConfig);
   });
+
+  useEffect(() => {
+    if (initialConfig) {
+      setCfg(flattenConfig(initialConfig));
+    }
+  }, [initialConfig, initialEditingVariantIndex]);
 
   useEffect(() => {
     fetchLifetimeAnalytics(cfg?.paper_mode ? 'paper' : 'live');
@@ -3423,10 +3432,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       return coerceAndSanitizeConfig(base);
     }
 
-    const rawLabel = (cfg.strategy_label && cfg.strategy_label !== 'Momentum Strategy')
-      ? cfg.strategy_label
-      : (presetName || loadedPresetName || cfg.strategy_label || generatedPresetName || 'Momentum Strategy');
-    const c = { ...cfg, strategy_label: rawLabel.trim() };
+    const rawLabel = (cfg.strategy_label && cfg.strategy_label.trim())
+      ? cfg.strategy_label.trim()
+      : (presetName || loadedPresetName || generatedPresetName || initialConfig?.strategy_label || 'Base Strategy');
+    const c = { ...cfg, strategy_label: rawLabel };
 
     // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
     const sp = {};

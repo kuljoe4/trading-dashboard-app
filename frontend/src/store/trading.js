@@ -339,15 +339,18 @@ export const normalizeLog = (l = {}) => {
       ts_ms = Date.now();
     }
   }
+  const formattedTs = rawTs || new Date(ts_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dedupKey = `${formattedTs}::${m}`;
   return {
     ...source,
-    id: source.id || Math.random().toString(36).substring(2, 15),
-    ts: rawTs || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    id: source.id || `log-${ts_ms}-${m.slice(0, 32).replace(/[^a-zA-Z0-9]/g, '_')}`,
+    dedupKey,
+    ts: formattedTs,
     ts_ms,
     level: ['info', 'warn', 'error'].includes(lv) ? lv : 'info',
     msg: m
   };
-}
+};
 
 const defaultConfig = {
   paper_mode: true,
@@ -363,6 +366,13 @@ const defaultConfig = {
   scan_window_duration_sec: 90,
   scan_check_interval_sec: 5,
   entry_side: 'both',
+  symbols: [],
+  watchlist_max_symbols: 0, // 0 = unlimited, or 1, 2, 3, 5, 10
+  watchlist_auto_rotate: false,
+  watchlist_rotate_interval_min: 15,
+  watchlist_locked: false,
+  watchlist_min_score: 75,
+  watchlist_last_rotated_ts: 0,
   watchlist_size: CONFIG_LIMITS.WATCHLIST_DEFAULT,
   watchlist_offset: 0,
   discovery_mode: 'abs_change_pct',
@@ -734,26 +744,37 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         const incoming = res.data.map(normalizeLog).filter(Boolean);
         set(st => {
           const currentLimit = Math.max(MAX_LOG_LINES, limit);
-          // Keep WS logs and DB logs deduplicated by id and fuzzy timestamp/msg matching
           const existingLogs = st.logs || [];
-          const existingMap = new Map(existingLogs.map(l => [l.id || `${l.ts}-${l.msg}`, l]));
+          const existingMap = new Map();
+          const existingDedupKeys = new Set();
+
+          existingLogs.forEach(l => {
+            if (l.id) existingMap.set(l.id, l);
+            if (l.dedupKey) existingDedupKeys.add(l.dedupKey);
+            existingDedupKeys.add(`${l.ts}::${l.msg}`);
+          });
+
+          const result = [...existingLogs];
 
           incoming.forEach(l => {
-            const exactKey = l.id || `${l.ts}-${l.msg}`;
-            if (existingMap.has(exactKey)) return;
+            if (l.id && existingMap.has(l.id)) return;
+            const dKey = l.dedupKey || `${l.ts}::${l.msg}`;
+            if (existingDedupKeys.has(dKey)) return;
 
-            // Fuzzy match for WS vs DB logs (same message, within 2000ms)
-            const isDuplicate = existingLogs.some(ex =>
+            // Fuzzy match for WS vs DB logs (same message, within 3000ms)
+            const isDuplicate = result.some(ex =>
               ex.msg === l.msg &&
-              Math.abs((ex.ts_ms || 0) - (l.ts_ms || 0)) < 2000
+              Math.abs((ex.ts_ms || 0) - (l.ts_ms || 0)) < 3000
             );
 
             if (!isDuplicate) {
-              existingMap.set(exactKey, l);
+              existingDedupKeys.add(dKey);
+              if (l.id) existingMap.set(l.id, l);
+              result.push(l);
             }
           });
 
-          const mergedLogs = Array.from(existingMap.values())
+          const mergedLogs = result
             .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
             .slice(0, currentLimit);
           return { logs: mergedLogs, logLimit: currentLimit };
@@ -917,6 +938,133 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       set({ configSyncing: false });
     }
   },
+
+  addToWatchlist: async (symbol) => {
+    const sym = String(symbol || '').trim().toUpperCase();
+    if (!sym || !sym.endsWith('USDT')) return false;
+
+    const st = get();
+    const currentSymbols = Array.isArray(st.config?.symbols) ? [...st.config.symbols] : [];
+    if (currentSymbols.includes(sym)) return true; // Already present
+
+    const limit = Number(st.config?.watchlist_max_symbols) || 0;
+    let nextSymbols = [...currentSymbols];
+
+    if (limit > 0 && nextSymbols.length >= limit) {
+      // Find a symbol that is NOT in an active position to replace
+      const activeSyms = new Set((st.activeTrades || []).map(t => t.symbol));
+      const replaceableIndex = nextSymbols.findIndex(s => !activeSyms.has(s));
+      if (replaceableIndex !== -1) {
+        nextSymbols.splice(replaceableIndex, 1, sym);
+      } else {
+        // All symbols have active positions, take only the first limit or replace
+        nextSymbols = [sym];
+      }
+    } else {
+      nextSymbols.push(sym);
+    }
+
+    await st.patchConfig({ symbols: nextSymbols });
+    get().addAlert({
+      level: 'success',
+      title: 'Watchlist Updated',
+      message: `Added ${sym} to Static Watchlist${limit > 0 ? ` (Limit: ${limit})` : ''}.`
+    });
+    return true;
+  },
+
+  removeFromWatchlist: async (symbol) => {
+    const sym = String(symbol || '').trim().toUpperCase();
+    const st = get();
+    const currentSymbols = Array.isArray(st.config?.symbols) ? [...st.config.symbols] : [];
+    const nextSymbols = currentSymbols.filter(s => s !== sym);
+    await st.patchConfig({ symbols: nextSymbols });
+    get().addAlert({
+      level: 'info',
+      title: 'Symbol Removed',
+      message: `Removed ${sym} from Static Watchlist.`
+    });
+    return true;
+  },
+
+  setWatchlistLimit: async (maxSymbols) => {
+    const limit = Math.max(0, parseInt(maxSymbols, 10) || 0);
+    const st = get();
+    const currentSymbols = Array.isArray(st.config?.symbols) ? [...st.config.symbols] : [];
+    let nextSymbols = currentSymbols;
+
+    if (limit > 0 && currentSymbols.length > limit) {
+      // Retain active trade symbols first, then take up to limit
+      const activeSyms = new Set((st.activeTrades || []).map(t => t.symbol));
+      const inPos = currentSymbols.filter(s => activeSyms.has(s));
+      const notInPos = currentSymbols.filter(s => !activeSyms.has(s));
+      nextSymbols = [...inPos, ...notInPos].slice(0, limit);
+    }
+
+    await st.patchConfig({
+      watchlist_max_symbols: limit,
+      symbols: nextSymbols
+    });
+    get().addAlert({
+      level: 'info',
+      title: 'Watchlist Capacity Updated',
+      message: limit > 0 ? `Watchlist limit set to ${limit} symbol${limit === 1 ? '' : 's'}.` : 'Watchlist capacity set to unlimited.'
+    });
+  },
+
+  setWatchlistScheduler: async (settings) => {
+    const st = get();
+    await st.patchConfig(settings);
+    if (settings.watchlist_locked !== undefined) {
+      get().addAlert({
+        level: settings.watchlist_locked ? 'warn' : 'success',
+        title: settings.watchlist_locked ? 'Watchlist Locked' : 'Watchlist Unlocked',
+        message: settings.watchlist_locked ? 'Watchlist is locked: automated rotation is paused.' : 'Watchlist unlocked for dynamic changes.'
+      });
+    } else if (settings.watchlist_auto_rotate !== undefined) {
+      get().addAlert({
+        level: 'info',
+        title: 'Scheduler Updated',
+        message: settings.watchlist_auto_rotate ? 'Auto-rotate scheduler activated.' : 'Auto-rotate scheduler deactivated.'
+      });
+    }
+  },
+
+  rotateWatchlistNow: async () => {
+    const st = get();
+    if (st.config?.watchlist_locked) {
+      get().addAlert({
+        level: 'warn',
+        title: 'Watchlist Locked',
+        message: 'Cannot rotate while Watchlist is locked. Unlock to allow rotation.'
+      });
+      return false;
+    }
+
+    // Pick top favorable scanner opportunity
+    const scannerOpps = Array.isArray(st.scannerResults) ? st.scannerResults : [];
+    const currentSymbols = new Set(Array.isArray(st.config?.symbols) ? st.config.symbols : []);
+    const activeSymbols = new Set((st.activeTrades || []).map(t => t.symbol));
+
+    const candidate = scannerOpps.find(o =>
+      o.symbol &&
+      !currentSymbols.has(o.symbol) &&
+      !activeSymbols.has(o.symbol) &&
+      (o.score >= (st.config?.watchlist_min_score || 70) || o.signalResult?.allFired || Math.abs(o.pct || 0) >= 1.5)
+    );
+
+    if (!candidate) {
+      get().addAlert({
+        level: 'info',
+        title: 'No Rotation Candidate',
+        message: 'No external favorable opportunities currently meet rotation criteria.'
+      });
+      return false;
+    }
+
+    await st.addToWatchlist(candidate.symbol);
+    return true;
+  },
   
   ws: null, reconnectAttempts: 0, wsError: null, apiError: null,
   setWsError: (wsError) => set({ wsError }),
@@ -1035,15 +1183,34 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           let nextLogs = st.logs || [];
           if (Array.isArray(d.logLines) && d.logLines.length > 0) {
             const incoming = d.logLines.map(normalizeLog).filter(Boolean);
-            const existingMap = new Map((st.logs || []).map(l => [l.id || `${l.ts}-${l.msg}`, l]));
+            const existingMap = new Map();
+            const existingDedupKeys = new Set();
+            (st.logs || []).forEach(l => {
+              if (l.id) existingMap.set(l.id, l);
+              if (l.dedupKey) existingDedupKeys.add(l.dedupKey);
+              existingDedupKeys.add(`${l.ts}::${l.msg}`);
+            });
+
+            const merged = [...(st.logs || [])];
             incoming.forEach(l => {
-              const key = l.id || `${l.ts}-${l.msg}`;
-              if (!existingMap.has(key)) {
-                existingMap.set(key, l);
+              if (l.id && existingMap.has(l.id)) return;
+              const dKey = l.dedupKey || `${l.ts}::${l.msg}`;
+              if (existingDedupKeys.has(dKey)) return;
+
+              // Fuzzy match against existing logs (within 3000ms)
+              const isDuplicate = merged.some(ex =>
+                ex.msg === l.msg &&
+                Math.abs((ex.ts_ms || 0) - (l.ts_ms || 0)) < 3000
+              );
+
+              if (!isDuplicate) {
+                existingDedupKeys.add(dKey);
+                if (l.id) existingMap.set(l.id, l);
+                merged.push(l);
               }
             });
             const currentLimit = Math.max(MAX_LOG_LINES, st.logLimit || MAX_LOG_LINES);
-            nextLogs = Array.from(existingMap.values())
+            nextLogs = merged
               .sort((a, b) => (b.ts_ms || 0) - (a.ts_ms || 0))
               .slice(0, currentLimit);
           }
@@ -1198,22 +1365,29 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
                   // Deduplicate against existing logs and other incoming logs
                   const exactKey = log.id || `${log.ts}-${log.msg}`;
-                  const isExactDuplicate = logs.some(ex => (ex.id || `${ex.ts}-${ex.msg}`) === exactKey) ||
-                                           incoming.some(ex => (ex.id || `${ex.ts}-${ex.msg}`) === exactKey);
+                  const dedupKey = log.dedupKey || `${log.ts}::${log.msg}`;
+
+                  const isExactDuplicate = logs.some(ex =>
+                    (ex.id && ex.id === log.id) ||
+                    (ex.dedupKey && ex.dedupKey === dedupKey) ||
+                    `${ex.ts}::${ex.msg}` === dedupKey
+                  ) || incoming.some(ex =>
+                    (ex.id && ex.id === log.id) ||
+                    (ex.dedupKey && ex.dedupKey === dedupKey) ||
+                    `${ex.ts}::${ex.msg}` === dedupKey
+                  );
 
                   if (isExactDuplicate) continue;
 
-
                   const logTsMs = log.ts_ms || Date.now();
-
                   let isFuzzyDuplicate = false;
 
-                  // Check against existing logs
+                  // Check against existing logs (within 3000ms)
                   for (let i = 0; i < Math.min(logs.length, 50); i++) {
                     const ex = logs[i];
                     if (ex.msg === log.msg) {
                       const exTsMs = ex.ts_ms || Date.now();
-                      if (Math.abs(exTsMs - logTsMs) < 2000) {
+                      if (Math.abs(exTsMs - logTsMs) < 3000) {
                         isFuzzyDuplicate = true;
                         break;
                       }
@@ -1226,7 +1400,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                       const ex = incoming[i];
                       if (ex.msg === log.msg) {
                         const exTsMs = ex.ts_ms || Date.now();
-                        if (Math.abs(exTsMs - logTsMs) < 2000) {
+                        if (Math.abs(exTsMs - logTsMs) < 3000) {
                           isFuzzyDuplicate = true;
                           break;
                         }

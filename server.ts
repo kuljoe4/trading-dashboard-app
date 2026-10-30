@@ -195,6 +195,13 @@ const state = {
     scan_window_duration_sec: 90,
     scan_check_interval_sec: 5,
     entry_side: 'both',
+    symbols: [] as string[],
+    watchlist_max_symbols: 0,
+    watchlist_auto_rotate: false,
+    watchlist_rotate_interval_min: 15,
+    watchlist_locked: false,
+    watchlist_min_score: 75,
+    watchlist_last_rotated_ts: 0,
     watchlist_size: 25,
     watchlist_offset: 0,
     discovery_mode: 'volume',
@@ -421,8 +428,17 @@ async function syncLiveAccountBaseline() {
   return null;
 }
 
+let lastLogMsg = '';
+let lastLogTs = 0;
+
 function addLog(msg: string, level = 'info') {
   const ts_ms = Date.now();
+  if (msg === lastLogMsg && ts_ms - lastLogTs < 1500) {
+    return;
+  }
+  lastLogMsg = msg;
+  lastLogTs = ts_ms;
+
   const logItem = {
     id: `log-${ts_ms}-${Math.random().toString(36).substring(2, 7)}`,
     ts: new Date(ts_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -437,17 +453,19 @@ function addLog(msg: string, level = 'info') {
 
 function getScannerOpportunities(cfg?: any) {
   const targetConfig = cfg || state.config || {};
-  if (targetConfig.global_scanner_enabled === false) {
+  const staticSymbols = Array.isArray(targetConfig.symbols) && targetConfig.symbols.length > 0 ? targetConfig.symbols : null;
+
+  if (targetConfig.global_scanner_enabled === false && !staticSymbols) {
     return [];
   }
   const opps: any[] = [];
   let items = Array.from(prices.values());
 
-  const staticSymbols = Array.isArray(targetConfig.symbols) && targetConfig.symbols.length > 0 ? targetConfig.symbols : null;
-
-  if (staticSymbols) {
-    const symSet = new Set(staticSymbols.map((s: string) => s.toUpperCase()));
-    items = items.filter(item => symSet.has(item.symbol));
+  if (targetConfig.global_scanner_enabled === false || staticSymbols) {
+    if (staticSymbols) {
+      const symSet = new Set(staticSymbols.map((s: string) => s.toUpperCase()));
+      items = items.filter(item => symSet.has(item.symbol));
+    }
   } else {
     const discoveryMode = targetConfig.discovery_mode || 'volume';
     if (discoveryMode === 'change_pct') {
@@ -512,6 +530,107 @@ function getScannerOpportunities(cfg?: any) {
     });
   }
   return opps;
+}
+
+// Watchlist Capacity Enforcement and Scheduler Logic
+function enforceWatchlistLimit(cfg: any, incomingSymbol?: string): { success: boolean; message: string; replaced?: string } {
+  if (!cfg) return { success: false, message: 'Invalid configuration' };
+  if (!Array.isArray(cfg.symbols)) {
+    cfg.symbols = [];
+  }
+
+  const max = Number(cfg.watchlist_max_symbols) || 0;
+
+  if (incomingSymbol) {
+    const sym = incomingSymbol.trim().toUpperCase();
+    if (!sym.endsWith('USDT')) {
+      return { success: false, message: 'Symbol must be a valid USDT perpetual contract (e.g. BTCUSDT)' };
+    }
+
+    if (cfg.symbols.includes(sym)) {
+      return { success: true, message: `${sym} is already in the Static Watchlist` };
+    }
+
+    if (max > 0 && cfg.symbols.length >= max) {
+      // Find a symbol that is NOT in an active position to replace
+      const activeSyms = new Set((state.activeTrades || []).map(t => t.symbol));
+      const replaceableIdx = cfg.symbols.findIndex((s: string) => !activeSyms.has(s));
+      let evicted = '';
+      if (replaceableIdx !== -1) {
+        evicted = cfg.symbols.splice(replaceableIdx, 1, sym)[0];
+      } else {
+        // If all symbols currently have open positions, keep them and set list to max
+        evicted = cfg.symbols[0];
+        cfg.symbols = [sym];
+      }
+      addLog(`[Watchlist Limit] Limit (${max}) enforced: Replaced ${evicted} with ${sym}`, 'info');
+      return { success: true, message: `Replaced ${evicted} with ${sym} (Limit: ${max})`, replaced: evicted };
+    } else {
+      cfg.symbols.push(sym);
+      addLog(`[Watchlist] Added ${sym} to Static Watchlist (${cfg.symbols.length}${max > 0 ? `/${max}` : ''})`, 'info');
+      return { success: true, message: `Added ${sym} to Static Watchlist` };
+    }
+  } else if (max > 0 && cfg.symbols.length > max) {
+    // Prune excess symbols while protecting active positions
+    const activeSyms = new Set((state.activeTrades || []).map(t => t.symbol));
+    const inPos = cfg.symbols.filter((s: string) => activeSyms.has(s));
+    const notInPos = cfg.symbols.filter((s: string) => !activeSyms.has(s));
+    const pruned = [...inPos, ...notInPos].slice(0, max);
+    const removed = cfg.symbols.filter((s: string) => !pruned.includes(s));
+    cfg.symbols = pruned;
+    if (removed.length > 0) {
+      addLog(`[Watchlist Limit] Trimmed ${removed.join(', ')} to enforce limit of ${max}`, 'info');
+    }
+    return { success: true, message: `Watchlist trimmed to limit of ${max}` };
+  }
+
+  return { success: true, message: 'Watchlist OK' };
+}
+
+function executeWatchlistAutoRotate() {
+  const cfg = state.config;
+  if (!cfg || !cfg.watchlist_auto_rotate || cfg.watchlist_locked) {
+    return;
+  }
+
+  const intervalMs = (Number(cfg.watchlist_rotate_interval_min) || 15) * 60 * 1000;
+  const now = Date.now();
+  if (cfg.watchlist_last_rotated_ts && now - cfg.watchlist_last_rotated_ts < intervalMs) {
+    return;
+  }
+
+  // Find candidate opportunities from global scanner
+  const opps = getScannerOpportunities({ ...cfg, symbols: null, global_scanner_enabled: true });
+  const currentSymbols = new Set(Array.isArray(cfg.symbols) ? cfg.symbols : []);
+  const activeSymbols = new Set((state.activeTrades || []).map(t => t.symbol));
+  const minScore = Number(cfg.watchlist_min_score) || 70;
+
+  // Filter for favorable candidates not already in watchlist or in active position
+  const favorableCandidates = opps.filter(o =>
+    o.symbol &&
+    !currentSymbols.has(o.symbol) &&
+    !activeSymbols.has(o.symbol) &&
+    (o.score >= minScore || o.signalResult?.allFired || Math.abs(o.momentum || 0) >= 1.5)
+  );
+
+  if (favorableCandidates.length === 0) {
+    return;
+  }
+
+  // Sort favorable candidates by score descending
+  favorableCandidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+  const picked = favorableCandidates[0];
+
+  cfg.watchlist_last_rotated_ts = now;
+  const max = Number(cfg.watchlist_max_symbols) || 0;
+  const res = enforceWatchlistLimit(cfg, picked.symbol);
+
+  addLog(
+    `[Watchlist Scheduler] Auto-promoted favorable opportunity ${picked.symbol} (Score: ${Number(picked.score).toFixed(0)}, Move: ${picked.momentum >= 0 ? '+' : ''}${picked.momentum}%). Watchlist: [${(cfg.symbols || []).join(', ')}]`,
+    'info'
+  );
+
+  broadcast({ type: 'status', ...getStatusSnapshot() });
 }
 
 function getStatusSnapshot() {
@@ -688,6 +807,9 @@ setInterval(() => {
     }
   }
 
+  // Periodic Watchlist Auto-Rotation check
+  executeWatchlistAutoRotate();
+
   // Broadcast ticks & scanner updates to connected clients
   broadcastTick();
 }, 2000);
@@ -748,7 +870,7 @@ function getVariantOpportunitiesData() {
 
       const variantSymbols = hasVariantSymbols
         ? v.symbols
-        : (hasVariantScannerOverride ? [] : baseSymbols);
+        : (v.global_scanner_enabled === true || hasVariantScannerOverride ? [] : baseSymbols);
 
       const vConfig = {
         ...state.config,
@@ -1418,6 +1540,7 @@ app.patch('/session/:id', async (req, res) => {
   const { config } = req.body || {};
   if (config) {
     state.config = { ...state.config, ...config };
+    enforceWatchlistLimit(state.config);
     if (config.trading_mode === 'live') {
       state.config.paper_mode = false;
       await syncLiveAccountBaseline();
@@ -1426,6 +1549,161 @@ app.patch('/session/:id', async (req, res) => {
     broadcast({ type: 'status', ...getStatusSnapshot() });
   }
   res.json({ success: true, config: state.config });
+});
+
+// Dedicated Watchlist & Scheduler Endpoints
+app.get('/session/watchlist', (req, res) => {
+  const cfg = state.config;
+  const activeTradeSymbols = new Set((state.activeTrades || []).map(t => t.symbol));
+  const symbols = Array.isArray(cfg?.symbols) ? cfg.symbols : [];
+
+  const items = symbols.map((sym: string) => {
+    const pInfo = prices.get(sym);
+    return {
+      symbol: sym,
+      price: pInfo?.price || 0,
+      momentum: pInfo?.momentum || 0,
+      score: pInfo?.score || 0,
+      volume24h: pInfo?.volume24h || 0,
+      inPosition: activeTradeSymbols.has(sym),
+    };
+  });
+
+  res.json({
+    symbols,
+    items,
+    max_symbols: Number(cfg?.watchlist_max_symbols) || 0,
+    auto_rotate: !!cfg?.watchlist_auto_rotate,
+    rotate_interval_min: Number(cfg?.watchlist_rotate_interval_min) || 15,
+    locked: !!cfg?.watchlist_locked,
+    min_score: Number(cfg?.watchlist_min_score) || 75,
+    last_rotated_ts: cfg?.watchlist_last_rotated_ts || 0,
+  });
+});
+
+app.post('/session/watchlist/add', (req, res) => {
+  const { symbol } = req.body || {};
+  if (!symbol) {
+    return res.status(400).json({ success: false, message: 'Symbol is required' });
+  }
+
+  const result = enforceWatchlistLimit(state.config, symbol);
+  if (!result.success) {
+    return res.status(400).json(result);
+  }
+
+  broadcast({ type: 'status', ...getStatusSnapshot() });
+  res.json({
+    success: true,
+    message: result.message,
+    replaced: result.replaced,
+    symbols: state.config.symbols,
+    max_symbols: state.config.watchlist_max_symbols,
+  });
+});
+
+app.post('/session/watchlist/remove', (req, res) => {
+  const { symbol } = req.body || {};
+  if (!symbol) {
+    return res.status(400).json({ success: false, message: 'Symbol is required' });
+  }
+
+  const sym = symbol.trim().toUpperCase();
+  const current = Array.isArray(state.config.symbols) ? [...state.config.symbols] : [];
+  state.config.symbols = current.filter((s: string) => s !== sym);
+
+  addLog(`[Watchlist] Removed ${sym} from Static Watchlist (${state.config.symbols.length} remaining)`, 'info');
+  broadcast({ type: 'status', ...getStatusSnapshot() });
+  res.json({
+    success: true,
+    message: `Removed ${sym} from Static Watchlist`,
+    symbols: state.config.symbols,
+  });
+});
+
+app.post('/session/watchlist/rotate', (req, res) => {
+  if (state.config.watchlist_locked) {
+    return res.status(400).json({ success: false, message: 'Cannot rotate while Watchlist is locked. Unlock to allow rotation.' });
+  }
+
+  const opps = getScannerOpportunities({ ...state.config, symbols: null, global_scanner_enabled: true });
+  const currentSymbols = new Set(Array.isArray(state.config.symbols) ? state.config.symbols : []);
+  const activeSymbols = new Set((state.activeTrades || []).map(t => t.symbol));
+  const minScore = Number(state.config.watchlist_min_score) || 70;
+
+  const favorableCandidates = opps.filter(o =>
+    o.symbol &&
+    !currentSymbols.has(o.symbol) &&
+    !activeSymbols.has(o.symbol) &&
+    (o.score >= minScore || o.signalResult?.allFired || Math.abs(o.momentum || 0) >= 1.5)
+  );
+
+  if (favorableCandidates.length === 0) {
+    return res.status(200).json({
+      success: false,
+      message: 'No external favorable opportunities currently meet rotation criteria.',
+      symbols: state.config.symbols,
+    });
+  }
+
+  favorableCandidates.sort((a, b) => (b.score || 0) - (a.score || 0));
+  const picked = favorableCandidates[0];
+
+  state.config.watchlist_last_rotated_ts = Date.now();
+  const result = enforceWatchlistLimit(state.config, picked.symbol);
+
+  addLog(
+    `[Watchlist Scheduler] Manually rotated favorable opportunity: ${picked.symbol} (Score: ${Number(picked.score).toFixed(0)}, Move: ${picked.momentum >= 0 ? '+' : ''}${picked.momentum}%). Watchlist: [${(state.config.symbols || []).join(', ')}]`,
+    'info'
+  );
+
+  broadcast({ type: 'status', ...getStatusSnapshot() });
+  res.json({
+    success: true,
+    promoted: picked.symbol,
+    score: picked.score,
+    replaced: result.replaced,
+    symbols: state.config.symbols,
+  });
+});
+
+app.post('/session/watchlist/settings', (req, res) => {
+  const { max_symbols, auto_rotate, rotate_interval_min, locked, min_score } = req.body || {};
+
+  if (max_symbols !== undefined) {
+    state.config.watchlist_max_symbols = Math.max(0, parseInt(max_symbols, 10) || 0);
+    enforceWatchlistLimit(state.config);
+  }
+  if (auto_rotate !== undefined) {
+    state.config.watchlist_auto_rotate = !!auto_rotate;
+  }
+  if (rotate_interval_min !== undefined) {
+    state.config.watchlist_rotate_interval_min = Math.max(1, parseInt(rotate_interval_min, 10) || 15);
+  }
+  if (locked !== undefined) {
+    state.config.watchlist_locked = !!locked;
+  }
+  if (min_score !== undefined) {
+    state.config.watchlist_min_score = Math.max(0, Math.min(100, parseFloat(min_score) || 75));
+  }
+
+  addLog(
+    `[Watchlist Settings] Updated: Limit=${state.config.watchlist_max_symbols || 'Unlimited'}, AutoRotate=${state.config.watchlist_auto_rotate ? `${state.config.watchlist_rotate_interval_min}m` : 'Off'}, Locked=${state.config.watchlist_locked ? 'Yes' : 'No'}`,
+    'info'
+  );
+
+  broadcast({ type: 'status', ...getStatusSnapshot() });
+  res.json({
+    success: true,
+    config: {
+      symbols: state.config.symbols,
+      watchlist_max_symbols: state.config.watchlist_max_symbols,
+      watchlist_auto_rotate: state.config.watchlist_auto_rotate,
+      watchlist_rotate_interval_min: state.config.watchlist_rotate_interval_min,
+      watchlist_locked: state.config.watchlist_locked,
+      watchlist_min_score: state.config.watchlist_min_score,
+    },
+  });
 });
 
 app.get('/session/live-account', async (req, res) => {

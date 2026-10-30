@@ -3319,15 +3319,19 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         ? safeMsg.substring(0, 4000) + "... [truncated]"
         : safeMsg;
 
+    const logId = uuid();
+    const logIsoTs = new Date().toISOString();
+
     if (!this.currentSessionId) {
       // UX-01: Even without active sessionId, broadcast early engine logs to UI so startup transitions aren't lost
       this.broadcastEvent("log", {
+        id: logId,
         msg: sanitizedMsg,
         level,
         channel: context?.channel,
         symbol: context?.symbol,
         tradeId: context?.tradeId,
-        ts: new Date().toISOString(),
+        ts: logIsoTs,
       });
       return;
     }
@@ -3362,14 +3366,15 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     this.recentLogs.set(recentLogKey, { hash: msgHash, timestamp: now });
 
-    // Broadcast to UI immediately for real-time visibility
+    // Broadcast to UI immediately for real-time visibility with persistent ID
     this.broadcastEvent("log", {
+      id: logId,
       msg: sanitizedMsg,
       level,
       channel: context?.channel,
       symbol: context?.symbol,
       tradeId: context?.tradeId,
-      ts: new Date().toISOString(),
+      ts: logIsoTs,
     });
 
     // SENTINEL: Per-session log rate limiting (max 60 logs per minute) to prevent resource exhaustion
@@ -3429,10 +3434,11 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     this.sessionLogCounts.set(sid, logCount + 1);
 
-    // BOLT OPTIMIZATION: Non-blocking asynchronous log write buffer
+    // BOLT OPTIMIZATION: Non-blocking asynchronous log write buffer with deterministic ID
     this.logWriteQueue.push({
+      id: logId,
       sessionId: this.currentSessionId,
-      ts: new Date().toISOString(),
+      ts: logIsoTs,
       level,
       msg: sanitizedMsg,
     });

@@ -56,6 +56,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
   // BOLT OPTIMIZATION: Non-blocking asynchronous log write queue & debounced flush
   private logWriteQueue: Array<{
+    id?: string;
     sessionId: string;
     ts: string;
     level: string;

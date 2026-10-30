@@ -356,7 +356,20 @@ export const DecisionLog = React.memo(() => {
       });
 
       const maxCount = logLimit === 'ALL' ? 1000 : (Number(logLimit) || 500);
-      return filtered.slice(0, maxCount);
+
+      // Strict de-duplication pass: ensure no duplicate logs with the same timestamp and message are displayed or copied
+      const seen = new Set();
+      const deduped = [];
+      for (let i = 0; i < filtered.length; i++) {
+        const item = filtered[i];
+        const key = `${item.ts || item.ts_ms}::${item.msg}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          deduped.push(item);
+        }
+      }
+
+      return deduped.slice(0, maxCount);
     },
     [safeLogs, safeLogFilters, search, logLimit]
   )

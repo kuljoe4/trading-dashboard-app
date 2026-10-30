@@ -7,9 +7,10 @@ import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { useNow } from '../hooks/useNow'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw, Turtle, Flame, Gauge, PauseCircle, Moon } from 'lucide-react'
+import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw, Turtle, Flame, Gauge, PauseCircle, Moon, Eye } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
+import { WatchlistManager } from './WatchlistManager'
 
 const FreshnessIndicator = React.memo(({ ts }) => {
   const now = useNow();
@@ -468,6 +469,9 @@ ExpandedScannerRowContent.displayName = 'ExpandedScannerRowContent';
 const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scannerPaused, hibernating, hibernationMode }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const now = useNow();
+  const addToWatchlist = useTradingStore(state => state.addToWatchlist);
+  const removeFromWatchlist = useTradingStore(state => state.removeFromWatchlist);
+  const inWatchlist = Array.isArray(config?.symbols) && config.symbols.includes(opp.symbol);
 
   const threshold = config?.scan_pct_threshold || 2.0;
   const dir = (opp.dir || opp.direction || '').toLowerCase();
@@ -526,6 +530,25 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
              <span className="text-[8px] text-dim font-mono opacity-50">/U</span>
              <FreshnessPill ts={opp.lastUpdate} />
              <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-0.5 p-0.5 scale-75" />
+             <Tooltip content={inWatchlist ? `${opp.symbol} is in Static Watchlist (Click to remove)` : `Add ${opp.symbol} to Static Watchlist${config?.watchlist_max_symbols ? ` (Limit: ${config.watchlist_max_symbols})` : ''}`}>
+               <button
+                 type="button"
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   if (inWatchlist) removeFromWatchlist(opp.symbol);
+                   else addToWatchlist(opp.symbol);
+                 }}
+                 className={cn(
+                   "p-0.5 rounded transition-all text-[9px] font-mono font-bold flex items-center justify-center outline-none focus-visible:ring-1 focus-visible:ring-accent ml-0.5",
+                   inWatchlist
+                     ? "text-accent bg-accent/20 border border-accent/40"
+                     : "opacity-0 group-hover:opacity-100 text-dim hover:text-text hover:bg-white/10"
+                 )}
+                 aria-label={inWatchlist ? `Remove ${opp.symbol} from watchlist` : `Add ${opp.symbol} to watchlist`}
+               >
+                 <Eye size={12} className={inWatchlist ? "text-accent fill-accent/20" : ""} />
+               </button>
+             </Tooltip>
              <div className="hidden md:block ml-2 opacity-80 group-hover:opacity-100 transition-opacity">
                <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={14} />
              </div>
@@ -1198,6 +1221,11 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
             </select>
           </div>
         </div>
+      </div>
+
+      {/* Static Watchlist & Scheduler Manager */}
+      <div className="px-3 pt-2 pb-1 shrink-0">
+        <WatchlistManager />
       </div>
 
       <div className="grid grid-cols-[30px_1.5fr_1fr_1.2fr_120px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">

@@ -79,6 +79,8 @@ export class TradingSessionService implements OnApplicationShutdown {
   private lastFullReconciliationTs = 0;
   private lastWatchdogTs = 0;
   private loggedKnifeBypassMap: Map<string, number> = new Map();
+  private _lastGateTransitionKey = '';
+  private _lastGateStateLogTs = 0;
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
@@ -697,12 +699,18 @@ export class TradingSessionService implements OnApplicationShutdown {
       riskResultToUse.reason !== prevReason
     ) {
       if (this.sessionState.gateState !== prevGateState) {
-        const msg = `[Gating] State changed: ${prevGateState || "ACTIVE"} -> ${this.sessionState.gateState || "ACTIVE"}. Reason: ${riskResultToUse.reason}`;
-        this.logger.log(msg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
-          msg,
-          level: "info",
-        });
+        const now = Date.now();
+        const transitionKey = `${prevGateState || "ACTIVE"}->${this.sessionState.gateState || "ACTIVE"}:${riskResultToUse.reason}`;
+        if (this._lastGateTransitionKey !== transitionKey || now - this._lastGateStateLogTs > 2000) {
+          this._lastGateTransitionKey = transitionKey;
+          this._lastGateStateLogTs = now;
+          const msg = `[Gating] State changed: ${prevGateState || "ACTIVE"} -> ${this.sessionState.gateState || "ACTIVE"}. Reason: ${riskResultToUse.reason}`;
+          this.logger.log(msg);
+          this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg,
+            level: "info",
+          });
+        }
       }
 
       // BOLT: Throttled broadcast of gating reasons to avoid flooding UI with countdowns.

@@ -2613,6 +2613,11 @@ const flattenConfig = (config) => {
       exit_signals: Array.isArray(config.exit_signals) ? config.exit_signals : [],
       enabled_signals: Array.isArray(config.enabled_signals) ? config.enabled_signals : [],
       symbols: Array.isArray(config.symbols) ? config.symbols : [],
+      watchlist_max_symbols: config.watchlist_max_symbols !== undefined ? config.watchlist_max_symbols : 0,
+      watchlist_auto_rotate: !!config.watchlist_auto_rotate,
+      watchlist_rotate_interval_min: config.watchlist_rotate_interval_min || 15,
+      watchlist_locked: !!config.watchlist_locked,
+      watchlist_min_score: config.watchlist_min_score !== undefined ? config.watchlist_min_score : 75,
       trading_windows: Array.isArray(config.trading_windows) ? config.trading_windows : [],
       single_symbol_configs: Array.isArray(config.single_symbol_configs) ? config.single_symbol_configs : [],
       strategy_variants: Array.isArray(config.strategy_variants) ? config.strategy_variants : [],
@@ -2716,7 +2721,8 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
-      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
+      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score'
     ];
 
     numericFields.forEach(f => {
@@ -4649,12 +4655,115 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             <CollapsibleSection
               id="scan_watchlist"
               icon={Plus}
-              title="Static Watchlist"
-              subtitle="Rank only these symbols"
+              title="Static Watchlist & Scheduler"
+              subtitle="Strict routing, capacity limits & auto-rotation"
               isOpen={openSectionId === 'scan_watchlist'}
               onToggle={() => setOpenSectionId(openSectionId === 'scan_watchlist' ? null : 'scan_watchlist')}
             >
               <div className="flex flex-col gap-4">
+                {/* Watchlist Limit Control */}
+                <div className="flex flex-col gap-2 p-3 bg-surface/50 border border-border/40 rounded-xl">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] font-black text-text uppercase tracking-wider">Watchlist Limit (Strict Ceiling)</span>
+                    <span className="text-[9px] font-mono font-bold text-accent">
+                      {Number(cfg.watchlist_max_symbols) > 0 ? `${cfg.watchlist_max_symbols} Symbols Max` : 'Unlimited'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { label: '1 (Solo)', val: 1 },
+                      { label: '2 Pairs', val: 2 },
+                      { label: '3 Pairs', val: 3 },
+                      { label: '5 Pairs', val: 5 },
+                      { label: '10 Pairs', val: 10 },
+                      { label: 'Unlimited', val: 0 },
+                    ].map(p => (
+                      <button
+                        key={p.val}
+                        type="button"
+                        onClick={() => {
+                          setField('watchlist_max_symbols', p.val);
+                          if (p.val > 0 && Array.isArray(cfg.symbols) && cfg.symbols.length > p.val) {
+                            setField('symbols', cfg.symbols.slice(0, p.val));
+                          }
+                        }}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[9px] font-mono font-bold uppercase transition-all outline-none focus-visible:ring-1 focus-visible:ring-accent",
+                          Number(cfg.watchlist_max_symbols || 0) === p.val
+                            ? "bg-accent text-background font-black shadow-sm"
+                            : "bg-surface border border-border/40 text-dim hover:text-text"
+                        )}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[8.5px] text-dim leading-relaxed">
+                    If set to 1, strictly only 1 symbol stays on the list. Adding or rotating in a new candidate replaces the idle symbol.
+                  </span>
+                </div>
+
+                {/* Auto-Rotate Scheduler & Freeze Lock */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-surface/50 border border-border/40 rounded-xl">
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-text uppercase tracking-wider">Auto-Rotate Scheduler</span>
+                      <button
+                        type="button"
+                        onClick={() => setField('watchlist_auto_rotate', !cfg.watchlist_auto_rotate)}
+                        className={cn(
+                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors",
+                          cfg.watchlist_auto_rotate ? "bg-green/15 border-green/40 text-green" : "bg-surface border-border text-dim"
+                        )}
+                      >
+                        {cfg.watchlist_auto_rotate ? 'Enabled' : 'Disabled'}
+                      </button>
+                    </div>
+                    <span className="text-[8.5px] text-dim">
+                      Promotes top favorable dynamic scanner opportunities into watchlist at regular intervals.
+                    </span>
+
+                    {cfg.watchlist_auto_rotate && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {[5, 15, 30, 60, 240].map(mins => (
+                          <button
+                            key={mins}
+                            type="button"
+                            onClick={() => setField('watchlist_rotate_interval_min', mins)}
+                            className={cn(
+                              "px-2 py-0.5 rounded text-[8.5px] font-mono font-bold border",
+                              (Number(cfg.watchlist_rotate_interval_min) || 15) === mins
+                                ? "bg-green/20 border-green/40 text-green font-black"
+                                : "bg-surface border-border/40 text-dim"
+                            )}
+                          >
+                            {mins >= 60 ? `${mins / 60}h` : `${mins}m`}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-1.5 border-t md:border-t-0 md:border-l border-border/30 pt-2 md:pt-0 md:pl-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-black text-text uppercase tracking-wider">Lock Watchlist (Freeze)</span>
+                      <button
+                        type="button"
+                        onClick={() => setField('watchlist_locked', !cfg.watchlist_locked)}
+                        className={cn(
+                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors",
+                          cfg.watchlist_locked ? "bg-amber/15 border-amber/40 text-amber" : "bg-surface border-border text-dim"
+                        )}
+                      >
+                        {cfg.watchlist_locked ? 'Locked (Frozen)' : 'Unlocked'}
+                      </button>
+                    </div>
+                    <span className="text-[8.5px] text-dim">
+                      "No to change" mode: Freezes the list and disables automated rotation.
+                    </span>
+                  </div>
+                </div>
+
                 <WatchlistDropdownInput value={cfg.symbols || []} onChange={(val) => setField('symbols', val)} />
                 <div className="pt-4 border-t border-border/40">
                   <span className="text-[10px] font-black text-dim uppercase tracking-wider mb-2 block">Edit Comma-Separated List (Advanced)</span>

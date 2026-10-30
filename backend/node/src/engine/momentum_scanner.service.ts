@@ -33,6 +33,13 @@ export interface Opportunity {
   };
 }
 
+export interface ScanTask {
+  config: SessionConfig;
+  volume_rank?: number;
+  is_smart?: boolean;
+  is_explicit_symbol?: boolean;
+}
+
 @Injectable()
 export class MomentumScannerService {
   private readonly logger = new Logger(MomentumScannerService.name);
@@ -106,7 +113,7 @@ export class MomentumScannerService {
 
       // 1. Task Collection (Deduplication)
       // BOLT: Collect all unique symbols and their configs before execution to avoid redundant scans.
-      const tasks = new Map<string, { config: SessionConfig; volume_rank?: number; is_smart?: boolean; is_explicit_symbol?: boolean }>();
+      const tasks = new Map<string, ScanTask>();
 
       // Global Scan Collection
       if (config.global_scanner_enabled !== false) {

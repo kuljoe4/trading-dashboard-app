@@ -408,7 +408,7 @@ export class ExecutionService {
           if (t && t.symbol === opp.symbol) {
             const status = (t as any).status as string;
             const isFailedOrCancelled = status === 'ENTRY_FAILED' || status === 'CANCELLED' || status === 'REJECTED' || Boolean((t as any).is_reconciliation);
-            const isDifferentStrategy = Boolean(symbolConfig.anti_whipsaw_per_strategy && t.strategy_label && t.strategy_label !== currentStrategyLabel);
+            const isDifferentStrategy = Boolean((symbolConfig.anti_whipsaw_per_strategy !== false) && t.strategy_label && t.strategy_label !== currentStrategyLabel);
             if (!isFailedOrCancelled && !isDifferentStrategy) {
               hasClosedForSymbol = true;
               symbolClosedTrades.push(t);

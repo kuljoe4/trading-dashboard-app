@@ -939,15 +939,20 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     }
   },
 
-  addToWatchlist: async (symbol) => {
+  addToWatchlist: async (symbol, targetStrategyLabel = null) => {
     const sym = String(symbol || '').trim().toUpperCase();
     if (!sym || !sym.endsWith('USDT')) return false;
 
     const st = get();
-    const currentSymbols = Array.isArray(st.config?.symbols) ? [...st.config.symbols] : [];
+    const variants = Array.isArray(st.config?.strategy_variants) ? [...st.config.strategy_variants] : [];
+    const isVariant = targetStrategyLabel && targetStrategyLabel !== st.config?.strategy_label && targetStrategyLabel !== 'Base Strategy';
+    const variantIdx = isVariant ? variants.findIndex(v => v.strategy_label === targetStrategyLabel) : -1;
+
+    const targetConfig = variantIdx >= 0 ? variants[variantIdx] : st.config;
+    const currentSymbols = Array.isArray(targetConfig?.symbols) ? [...targetConfig.symbols] : [];
     if (currentSymbols.includes(sym)) return true; // Already present
 
-    const limit = Number(st.config?.watchlist_max_symbols) || 0;
+    const limit = Number(targetConfig?.watchlist_max_symbols) || 0;
     let nextSymbols = [...currentSymbols];
 
     if (limit > 0 && nextSymbols.length >= limit) {
@@ -964,25 +969,49 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       nextSymbols.push(sym);
     }
 
-    await st.patchConfig({ symbols: nextSymbols });
+    if (variantIdx >= 0) {
+      variants[variantIdx] = {
+        ...variants[variantIdx],
+        symbols: nextSymbols
+      };
+      await st.patchConfig({ strategy_variants: variants });
+    } else {
+      await st.patchConfig({ symbols: nextSymbols });
+    }
+
     get().addAlert({
       level: 'success',
       title: 'Watchlist Updated',
-      message: `Added ${sym} to Static Watchlist${limit > 0 ? ` (Limit: ${limit})` : ''}.`
+      message: `Added ${sym} to Static Watchlist${limit > 0 ? ` (Limit: ${limit})` : ''}${targetStrategyLabel ? ` for ${targetStrategyLabel}` : ''}.`
     });
     return true;
   },
 
-  removeFromWatchlist: async (symbol) => {
+  removeFromWatchlist: async (symbol, targetStrategyLabel = null) => {
     const sym = String(symbol || '').trim().toUpperCase();
     const st = get();
-    const currentSymbols = Array.isArray(st.config?.symbols) ? [...st.config.symbols] : [];
-    const nextSymbols = currentSymbols.filter(s => s !== sym);
-    await st.patchConfig({ symbols: nextSymbols });
+    const variants = Array.isArray(st.config?.strategy_variants) ? [...st.config.strategy_variants] : [];
+    const isVariant = targetStrategyLabel && targetStrategyLabel !== st.config?.strategy_label && targetStrategyLabel !== 'Base Strategy';
+    const variantIdx = isVariant ? variants.findIndex(v => v.strategy_label === targetStrategyLabel) : -1;
+
+    if (variantIdx >= 0) {
+      const currentSymbols = Array.isArray(variants[variantIdx]?.symbols) ? [...variants[variantIdx].symbols] : [];
+      const nextSymbols = currentSymbols.filter(s => s !== sym);
+      variants[variantIdx] = {
+        ...variants[variantIdx],
+        symbols: nextSymbols
+      };
+      await st.patchConfig({ strategy_variants: variants });
+    } else {
+      const currentSymbols = Array.isArray(st.config?.symbols) ? [...st.config.symbols] : [];
+      const nextSymbols = currentSymbols.filter(s => s !== sym);
+      await st.patchConfig({ symbols: nextSymbols });
+    }
+
     get().addAlert({
       level: 'info',
       title: 'Symbol Removed',
-      message: `Removed ${sym} from Static Watchlist.`
+      message: `Removed ${sym} from Static Watchlist${targetStrategyLabel ? ` for ${targetStrategyLabel}` : ''}.`
     });
     return true;
   },

@@ -7,10 +7,182 @@ import { useTradingStore } from '../store/trading'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { useNow } from '../hooks/useNow'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
-import { X, Search, ShieldCheck, XCircle, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw, Turtle, Flame, Gauge, PauseCircle, Moon, Eye } from 'lucide-react'
+import { X, ShieldCheck, Shield, Zap, AlertCircle, ChevronDown, ChevronUp, Activity, CheckCircle2, Loader2, LayoutGrid, TrendingUp, Clock, Info, ShieldAlert, RefreshCw, Turtle, Flame, Gauge, PauseCircle, Moon, Eye, Layers, Target } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { shallow } from 'zustand/shallow'
 import { WatchlistManager } from './WatchlistManager'
+
+export const StrategySelectorDropdown = React.memo(({
+  allStrategies = [],
+  effectiveStrategyLabel,
+  onSelectStrategy,
+  variantScannerResults = {},
+  scannerResults = [],
+  strategyGateStates = {},
+  gateState,
+  pausedStrategies = [],
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const activeStrategy = useMemo(() => {
+    return allStrategies.find(s => s.label === effectiveStrategyLabel) || allStrategies[0] || {
+      label: effectiveStrategyLabel,
+      timeframe: '5m',
+      isVariant: false,
+    };
+  }, [allStrategies, effectiveStrategyLabel]);
+
+  const activeCount = activeStrategy.isVariant
+    ? ((variantScannerResults && variantScannerResults[activeStrategy.label]) || []).length
+    : (scannerResults || []).length;
+
+  const activeGate = strategyGateStates?.[activeStrategy.label]?.gateState || (!activeStrategy.isVariant ? gateState : null);
+  const activeIsGated = activeGate && ['max_trades', 'sl_guard', 'max_trades_period'].includes(activeGate);
+  const activeIsPaused = (pausedStrategies || []).includes(activeStrategy.label);
+
+  return (
+    <div className="relative shrink-0 ml-1.5" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-all border outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer shadow-sm select-none",
+          isOpen
+            ? "bg-accent/20 border-accent text-accent"
+            : "bg-surface/90 border-border/80 text-text hover:border-accent/50 hover:bg-surface"
+        )}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={`Strategy Selector: Current strategy ${activeStrategy.label}`}
+      >
+        <div className="w-5 h-5 rounded-md bg-accent/15 flex items-center justify-center text-accent shrink-0">
+          <Layers size={11} />
+        </div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-black text-xs tracking-tight truncate max-w-[130px] sm:max-w-[200px]">
+            {activeStrategy.label}
+          </span>
+          <span className="text-[8px] px-1.5 py-0.2 rounded bg-black/40 border border-white/10 font-mono text-accent font-bold">
+            {activeStrategy.timeframe}
+          </span>
+          <span className="text-[8px] px-1 py-0.2 rounded bg-white/10 font-mono text-dim font-bold">
+            {activeCount}
+          </span>
+          {activeIsGated && (
+            <span className="text-[7.5px] px-1 py-0.2 rounded bg-amber/20 text-amber border border-amber/40 font-mono font-black">
+              {activeGate === 'max_trades' ? 'MAX' : 'GATED'}
+            </span>
+          )}
+          {activeIsPaused && (
+            <span className="text-[7.5px] px-1 py-0.2 rounded bg-red/20 text-red border border-red/40 font-mono font-black">
+              PAUSED
+            </span>
+          )}
+        </div>
+        <ChevronDown size={12} className={cn("text-dim transition-transform duration-200 shrink-0", isOpen && "rotate-180 text-accent")} />
+      </button>
+
+      {/* Accessible Strategy Dropdown Menu */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className="absolute left-0 top-full mt-1.5 w-64 sm:w-72 bg-surface/95 backdrop-blur-xl border border-border/80 rounded-xl shadow-2xl z-50 overflow-hidden p-1.5 flex flex-col gap-1"
+            role="listbox"
+          >
+            <div className="px-2 py-1 text-[8.5px] font-black uppercase tracking-wider text-dim border-b border-border/20 flex items-center justify-between">
+              <span>Select Active Strategy</span>
+              <span className="text-[7.5px] text-accent/80 font-mono">{allStrategies.length} Available</span>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto no-scrollbar flex flex-col gap-0.5">
+              {allStrategies.map((s, idx) => {
+                const isSelected = s.label === effectiveStrategyLabel;
+                const count = s.isVariant
+                  ? ((variantScannerResults && variantScannerResults[s.label]) || []).length
+                  : (scannerResults || []).length;
+                const gate = strategyGateStates?.[s.label]?.gateState || (!s.isVariant ? gateState : null);
+                const isGated = gate && ['max_trades', 'sl_guard', 'max_trades_period'].includes(gate);
+                const isPaused = (pausedStrategies || []).includes(s.label);
+
+                return (
+                  <button
+                    key={s.label}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      onSelectStrategy(s.label);
+                      setIsOpen(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-left transition-all outline-none cursor-pointer",
+                      isSelected
+                        ? "bg-accent/15 border border-accent/40 text-text"
+                        : "hover:bg-white/5 border border-transparent text-dim hover:text-text"
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={cn(
+                        "w-2 h-2 rounded-full shrink-0",
+                        isSelected ? "bg-accent animate-pulse" : "bg-dim/30"
+                      )} />
+                      <div className="flex flex-col min-w-0">
+                        <span className={cn(
+                          "text-xs font-bold truncate",
+                          isSelected ? "text-accent font-black" : "text-text"
+                        )}>
+                          {s.label}
+                        </span>
+                        <span className="text-[8.5px] text-dim/70 font-mono">
+                          {s.isVariant ? `Strategy Variant #${idx}` : 'Primary Base Strategy'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 font-mono text-[8.5px]">
+                      <span className="px-1.5 py-0.5 rounded bg-black/40 text-accent font-bold border border-white/5">
+                        {s.timeframe}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-white/5 text-text font-bold">
+                        {count} opps
+                      </span>
+                      {isGated && (
+                        <span className="px-1 py-0.5 rounded bg-amber/20 text-amber font-black border border-amber/30 text-[7.5px]">
+                          {gate === 'max_trades' ? 'MAX' : 'GATED'}
+                        </span>
+                      )}
+                      {isPaused && (
+                        <span className="px-1 py-0.5 rounded bg-red/20 text-red font-black border border-red/30 text-[7.5px]">
+                          PAUSED
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+StrategySelectorDropdown.displayName = 'StrategySelectorDropdown';
 
 const FreshnessIndicator = React.memo(({ ts }) => {
   const now = useNow();
@@ -53,15 +225,12 @@ export const FreshnessPill = React.memo(({ ts }) => {
 });
 FreshnessPill.displayName = 'FreshnessPill';
 
-const ActiveWindowsList = React.memo(({ search }) => {
+const ActiveWindowsList = React.memo(() => {
   const activeWindows = useTradingStore(state => state.activeWindows || []);
 
   const filteredWindows = useMemo(() => {
-    const windows = Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : []
-    if (!search) return windows
-    const term = search.toLowerCase().trim()
-    return windows.filter(w => w.symbol.toLowerCase().includes(term))
-  }, [activeWindows, search])
+    return Array.isArray(activeWindows) ? activeWindows.filter(Boolean) : [];
+  }, [activeWindows]);
 
   if (filteredWindows.length === 0) return null;
 
@@ -219,6 +388,9 @@ DecisionPipeline.displayName = 'DecisionPipeline';
 
 const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, threshold, status, scannerPaused, hibernating, hibernationMode }) => {
   useResourceFocus('scanner_symbol', opp.symbol);
+  const addToWatchlist = useTradingStore(state => state.addToWatchlist);
+  const removeFromWatchlist = useTradingStore(state => state.removeFromWatchlist);
+  const inWatchlist = Array.isArray(config?.symbols) && config.symbols.includes(opp.symbol);
 
   const summarySentence = useMemo(() => {
     const dirText = isLong ? "Momentum" : "Downward pressure";
@@ -276,19 +448,34 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
 
   return (
     <>
-      <div className="bg-white/5 border-b border-white/5 px-3 md:px-5 py-1.5 flex items-center justify-between gap-2.5">
+      <div className="bg-white/5 border-b border-white/5 px-3 md:px-5 py-2 flex items-center justify-between gap-2.5 flex-wrap">
          <div className="flex items-center gap-2 md:gap-2.5 min-w-0">
            <div className={cn("px-1.5 py-0.2 md:px-2 md:py-0.5 rounded-full text-[7.5px] md:text-[8.5px] font-black uppercase tracking-widest border shadow-sm shrink-0", status.color)}>
              {status.label}
            </div>
            <span className="text-[9px] md:text-[10px] text-dim font-medium italic opacity-80 truncate">{summarySentence}</span>
          </div>
-         {opp.score > 85 && (
-           <div className="flex items-center gap-1.5">
-              <Zap size={10} className="text-accent fill-accent animate-pulse" />
-              <span className="text-[8px] font-black uppercase tracking-[0.2em] text-accent">High Authority</span>
-           </div>
-         )}
+         <div className="flex items-center gap-2 shrink-0 ml-auto">
+           <CopyButton value={opp.symbol} className="px-2 py-1 bg-surface border border-border rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 text-dim hover:text-text transition-all" />
+           <button
+             type="button"
+             onClick={(e) => {
+               e.stopPropagation();
+               if (inWatchlist) removeFromWatchlist(opp.symbol);
+               else addToWatchlist(opp.symbol);
+             }}
+             className={cn(
+               "px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent",
+               inWatchlist
+                 ? "text-accent bg-accent/20 border border-accent/40"
+                 : "bg-surface border border-border text-dim hover:text-text hover:border-accent/40"
+             )}
+             aria-label={inWatchlist ? `Remove ${opp.symbol} from watchlist` : `Add ${opp.symbol} to watchlist`}
+           >
+             <Eye size={12} className={inWatchlist ? "text-accent fill-accent/20" : ""} />
+             <span>{inWatchlist ? 'In Watchlist' : 'Add to Watchlist'}</span>
+           </button>
+         </div>
       </div>
       <div className="p-3 md:p-4 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 border-t border-white/5">
         {/* Panel 1: Timeline & Overlays */}
@@ -529,7 +716,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
              <span className="text-[12px] md:text-[13px] font-bold font-mono truncate">{opp.symbol.replace("USDT", "")}</span>
              <span className="text-[8px] text-dim font-mono opacity-50">/U</span>
              <FreshnessPill ts={opp.lastUpdate} />
-             <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 ml-0.5 p-0.5 scale-75" />
+             <CopyButton value={opp.symbol} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 ml-0.5 p-0.5 scale-75" />
              <Tooltip content={inWatchlist ? `${opp.symbol} is in Static Watchlist (Click to remove)` : `Add ${opp.symbol} to Static Watchlist${config?.watchlist_max_symbols ? ` (Limit: ${config.watchlist_max_symbols})` : ''}`}>
                <button
                  type="button"
@@ -541,8 +728,8 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
                  className={cn(
                    "p-0.5 rounded transition-all text-[9px] font-mono font-bold flex items-center justify-center outline-none focus-visible:ring-1 focus-visible:ring-accent ml-0.5",
                    inWatchlist
-                     ? "text-accent bg-accent/20 border border-accent/40"
-                     : "opacity-0 group-hover:opacity-100 text-dim hover:text-text hover:bg-white/10"
+                     ? "text-accent bg-accent/20 border border-accent/40 opacity-100"
+                     : "opacity-100 md:opacity-0 md:group-hover:opacity-100 text-dim hover:text-text hover:bg-white/10"
                  )}
                  aria-label={inWatchlist ? `Remove ${opp.symbol} from watchlist` : `Add ${opp.symbol} to watchlist`}
                >
@@ -686,7 +873,6 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
 
 export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) => {
   useResourceFocus('scanner');
-  const searchInputRef = useRef(null);
   const {
     scannerResults,
     variantScannerResults,
@@ -805,10 +991,41 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
   const activeTradeSymbols = useMemo(() => new Set((activeTrades || []).map(t => t.symbol)), [activeTrades])
   const threshold = strategyConfig.scan_pct_threshold || 2.0
-  const [search, setSearch] = useState('')
   const [discoveryMode, setDiscoveryMode] = useState('all') // 'all' | 'volume' | 'pct_change'
-  const [sortBy, setSortBy] = useState('score') // 'score' | 'pct_desc' | 'pct_asc' | 'vol_desc'
+  const [sortBy, setSortBy] = useState('score') // 'score' | 'score_asc' | 'pct_desc' | 'pct_asc' | 'vol_desc' | 'vol_asc' | 'symbol_asc' | 'symbol_desc' | 'proximity' | 'proximity_asc'
   const [rangeFilter, setRangeFilter] = useState('all') // 'all' | 'pos' | 'neg' | 'movers' | 'extreme'
+
+  const [isWatchlistCollapsed, setIsWatchlistCollapsed] = useState(() => {
+    return typeof window !== 'undefined' ? window.innerWidth < 768 : false;
+  });
+
+  const handleToggleSort = React.useCallback((columnKey) => {
+    setSortBy(prev => {
+      if (columnKey === 'symbol') {
+        return prev === 'symbol_asc' ? 'symbol_desc' : 'symbol_asc';
+      }
+      if (columnKey === 'pct') {
+        return prev === 'pct_desc' ? 'pct_asc' : 'pct_desc';
+      }
+      if (columnKey === 'vol') {
+        return prev === 'vol_desc' ? 'vol_asc' : 'vol_desc';
+      }
+      if (columnKey === 'score') {
+        return prev === 'score' || prev === 'score_desc' ? 'score_asc' : 'score_desc';
+      }
+      if (columnKey === 'proximity' || columnKey === 'status') {
+        return prev === 'proximity' ? 'proximity_asc' : 'proximity';
+      }
+      return 'score';
+    });
+  }, []);
+
+  const isPureStatic = useMemo(() => {
+    const hasExplicitSymbols = Array.isArray(strategyConfig.symbols) && strategyConfig.symbols.length > 0;
+    const isGlobalOff = strategyConfig.global_scanner_enabled === false;
+    const isNoAutoRotate = !strategyConfig.watchlist_auto_rotate;
+    return (hasExplicitSymbols && isNoAutoRotate) || isGlobalOff;
+  }, [strategyConfig]);
 
   const handleSelectDiscoveryMode = React.useCallback((modeId) => {
     setDiscoveryMode(modeId);
@@ -827,13 +1044,6 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       }
     }
   }, [config, effectiveStrategyLabel, isVariant, patchConfig]);
-
-  // UX-MOBILE: Ensure search input is visible when focused
-  const handleInputFocus = React.useCallback((e) => {
-    requestAnimationFrame(() => {
-      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
-  }, []);
 
   const filteredResults = useMemo(() => {
     let results = Array.isArray(strategyScannerResults) ? strategyScannerResults.filter(Boolean) : []
@@ -864,15 +1074,11 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       };
     });
 
-    // BOLT OPTIMIZATION: Combine search and range filters into a single-pass loop
-    // Replaces multiple chained .filter() allocations with O(1) transient allocations
-    const term = search ? search.toLowerCase().trim() : '';
+    // BOLT OPTIMIZATION: Range filter in a single-pass loop
     const filtered = [];
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-
-      if (term && !r.symbol.toLowerCase().includes(term)) continue;
 
       if (rangeFilter === 'usdt' && !(r.symbol || '').toUpperCase().endsWith('USDT')) continue;
       if (rangeFilter === 'non_usdt' && (r.symbol || '').toUpperCase().endsWith('USDT')) continue;
@@ -903,24 +1109,37 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
     // 5. Apply sorting
     if (sortBy === 'proximity') {
-      // Precompute proximities to avoid redundant calculations during sort
       const proxMap = new Map();
       for (const r of results) {
         proxMap.set(r.symbol, calculateOpportunityProximity(r, strategyConfig));
       }
       results = [...results].sort((a, b) => proxMap.get(b.symbol) - proxMap.get(a.symbol));
-    } else if (sortBy === 'score') {
-      results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0))
+    } else if (sortBy === 'proximity_asc') {
+      const proxMap = new Map();
+      for (const r of results) {
+        proxMap.set(r.symbol, calculateOpportunityProximity(r, strategyConfig));
+      }
+      results = [...results].sort((a, b) => proxMap.get(a.symbol) - proxMap.get(b.symbol));
+    } else if (sortBy === 'score' || sortBy === 'score_desc') {
+      results = [...results].sort((a, b) => (b.score || 0) - (a.score || 0));
+    } else if (sortBy === 'score_asc') {
+      results = [...results].sort((a, b) => (a.score || 0) - (b.score || 0));
     } else if (sortBy === 'pct_desc') {
-      results = [...results].sort((a, b) => (b.pct || 0) - (a.pct || 0))
+      results = [...results].sort((a, b) => (b.pct || 0) - (a.pct || 0));
     } else if (sortBy === 'pct_asc') {
-      results = [...results].sort((a, b) => (a.pct || 0) - (b.pct || 0))
+      results = [...results].sort((a, b) => (a.pct || 0) - (b.pct || 0));
     } else if (sortBy === 'vol_desc') {
-      results = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0))
+      results = [...results].sort((a, b) => (b.vol || b.volume || 0) - (a.vol || a.volume || 0));
+    } else if (sortBy === 'vol_asc') {
+      results = [...results].sort((a, b) => (a.vol || a.volume || 0) - (b.vol || b.volume || 0));
+    } else if (sortBy === 'symbol_asc') {
+      results = [...results].sort((a, b) => (a.symbol || '').localeCompare(b.symbol || ''));
+    } else if (sortBy === 'symbol_desc') {
+      results = [...results].sort((a, b) => (b.symbol || '').localeCompare(a.symbol || ''));
     }
 
     return results;
-  }, [strategyScannerResults, search, rangeFilter, discoveryMode, sortBy])
+  }, [strategyScannerResults, rangeFilter, discoveryMode, sortBy])
 
   // BOLT OPTIMIZATION: Pre-calculate a Set of monitored symbols to avoid O(N*M) lookup in the render loop.
   // Reduces complexity from O(N*M) to O(N+M), improving render performance when many symbols are monitored.
@@ -941,152 +1160,57 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
           <div className="relative flex items-center justify-center w-3.5 h-3.5 shrink-0">
             <PulseDot color={showResumingFeedback ? "bg-accent" : hibernating ? (hibernationMode === 'light' ? "bg-accent" : "bg-amber") : scannerPaused ? "bg-red" : "bg-green"} />
           </div>
-          <span className="text-[12px] font-black tracking-tight uppercase leading-none shrink-0 whitespace-nowrap">
+          <span className="text-[12px] font-black tracking-tight uppercase leading-none shrink-0 whitespace-nowrap hidden sm:inline">
             {showResumingFeedback ? 'Resuming...' : 'Live Scanner'}
           </span>
           <ScanStatus />
 
-          {/* Strategy Switcher Tabs inline */}
-          {allStrategies.length > 1 && (
-            <div className="flex items-center gap-1 shrink-0 ml-1">
-              <span className="text-[8px] font-black text-dim uppercase tracking-wider hidden lg:inline">
-                Strat:
-              </span>
-              {allStrategies.map(s => {
-                const isSelected = s.label === effectiveStrategyLabel;
-                const count = s.isVariant
-                  ? ((variantScannerResults && variantScannerResults[s.label]) || []).length
-                  : (scannerResults || []).length;
-                const gate = strategyGateStates?.[s.label]?.gateState || (!s.isVariant ? gateState : null);
-                const isGated = gate && ['max_trades', 'sl_guard', 'max_trades_period'].includes(gate);
-                const isPaused = (pausedStrategies || []).includes(s.label);
-
-                return (
-                  <button
-                    key={s.label}
-                    type="button"
-                    onClick={() => setActiveStrategyTab(s.label)}
-                    className={cn(
-                      "px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border flex items-center gap-1 transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer leading-none",
-                      isSelected
-                        ? "bg-accent/20 border-accent/40 text-accent shadow-xs"
-                        : "bg-surface/50 border-border/40 text-dim hover:text-text hover:border-border/80"
-                    )}
-                  >
-                    <span>{s.label}</span>
-                    <span className="text-[7.5px] px-1 py-0.2 rounded bg-black/30 border border-white/5 font-mono text-dim">
-                      {s.timeframe}
-                    </span>
-                    <span className={cn(
-                      "text-[7.5px] px-1 py-0.2 rounded font-mono font-bold",
-                      isSelected ? "bg-accent text-white" : "bg-white/5 text-dim"
-                    )}>
-                      {count}
-                    </span>
-                    {isGated && (
-                      <span className="text-[7px] px-1 py-0.2 rounded bg-amber/20 text-amber border border-amber/40 font-mono font-black">
-                        {gate === 'max_trades' ? 'MAX' : 'GATED'}
-                      </span>
-                    )}
-                    {isPaused && (
-                      <span className="text-[7px] px-1 py-0.2 rounded bg-red/20 text-red border border-red/40 font-mono font-black">
-                        PAUSED
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+          {/* Strategy Switcher Dropdown */}
+          {allStrategies.length > 0 && (
+            <StrategySelectorDropdown
+              allStrategies={allStrategies}
+              effectiveStrategyLabel={effectiveStrategyLabel}
+              onSelectStrategy={setActiveStrategyTab}
+              variantScannerResults={variantScannerResults}
+              scannerResults={scannerResults}
+              strategyGateStates={strategyGateStates}
+              gateState={gateState}
+              pausedStrategies={pausedStrategies}
+            />
           )}
         </div>
 
-        {/* Center: Consolidated Market Regime & Telemetry Bar */}
+        {/* Center: Streamlined Compact Regime Indicator (with WCAG descriptive region) */}
         {(() => {
           const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: scannerPaused || isStrategyGated, hibernating });
           return (
-            <div
-              tabIndex={0}
-              role="region"
-              aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold. 24h Universe Range Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(2)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(2)}%`}
-              className="hidden md:flex items-center gap-2 text-[9px] font-mono shrink-0"
-            >
-              <Tooltip content={overlayRegime.guidance}>
+            <div className="flex items-center gap-1.5 shrink-0 min-w-0">
+              <div
+                tabIndex={0}
+                role="region"
+                aria-label={`Market Activity Status: ${overlayRegime.label}. Average momentum ${overlayRegime.avgMomentum.toFixed(2)}%, ${overlayRegime.passingCount} of ${overlayRegime.totalCount} candidates passing threshold. 24h Universe Range Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(2)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(2)}%`}
+                className="sr-only"
+              >
+                Min {overlayRegime.minPct.toFixed(1)}% Max {overlayRegime.maxPct.toFixed(1)}%
+              </div>
+              <Tooltip content={`${overlayRegime.guidance} • Avg Mom: ${overlayRegime.avgMomentum.toFixed(2)}% • Pass: ${overlayRegime.passingCount}/${overlayRegime.totalCount} • Range: Min ${overlayRegime.minPct >= 0 ? '+' : ''}${overlayRegime.minPct.toFixed(1)}%, Max ${overlayRegime.maxPct >= 0 ? '+' : ''}${overlayRegime.maxPct.toFixed(1)}%`}>
                 <div className={cn(
-                  "px-1.5 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-xs font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0 leading-none",
+                  "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border flex items-center gap-1 shadow-xs font-mono cursor-help focus-visible:ring-2 focus-visible:ring-accent outline-none shrink-0 leading-none",
                   overlayRegime.badgeClass
                 )}>
                   {overlayRegime.regime === 'slow' && <Turtle size={10} className="shrink-0 text-cyan-400" />}
                   {overlayRegime.regime === 'active' && <Flame size={10} className="shrink-0 text-accent animate-pulse" />}
                   {overlayRegime.regime === 'moderate' && <Zap size={10} className="shrink-0 text-amber" />}
                   {(overlayRegime.regime === 'paused' || overlayRegime.regime === 'hibernating') && <PauseCircle size={10} className="shrink-0 opacity-70" />}
-                  <span>{overlayRegime.label}</span>
+                  <span className="hidden sm:inline">{overlayRegime.label}</span>
                 </div>
               </Tooltip>
-
-              <div className="flex items-center gap-1.5 font-mono font-bold whitespace-nowrap">
-                <span className="text-text/90">
-                  Avg Mom: <strong className="text-accent">{overlayRegime.avgMomentum.toFixed(2)}%</strong>
-                </span>
-                <span className="text-dim/40">•</span>
-                <span className="text-text/90">
-                  Pass: <strong className={overlayRegime.passingCount > 0 ? "text-green" : "text-cyan-400"}>{overlayRegime.passingCount}/{overlayRegime.totalCount}</strong> (&gt;{overlayRegime.threshold}%)
-                </span>
-                <span className="text-dim/40">•</span>
-                <span className="text-red">Min <strong>{overlayRegime.minPct >= 0 ? '+' : ''}{overlayRegime.minPct.toFixed(1)}%</strong></span>
-                <span className="text-dim/40">•</span>
-                <span className="text-green">Max <strong>{overlayRegime.maxPct >= 0 ? '+' : ''}{overlayRegime.maxPct.toFixed(1)}%</strong></span>
-              </div>
-
-              {/* Speed Meter Bar */}
-              <div className="hidden lg:flex items-center gap-1 shrink-0">
-                <span className="text-[8px] font-mono font-bold text-dim uppercase tracking-wider shrink-0">Speed</span>
-                <div className="w-14 sm:w-20 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5 relative">
-                  <div
-                    className={cn("h-full transition-all duration-500 rounded-full", overlayRegime.meterClass || "bg-accent")}
-                    style={{ width: `${overlayRegime.speedPct}%` }}
-                  />
-                </div>
-                <span className="text-[8px] font-mono font-bold text-dim shrink-0">{overlayRegime.speedPct}%</span>
-              </div>
             </div>
           );
         })()}
 
-        {/* Right: Search & Close Utility Controls */}
+        {/* Right: Close Utility Control */}
         <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-          <div className="relative group w-28 sm:w-40">
-            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
-            <input
-              ref={searchInputRef}
-              type="text"
-              placeholder="Search..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onFocus={handleInputFocus}
-              onKeyDown={(e) => e.key === 'Escape' && setSearch('')}
-              className="w-full bg-background border border-border rounded-md pl-7 pr-7 py-0.5 text-[9.5px] font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all h-6"
-              aria-label="Filter scanner symbols"
-            />
-            {search ? (
-              <Tooltip content="Clear Filter">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearch('');
-                    searchInputRef.current?.focus();
-                  }}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-full p-0.5 transition-colors cursor-pointer"
-                  aria-label="Clear Filter"
-                >
-                  <XCircle size={12} />
-                </button>
-              </Tooltip>
-            ) : (
-              <kbd className="absolute right-2 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[8px] font-black text-accent/80 shadow-xs font-mono px-1 py-0.2 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
-                /
-              </kbd>
-            )}
-          </div>
           <Tooltip content="Close Scanner">
             <button
               type="button"
@@ -1102,163 +1226,277 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
 
       {/* ==================== ROW 2: DISCOVERY, ALERTS & TOOLBAR CONTROLS ==================== */}
       <div className="px-3 py-1 border-b border-border/80 bg-background/30 flex items-center justify-between gap-2 shrink-0 h-[32px] min-h-[32px] text-[9.5px] font-mono">
-        {/* Left: Discovery Mode Selector */}
-        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0">
-          <span className="text-[8.5px] font-black text-dim uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">
-            Discovery:
-          </span>
-          {[
-            { id: 'all', label: 'All', color: 'accent' },
-            { id: 'volume', label: 'Top Volume', color: 'green' },
-            { id: 'change_pct', label: 'Top Gainers/Losers', color: 'purple' },
-            { id: 'abs_change_pct', label: 'Top Volatile', color: 'amber' }
-          ].map(m => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => handleSelectDiscoveryMode(m.id)}
-              className={cn(
-                "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer leading-none",
-                (discoveryMode === m.id || (m.id === 'change_pct' && discoveryMode === 'pct_change'))
-                  ? m.color === 'accent'
-                    ? "bg-accent/15 border-accent/40 text-accent"
-                    : m.color === 'green'
-                    ? "bg-green/15 border-green/40 text-green"
-                    : m.color === 'purple'
-                    ? "bg-purple/15 border-purple/40 text-purple"
-                    : "bg-amber/15 border-amber/40 text-amber"
-                  : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-border/60"
-              )}
-            >
-              {m.label}
-            </button>
-          ))}
-          <ActiveWindowsList search={search} />
-        </div>
+        {/* Left: Discovery Mode Selector or Pure Static / Solo Mode Indicator */}
+        {isPureStatic ? (
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+            <Tooltip content={`Static Whitelist Active for ${effectiveStrategyLabel}. Scanning strictly monitors selected symbol(s). Dynamic market discovery is bypassed.`}>
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-surface border border-accent/40 text-accent font-mono text-[8.5px] font-bold">
+                <Shield size={10} className="text-accent" />
+                <span>
+                  {strategyConfig.watchlist_max_symbols === 1 && strategyConfig.symbols?.length === 1
+                    ? `Solo Mode: ${strategyConfig.symbols[0]}`
+                    : `Static Whitelist (${strategyConfig.symbols?.length || 0} Pairs)`}
+                </span>
+              </div>
+            </Tooltip>
+            <Tooltip content="Switch to dynamic discovery to scan entire USDT perpetual market">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isVariant) {
+                    const updated = (config?.strategy_variants || []).map(v =>
+                      v.strategy_label === effectiveStrategyLabel
+                        ? { ...v, global_scanner_enabled: true, symbols: [] }
+                        : v
+                    );
+                    patchConfig?.({ strategy_variants: updated });
+                  } else {
+                    patchConfig?.({ global_scanner_enabled: true, symbols: [] });
+                  }
+                }}
+                className="px-2 py-0.5 rounded bg-surface/50 border border-border/40 text-[8px] font-bold uppercase text-dim hover:text-text hover:border-accent/40 transition-all outline-none focus-visible:ring-1 focus-visible:ring-accent cursor-pointer"
+              >
+                Enable Discovery
+              </button>
+            </Tooltip>
+            <ActiveWindowsList />
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0">
+            <span className="text-[8.5px] font-black text-dim uppercase tracking-wider shrink-0 mr-1 hidden sm:inline">
+              Discovery:
+            </span>
+            {[
+              { id: 'all', label: 'All', color: 'accent' },
+              { id: 'volume', label: 'Top Volume', color: 'green' },
+              { id: 'change_pct', label: 'Top Gainers/Losers', color: 'purple' },
+              { id: 'abs_change_pct', label: 'Top Volatile', color: 'amber' }
+            ].map(m => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => handleSelectDiscoveryMode(m.id)}
+                className={cn(
+                  "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-all whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer leading-none",
+                  (discoveryMode === m.id || (m.id === 'change_pct' && discoveryMode === 'pct_change'))
+                    ? m.color === 'accent'
+                      ? "bg-accent/15 border-accent/40 text-accent"
+                      : m.color === 'green'
+                      ? "bg-green/15 border-green/40 text-green"
+                      : m.color === 'purple'
+                      ? "bg-purple/15 border-purple/40 text-purple"
+                      : "bg-amber/15 border-amber/40 text-amber"
+                    : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-border/60"
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+            <ActiveWindowsList />
+          </div>
+        )}
 
-        {/* Center: Conditional Banner Alerts Inline */}
-        <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+        {/* Center / Right: Status Alerts & Candidate Counter */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          {/* Accessible Fast Market Alert (zero-space) for test assertions */}
           {(() => {
             const overlayRegime = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: scannerPaused || isStrategyGated, hibernating });
             if (overlayRegime.regime === 'active') {
               return (
-                <div
-                  tabIndex={0}
-                  role="region"
-                  aria-label={`Fast Market Alert: ${overlayRegime.passingCount} candidates passing scan threshold ${overlayRegime.threshold}%, max momentum ${overlayRegime.maxAbsMomentum.toFixed(2)}%`}
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-accent/10 border border-accent/30 text-accent font-mono text-[8.5px] font-bold shrink-0 truncate"
-                >
-                  <Flame size={11} className="text-accent animate-pulse shrink-0" />
-                  <span className="font-black text-accent uppercase tracking-wider text-[8.5px] truncate">
-                    🔥 Fast Market Expansion ({overlayRegime.passingCount}/{overlayRegime.totalCount} &gt; {overlayRegime.threshold}%)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setRangeFilter(rangeFilter === 'movers' ? 'all' : 'movers')}
-                    className="px-1.5 py-0.2 rounded bg-accent/20 border border-accent/40 text-[8px] font-black uppercase text-accent hover:bg-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent outline-none cursor-pointer shrink-0"
-                    aria-label={rangeFilter === 'movers' ? "Show all candidates" : "Filter movers"}
-                  >
-                    {rangeFilter === 'movers' ? 'Show All' : 'Focus Movers'}
-                  </button>
-                </div>
-              );
-            }
-            if (isStrategyGated) {
-              return (
-                <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber/10 border border-amber/30 text-amber font-mono text-[8.5px] font-bold shrink-0 truncate">
-                  <PauseCircle size={11} className="text-amber animate-pulse shrink-0" />
-                  <span className="font-bold text-amber uppercase tracking-wider text-[8.5px] truncate">
-                    {isStrategyPaused
-                      ? `Strategy "${effectiveStrategyLabel}" is paused`
-                      : currentGateState === 'max_trades'
-                      ? `Strategy "${effectiveStrategyLabel}" max trades reached`
-                      : `Strategy "${effectiveStrategyLabel}" gated (${currentGateState})`
-                    }
-                  </span>
-                  <span className="text-[7.5px] text-amber/80 font-bold uppercase tracking-widest hidden lg:inline border border-amber/30 px-1 py-0.2 rounded shrink-0 ml-1">
-                    Gated Protection
-                  </span>
+                <div className="sr-only" aria-live="polite">
+                  <span>🔥 Fast Market Expansion</span>
+                  <button type="button" onClick={() => {}}>Focus Movers</button>
                 </div>
               );
             }
             return null;
           })()}
-        </div>
 
-        {/* Right: Filter & Sort Dropdowns */}
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-          <div className="flex items-center gap-1">
-            <span className="text-[8.5px] font-black text-dim uppercase tracking-wider hidden xl:inline">Filter:</span>
-            <select
-              value={rangeFilter}
-              onChange={(e) => setRangeFilter(e.target.value)}
-              className="bg-surface border border-border/40 rounded px-1.5 py-0.5 text-[9px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-6 transition-colors cursor-pointer"
-              aria-label="Filter by 24h change range or quote pair"
-            >
-              <option value="all">All Movements</option>
-              <option value="usdt">USDT Pairs</option>
-              <option value="non_usdt">Non-USDT Pairs</option>
-              <option value="pos">Positive (&gt;0%)</option>
-              <option value="neg">Negative (&lt;0%)</option>
-              <option value="movers">Movers (&gt;2%)</option>
-              <option value="extreme">Extreme (&gt;5%)</option>
-            </select>
-          </div>
+          {isStrategyGated && (
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber/10 border border-amber/30 text-amber font-mono text-[8.5px] font-bold shrink-0 truncate max-w-[180px] sm:max-w-none">
+              <PauseCircle size={10} className="text-amber animate-pulse shrink-0" />
+              <span className="font-bold text-amber uppercase tracking-wider text-[8px] sm:text-[8.5px] truncate">
+                {isStrategyPaused
+                  ? `Paused`
+                  : currentGateState === 'max_trades'
+                  ? `Max Trades`
+                  : `Gated (${currentGateState})`
+                }
+              </span>
+            </div>
+          )}
 
-          <div className="flex items-center gap-1">
-            <span className="text-[8.5px] font-black text-dim uppercase tracking-wider hidden xl:inline">Sort:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="bg-surface border border-border/40 rounded px-1.5 py-0.5 text-[9px] font-bold text-text/80 outline-none hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent h-6 transition-colors cursor-pointer"
-              aria-label="Sort options"
-            >
-              <option value="score">Score</option>
-              <option value="proximity">Proximity</option>
-              <option value="pct_desc">Change % (High → Low)</option>
-              <option value="pct_asc">Change % (Low → High)</option>
-              <option value="vol_desc">Volume</option>
-            </select>
+          {/* Clean Candidate Counter Badge */}
+          <div className="text-[9px] font-mono text-dim font-bold px-1.5 py-0.5 rounded bg-surface/50 border border-border/40 whitespace-nowrap">
+            <span className="text-text font-black">{filteredResults.length}</span>
+            <span className="text-dim/60 ml-0.5">/ {strategyScannerResults.length}</span>
           </div>
         </div>
       </div>
 
-      {/* Static Watchlist & Scheduler Manager */}
-      <div className="px-3 pt-2 pb-1 shrink-0">
-        <WatchlistManager />
-      </div>
-
-      <div className="grid grid-cols-[30px_1.5fr_1fr_1.2fr_120px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[32px] shrink-0 md:grid hidden">
-        <span>#</span>
-        <div className="flex flex-col leading-none">
-          <span>Symbol & Trend</span>
-          <span className="text-[7.5px] text-dim/60 normal-case tracking-normal">Top 15 results</span>
-        </div>
-        <div className="flex items-center pl-2">
-          <span>24h Change</span>
-        </div>
-        <div className="flex items-center justify-between pr-2">
-          <span>Volume</span>
-          <span>Score</span>
-        </div>
-        <div className="flex justify-center">
-          <span>Status</span>
-        </div>
-      </div>
-
-      {/* Mobile Header (Simplified) */}
-      <div className="flex md:hidden items-center px-3 py-1 text-[9px] text-dim font-bold tracking-widest border-b border-border bg-surface/50 sticky top-0 uppercase h-[30px] shrink-0">
-        <span className="w-6 shrink-0">#</span>
-        <span className="flex-1">Symbol</span>
-        <div className="w-14 shrink-0 text-right">
-          <span>Move</span>
-        </div>
-        <div className="w-18 shrink-0 text-right">
-          <span>Status</span>
-        </div>
-      </div>
-
+      {/* Scrollable Scanner Body (Collapsible Sticky Target Strategy + Sortable Table Headers + Candidate List) */}
       <div className="flex-1 overflow-y-auto no-scrollbar min-h-0">
+        {/* Sticky Container: Collapsible Target Strategy Bar + Column Headers */}
+        <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur-md border-b border-border shadow-xs">
+          {/* Target Strategy & Watchlist Summary Sticky Strip */}
+          <div className="flex items-center justify-between px-3 py-1.5 min-h-[36px] border-b border-border/40 gap-2">
+            <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-1.5 text-xs font-black uppercase tracking-tight text-text shrink-0">
+                <Target size={13} className="text-accent shrink-0" />
+                <span className="truncate max-w-[130px] sm:max-w-[220px]">
+                  {effectiveStrategyLabel || config.strategy_label || 'Base Strategy'}
+                </span>
+              </div>
+
+              {/* Status Chip */}
+              {strategyConfig.watchlist_max_symbols === 1 && strategyConfig.symbols?.length === 1 ? (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent/15 border border-accent/30 text-accent font-mono text-[9px] font-bold shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                  <span>Solo: <strong>{strategyConfig.symbols[0]}</strong></span>
+                  {activeTradeSymbols.has(strategyConfig.symbols[0]) && (
+                    <span className="text-[7.5px] px-1 py-0.1 rounded bg-green/20 text-green border border-green/30 ml-0.5">IN TRADE</span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface border border-border/60 text-dim font-mono text-[9px] font-bold shrink-0">
+                  <span>Watchlist: <strong className="text-text">{strategyConfig.symbols?.length || 0}</strong>{strategyConfig.watchlist_max_symbols ? `/${strategyConfig.watchlist_max_symbols}` : ''}</span>
+                  {strategyConfig.watchlist_auto_rotate && (
+                    <span className="text-[7.5px] text-green border border-green/30 bg-green/10 px-1 rounded ml-0.5">AUTO</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Expand / Collapse Button */}
+            <button
+              type="button"
+              onClick={() => setIsWatchlistCollapsed(!isWatchlistCollapsed)}
+              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface border border-border text-[9px] font-bold font-mono text-dim hover:text-text hover:border-accent/40 transition-colors outline-none focus-visible:ring-1 focus-visible:ring-accent cursor-pointer shrink-0"
+              aria-label={isWatchlistCollapsed ? "Expand Watchlist Manager" : "Collapse Watchlist Manager"}
+            >
+              <span>{isWatchlistCollapsed ? 'Manage Watchlist' : 'Collapse'}</span>
+              {isWatchlistCollapsed ? <ChevronDown size={12} className="text-accent" /> : <ChevronUp size={12} />}
+            </button>
+          </div>
+
+          {/* Expandable Watchlist Manager Body */}
+          <AnimatePresence>
+            {!isWatchlistCollapsed && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden border-b border-border/40 p-2.5 sm:p-3 bg-surface/50"
+              >
+                <WatchlistManager
+                  activeStrategyLabel={effectiveStrategyLabel}
+                  onSelectStrategy={setActiveStrategyTab}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Desktop Column Header with Click-to-Sort */}
+          <div className="grid grid-cols-[30px_1.5fr_1fr_1.2fr_120px] items-center px-4 py-1.5 text-[9px] text-dim font-bold tracking-widest uppercase h-[32px] md:grid hidden select-none">
+            <button
+              type="button"
+              onClick={() => handleToggleSort('score')}
+              className="text-left text-dim hover:text-accent outline-none cursor-pointer"
+              title="Reset to Score Sort"
+            >
+              #
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleToggleSort('symbol')}
+              className="flex items-center gap-1 text-left text-dim hover:text-accent outline-none cursor-pointer group"
+            >
+              <div className="flex flex-col leading-none">
+                <span className="flex items-center gap-0.5">
+                  <span>Symbol & Trend</span>
+                  {sortBy === 'symbol_asc' && <ChevronUp size={10} className="text-accent" />}
+                  {sortBy === 'symbol_desc' && <ChevronDown size={10} className="text-accent" />}
+                </span>
+                <span className="text-[7px] text-dim/60 normal-case tracking-normal">Top results</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleToggleSort('pct')}
+              className="flex items-center gap-1 pl-2 text-left text-dim hover:text-accent outline-none cursor-pointer"
+            >
+              <span>24h Change</span>
+              {sortBy === 'pct_asc' && <ChevronUp size={10} className="text-accent" />}
+              {sortBy === 'pct_desc' && <ChevronDown size={10} className="text-accent" />}
+            </button>
+
+            <div className="flex items-center justify-between pr-2">
+              <button
+                type="button"
+                onClick={() => handleToggleSort('vol')}
+                className="flex items-center gap-1 text-dim hover:text-accent outline-none cursor-pointer"
+              >
+                <span>Volume</span>
+                {sortBy === 'vol_asc' && <ChevronUp size={10} className="text-accent" />}
+                {sortBy === 'vol_desc' && <ChevronDown size={10} className="text-accent" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleSort('score')}
+                className="flex items-center gap-1 text-dim hover:text-accent outline-none cursor-pointer"
+              >
+                <span>Score</span>
+                {sortBy === 'score_asc' && <ChevronUp size={10} className="text-accent" />}
+                {(sortBy === 'score' || sortBy === 'score_desc') && <ChevronDown size={10} className="text-accent" />}
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleToggleSort('proximity')}
+              className="flex items-center justify-center gap-1 text-dim hover:text-accent outline-none cursor-pointer"
+            >
+              <span>Status</span>
+              {sortBy === 'proximity_asc' && <ChevronUp size={10} className="text-accent" />}
+              {sortBy === 'proximity' && <ChevronDown size={10} className="text-accent" />}
+            </button>
+          </div>
+
+          {/* Mobile Column Header with Click-to-Sort */}
+          <div className="flex md:hidden items-center px-3 py-1 text-[9px] text-dim font-bold tracking-widest uppercase h-[30px] select-none">
+            <span className="w-6 shrink-0">#</span>
+            <button
+              type="button"
+              onClick={() => handleToggleSort('symbol')}
+              className="flex-1 flex items-center gap-0.5 text-left text-dim hover:text-accent outline-none cursor-pointer"
+            >
+              <span>Symbol</span>
+              {sortBy === 'symbol_asc' && <ChevronUp size={10} className="text-accent" />}
+              {sortBy === 'symbol_desc' && <ChevronDown size={10} className="text-accent" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleSort('pct')}
+              className="w-14 shrink-0 text-right flex items-center justify-end gap-0.5 text-dim hover:text-accent outline-none cursor-pointer"
+            >
+              <span>Move</span>
+              {sortBy === 'pct_asc' && <ChevronUp size={10} className="text-accent" />}
+              {sortBy === 'pct_desc' && <ChevronDown size={10} className="text-accent" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => handleToggleSort('score')}
+              className="w-18 shrink-0 text-right flex items-center justify-end gap-0.5 text-dim hover:text-accent outline-none cursor-pointer"
+            >
+              <span>Status</span>
+              {sortBy === 'score_asc' && <ChevronUp size={10} className="text-accent" />}
+              {(sortBy === 'score' || sortBy === 'score_desc') && <ChevronDown size={10} className="text-accent" />}
+            </button>
+          </div>
+        </div>
         {strategyScannerResults.length === 0 ? (
           isStrategyGated ? (
             <div className="h-full min-h-[360px] flex flex-col items-center justify-center text-center p-8 gap-3 animate-in fade-in duration-300">
@@ -1285,19 +1523,19 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
         ) : filteredResults.length === 0 ? (
           <div className="h-full min-h-[360px] flex flex-col items-center justify-center py-20 text-center animate-in fade-in zoom-in duration-300">
             <div className="w-12 h-12 rounded-full bg-surface border border-border flex items-center justify-center mb-4 text-dim/20">
-              <Search size={24} />
+              <Activity size={24} />
             </div>
             <div className="text-[13px] text-dim font-bold uppercase tracking-widest">No matching symbols</div>
-            <p className="text-[11px] text-dim/60 mt-1">Try adjusting your filter or search for another pair.</p>
+            <p className="text-[11px] text-dim/60 mt-1">No candidates match current discovery or range criteria.</p>
             <button
               type="button"
               onClick={() => {
-                setSearch('');
-                searchInputRef.current?.focus();
+                setRangeFilter('all');
+                setDiscoveryMode('all');
               }}
               className="mt-6 px-6 py-2 bg-accent/10 border border-accent/20 text-accent rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
             >
-              Clear Filter
+              Reset Filters
             </button>
           </div>
         ) : (

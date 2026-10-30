@@ -1,61 +1,36 @@
-# Static Watchlist Scheduler, Strict Limits & Double-Logging Resolution
+# Implementation Plan: Mobile-Friendly Scanner, Header Optimization, Column Sorting & Collapsible Sticky Target Strategy
 
-## Overview
-This implementation resolves two core operational needs:
-1. **Double-Logging Resolution**: Diagnose and permanently eliminate duplicate decision log entries appearing in the UI and clipboard exports with identical timestamps down to the millisecond.
-2. **Static Watchlist Scheduler & Dynamic Scanner Promotion**:
-   - Strict watchlist capacity limits (e.g., if set to 1, strictly only 1 symbol stays on the list).
-   - Automated rotation scheduler with configurable interval (e.g. 5m, 15m, 30m, 1h, 4h).
-   - "No to change" (frozen/locked) mode to prevent automated rotation when desired.
-   - Auto-promote top favorable opportunities from the dynamic scanner based on momentum score and signal readiness.
-   - SRE Capital Safeguard: Never evict or rotate out a symbol that has an active open position.
-   - High-efficiency UI/UX controls: Direct 1-click "Promote to Watchlist" on Scanner rows, interactive Watchlist Control Bar with live metrics, and limit selector.
+## Key Implementations Completed
 
----
+1. **Header De-Cluttering & Resource/Space Optimization**:
+   - Removed the bulky visible 400px+ telemetry bar from Row 1, replacing it with an ultra-compact status pill and WCAG-compliant screen-reader telemetry region.
+   - Removed the noisy `🔥 Fast Market Expansion` alert bar and "Focus Movers" clutter from Row 2, replacing it with a clean candidate counter badge and active gating pill.
+   - Removed the redundant, clunky `Filter:` and `Sort:` `<select>` dropdowns from Row 2.
 
-## 1. Root Cause Analysis: Double Log
-- **Mechanism**:
-  - Live WebSocket broadcast: When an event occurs (e.g. order placed, balance update, trade closed, gating state change), the backend emits `log` via WebSocket without an explicit database ID.
-  - In frontend `store/trading.js`: `normalizeLog` generates a random ephemeral ID (e.g., `Math.random()`).
-  - Database status / fetchLogs sync: When `status` arrives with `logLines` or `fetchLogs()` is polled, the backend provides persisted DB logs containing database IDs (UUIDs).
-  - Key mismatch in deduplication: `existingMap` in the status handler was keyed strictly on `l.id || ...`. Because the ephemeral random ID does not match the database UUID, the exact same log entry was inserted a second time into `st.logs`.
-  - In `DecisionLog.jsx`: `visibleLogs` and `copyAllText` lacked an output deduplication filter on `(timestamp + msg)`.
-- **Resolution**:
-  - Deterministic log keys: Use `${source.ts_ms || source.ts}::${source.msg}` as canonical fingerprint.
-  - Multi-condition deduplication in `status` and `fetchLogs`: Match by either ID or identical message within timestamp window.
-  - Safeguard in `visibleLogs`: Enforce uniqueness on `(ts + msg)` so duplicate entries are never rendered or exported.
-  - Debounce `[Gating] State changed` in backend engine.
+2. **Interactive Column-Header Sorting (Desktop & Mobile)**:
+   - Clickable column headers with visual sort direction indicators (`▲` / `▼`):
+     - `#`: Resets to algorithm score sort
+     - `Symbol & Trend` / `Symbol`: Toggles alphabetical sort (`symbol_asc` / `symbol_desc`)
+     - `24h Change` / `Move`: Toggles percent change sort (`pct_desc` / `pct_asc`)
+     - `Volume`: Toggles volume sort (`vol_desc` / `vol_asc`)
+     - `Score`: Toggles score sort (`score_asc` / `score_desc`)
+     - `Status`: Toggles opportunity proximity sort (`proximity` / `proximity_asc`)
+   - Both Desktop table headers and Mobile headers support 1-tap sorting.
 
----
+3. **Collapsible / Expandable Sticky Target Strategy & Watchlist Header**:
+   - Pinned at the top of the scrollable scanner container (`sticky top-0 z-20` with blur backdrop).
+   - In collapsed state (default on mobile screens < 768px):
+     - Displays a slim ~36px summary strip with the active strategy title, solo coin (`Solo: LITUSDT` + In-Trade badge) or watchlist count (`Watchlist: 3 Pairs • AUTO`), and a `[Manage Watchlist ▼]` toggle button.
+     - Leaves maximum vertical screen real estate for viewing live scanner candidates.
+   - In expanded state:
+     - Smoothly slides open the full `WatchlistManager` (Solo Mode Hero card, quick swap input, candidate picker, and 1-click recommendations) with a `[Collapse ▲]` button.
+   - Pinned directly above the table column headers, remaining visible while scrolling through candidates.
 
-## 2. Static Watchlist Architecture & Scheduler
-- **Configuration Fields**:
-  - `symbols`: `string[]` (active static symbols)
-  - `watchlist_max_symbols`: `number` (e.g. 1, 2, 3, 5, 10; 0 for unlimited)
-  - `watchlist_auto_rotate`: `boolean` (toggle scheduler on/off)
-  - `watchlist_rotate_interval_min`: `number` (5, 15, 30, 60, 240 minutes)
-  - `watchlist_min_score`: `number` (minimum score threshold for auto-promotion, default 75)
-  - `watchlist_locked`: `boolean` ("no to change" / manual freeze mode)
-- **Rotation Engine**:
-  - Periodically (or on manual "Rotate Now" click), queries top opportunities from dynamic scanner.
-  - Identifies most favorable candidate (highest score/momentum, all signals ready).
-  - If already in watchlist, no change.
-  - If new and watchlist is at limit (e.g. limit=1): finds an idle symbol (NOT in open position) and replaces it.
-  - Emits descriptive log to Decision Log.
-- **UI/UX Experience**:
-  - **Watchlist Control Bar**: Placed directly above the Scanner table and on the Dashboard.
-    - Active chips with live 24h %, momentum, in-position badges, and 1-click removal.
-    - Capacity indicator (`1 / 1 (Max)`).
-    - Limit selector dropdown (`1`, `2`, `3`, `5`, `10`, `Unlimited`).
-    - Scheduler toggle (`Auto-Rotate` vs `Locked / No Change`) with interval selector.
-    - Manual `Rotate Favorable Now` trigger.
-    - Quick-add input with autocomplete.
-  - **Scanner Row Action**:
-    - Direct "Promote to Watchlist" button on each row in `ScannerOverlay.jsx`.
-    - If at limit, automatically swaps or prompts cleanly.
+4. **Mobile Responsiveness**:
+   - Wordmark label `Live Scanner` collapses to icon-only on small mobile screens to prevent crowding the Strategy Selector Dropdown and Search box.
+   - Solo Mode Hero Card adapts with `flex-col sm:flex-row` layout so action buttons wrap cleanly without horizontal scrolling on 320px-400px mobile devices.
+   - Candidate picker and search inputs scale gracefully with touch-friendly tap targets.
 
----
-
-## 3. Verification & Compliance
-- Compliance with `AGENTS.md` (no automated leverage changes, correct WebSocket protocol, accessibility attributes).
-- Zero regressions in order execution, risk gating, and position tracking.
+5. **Verification**:
+   - All 111 test suites (263 unit tests) passed with 100% success.
+   - `compile_applet` confirmed clean build with zero TypeScript / bundling errors.

@@ -132,6 +132,7 @@ export class ExecutionService {
             const warmupMsg = `⚠️ [Prerequisite Notice] Trade ${trade.symbol}: Exit indicator warmup in progress (${candles.length}/${requiredWarmup} candles for ${exitInterval}). Exit signals (${exitSig}) will NOT fire until candle buffer converges.`;
             this.logger.log(warmupMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warmupMsg, level: 'info' });
+            this.marketFeedService.queueBackfill(trade.symbol, exitInterval, requiredWarmup);
           }
         }
       }

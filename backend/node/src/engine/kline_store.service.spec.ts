@@ -163,4 +163,44 @@ describe('KlineStoreService', () => {
       expect(ms2).toBe(999999); // Returned the cached value!
     });
   });
+
+  describe('getRawCandles native HTF preservation', () => {
+    it('preserves native 5m candles (e.g. 100 candles) instead of clobbering with downsampled 1m buffer', async () => {
+      // Seed 100 5m candles
+      const startTime = 1700000000000;
+      const htf5mCandles = [];
+      for (let i = 0; i < 100; i++) {
+        htf5mCandles.push([
+          startTime + i * 300000,
+          '10',
+          '12',
+          '8',
+          '11',
+          '1000',
+        ]);
+      }
+      await service.seedFromRest('LITUSDT', '5m', htf5mCandles);
+
+      // Seed 200 1m candles (spans ~40 5m candles)
+      const m1Candles = [];
+      for (let i = 0; i < 200; i++) {
+        m1Candles.push([
+          startTime + i * 60000,
+          '10',
+          '12',
+          '8',
+          '11',
+          '200',
+        ]);
+      }
+      await service.seedFromRest('LITUSDT', '1m', m1Candles);
+
+      // Get 5m candles
+      const raw5m = service.getRawCandles('LITUSDT', '5m');
+
+      // Native 100 candles MUST be preserved, NOT clobbered down to 40!
+      expect(raw5m.length).toBeGreaterThanOrEqual(100);
+      expect(raw5m[0].time).toBe(startTime);
+    });
+  });
 });

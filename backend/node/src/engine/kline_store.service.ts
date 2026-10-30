@@ -201,14 +201,54 @@ export class KlineStoreService {
         const last1m = source1m[source1m.length - 1];
         const meta = this.synthMeta.get(key);
 
+        // If candles already exist natively with full history (e.g. >= 50 candles), do NOT clobber them!
+        // Instead, perform an O(1) tail update of the latest HTF candle from the newest 1m tick.
+        if (candles && candles.length >= 50) {
+          this.updateHTFTailFrom1m(candles, interval, last1m);
+          return candles;
+        }
+
         // Check if synthesized cache is missing or stale
         if (!candles || !meta || meta.last1mTime !== last1m.time || meta.last1mClose !== last1m.close) {
-          candles = this.synthesizeHigherInterval(symbol, interval, '1m');
+          const synthesized = this.synthesizeHigherInterval(symbol, interval, '1m');
+          if (!candles || synthesized.length >= candles.length) {
+            candles = synthesized;
+          } else {
+            // Keep native candles and update tail
+            this.updateHTFTailFrom1m(candles, interval, last1m);
+          }
         }
       }
     }
 
     return candles || KlineStoreService.EMPTY_ARRAY;
+  }
+
+  private updateHTFTailFrom1m(candles: Candle[], interval: string, last1m: Candle) {
+    if (!candles || candles.length === 0 || !last1m) return;
+    const targetMs = this.parseIntervalToMs(interval);
+    const bucketTime = Math.floor(last1m.time / targetMs) * targetMs;
+    const lastHTF = candles[candles.length - 1];
+
+    if (bucketTime === lastHTF.time) {
+      if (last1m.high > lastHTF.high) lastHTF.high = last1m.high;
+      if (last1m.low < lastHTF.low) lastHTF.low = last1m.low;
+      lastHTF.close = last1m.close;
+      lastHTF.volume += last1m.volume;
+    } else if (bucketTime > lastHTF.time) {
+      // New HTF bucket started
+      candles.push({
+        time: bucketTime,
+        open: last1m.open,
+        high: last1m.high,
+        low: last1m.low,
+        close: last1m.close,
+        volume: last1m.volume,
+      });
+      if (candles.length > this.MAX_CANDLES) {
+        candles.shift();
+      }
+    }
   }
 
   /**

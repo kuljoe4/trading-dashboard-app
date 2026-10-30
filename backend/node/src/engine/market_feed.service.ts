@@ -887,7 +887,8 @@ export class MarketFeedService {
           for (const interval of intervals) {
             const oldIntervals = prevWatchlist.get(symbol);
             const rawCandles = this.klineStore.getRawCandles(symbol, interval);
-            const needsWarmup = !rawCandles || rawCandles.length < 50;
+            const requiredWarmup = this.signalEngine.getRequiredWarmup(config) || 50;
+            const needsWarmup = !rawCandles || rawCandles.length < requiredWarmup;
             if (!oldIntervals || !oldIntervals.has(interval) || needsWarmup) {
               const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
               if (!alreadyQueued) {
@@ -1455,7 +1456,7 @@ export class MarketFeedService {
       const source1m = this.klineStore.getRawCandles(symbol, '1m');
       if (source1m && source1m.length >= Math.min(50, requiredWarmup)) {
         const synthesized = this.klineStore.synthesizeHigherInterval(symbol, resolvedInterval, '1m');
-        if (synthesized && synthesized.length > 0) {
+        if (synthesized && synthesized.length >= requiredWarmup) {
           this.logger.debug(`[MarketFeed] Synthesized ${synthesized.length} ${resolvedInterval} candles for ${symbol} from 1m cache (0 REST calls).`);
           return;
         }

@@ -81,4 +81,29 @@ test('StrategyDetailView label classification optimization', async (t) => {
     // Performance asserts are inherently flaky in CI environments
     assert.ok(true);
   });
+
+  await t.test('initialization order prevents TDZ ReferenceError', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const src = fs.readFileSync(path.resolve('frontend/src/views/StrategyDetailView.jsx'), 'utf-8');
+
+    const activeTradesIdx = src.indexOf('const strategyActiveTrades = useMemo');
+    const focusedOppIdx = src.indexOf('const focusedOpp = useMemo');
+    const timeframeDebugIdx = src.indexOf('const timeframeDebugItems = useMemo');
+    const journeyMilestonesIdx = src.indexOf('const journeyMilestones = useMemo');
+
+    assert.ok(activeTradesIdx !== -1, 'strategyActiveTrades must be defined');
+    assert.ok(focusedOppIdx !== -1, 'focusedOpp must be defined');
+    assert.ok(timeframeDebugIdx !== -1, 'timeframeDebugItems must be defined');
+    assert.ok(journeyMilestonesIdx !== -1, 'journeyMilestones must be defined');
+
+    assert.ok(
+      activeTradesIdx < focusedOppIdx,
+      `strategyActiveTrades (idx: ${activeTradesIdx}) must be defined BEFORE focusedOpp (idx: ${focusedOppIdx}) to avoid TDZ`
+    );
+    assert.ok(
+      timeframeDebugIdx < journeyMilestonesIdx,
+      `timeframeDebugItems (idx: ${timeframeDebugIdx}) must be defined BEFORE journeyMilestones (idx: ${journeyMilestonesIdx}) to avoid TDZ`
+    );
+  });
 });

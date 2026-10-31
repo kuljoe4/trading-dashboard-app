@@ -516,7 +516,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
                     tradeFilter === 'all' ? "bg-accent text-white" : "text-dim hover:text-text"
                   )}
                 >
-                  All ({results.trades.length})
+                  All ({results.trades?.length || 0})
                 </button>
                 <button
                   type="button"
@@ -526,7 +526,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
                     tradeFilter === 'win' ? "bg-green text-white" : "text-dim hover:text-text"
                   )}
                 >
-                  Wins ({results.wins})
+                  Wins ({results.wins ?? 0})
                 </button>
                 <button
                   type="button"
@@ -536,7 +536,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
                     tradeFilter === 'loss' ? "bg-red text-white" : "text-dim hover:text-text"
                   )}
                 >
-                  Losses ({results.losses})
+                  Losses ({results.losses ?? 0})
                 </button>
               </div>
             </div>

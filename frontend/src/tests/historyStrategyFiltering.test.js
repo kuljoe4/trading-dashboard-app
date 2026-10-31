@@ -1,37 +1,72 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-// Pure logic helper mirroring per-session strategy filtering and top wins/losses inside SessionGroup
-function processSessionTradeFiltering(sessionTrades, sessionStrategyFilter) {
-  // Available session strategy badges calculation
-  const map = new Map();
-  const result = [];
+// Pure logic helper mirroring per-session strategy, symbol, and combined combo filtering inside SessionGroup
+function processSessionTradeFiltering(sessionTrades, sessionStrategyFilter = 'ALL', sessionSymbolFilter = 'ALL') {
+  const stratMap = new Map();
+  const symMap = new Map();
+  const comboMap = new Map();
+
+  const stratList = [];
+  const symList = [];
+  const comboList = [];
+
   const safeTrades = sessionTrades || [];
   for (let i = 0; i < safeTrades.length; i++) {
     const t = safeTrades[i];
     const label = t.strategy_label || t.strategyLabel || 'Momentum Strategy';
+    const sym = t.symbol || 'UNKNOWN';
+    const comboKey = `${label}::${sym}`;
+
     const pnl = Number(t.pnl || 0);
     const fee = Number(t.realized_fee || t.commission || 0);
     const funding = Number(t.funding_fee || 0);
 
-    let item = map.get(label);
-    if (item === undefined) {
-      item = { label, count: 0, pnl: 0, fees: 0, funding: 0 };
-      map.set(label, item);
-      result.push(item);
+    let sItem = stratMap.get(label);
+    if (sItem === undefined) {
+      sItem = { label, count: 0, pnl: 0, fees: 0, funding: 0 };
+      stratMap.set(label, sItem);
+      stratList.push(sItem);
     }
+    sItem.count += 1;
+    sItem.pnl += pnl;
+    sItem.fees += fee;
+    sItem.funding += funding;
 
-    item.count += 1;
-    item.pnl += pnl;
-    item.fees += fee;
-    item.funding += funding;
+    let symItem = symMap.get(sym);
+    if (symItem === undefined) {
+      symItem = { symbol: sym, count: 0, pnl: 0, fees: 0, funding: 0 };
+      symMap.set(sym, symItem);
+      symList.push(symItem);
+    }
+    symItem.count += 1;
+    symItem.pnl += pnl;
+    symItem.fees += fee;
+    symItem.funding += funding;
+
+    let comboItem = comboMap.get(comboKey);
+    if (comboItem === undefined) {
+      comboItem = { key: comboKey, strategy: label, symbol: sym, count: 0, pnl: 0, fees: 0, funding: 0 };
+      comboMap.set(comboKey, comboItem);
+      comboList.push(comboItem);
+    }
+    comboItem.count += 1;
+    comboItem.pnl += pnl;
+    comboItem.fees += fee;
+    comboItem.funding += funding;
   }
-  const availableSessionStrategies = result.sort((a, b) => b.count - a.count);
 
-  // Filter trades by selected strategy
-  const filteredTrades = sessionStrategyFilter === 'ALL'
-    ? safeTrades
-    : safeTrades.filter(t => (t.strategy_label || t.strategyLabel || 'Momentum Strategy') === sessionStrategyFilter);
+  const availableSessionStrategies = stratList.sort((a, b) => b.count - a.count);
+  const availableSessionSymbols = symList.sort((a, b) => b.count - a.count);
+  const availableSessionCombos = comboList.sort((a, b) => b.count - a.count);
+
+  // Filter trades by selected strategy and symbol together
+  const filteredTrades = safeTrades.filter(t => {
+    const label = t.strategy_label || t.strategyLabel || 'Momentum Strategy';
+    const matchStrat = sessionStrategyFilter === 'ALL' || label === sessionStrategyFilter;
+    const matchSym = sessionSymbolFilter === 'ALL' || t.symbol === sessionSymbolFilter;
+    return matchStrat && matchSym;
+  });
 
   // Calculate per-session top 5 wins and losses and fees
   const wins = [];
@@ -54,6 +89,8 @@ function processSessionTradeFiltering(sessionTrades, sessionStrategyFilter) {
 
   return {
     availableSessionStrategies,
+    availableSessionSymbols,
+    availableSessionCombos,
     filteredTrades,
     totalSessionFees,
     totalSessionFunding,
@@ -123,5 +160,39 @@ test('SessionGroup Per-Session Strategy Filtering & Top Wins/Losses Unit Tests',
     assert.equal(result.sessionTopLosses.length, 2);
     assert.equal(result.sessionTopLosses[0].id, '6');
     assert.equal(result.sessionTopLosses[1].id, '4');
+  });
+
+  await t.test('filters session trades by symbol independently', () => {
+    const btcResult = processSessionTradeFiltering(sessionTrades, 'ALL', 'BTCUSDT');
+    assert.equal(btcResult.filteredTrades.length, 1);
+    assert.equal(btcResult.filteredTrades[0].id, '1');
+
+    const solResult = processSessionTradeFiltering(sessionTrades, 'ALL', 'SOLUSDT');
+    assert.equal(solResult.filteredTrades.length, 1);
+    assert.equal(solResult.filteredTrades[0].pnl, 300);
+  });
+
+  await t.test('filters session trades by symbol AND strategy together', () => {
+    // Session trades with same symbol across multiple strategies
+    const multiStratTrades = [
+      { id: '10', symbol: 'BTCUSDT', pnl: 100, strategy_label: 'Momentum Strategy' },
+      { id: '11', symbol: 'BTCUSDT', pnl: -50, strategy_label: 'EMA Breakout Variant' },
+      { id: '12', symbol: 'ETHUSDT', pnl: 200, strategy_label: 'Momentum Strategy' },
+      { id: '13', symbol: 'BTCUSDT', pnl: 300, strategy_label: 'Momentum Strategy' },
+    ];
+
+    // Filter by Strategy='Momentum Strategy' AND Symbol='BTCUSDT'
+    const comboResult = processSessionTradeFiltering(multiStratTrades, 'Momentum Strategy', 'BTCUSDT');
+    assert.equal(comboResult.filteredTrades.length, 2);
+    assert.deepEqual(comboResult.filteredTrades.map(t => t.id), ['10', '13']);
+
+    // Filter by Strategy='EMA Breakout Variant' AND Symbol='BTCUSDT'
+    const comboResult2 = processSessionTradeFiltering(multiStratTrades, 'EMA Breakout Variant', 'BTCUSDT');
+    assert.equal(comboResult2.filteredTrades.length, 1);
+    assert.equal(comboResult2.filteredTrades[0].id, '11');
+
+    // Filter by non-matching combination
+    const emptyResult = processSessionTradeFiltering(multiStratTrades, 'EMA Breakout Variant', 'ETHUSDT');
+    assert.equal(emptyResult.filteredTrades.length, 0);
   });
 });

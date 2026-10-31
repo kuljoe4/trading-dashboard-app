@@ -121,14 +121,22 @@ export const SignalGauge = React.memo(({
               )}
             </div>
             <span className="text-[9px] text-dim font-bold uppercase tracking-tight opacity-70">
-              {insufficientData ? 'Collecting data...' : `Target: ${thresholdIsPrice ? price(numThreshold) : `${numThreshold}${unit}`}`}
+              {insufficientData
+                ? 'Collecting data...'
+                : thresholdIsPrice && numThreshold > 0
+                  ? `Target: ${price(numThreshold)}`
+                  : numThreshold > 0 && unit
+                    ? `Target: ${numThreshold}${unit}`
+                    : numThreshold > 0
+                      ? `Target: ${numThreshold}`
+                      : `Target: ${isDualEma ? 'Bullish Cross' : (label && label.toLowerCase().includes('macd')) ? 'Impulse Trigger' : 'Signal Trigger'}`}
             </span>
           </div>
         </div>
         <div className="flex flex-col items-end">
           <div className={cn("text-sm font-mono font-black tracking-tighter leading-none", isFired ? "text-red" : fired ? "text-amber" : "text-text")}>
             {insufficientData ? '---' : thresholdIsPrice ? price(numValue) : Number(numValue).toFixed(numValue >= 100 ? 2 : 4)}
-            {!thresholdIsPrice && <span className="text-[9px] ml-0.5 opacity-40 font-bold">{unit}</span>}
+            {!thresholdIsPrice && unit ? <span className="text-[9px] ml-0.5 opacity-40 font-bold">{unit}</span> : null}
           </div>
           <div className={cn("mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border", status.color)}>
             {status.label}

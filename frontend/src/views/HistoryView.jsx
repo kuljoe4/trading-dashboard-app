@@ -8,7 +8,7 @@ import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
 import { motion, AnimatePresence } from 'framer-motion'
-import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X, Loader2, SlidersHorizontal } from 'lucide-react'
+import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X, Loader2, SlidersHorizontal, RotateCcw } from 'lucide-react'
 
 // Shimmer Skeleton Loader for individual charts to prevent layout shift and blank-out bubbling
 export const ChartSkeleton = ({ height = 180 }) => (
@@ -1189,6 +1189,8 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [showAllTrades, setShowAllTrades] = useState(false);
   const [sessionStrategyFilter, setSessionStrategyFilter] = useState('ALL');
+  const [sessionSymbolFilter, setSessionSymbolFilter] = useState('ALL');
+  const [sessionFilterTab, setSessionFilterTab] = useState('strategy'); // 'strategy' | 'symbol' | 'combo'
 
   const handleToggleClick = React.useCallback(() => {
     if (onToggle) onToggle(session.id);
@@ -1208,39 +1210,85 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
     return formatDuration(end - start)
   }, [session.startTime, session.endTime])
 
-  // Extract unique available strategy labels across this session's trades with counts, total PnL, fees & funding
-  const availableSessionStrategies = useMemo(() => {
-    const map = new Map();
-    const result = [];
+  // Extract unique strategies, symbols, and combined strategy+symbol pairs across this session's trades
+  const { availableSessionStrategies, availableSessionSymbols, availableSessionCombos } = useMemo(() => {
+    const stratMap = new Map();
+    const symMap = new Map();
+    const comboMap = new Map();
+
+    const stratList = [];
+    const symList = [];
+    const comboList = [];
+
     const safeTrades = trades || [];
     for (let i = 0; i < safeTrades.length; i++) {
       const t = safeTrades[i];
       const lbl = strategyLabel(t);
+      const sym = t.symbol || 'UNKNOWN';
+      const comboKey = `${lbl}::${sym}`;
+
       const pnlVal = safeNum(t.pnl);
       const feeVal = safeNum(t.realized_fee || t.commission || 0);
       const fundingVal = safeNum(t.funding_fee || 0);
 
-      let item = map.get(lbl);
-      if (item === undefined) {
-        item = { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 };
-        map.set(lbl, item);
-        result.push(item);
+      // Strategy aggregation
+      let sItem = stratMap.get(lbl);
+      if (sItem === undefined) {
+        sItem = { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 };
+        stratMap.set(lbl, sItem);
+        stratList.push(sItem);
       }
+      sItem.count += 1;
+      sItem.pnl += pnlVal;
+      sItem.fees += feeVal;
+      sItem.funding += fundingVal;
 
-      item.count += 1;
-      item.pnl += pnlVal;
-      item.fees += feeVal;
-      item.funding += fundingVal;
+      // Symbol aggregation
+      let symItem = symMap.get(sym);
+      if (symItem === undefined) {
+        symItem = { symbol: sym, count: 0, pnl: 0, fees: 0, funding: 0 };
+        symMap.set(sym, symItem);
+        symList.push(symItem);
+      }
+      symItem.count += 1;
+      symItem.pnl += pnlVal;
+      symItem.fees += feeVal;
+      symItem.funding += fundingVal;
+
+      // Strategy + Symbol Combo aggregation
+      let comboItem = comboMap.get(comboKey);
+      if (comboItem === undefined) {
+        comboItem = { key: comboKey, strategy: lbl, symbol: sym, count: 0, pnl: 0, fees: 0, funding: 0 };
+        comboMap.set(comboKey, comboItem);
+        comboList.push(comboItem);
+      }
+      comboItem.count += 1;
+      comboItem.pnl += pnlVal;
+      comboItem.fees += feeVal;
+      comboItem.funding += fundingVal;
     }
-    return result.sort((a, b) => b.count - a.count);
+
+    stratList.sort((a, b) => b.count - a.count);
+    symList.sort((a, b) => b.count - a.count);
+    comboList.sort((a, b) => b.count - a.count);
+
+    return {
+      availableSessionStrategies: stratList,
+      availableSessionSymbols: symList,
+      availableSessionCombos: comboList
+    };
   }, [trades]);
 
-  // Filter session trades by selected session strategy
+  // Filter session trades by selected session strategy and symbol
   const filteredTrades = useMemo(() => {
     if (!trades || trades.length === 0) return [];
-    if (sessionStrategyFilter === 'ALL') return trades;
-    return trades.filter(t => strategyLabel(t) === sessionStrategyFilter);
-  }, [trades, sessionStrategyFilter]);
+    if (sessionStrategyFilter === 'ALL' && sessionSymbolFilter === 'ALL') return trades;
+    return trades.filter(t => {
+      const matchStrat = sessionStrategyFilter === 'ALL' || strategyLabel(t) === sessionStrategyFilter;
+      const matchSym = sessionSymbolFilter === 'ALL' || t.symbol === sessionSymbolFilter;
+      return matchStrat && matchSym;
+    });
+  }, [trades, sessionStrategyFilter, sessionSymbolFilter]);
 
   // Calculate top 5 wins and top 5 losses per session
   const { sessionTopWins, sessionTopLosses } = useMemo(() => {
@@ -1488,49 +1536,192 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
             className="border-t border-border/10"
           >
             <div className="p-4 flex flex-col gap-4 bg-background/20">
-              {/* Session Strategy Filter Toolbar */}
-              {availableSessionStrategies.length > 1 && (
-                <div className="bg-surface/40 border border-border/20 rounded-xl p-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar">
-                  <span className="text-[8.5px] text-dim font-black uppercase tracking-widest shrink-0 flex items-center gap-1">
-                    <Layers size={11} className="text-accent" /> Filter Strategy:
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSessionStrategyFilter('ALL')}
-                    aria-pressed={sessionStrategyFilter === 'ALL'}
-                    aria-label="Filter session trades to all strategies"
-                    className={cn(
-                      "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                      sessionStrategyFilter === 'ALL'
-                        ? "bg-accent/15 border-accent text-accent shadow-sm"
-                        : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
+              {/* Session Trade Filter Toolbar (Strategy, Symbol, & Combined Strategy+Symbol) */}
+              {(availableSessionStrategies.length > 1 || availableSessionSymbols.length > 1 || availableSessionCombos.length > 1) && (
+                <div className="bg-surface/40 border border-border/20 rounded-xl p-3 flex flex-col gap-2.5">
+                  {/* Mode Header & Active Filter Status Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/10 pb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[8.5px] text-dim font-black uppercase tracking-widest flex items-center gap-1 shrink-0">
+                        <Layers size={11} className="text-accent" /> Filter Session Trades:
+                      </span>
+
+                      {/* View Mode Switcher: Strategy | Symbol | Strategy + Symbol */}
+                      <div className="flex items-center gap-1 bg-surface border border-border/30 p-0.5 rounded-lg">
+                        <button
+                          type="button"
+                          onClick={() => setSessionFilterTab('strategy')}
+                          aria-pressed={sessionFilterTab === 'strategy'}
+                          aria-label="Filter session by strategy"
+                          className={cn(
+                            "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                            sessionFilterTab === 'strategy' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                          )}
+                        >
+                          Strategy ({availableSessionStrategies.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSessionFilterTab('symbol')}
+                          aria-pressed={sessionFilterTab === 'symbol'}
+                          aria-label="Filter session by symbol"
+                          className={cn(
+                            "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                            sessionFilterTab === 'symbol' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                          )}
+                        >
+                          Symbol ({availableSessionSymbols.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSessionFilterTab('combo')}
+                          aria-pressed={sessionFilterTab === 'combo'}
+                          aria-label="Filter session by strategy and symbol together"
+                          className={cn(
+                            "px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-wider transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1",
+                            sessionFilterTab === 'combo' ? "bg-accent text-white shadow-xs" : "text-dim hover:text-text"
+                          )}
+                        >
+                          <span>Strategy + Symbol</span>
+                          <span className="text-[7px] px-1 py-0.1 rounded bg-black/20 font-mono font-bold">
+                            {availableSessionCombos.length}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Active Filter Badge & Reset Button */}
+                    {(sessionStrategyFilter !== 'ALL' || sessionSymbolFilter !== 'ALL') && (
+                      <div className="flex items-center gap-1.5 ml-auto">
+                        <span className="text-[8px] font-mono font-black uppercase text-accent bg-accent/10 border border-accent/20 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                          <span>Filtered:</span>
+                          {sessionStrategyFilter !== 'ALL' && <span>{sessionStrategyFilter}</span>}
+                          {sessionStrategyFilter !== 'ALL' && sessionSymbolFilter !== 'ALL' && <span>+</span>}
+                          {sessionSymbolFilter !== 'ALL' && <span>{sessionSymbolFilter}</span>}
+                          <span className="text-text/70">({filteredTrades.length} trades)</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSessionStrategyFilter('ALL');
+                            setSessionSymbolFilter('ALL');
+                          }}
+                          className="text-[8px] font-black uppercase text-dim hover:text-accent px-1.5 py-0.5 rounded border border-border/30 hover:border-accent/30 transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none flex items-center gap-1"
+                          aria-label="Reset session filters"
+                        >
+                          <RotateCcw size={9} /> Reset
+                        </button>
+                      </div>
                     )}
-                  >
-                    All Session Trades ({trades.length})
-                  </button>
-                  {availableSessionStrategies.map(st => (
+                  </div>
+
+                  {/* Filter Chips Container */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                    {/* ALL Option Chip */}
                     <button
-                      key={st.label}
                       type="button"
-                      onClick={() => setSessionStrategyFilter(st.label)}
-                      aria-pressed={sessionStrategyFilter === st.label}
-                      aria-label={`Filter session trades to strategy ${st.label}`}
+                      onClick={() => {
+                        setSessionStrategyFilter('ALL');
+                        setSessionSymbolFilter('ALL');
+                      }}
+                      aria-pressed={sessionStrategyFilter === 'ALL' && sessionSymbolFilter === 'ALL'}
+                      aria-label="Show all session trades without filter"
                       className={cn(
-                        "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                        sessionStrategyFilter === st.label
+                        "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                        sessionStrategyFilter === 'ALL' && sessionSymbolFilter === 'ALL'
                           ? "bg-accent/15 border-accent text-accent shadow-sm"
                           : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
                       )}
                     >
-                      <span>{st.label}</span>
-                      <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
-                        {st.count}
-                      </span>
-                      <span className={cn("text-[7.5px] font-mono font-black", pnlClass(st.pnl))}>
-                        {fmtUSD(st.pnl)}
-                      </span>
+                      All Session Trades ({trades.length})
                     </button>
-                  ))}
+
+                    {/* Strategy Mode Chips */}
+                    {sessionFilterTab === 'strategy' && availableSessionStrategies.map(st => (
+                      <button
+                        key={st.label}
+                        type="button"
+                        onClick={() => {
+                          setSessionStrategyFilter(st.label);
+                          setSessionSymbolFilter('ALL');
+                        }}
+                        aria-pressed={sessionStrategyFilter === st.label && sessionSymbolFilter === 'ALL'}
+                        aria-label={`Filter session trades to strategy ${st.label}`}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionStrategyFilter === st.label && sessionSymbolFilter === 'ALL'
+                            ? "bg-accent/15 border-accent text-accent shadow-sm"
+                            : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
+                        )}
+                      >
+                        <span>{st.label}</span>
+                        <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
+                          {st.count}
+                        </span>
+                        <span className={cn("text-[7.5px] font-mono font-black", pnlClass(st.pnl))}>
+                          {fmtUSD(st.pnl)}
+                        </span>
+                      </button>
+                    ))}
+
+                    {/* Symbol Mode Chips */}
+                    {sessionFilterTab === 'symbol' && availableSessionSymbols.map(sym => (
+                      <button
+                        key={sym.symbol}
+                        type="button"
+                        onClick={() => {
+                          setSessionSymbolFilter(sym.symbol);
+                          setSessionStrategyFilter('ALL');
+                        }}
+                        aria-pressed={sessionSymbolFilter === sym.symbol && sessionStrategyFilter === 'ALL'}
+                        aria-label={`Filter session trades to symbol ${sym.symbol}`}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionSymbolFilter === sym.symbol && sessionStrategyFilter === 'ALL'
+                            ? "bg-accent/15 border-accent text-accent shadow-sm"
+                            : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
+                        )}
+                      >
+                        <span className="font-mono">{sym.symbol}</span>
+                        <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
+                          {sym.count}
+                        </span>
+                        <span className={cn("text-[7.5px] font-mono font-black", pnlClass(sym.pnl))}>
+                          {fmtUSD(sym.pnl)}
+                        </span>
+                      </button>
+                    ))}
+
+                    {/* Strategy + Symbol Combo Mode Chips */}
+                    {sessionFilterTab === 'combo' && availableSessionCombos.map(cb => (
+                      <button
+                        key={cb.key}
+                        type="button"
+                        onClick={() => {
+                          setSessionStrategyFilter(cb.strategy);
+                          setSessionSymbolFilter(cb.symbol);
+                        }}
+                        aria-pressed={sessionStrategyFilter === cb.strategy && sessionSymbolFilter === cb.symbol}
+                        aria-label={`Filter session trades to ${cb.strategy} strategy on ${cb.symbol}`}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                          sessionStrategyFilter === cb.strategy && sessionSymbolFilter === cb.symbol
+                            ? "bg-accent/15 border-accent text-accent shadow-sm"
+                            : "bg-surface/50 border-border/30 text-dim hover:text-text hover:border-accent/30"
+                        )}
+                      >
+                        <span>{cb.strategy}</span>
+                        <span className="text-accent/60 font-bold">·</span>
+                        <span className="font-mono text-text">{cb.symbol}</span>
+                        <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
+                          {cb.count}
+                        </span>
+                        <span className={cn("text-[7.5px] font-mono font-black", pnlClass(cb.pnl))}>
+                          {fmtUSD(cb.pnl)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1541,9 +1732,11 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                     <span className="text-[10px] font-black uppercase tracking-wider text-text flex items-center gap-1.5">
                       <TrendingUp size={13} className="text-accent" /> Session Extremes (Top Wins & Losses)
                     </span>
-                    {sessionStrategyFilter !== 'ALL' && (
-                      <span className="text-[8px] font-black px-2 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase">
-                        {sessionStrategyFilter}
+                    {(sessionStrategyFilter !== 'ALL' || sessionSymbolFilter !== 'ALL') && (
+                      <span className="text-[8px] font-black px-2 py-0.5 rounded border border-accent/20 bg-accent/5 text-accent uppercase flex items-center gap-1">
+                        {sessionStrategyFilter !== 'ALL' && <span>{sessionStrategyFilter}</span>}
+                        {sessionStrategyFilter !== 'ALL' && sessionSymbolFilter !== 'ALL' && <span>·</span>}
+                        {sessionSymbolFilter !== 'ALL' && <span>{sessionSymbolFilter}</span>}
                       </span>
                     )}
                   </div>

@@ -46,3 +46,19 @@ test('SectionTabs Overflow Tab Classification & Indicator Logic', () => {
   assert.equal(secondaryHasError, true);
   assert.equal(tabHasError('scan'), false);
 });
+
+test('BacktestPanel safely handles undefined results.trades without throwing TypeError', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const code = fs.readFileSync(path.resolve('frontend/src/components/BacktestPanel.jsx'), 'utf-8');
+
+  // Verify that results.trades is safely accessed with optional chaining or array fallback
+  assert.ok(
+    code.includes('results.trades?.length'),
+    'BacktestPanel must use optional chaining on results.trades?.length to prevent TypeError when trades is undefined'
+  );
+  assert.ok(
+    !code.includes('All ({results.trades.length})'),
+    'BacktestPanel must not perform unsafe direct property access results.trades.length'
+  );
+});

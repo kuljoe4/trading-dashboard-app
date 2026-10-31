@@ -1924,16 +1924,32 @@ app.delete('/presets/:name', (req, res) => {
   res.json({ success: true });
 });
 
+app.get('/settings', (req, res, next) => {
+  if (req.accepts('html')) {
+    return next();
+  }
+  res.json({ keys: state.settingsKeys, presets: state.presets, status: 'ok' });
+});
+
+app.get('/session', (req, res, next) => {
+  if (req.accepts('html')) {
+    return next();
+  }
+  res.json(state.activeSession || { status: 'idle', active: false });
+});
+
 // Vite Middleware for Frontend Integration
 async function startServer() {
   const port = 3000;
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd) {
+    process.env.VITE_DISABLE_PROXY = 'true';
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
         hmr: false,
+        proxy: false,
       },
       appType: 'spa',
       root: path.resolve(__dirname, 'frontend'),

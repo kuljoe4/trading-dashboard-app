@@ -2306,12 +2306,17 @@ export function DashboardView({ initialStrategy }) {
       let activeVariantIndex = editingVariantIndex;
 
       if (activeVariantIndex !== null) {
-        const variants = [...(config.strategy_variants || [])];
-        // Strip out top-level strategy_variants from the edited variant config to avoid recursive nesting
-        const variantClean = { ...newConfig };
-        delete variantClean.strategy_variants;
-        variants[activeVariantIndex] = { ...variantClean, strategy_label: variantClean.strategy_label };
-        finalConfig = { ...config, strategy_variants: variants };
+        // If newConfig is already the full merged root config from ConfigModal, preserve it directly
+        if (newConfig.strategy_variants && newConfig.strategy_label === config.strategy_label) {
+          finalConfig = newConfig;
+        } else {
+          const variants = [...(config.strategy_variants || [])];
+          // Strip out top-level strategy_variants from the edited variant config to avoid recursive nesting
+          const variantClean = { ...newConfig };
+          delete variantClean.strategy_variants;
+          variants[activeVariantIndex] = { ...variantClean, strategy_label: variantClean.strategy_label || variants[activeVariantIndex]?.strategy_label || `Variant ${activeVariantIndex + 1}` };
+          finalConfig = { ...config, strategy_variants: variants };
+        }
       }
 
       if (isEditMode && strategyId) {
@@ -2333,6 +2338,7 @@ export function DashboardView({ initialStrategy }) {
         addAlert({ level: 'success', title: 'Session Started', message: `Engine active with "${finalConfig.strategy_label}".` });
       }
       setShowConfig(false)
+      setEditingVariantIndex(null)
       await fetchSessions()
     } catch (e) {
       const isNetworkError = e.message === 'Network Error' || e.code === 'ERR_NETWORK';

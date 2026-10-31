@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, Suspense } from 'react'
+import React, { useMemo, useState, useEffect, useCallback, Suspense } from 'react'
 import { pnlColor, pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { DecisionLog } from '../components/DecisionLog'
@@ -14,7 +14,8 @@ import { ScannerPreview } from './DashboardView'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame,
-  RefreshCw, Clock, CheckCircle2, AlertCircle, Radio, Layers, Search, ShieldCheck, Cpu, ArrowUpRight, Target, Compass, ArrowRight, Lock
+  RefreshCw, Clock, CheckCircle2, AlertCircle, Radio, Layers, Search, ShieldCheck, Cpu, ArrowUpRight, Target, Compass, ArrowRight, Lock,
+  Copy, Check, Filter, AlertTriangle, ShieldAlert, FileText, ChevronRight, X
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
@@ -58,6 +59,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [isChecklistOpen, setIsChecklistOpen] = useState(true)
   const [syncingTfMap, setSyncingTfMap] = useState({})
   const [isBatchSyncing, setIsBatchSyncing] = useState(false)
+
+  // Journey Map & Reasons Log State
+  const [activeJourneyMilestone, setActiveJourneyMilestone] = useState(null)
+  const [reasonsFilter, setReasonsFilter] = useState('all') // 'all' | 'signals' | 'gates' | 'entries' | 'exits'
+  const [reasonsSearch, setReasonsSearch] = useState('')
+  const [copiedReasonId, setCopiedReasonId] = useState(null)
+
+  const logs = useTradingStore(state => state.logs || [])
+  const strategyGateStates = useTradingStore(state => state.strategyGateStates || {})
 
   // Real-time telemetry & store timestamps
   const lastAuthoritativeUpdateTs = useTradingStore(state => state.lastAuthoritativeUpdateTs || Date.now());
@@ -279,8 +289,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       
       if (activeTrade.exit_signals_status && Object.values(activeTrade.exit_signals_status).some(s => s?.fired)) {
         return {
-          stageNumber: 5,
-          title: 'Stage 5: Exit Signal Triggered',
+          stageNumber: 6,
+          title: 'Stage 6: Exit Signal Triggered',
           statusLabel: 'EXIT TRIGGERED',
           colorClass: 'text-red border-red/30 bg-red/10',
           desc: 'Strategy exit condition crossed; order execution or stop loss close pending.'
@@ -288,8 +298,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       }
       if (isSlAtBreakeven || activeTrade.risk_usdt === 0) {
         return {
-          stageNumber: 4,
-          title: 'Stage 4: Risk Protected Position',
+          stageNumber: 5,
+          title: 'Stage 5: Risk Protected Position',
           statusLabel: 'RISK PROTECTED',
           colorClass: 'text-green border-green/30 bg-green/10',
           desc: 'Stop loss ratcheted to breakeven or better (0.00R capital risk).'
@@ -332,6 +342,387 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       desc: isStaticWatchlist ? 'Monitored in defined Static Watchlist target list.' : 'Scanned via Smart Watchlist discovery feed.'
     };
   }, [focusedOpp, strategyActiveTrades, entryMet, scanMet, firedCount, signalsCount, isStaticWatchlist]);
+
+  // 6-Milestone Interactive Journey Map Specification
+  const journeyMilestones = useMemo(() => {
+    return [
+      {
+        num: 1,
+        title: '1. Discovery & Universe',
+        subtitle: 'Market Scope',
+        short: 'Scope',
+        status: isStaticWatchlist ? 'STATIC' : 'DISCOVERY',
+        isPassed: true,
+        isActive: currentLifecycleStage.stageNumber === 1,
+        badgeClass: 'text-dim border-border/40 bg-surface/40',
+        desc: isStaticWatchlist
+          ? `Fixed universe of ${staticSymbols.length} pairs explicitly monitored in strategy configuration.`
+          : `Smart discovery scanning 24h ${strategyConfig.discovery_mode || 'volume'} universe on ${strategyConfig.scan_interval || '5m'} interval.`,
+        criteria: [
+          { label: 'Watchlist Universe', value: isStaticWatchlist ? `${staticSymbols.length} Static Symbols` : `Top ${strategyConfig.watchlist_size || 15} by ${strategyConfig.discovery_mode || 'volume'}` },
+          { label: 'Min 24h Volume', value: `$${((strategyConfig.scan_min_volume_usdt || 500000) / 1000).toLocaleString()}k USDT` },
+          { label: 'Scan Interval', value: strategyConfig.scan_interval || '5m' },
+          { label: 'Velocity Threshold', value: `±${strategyConfig.scan_pct_threshold || 2.0}%` }
+        ]
+      },
+      {
+        num: 2,
+        title: '2. Technical Signal Engine',
+        subtitle: 'Rule Formula',
+        short: 'Signals',
+        status: entryMet ? 'TRIGGERED' : (firedCount > 0 ? `${firedCount}/${signalsCount} FIRED` : 'EVALUATING'),
+        isPassed: currentLifecycleStage.stageNumber > 2,
+        isActive: currentLifecycleStage.stageNumber === 2,
+        badgeClass: entryMet ? 'text-green border-green/30 bg-green/10' : firedCount > 0 ? 'text-accent border-accent/30 bg-accent/10' : 'text-dim border-border/40 bg-surface/40',
+        desc: `Evaluating ${signalsCount} configured technical signals with '${signalLogic.toUpperCase()}' matching logic.`,
+        criteria: [
+          { label: 'Formula Logic', value: conditionFormula },
+          { label: 'Enabled Signals', value: (strategyConfig.enabled_signals || []).map(s => SIGNAL_LABELS[s] || s).join(', ') || 'None' },
+          { label: 'Required Signals (AND)', value: reqLabels.join(', ') || 'None (All equal)' },
+          { label: 'Buffer Warmup', value: `${timeframeDebugItems.filter(i => !i.isWarming).length}/${timeframeDebugItems.length} Timeframes Ready` }
+        ]
+      },
+      {
+        num: 3,
+        title: '3. Pre-Trade Risk & Capital Gating',
+        subtitle: 'Safety Invariants',
+        short: 'Risk Check',
+        status: isStrategyPaused ? 'PAUSED' : (gateState === 'ACTIVE' || gateState === 'OK') ? 'READY' : 'GATED',
+        isPassed: currentLifecycleStage.stageNumber > 3,
+        isActive: currentLifecycleStage.stageNumber === 3,
+        badgeClass: isStrategyPaused ? 'text-amber border-amber/30 bg-amber/10' : (gateState === 'ACTIVE' || gateState === 'OK') ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10',
+        desc: 'Anti-whipsaw, sliding frequency limits, trade spacing, and maximum account risk exposure checks.',
+        criteria: [
+          { label: 'Account Max Risk', value: `${strategyConfig.max_total_risk_pct || 5.0}% Total Portfolio Cap` },
+          { label: 'Risk Per Trade', value: `${strategyConfig.risk_pct_per_trade || 1.0}% ($${((startingBal * (strategyConfig.risk_pct_per_trade || 1.0)) / 100).toFixed(2)})` },
+          { label: 'Max Open Trades', value: `${strategyConfig.max_open_trades || 3} positions` },
+          { label: 'Spacing & Anti-Whipsaw', value: `${strategyConfig.min_trade_interval_min || 0}m interval · Whipsaw Guard Active` }
+        ]
+      },
+      {
+        num: 4,
+        title: '4. Order Entry & Exchange Execution',
+        subtitle: 'Order Routing',
+        short: 'Execution',
+        status: strategyActiveTrades.length > 0 ? `${activeTradeCount} OPEN` : 'STANDBY',
+        isPassed: currentLifecycleStage.stageNumber > 4,
+        isActive: currentLifecycleStage.stageNumber === 4,
+        badgeClass: strategyActiveTrades.length > 0 ? 'text-accent border-accent/30 bg-accent/10' : 'text-dim border-border/40 bg-surface/40',
+        desc: 'Exchange order routing with mandatory LOT_SIZE precision on stop-loss orders (Binance compliance).',
+        criteria: [
+          { label: 'Stop-Loss Order Compliance', value: 'Explicit LOT_SIZE Quantity on STOP_MARKET' },
+          { label: 'Initial SL Distance', value: `${strategyConfig.sl_distance_pct || 2.0}% (${strategyConfig.sl_type || 'pct'})` },
+          { label: 'Active Positions', value: `${activeTradeCount} Open Trade${activeTradeCount === 1 ? '' : 's'}` },
+          { label: 'Execution Fallback', value: 'Algo Conditional -> STOP_MARKET Mandatory Fallback' }
+        ]
+      },
+      {
+        num: 5,
+        title: '5. Protective Ratcheting & Trailing',
+        subtitle: 'Live Invariants',
+        short: 'Protection',
+        status: strategyActiveTrades.some(t => t.current_sl && Number(t.current_sl) >= Number(t.entry_price)) ? 'PROTECTED (0.00R)' : 'MONITORING',
+        isPassed: currentLifecycleStage.stageNumber > 5,
+        isActive: currentLifecycleStage.stageNumber === 5,
+        badgeClass: strategyActiveTrades.some(t => t.current_sl && Number(t.current_sl) >= Number(t.entry_price)) ? 'text-green border-green/30 bg-green/10' : 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
+        desc: 'Gapless Cancel-then-Replace stop-loss ratcheting with automatic re-arm rollback protection.',
+        criteria: [
+          { label: 'SL Update Protocol', value: 'Cancel-then-Replace (ModifyOrder unsupported)' },
+          { label: 'Rollback Protection', value: 'Re-arm previous SL if replacement fails' },
+          { label: 'Rate-Limit Delta Guard', value: 'Min 0.01% price delta before replacing SL' },
+          { label: 'Trailing Stop Mode', value: strategyConfig.trailing_stop_enabled ? `Active (${strategyConfig.trailing_stop_distance_pct || 1.0}%)` : 'Disabled' }
+        ]
+      },
+      {
+        num: 6,
+        title: '6. Exit Resolution & Realized PnL',
+        subtitle: 'Trade Closeout',
+        short: 'Exit',
+        status: stratPerformance.total > 0 ? `${stratPerformance.wins}W / ${stratPerformance.losses}L` : 'READY',
+        isPassed: false,
+        isActive: currentLifecycleStage.stageNumber === 6,
+        badgeClass: stratPerformance.total > 0 ? (stratPerformance.sumPnl >= 0 ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10') : 'text-dim border-border/40 bg-surface/40',
+        desc: 'Technical exit indicators, target R:R take profits, preserved exit reasons, and balance reconciliation.',
+        criteria: [
+          { label: 'Target R:R', value: `${strategyConfig.exit_rr_target || strategyConfig.tp_ratio || 2.0}R` },
+          { label: 'Exit Signals', value: (strategyConfig.exit_signals || []).map(s => SIGNAL_LABELS[s] || s).join(', ') || 'Standard SL/TP' },
+          { label: 'Realized PnL', value: fmtUSD(stratPerformance.sumPnl) },
+          { label: 'Historical Hit Rate', value: `${stratPerformance.hitRate.toFixed(1)}% (${stratPerformance.total} trades)` }
+        ]
+      }
+    ];
+  }, [
+    isStaticWatchlist, staticSymbols, strategyConfig, currentLifecycleStage, entryMet, firedCount, signalsCount,
+    signalLogic, conditionFormula, reqLabels, timeframeDebugItems, isStrategyPaused, gateState, startingBal,
+    strategyActiveTrades, activeTradeCount, stratPerformance
+  ]);
+
+  const formatTimeAgo = useCallback((ts) => {
+    if (!ts) return 'just now';
+    const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
+    if (isNaN(ms) || ms <= 0) return 'just now';
+    const diffSec = Math.max(0, Math.floor((nowMs - ms) / 1000));
+    if (diffSec < 60) return `${diffSec}s ago`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return `${Math.floor(diffHr / 24)}d ago`;
+  }, [nowMs]);
+
+  const handleCopyReason = useCallback((item) => {
+    try {
+      const payload = JSON.stringify({
+        category: item.category,
+        symbol: item.symbol,
+        title: item.title,
+        reason: item.reason,
+        stage: item.stage,
+        details: item.details
+      }, null, 2);
+      navigator.clipboard.writeText(payload);
+      setCopiedReasonId(item.id);
+      setTimeout(() => setCopiedReasonId(null), 1800);
+    } catch (e) {
+      console.warn('Copy failed', e);
+    }
+  }, []);
+
+  // Aggregated Strategy Reasons Log
+  const strategyReasons = useMemo(() => {
+    const list = [];
+    const stratName = s?.strategy_label || 'Momentum Strategy';
+
+    // 1. Live Candidate Evaluation reasons
+    const opps = strategyScannerResults || [];
+    opps.slice(0, 8).forEach(opp => {
+      const scanDiff = Math.abs(opp.pct || 0) - (strategyConfig.scan_pct_threshold || 2.0);
+      const scanMetLocal = scanDiff >= 0;
+      const sigRes = opp.signalResult || {};
+      const allFired = !!sigRes.allFired;
+
+      if (!scanMetLocal) {
+        list.push({
+          id: `cand-scan-${opp.symbol}`,
+          category: 'signals',
+          type: 'miss',
+          symbol: opp.symbol,
+          direction: opp.dir || (opp.pct >= 0 ? 'LONG' : 'SHORT'),
+          title: `Scan Velocity Below Threshold (${Math.abs(opp.pct || 0).toFixed(2)}%)`,
+          reason: `Price change velocity of ${Math.abs(opp.pct || 0).toFixed(2)}% does not meet the configured minimum threshold of ${strategyConfig.scan_pct_threshold || 2.0}%.`,
+          stage: '1. Discovery',
+          timestamp: opp.ts || (nowMs - 15000),
+          badgeClass: 'text-dim border-border/40 bg-surface/30',
+          details: { velocity: `${opp.pct}%`, threshold: `${strategyConfig.scan_pct_threshold}%`, markPrice: opp.close }
+        });
+      } else if (!allFired) {
+        const fired = sigRes.firedSignals || [];
+        const required = strategyConfig.required_signals || [];
+        const missing = (strategyConfig.enabled_signals || []).filter(sig => !fired.includes(sig));
+        const missingLabels = missing.map(m => SIGNAL_LABELS[m] || m).join(', ');
+        list.push({
+          id: `cand-sig-${opp.symbol}`,
+          category: 'signals',
+          type: 'miss',
+          symbol: opp.symbol,
+          direction: opp.dir || (opp.pct >= 0 ? 'LONG' : 'SHORT'),
+          title: `Entry Formula Incomplete (Pending: ${missingLabels || 'Awaiting Triggers'})`,
+          reason: `Velocity threshold passed (${Math.abs(opp.pct || 0).toFixed(2)}%), but ${fired.length}/${(strategyConfig.enabled_signals || []).length} indicator rules satisfied. Waiting for: ${missingLabels || 'confirmation'}.`,
+          stage: '2. Signals',
+          timestamp: opp.ts || (nowMs - 25000),
+          badgeClass: 'text-amber border-amber/30 bg-amber/10',
+          details: { firedSignals: fired, missingSignals: missing, formula: conditionFormula }
+        });
+      } else {
+        list.push({
+          id: `cand-fired-${opp.symbol}`,
+          category: 'signals',
+          type: 'trigger',
+          symbol: opp.symbol,
+          direction: opp.dir || (opp.pct >= 0 ? 'LONG' : 'SHORT'),
+          title: `Entry Signal Fully Fired (${opp.dir ? opp.dir.toUpperCase() : 'BUY'})`,
+          reason: `All ${(strategyConfig.enabled_signals || []).length} signal conditions satisfied according to formula [${conditionFormula}]. Candidate passed to risk engine.`,
+          stage: '2. Signals',
+          timestamp: opp.ts || (nowMs - 5000),
+          badgeClass: 'text-green border-green/30 bg-green/10',
+          details: { formula: conditionFormula, firedSignals: sigRes.firedSignals }
+        });
+      }
+    });
+
+    // 2. Risk Gating reasons
+    const stratGate = strategyGateStates[stratName] || {};
+    const effectiveGate = stratGate.gateState || gateState;
+    const effectiveReason = stratGate.gateReason || gateReason;
+    if (isStrategyPaused) {
+      list.push({
+        id: `gate-paused-${stratName}`,
+        category: 'gates',
+        type: 'block',
+        symbol: '---',
+        title: 'Strategy Automation Paused',
+        reason: 'Automated order placement is manually paused for this strategy. Open positions continue to be monitored for exit/stop-loss triggers.',
+        stage: '3. Risk Guard',
+        timestamp: nowMs - 60000,
+        badgeClass: 'text-amber border-amber/30 bg-amber/10',
+        details: { gateState: 'PAUSED', userIntervention: 'Manual pause flag active' }
+      });
+    } else if (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK') {
+      list.push({
+        id: `gate-blocked-${stratName}`,
+        category: 'gates',
+        type: 'block',
+        symbol: '---',
+        title: `Risk Gate Triggered (${effectiveGate.toUpperCase()})`,
+        reason: `Engine risk restriction: ${effectiveReason || 'Threshold guard active'}. Entry orders throttled until condition clears.`,
+        stage: '3. Risk Guard',
+        timestamp: nowMs - 30000,
+        badgeClass: 'text-red border-red/30 bg-red/10',
+        details: { gateState: effectiveGate, gateReason: effectiveReason }
+      });
+    }
+
+    // 3. Active Trades entry reasons & lifecycle events
+    strategyActiveTrades.forEach(trade => {
+      if (trade.entry_reason || trade.signal_reason) {
+        list.push({
+          id: `entry-${trade.id || trade.symbol}`,
+          category: 'entries',
+          type: 'fill',
+          symbol: trade.symbol,
+          direction: trade.direction,
+          title: `Position Entry Executed @ $${Number(trade.entry_price || 0).toLocaleString()}`,
+          reason: trade.entry_reason || trade.signal_reason || 'Signal rule matched and risk invariant verified.',
+          stage: '4. Order Execution',
+          timestamp: trade.entry_ts ? new Date(trade.entry_ts).getTime() : (nowMs - 120000),
+          badgeClass: 'text-accent border-accent/30 bg-accent/10',
+          details: {
+            entryPrice: trade.entry_price,
+            qty: trade.qty,
+            riskUsdt: trade.risk_usdt,
+            initialSl: trade.initial_sl,
+            signalReason: trade.signal_reason
+          }
+        });
+      }
+
+      // Active trade events (e.g. SL ratchets, trailing activations)
+      if (Array.isArray(trade.active_trade_events)) {
+        trade.active_trade_events.forEach((evt, idx) => {
+          list.push({
+            id: `event-${trade.id}-${idx}`,
+            category: 'entries',
+            type: 'event',
+            symbol: trade.symbol,
+            direction: trade.direction,
+            title: evt.title || `Risk Ratchet Milestone (${evt.type || 'SL Update'})`,
+            reason: evt.reason || evt.message || `Stop loss adjusted to preserve capital / lock in profit.`,
+            stage: '5. Protection',
+            timestamp: evt.timestamp ? new Date(evt.timestamp).getTime() : nowMs - (idx * 60000),
+            badgeClass: 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
+            details: evt
+          });
+        });
+      }
+
+      // Exit signals fired if any
+      if (trade.exit_signals_status) {
+        Object.entries(trade.exit_signals_status).forEach(([sigKey, status]) => {
+          if (status?.fired) {
+            list.push({
+              id: `exit-sig-${trade.id}-${sigKey}`,
+              category: 'exits',
+              type: 'trigger',
+              symbol: trade.symbol,
+              direction: trade.direction,
+              title: `Exit Signal Crossed: ${SIGNAL_LABELS[sigKey] || sigKey}`,
+              reason: `Technical exit indicator condition met. Position liquidation triggered per strategy exit rules.`,
+              stage: '6. Resolution',
+              timestamp: nowMs - 10000,
+              badgeClass: 'text-red border-red/30 bg-red/10',
+              details: { signal: sigKey, status }
+            });
+          }
+        });
+      }
+    });
+
+    // 4. Closed Trades exit reasons
+    const stratTrades = (tradeHistory || []).filter(t => (t.strategy_label || 'Momentum Strategy') === stratName);
+    stratTrades.slice(0, 25).forEach(trade => {
+      const isWin = Number(trade.pnl || 0) >= 0;
+      list.push({
+        id: `closed-${trade.id || trade.symbol}-${trade.exit_ts}`,
+        category: 'exits',
+        type: isWin ? 'win' : 'loss',
+        symbol: trade.symbol,
+        direction: trade.direction,
+        title: `Position Closed: ${trade.exit_reason || (isWin ? 'Take Profit Target' : 'Stop Loss Hit')}`,
+        reason: `${isWin ? 'Profitable' : 'Defensive'} closure with PnL of ${fmtUSD(trade.pnl)} (${trade.exit_rr ? `${Number(trade.exit_rr).toFixed(2)}R` : ''}). Reason: ${trade.exit_reason || 'Standard exit rule'}.${trade.risk_lock_reason ? ` Lock: ${trade.risk_lock_reason}` : ''}`,
+        stage: '6. Resolution',
+        timestamp: trade.exit_ts ? new Date(trade.exit_ts).getTime() : nowMs - 3600000,
+        badgeClass: isWin ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10',
+        details: {
+          exitReason: trade.exit_reason,
+          riskLockReason: trade.risk_lock_reason,
+          pnl: trade.pnl,
+          exitRr: trade.exit_rr,
+          exitPrice: trade.exit_price,
+          fees: trade.funding_fee
+        }
+      });
+    });
+
+    // 5. Relevant system logs
+    const stratLogs = (logs || []).filter(l => {
+      const msg = typeof l.message === 'string' ? l.message : '';
+      return msg.includes(stratName) || (focusedOpp?.symbol && msg.includes(focusedOpp.symbol));
+    });
+    stratLogs.slice(0, 15).forEach((log, idx) => {
+      list.push({
+        id: `log-${log.id || idx}-${log.timestamp || idx}`,
+        category: log.level === 'error' || log.level === 'warn' ? 'gates' : 'signals',
+        type: 'log',
+        symbol: focusedOpp?.symbol || '---',
+        title: `Engine Event: ${log.level ? log.level.toUpperCase() : 'INFO'}`,
+        reason: log.message,
+        stage: 'Strategy Event',
+        timestamp: log.timestamp ? new Date(log.timestamp).getTime() : nowMs,
+        badgeClass: log.level === 'error' ? 'text-red border-red/30 bg-red/10' : log.level === 'warn' ? 'text-amber border-amber/30 bg-amber/10' : 'text-dim border-border/40 bg-surface/30',
+        details: log
+      });
+    });
+
+    // Sort descending by timestamp
+    return list.sort((a, b) => b.timestamp - a.timestamp);
+  }, [s?.strategy_label, strategyScannerResults, strategyConfig, isStrategyPaused, strategyGateStates, gateState, gateReason, strategyActiveTrades, tradeHistory, logs, focusedOpp?.symbol, nowMs, conditionFormula]);
+
+  const reasonsCounts = useMemo(() => {
+    return {
+      all: strategyReasons.length,
+      signals: strategyReasons.filter(r => r.category === 'signals').length,
+      gates: strategyReasons.filter(r => r.category === 'gates').length,
+      entries: strategyReasons.filter(r => r.category === 'entries').length,
+      exits: strategyReasons.filter(r => r.category === 'exits').length,
+    };
+  }, [strategyReasons]);
+
+  const filteredReasons = useMemo(() => {
+    let list = strategyReasons;
+    if (reasonsFilter !== 'all') {
+      list = list.filter(r => r.category === reasonsFilter);
+    }
+    const q = reasonsSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(r =>
+        (r.symbol && r.symbol.toLowerCase().includes(q)) ||
+        (r.title && r.title.toLowerCase().includes(q)) ||
+        (r.reason && r.reason.toLowerCase().includes(q)) ||
+        (r.stage && r.stage.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [strategyReasons, reasonsFilter, reasonsSearch]);
 
   const selectedTrade = useMemo(() => {
     return (strategyActiveTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId);
@@ -507,19 +898,17 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                </Tooltip>
              )}
 
-             {!isVariant && (
-               <Tooltip content="Edit Strategy Configuration">
-                 <button
-                   type="button"
-                   onClick={onEdit}
-                   className="px-2.5 py-1.5 min-h-[32px] sm:px-3 bg-surface border border-border text-dim hover:text-accent hover:border-accent/40 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer"
-                   aria-label="Edit strategy configuration"
-                 >
-                   <Edit3 size={12} />
-                   <span>Edit</span>
-                 </button>
-               </Tooltip>
-             )}
+             <Tooltip content={isVariant ? "Edit Strategy Variant Configuration" : "Edit Base Strategy Configuration"}>
+               <button
+                 type="button"
+                 onClick={onEdit}
+                 className="px-2.5 py-1.5 min-h-[32px] sm:px-3 bg-surface border border-border text-dim hover:text-accent hover:border-accent/40 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer"
+                 aria-label={isVariant ? "Edit strategy variant configuration" : "Edit base strategy configuration"}
+               >
+                 <Edit3 size={12} />
+                 <span>{isVariant ? 'Edit Variant' : 'Edit Base'}</span>
+               </button>
+             </Tooltip>
            </div>
          </div>
       </ViewHeader>
@@ -884,51 +1273,120 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           )}
         </div>
 
-        {/* End-to-End Trade Lifecycle Pipeline Visualizer */}
-        <div className="p-3.5 bg-background/20 border-b border-border/20 font-mono flex flex-col gap-2.5">
+        {/* Interactive End-to-End Trade Journey Map (6 Milestones) */}
+        <div className="p-3.5 sm:p-4 bg-background/25 border-b border-border/20 font-mono flex flex-col gap-3">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <Compass size={13} className="text-accent" />
-              <span className="text-[10px] font-black uppercase tracking-wider text-text">Trade Lifecycle Pipeline</span>
+              <Compass size={14} className="text-accent" />
+              <span className="text-[11px] font-black uppercase tracking-wider text-text">Trade Journey Map</span>
               <span className={cn("px-2 py-0.5 rounded text-[8.5px] font-black uppercase border", currentLifecycleStage.colorClass)}>
                 {currentLifecycleStage.statusLabel}
               </span>
             </div>
-            <span className="text-[9px] text-dim">
-              Target: <strong className="text-text">{focusedOpp.symbol}</strong> · {currentLifecycleStage.desc}
-            </span>
+            <div className="flex items-center gap-2 text-[9px] text-dim flex-wrap">
+              <span>Target: <strong className="text-text font-bold">{focusedOpp.symbol}</strong></span>
+              <span className="text-dim/40">·</span>
+              <span>Click any milestone below to inspect execution criteria</span>
+            </div>
           </div>
 
-          {/* 5-Stage Step Visualizer Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 relative">
-            {[
-              { num: 1, label: '1. Discovery', short: 'Scope' },
-              { num: 2, label: '2. Signals', short: 'Evaluation' },
-              { num: 3, label: '3. Risk Check', short: 'Execution' },
-              { num: 4, label: '4. Active Trade', short: 'Protection' },
-              { num: 5, label: '5. Resolution', short: 'Exit' }
-            ].map(step => {
-              const isCurrent = currentLifecycleStage.stageNumber === step.num;
-              const isPassed = currentLifecycleStage.stageNumber > step.num;
+          {/* 6-Milestone Interactive Journey Trail */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 relative">
+            {journeyMilestones.map(m => {
+              const isSelected = activeJourneyMilestone === m.num;
+              const isCurrent = currentLifecycleStage.stageNumber === m.num;
+              const isPassed = currentLifecycleStage.stageNumber > m.num;
 
               return (
-                <div
-                  key={step.num}
+                <button
+                  key={m.num}
+                  type="button"
+                  onClick={() => setActiveJourneyMilestone(isSelected ? null : m.num)}
+                  aria-expanded={isSelected}
+                  aria-label={`Milestone ${m.num}: ${m.title} (${m.status})`}
                   className={cn(
-                    "p-1.5 rounded-lg border text-center flex flex-col items-center justify-center gap-0.5 transition-all",
-                    isCurrent
-                      ? "bg-accent/15 border-accent text-accent shadow-xs font-black"
+                    "p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-h-[72px] relative overflow-hidden group",
+                    isSelected
+                      ? "bg-accent/15 border-accent text-accent shadow-sm ring-1 ring-accent/30"
+                      : isCurrent
+                      ? "bg-accent/10 border-accent/60 text-accent font-black shadow-xs"
                       : isPassed
-                      ? "bg-green/10 border-green/30 text-green font-bold"
-                      : "bg-surface/30 border-border/30 text-dim/60 font-medium"
+                      ? "bg-green/10 border-green/30 text-green font-bold hover:border-green/50"
+                      : "bg-surface/40 border-border/40 text-dim/80 hover:border-border hover:text-text"
                   )}
                 >
-                  <span className="text-[9.5px] leading-tight font-black uppercase">{step.label}</span>
-                  <span className="text-[7.5px] text-dim/70 font-mono uppercase">{step.short}</span>
-                </div>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-tight truncate">{m.short}</span>
+                    <span className={cn(
+                      "text-[7.5px] font-bold px-1.5 py-0.2 rounded border font-mono tracking-tighter shrink-0",
+                      isSelected ? "bg-accent text-white border-accent" : m.badgeClass
+                    )}>
+                      {m.status}
+                    </span>
+                  </div>
+
+                  <span className="text-[8.5px] text-dim/80 line-clamp-1 text-left leading-tight font-medium">
+                    {m.subtitle}
+                  </span>
+
+                  {/* Indicator bar */}
+                  <div className="w-full bg-background/80 rounded-full h-1 overflow-hidden relative border border-white/5">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all duration-300",
+                        isSelected || isCurrent ? "bg-accent w-full" : isPassed ? "bg-green w-full" : "bg-dim/30 w-1/4"
+                      )}
+                    />
+                  </div>
+                </button>
               );
             })}
           </div>
+
+          {/* Interactive Milestone Detailed Inspector */}
+          {activeJourneyMilestone && (() => {
+            const milestone = journeyMilestones.find(m => m.num === activeJourneyMilestone);
+            if (!milestone) return null;
+
+            return (
+              <div className="mt-1 p-3.5 bg-surface/50 border border-accent/30 rounded-xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                <div className="flex items-center justify-between flex-wrap gap-2 border-b border-border/20 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-5 h-5 rounded-md bg-accent text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                      {milestone.num}
+                    </span>
+                    <div>
+                      <h4 className="text-xs font-black uppercase tracking-wider text-text">{milestone.title}</h4>
+                      <p className="text-[9.5px] text-dim font-medium">{milestone.desc}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className={cn("text-[9px] font-black px-2 py-0.5 rounded border uppercase", milestone.badgeClass)}>
+                      {milestone.status}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveJourneyMilestone(null)}
+                      className="p-1 hover:bg-white/10 rounded-md text-dim hover:text-text transition-colors"
+                      aria-label="Close milestone inspection"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 pt-1 font-mono">
+                  {milestone.criteria.map((crit, idx) => (
+                    <div key={idx} className="p-2 bg-background/40 border border-border/30 rounded-lg flex flex-col gap-0.5">
+                      <span className="text-[8px] font-black uppercase text-dim tracking-wider">{crit.label}</span>
+                      <span className="text-[10px] font-bold text-text truncate" title={crit.value}>{crit.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Focused Candidate Inspector & Signal Checklist */}
@@ -1066,6 +1524,202 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           </div>
         </div>
       )}
+
+      {/* Strategy Reasons & Decision Log */}
+      <div className="mb-8 text-left">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+          <div>
+            <SectionLabel>Strategy Reasons & Decision Log</SectionLabel>
+            <p className="text-xs text-dim">
+              Complete causal chain of opportunity evaluations, gating decisions, executions, and exit triggers for this strategy.
+            </p>
+          </div>
+
+          {/* Quick Filter Tabs */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            {[
+              { id: 'all', label: 'All', count: reasonsCounts.all },
+              { id: 'signals', label: 'Signals', count: reasonsCounts.signals },
+              { id: 'gates', label: 'Risk Gates', count: reasonsCounts.gates },
+              { id: 'entries', label: 'Entries', count: reasonsCounts.entries },
+              { id: 'exits', label: 'Exits', count: reasonsCounts.exits },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setReasonsFilter(tab.id)}
+                className={cn(
+                  "px-2.5 py-1 text-xs font-mono rounded-lg transition-all border flex items-center gap-1.5 cursor-pointer whitespace-nowrap",
+                  reasonsFilter === tab.id
+                    ? "bg-accent/15 text-accent border-accent/40 font-semibold shadow-xs"
+                    : "bg-surface/60 text-dim hover:text-text border-border/40 hover:border-border"
+                )}
+              >
+                <span>{tab.label}</span>
+                <span className={cn(
+                  "text-[10px] px-1.5 py-0.2 rounded-full tabular-nums",
+                  reasonsFilter === tab.id ? "bg-accent/20 text-accent font-bold" : "bg-white/5 text-dim"
+                )}>
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Filter & Search Bar */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-surface/50 border border-border/40 rounded-xl mb-3">
+          <div className="relative w-full sm:w-80">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
+            <input
+              type="text"
+              value={reasonsSearch}
+              onChange={(e) => setReasonsSearch(e.target.value)}
+              placeholder="Search symbol, trigger, or reason keyword..."
+              className="w-full pl-9 pr-8 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all"
+            />
+            {reasonsSearch && (
+              <button
+                type="button"
+                onClick={() => setReasonsSearch('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-text cursor-pointer p-0.5"
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end text-[11px] text-dim font-mono">
+            <span>Showing <strong className="text-text tabular-nums">{filteredReasons.length}</strong> of <strong className="tabular-nums">{strategyReasons.length}</strong> events</span>
+            {reasonsSearch && (
+              <button
+                type="button"
+                onClick={() => { setReasonsSearch(''); setReasonsFilter('all'); }}
+                className="text-accent hover:underline text-[11px] cursor-pointer"
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Reasons Feed List */}
+        <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+          {filteredReasons.length === 0 ? (
+            <div className="p-8 text-center bg-surface/30 border border-border/30 rounded-xl">
+              <FileText size={24} className="mx-auto text-dim/40 mb-2" />
+              <div className="text-xs font-semibold text-text mb-1">No matching strategy decisions</div>
+              <p className="text-[11px] text-dim max-w-sm mx-auto">
+                {reasonsSearch || reasonsFilter !== 'all'
+                  ? 'No events match your current filter or search criteria. Try selecting "All" or clearing the search keyword.'
+                  : 'Decision events will appear here as scanner opportunities are scored, gates are evaluated, and orders are executed.'}
+              </p>
+            </div>
+          ) : (
+            filteredReasons.map((item) => {
+              const isCopied = copiedReasonId === item.id;
+              return (
+                <div
+                  key={item.id}
+                  className="p-3 bg-surface/70 hover:bg-surface border border-border/40 hover:border-border/70 rounded-xl transition-all flex flex-col gap-2 font-mono group"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Direction Tag */}
+                      {item.direction && (
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wider",
+                          item.direction === 'LONG' || item.direction === 'long' ? "bg-green/15 text-green border border-green/30" : "bg-red/15 text-red border border-red/30"
+                        )}>
+                          {item.direction.toUpperCase()}
+                        </span>
+                      )}
+
+                      {/* Symbol */}
+                      {item.symbol && item.symbol !== '---' && (
+                        <span className="text-xs font-bold text-text bg-background/80 px-2 py-0.5 rounded border border-border/50">
+                          {item.symbol}
+                        </span>
+                      )}
+
+                      {/* Stage indicator */}
+                      <span className="text-[10px] text-dim/80 bg-background/40 px-2 py-0.5 rounded border border-white/5">
+                        {item.stage}
+                      </span>
+
+                      {/* Title */}
+                      <span className="text-xs font-semibold text-text group-hover:text-accent transition-colors">
+                        {item.title}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-dim whitespace-nowrap" title={new Date(item.timestamp).toISOString()}>
+                        {formatTimeAgo(item.timestamp)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyReason(item)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-dim hover:text-text bg-background/60 hover:bg-background rounded border border-border/40 transition-all cursor-pointer"
+                        title="Copy decision explanation"
+                        aria-label="Copy decision explanation"
+                      >
+                        {isCopied ? <Check size={12} className="text-green" /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Primary Reason Text */}
+                  <div className="text-[11.5px] text-text/90 leading-relaxed font-sans bg-background/40 p-2.5 rounded-lg border border-border/20">
+                    {item.reason}
+                  </div>
+
+                  {/* Supplemental Meta Parameters */}
+                  {item.details && Object.keys(item.details).length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[9.5px] text-dim pt-1 border-t border-border/15">
+                      {item.details.formula && (
+                        <span className="bg-background/80 px-1.5 py-0.5 rounded border border-border/30">
+                          Formula: <span className="text-text font-bold">{item.details.formula}</span>
+                        </span>
+                      )}
+                      {item.details.entryPrice && (
+                        <span className="bg-background/80 px-1.5 py-0.5 rounded border border-border/30">
+                          Entry: <span className="text-text font-bold">${Number(item.details.entryPrice).toLocaleString()}</span>
+                        </span>
+                      )}
+                      {item.details.initialSl && (
+                        <span className="bg-background/80 px-1.5 py-0.5 rounded border border-border/30">
+                          SL: <span className="text-text font-bold">${Number(item.details.initialSl).toLocaleString()}</span>
+                        </span>
+                      )}
+                      {item.details.exitRr !== undefined && (
+                        <span className="bg-background/80 px-1.5 py-0.5 rounded border border-border/30">
+                          R:R: <span className={cn("font-bold", Number(item.details.exitRr) >= 0 ? "text-green" : "text-red")}>
+                            {Number(item.details.exitRr) >= 0 ? '+' : ''}{Number(item.details.exitRr).toFixed(2)}R
+                          </span>
+                        </span>
+                      )}
+                      {item.details.pnl !== undefined && (
+                        <span className="bg-background/80 px-1.5 py-0.5 rounded border border-border/30">
+                          PnL: <span className={cn("font-bold", Number(item.details.pnl) >= 0 ? "text-green" : "text-red")}>
+                            {fmtUSD(item.details.pnl)}
+                          </span>
+                        </span>
+                      )}
+                      {item.details.missingSignals && item.details.missingSignals.length > 0 && (
+                        <span className="bg-amber/10 text-amber border border-amber/30 px-1.5 py-0.5 rounded">
+                          Missing: {item.details.missingSignals.join(', ')}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
 
       {/* Scanner Preview */}
       <ScannerPreview

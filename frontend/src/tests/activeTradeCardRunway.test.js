@@ -135,7 +135,11 @@ test('R-multiple Price Runway: SHORT position trailing SL past entry', () => {
 test('ActiveTradeCard.jsx imports all used lucide-react icons including Zap', async () => {
   const fs = await import('node:fs')
   const path = await import('node:path')
-  const cardPath = path.resolve('frontend/src/components/ActiveTradeCard.jsx')
+  const url = await import('node:url')
+  const __dirname = path.dirname(url.fileURLToPath(import.meta.url))
+  const cardPath = fs.existsSync(path.resolve(__dirname, '../components/ActiveTradeCard.jsx'))
+    ? path.resolve(__dirname, '../components/ActiveTradeCard.jsx')
+    : path.resolve('frontend/src/components/ActiveTradeCard.jsx')
   const content = fs.readFileSync(cardPath, 'utf8')
 
   // Verify Zap is imported from lucide-react

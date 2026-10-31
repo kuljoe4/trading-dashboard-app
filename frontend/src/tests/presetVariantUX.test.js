@@ -2,10 +2,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('Presets & Variant UX Verification', async (t) => {
-  const configModalPath = path.resolve('frontend/src/components/ConfigModal.jsx');
-  const dashboardViewPath = path.resolve('frontend/src/views/DashboardView.jsx');
+  const configModalPath = fs.existsSync(path.resolve(__dirname, '../components/ConfigModal.jsx'))
+    ? path.resolve(__dirname, '../components/ConfigModal.jsx')
+    : path.resolve('frontend/src/components/ConfigModal.jsx');
+  const dashboardViewPath = fs.existsSync(path.resolve(__dirname, '../views/DashboardView.jsx'))
+    ? path.resolve(__dirname, '../views/DashboardView.jsx')
+    : path.resolve('frontend/src/views/DashboardView.jsx');
 
   const configModalContent = fs.readFileSync(configModalPath, 'utf8');
   const dashboardViewContent = fs.readFileSync(dashboardViewPath, 'utf8');

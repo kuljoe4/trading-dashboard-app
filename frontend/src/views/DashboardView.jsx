@@ -1376,6 +1376,7 @@ const GateBanner = React.memo(({ gateState, scannerPaused, reason, nextSlotTs, h
 })
 GateBanner.displayName = 'GateBanner'
 
+// ScannerPreview renders 🔥 Fast Market Expansion banner when market activity is high (extracted to standalone component)
 export { ScannerPreview } from '../components/ScannerPreview'
 
 const ReconciliationCenter = React.memo(({ sessionActive, tradingMode, config, addAlert }) => {

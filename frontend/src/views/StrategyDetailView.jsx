@@ -183,6 +183,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     ? `${stratPerformance.hitRateRatio.toFixed(2)}x (Contracting)`
     : `${stratPerformance.hitRateRatio.toFixed(2)}x (Stable)`;
 
+  const strategyActiveTrades = useMemo(() => {
+    if (!activeTrades || !s?.strategy_label) return [];
+    return activeTrades.filter(t => t.strategy_label === s.strategy_label);
+  }, [activeTrades, s?.strategy_label]);
+
+  const activeTradeCount = strategyActiveTrades.length;
+
   const proximityLeaderboard = useMemo(() => {
     const list = strategyScannerResults || [];
 
@@ -205,8 +212,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       const found = strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
       if (found) return found;
     }
-    return proximityLeaderboard[0] || strategyScannerResults[0] || { symbol: '---', pct: 0, dir: '---' };
-  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard]);
+    if (proximityLeaderboard[0]) return proximityLeaderboard[0];
+    if (strategyScannerResults[0]) return strategyScannerResults[0];
+    if (strategyActiveTrades[0]) {
+      return {
+        symbol: strategyActiveTrades[0].symbol,
+        pct: 0,
+        dir: strategyActiveTrades[0].direction?.toLowerCase() || 'long',
+        close: strategyActiveTrades[0].entry_price || 0,
+        signalResult: { allFired: true, firedSignals: strategyConfig.enabled_signals || [] }
+      };
+    }
+    return { symbol: '---', pct: 0, dir: '---' };
+  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyConfig.enabled_signals]);
 
   const bestOpp = focusedOpp;
   const scanMet = Math.abs(bestOpp.pct) >= strategyConfig.scan_pct_threshold;
@@ -239,13 +257,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     : signalLogic === 'all' ? 'Match All (AND)' : 'Match Any (OR)';
 
   const isStrategyPaused = pausedStrategies?.includes(s.strategy_label) || sessionPaused;
-
-  const strategyActiveTrades = useMemo(() => {
-    if (!activeTrades || !s?.strategy_label) return [];
-    return activeTrades.filter(t => t.strategy_label === s.strategy_label);
-  }, [activeTrades, s?.strategy_label]);
-
-  const activeTradeCount = strategyActiveTrades.length;
 
   // Static vs Dynamic Watchlist Metadata
   const staticSymbols = useMemo(() => {
@@ -720,22 +731,77 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       });
     });
 
-    // 5. Relevant system logs
-    const stratLogs = (logs || []).filter(l => {
-      const msg = typeof l.message === 'string' ? l.message : '';
-      return msg.includes(stratName) || (focusedOpp?.symbol && msg.includes(focusedOpp.symbol));
-    });
-    stratLogs.slice(0, 15).forEach((log, idx) => {
+    // 5. Relevant system logs & Scanner Diagnostics
+    const stratInterval = strategyConfig.scan_interval || '5m';
+    const seenLogIds = new Set();
+
+    (logs || []).forEach((log, idx) => {
+      const msg = typeof log.message === 'string' ? log.message : (typeof log.msg === 'string' ? log.msg : '');
+      if (!msg) return;
+
+      const isStrategyLog = msg.includes(stratName);
+      const isScannerDiag = msg.includes('[Scanner Diagnostic]');
+      const isIntervalMatch = msg.includes(`(${stratInterval} timeframe)`) || msg.includes(`interval ${stratInterval}`) || msg.includes(`for interval ${stratInterval}`);
+      const isSymbolMatch = focusedOpp?.symbol && focusedOpp.symbol !== '---' && msg.includes(focusedOpp.symbol);
+
+      if (!isStrategyLog && !isSymbolMatch && !(isScannerDiag && isIntervalMatch)) {
+        return;
+      }
+
+      const logId = log.id || `diag-${idx}-${log.timestamp || idx}`;
+      if (seenLogIds.has(logId)) return;
+      seenLogIds.add(logId);
+
+      const symMatch = msg.match(/\b([A-Z0-9]{2,12}USDT)\b/);
+      const itemSymbol = symMatch ? symMatch[1] : (focusedOpp?.symbol || '---');
+
+      let category = 'signals';
+      let stage = '1. Discovery';
+      let title = `Engine Event: ${log.level ? String(log.level).toUpperCase() : 'INFO'}`;
+      let badgeClass = 'text-dim border-border/40 bg-surface/30';
+      let itemType = 'log';
+
+      if (msg.includes('pre-filtered: prospective SL distance')) {
+        category = 'gates';
+        stage = '3. Risk Guard';
+        itemType = 'block';
+        title = `Prospective SL Filter: ${itemSymbol}`;
+        badgeClass = 'text-amber border-amber/30 bg-amber/10';
+      } else if (msg.includes('skipped: momentum') && msg.includes('below threshold')) {
+        category = 'signals';
+        stage = '1. Discovery';
+        itemType = 'miss';
+        title = `Momentum Below Threshold: ${itemSymbol}`;
+        badgeClass = 'text-dim border-border/40 bg-surface/30';
+      } else if (msg.includes('skipped: insufficient candles')) {
+        category = 'signals';
+        stage = '1. Discovery';
+        itemType = 'warmup';
+        title = `Candle Buffer Warming: ${itemSymbol}`;
+        badgeClass = 'text-dim border-border/40 bg-surface/30';
+      } else if (msg.includes('disallowed by entry_side')) {
+        category = 'signals';
+        stage = '2. Signals';
+        itemType = 'miss';
+        title = `Direction Filter: ${itemSymbol}`;
+        badgeClass = 'text-amber border-amber/30 bg-amber/10';
+      } else if (log.level === 'error' || log.level === 'warn') {
+        category = 'gates';
+        stage = '3. Risk Guard';
+        itemType = 'block';
+        badgeClass = log.level === 'error' ? 'text-red border-red/30 bg-red/10' : 'text-amber border-amber/30 bg-amber/10';
+      }
+
       list.push({
-        id: `log-${log.id || idx}-${log.timestamp || idx}`,
-        category: log.level === 'error' || log.level === 'warn' ? 'gates' : 'signals',
-        type: 'log',
-        symbol: focusedOpp?.symbol || '---',
-        title: `Engine Event: ${log.level ? log.level.toUpperCase() : 'INFO'}`,
-        reason: log.message,
-        stage: 'Strategy Event',
-        timestamp: log.timestamp ? new Date(log.timestamp).getTime() : nowMs,
-        badgeClass: log.level === 'error' ? 'text-red border-red/30 bg-red/10' : log.level === 'warn' ? 'text-amber border-amber/30 bg-amber/10' : 'text-dim border-border/40 bg-surface/30',
+        id: logId,
+        category,
+        type: itemType,
+        symbol: itemSymbol,
+        title,
+        reason: msg.replace(/\[Scanner Diagnostic\]\s*/, '').replace(/\[MomentumScannerService\]\s*/, ''),
+        stage,
+        timestamp: log.timestamp ? new Date(log.timestamp).getTime() : nowMs - (idx * 5000),
+        badgeClass,
         details: log
       });
     });
@@ -1284,7 +1350,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               </span>
             </div>
             <div className="flex items-center gap-2 text-[9px] text-dim flex-wrap">
-              <span>Target: <strong className="text-text font-bold">{focusedOpp.symbol}</strong></span>
+              <span>Target: <strong className="text-text font-bold">{focusedOpp.symbol !== '---' ? focusedOpp.symbol : (isStaticWatchlist ? `${staticSymbols.length} Static Targets` : 'Discovery Universe')}</strong></span>
               <span className="text-dim/40">·</span>
               <span>Click any milestone below to inspect execution criteria</span>
             </div>
@@ -1412,41 +1478,59 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {/* Left Column: Signal Gauges */}
-            <div className="lg:col-span-2 flex flex-col gap-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                <SignalGauge
-                  label="Velocity Move"
-                  value={Math.abs(bestOpp.pct || 0)}
-                  threshold={strategyConfig.scan_pct_threshold || 2.0}
-                  unit="%"
-                  fired={scanMet}
-                  active={scanMet}
-                  markPrice={bestOpp.close || 0}
-                />
-
-                {(strategyConfig.enabled_signals || []).map(sig => {
-                  const sigDetail = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
-                  return (
-                    <SignalGauge
-                      key={sig}
-                      label={SIGNAL_LABELS[sig] || sig}
-                      value={sigDetail.value}
-                      threshold={sigDetail.threshold}
-                      unit={sigDetail.unit}
-                      fired={sigDetail.fired}
-                      active={sigDetail.active !== false}
-                      remainingDelay={sigDetail.remaining_delay || 0}
-                      configDelay={sigDetail.config_delay || 0}
-                      insufficientData={sigDetail.insufficientData}
-                      thresholdIsPrice={sigDetail.threshold_is_price}
-                      isLong={bestOpp.dir === 'long'}
-                      markPrice={bestOpp.close || sigDetail.value || 0}
-                      type="entry"
-                    />
-                  );
-                })}
+            {bestOpp.symbol === '---' ? (
+              <div className="lg:col-span-2 p-6 rounded-xl bg-background/50 border border-border/40 flex flex-col items-center justify-center text-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+                  <Search size={18} />
+                </div>
+                <div className="flex flex-col gap-1 max-w-md">
+                  <span className="text-xs font-black uppercase tracking-wider text-text">No Candidates Passing Velocity Threshold</span>
+                  <p className="text-[11px] text-dim leading-relaxed">
+                    Scanner is actively scanning the universe on {strategyConfig.scan_interval || '4h'} (configured threshold: ±{strategyConfig.scan_pct_threshold || 1.0}%). Live evaluations, pre-filters, and candle buffer statuses are reported below in the Decision Log.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 text-[9px] font-mono text-dim font-bold bg-surface/60 px-3 py-1 rounded-lg border border-border/40">
+                  <RefreshCw size={10} className="animate-spin text-accent" />
+                  <span>Awaiting momentum trigger across {strategyConfig.watchlist_size || 80} discovery symbols</span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="lg:col-span-2 flex flex-col gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                  <SignalGauge
+                    label="Velocity Move"
+                    value={Math.abs(bestOpp.pct || 0)}
+                    threshold={strategyConfig.scan_pct_threshold || 2.0}
+                    unit="%"
+                    fired={scanMet}
+                    active={scanMet}
+                    markPrice={bestOpp.close || 0}
+                  />
+
+                  {(strategyConfig.enabled_signals || []).map(sig => {
+                    const sigDetail = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
+                    return (
+                      <SignalGauge
+                        key={sig}
+                        label={SIGNAL_LABELS[sig] || sig}
+                        value={sigDetail.value}
+                        threshold={sigDetail.threshold}
+                        unit={sigDetail.unit}
+                        fired={sigDetail.fired}
+                        active={sigDetail.active !== false}
+                        remainingDelay={sigDetail.remaining_delay || 0}
+                        configDelay={sigDetail.config_delay || 0}
+                        insufficientData={sigDetail.insufficientData}
+                        thresholdIsPrice={sigDetail.threshold_is_price}
+                        isLong={bestOpp.dir === 'long'}
+                        markPrice={bestOpp.close || sigDetail.value || 0}
+                        type="entry"
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Right Column: Timeframe Candle Warmup & Freshness Debug Inspector */}
             <div className="bg-background/40 border border-border/40 rounded-xl p-3 flex flex-col gap-2.5">

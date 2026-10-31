@@ -16,6 +16,9 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
   },
+  build: {
+    minify: 'esbuild',
+  },
   server: {
     host: '0.0.0.0',
     port: 3000,

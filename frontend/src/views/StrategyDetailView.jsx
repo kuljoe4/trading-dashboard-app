@@ -10,7 +10,7 @@ import {
 import { SignalGauge } from '../components/ui/SignalGauge'
 import { calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
-import { ScannerPreview } from './DashboardView'
+import { ScannerPreview } from '../components/ScannerPreview'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame,
@@ -342,6 +342,53 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       desc: isStaticWatchlist ? 'Monitored in defined Static Watchlist target list.' : 'Scanned via Smart Watchlist discovery feed.'
     };
   }, [focusedOpp, strategyActiveTrades, entryMet, scanMet, firedCount, signalsCount, isStaticWatchlist]);
+
+  // Evaluation Timeframe Debug Table Data Construction
+  const timeframeDebugItems = useMemo(() => {
+    const enabled = strategyConfig.enabled_signals || [];
+    const scanTf = strategyConfig.scan_interval || '1m';
+    const items = [];
+
+    // 1. Primary Scanner Timeframe
+    const ohlcLen = bestOpp.ohlc_history?.length || bestOpp.history?.length || 0;
+    const reqScanWarmup = 50;
+    items.push({
+      key: 'scanner',
+      label: 'Scanner Velocity',
+      tf: scanTf,
+      candles: ohlcLen > 0 ? ohlcLen : 200,
+      required: reqScanWarmup,
+      isWarming: ohlcLen > 0 && ohlcLen < reqScanWarmup,
+      statusMsg: ohlcLen >= reqScanWarmup || ohlcLen === 0 ? 'Ready' : `Warming (${ohlcLen}/${reqScanWarmup})`
+    });
+
+    // 2. Technical Indicator Evaluation Timeframes
+    for (const sig of enabled) {
+      const rawTf = (strategyConfig.signal_timeframes || {})[sig];
+      const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
+      const sigDetail = signalResult.signals?.[sig] || {};
+
+      const candles = sigDetail.value && typeof sigDetail.value === 'number' && sigDetail.insufficientData
+        ? sigDetail.value
+        : (ohlcLen > 0 ? ohlcLen : 200);
+      const required = sigDetail.threshold && typeof sigDetail.threshold === 'number' && sigDetail.insufficientData
+        ? sigDetail.threshold
+        : 100;
+      const isWarming = sigDetail.insufficientData === true || candles < required;
+
+      items.push({
+        key: sig,
+        label: SIGNAL_LABELS[sig] || sig,
+        tf,
+        candles,
+        required,
+        isWarming,
+        statusMsg: isWarming ? `Warming (${candles}/${required})` : 'Ready'
+      });
+    }
+
+    return items;
+  }, [strategyConfig, bestOpp, signalResult]);
 
   // 6-Milestone Interactive Journey Map Specification
   const journeyMilestones = useMemo(() => {
@@ -790,53 +837,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       setIsBatchSyncing(false);
     }
   };
-
-  // Evaluation Timeframe Debug Table Data Construction
-  const timeframeDebugItems = useMemo(() => {
-    const enabled = strategyConfig.enabled_signals || [];
-    const scanTf = strategyConfig.scan_interval || '1m';
-    const items = [];
-
-    // 1. Primary Scanner Timeframe
-    const ohlcLen = bestOpp.ohlc_history?.length || bestOpp.history?.length || 0;
-    const reqScanWarmup = 50;
-    items.push({
-      key: 'scanner',
-      label: 'Scanner Velocity',
-      tf: scanTf,
-      candles: ohlcLen > 0 ? ohlcLen : 200,
-      required: reqScanWarmup,
-      isWarming: ohlcLen > 0 && ohlcLen < reqScanWarmup,
-      statusMsg: ohlcLen >= reqScanWarmup || ohlcLen === 0 ? 'Ready' : `Warming (${ohlcLen}/${reqScanWarmup})`
-    });
-
-    // 2. Technical Indicator Evaluation Timeframes
-    for (const sig of enabled) {
-      const rawTf = (strategyConfig.signal_timeframes || {})[sig];
-      const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
-      const sigDetail = signalResult.signals?.[sig] || {};
-
-      const candles = sigDetail.value && typeof sigDetail.value === 'number' && sigDetail.insufficientData
-        ? sigDetail.value
-        : (ohlcLen > 0 ? ohlcLen : 200);
-      const required = sigDetail.threshold && typeof sigDetail.threshold === 'number' && sigDetail.insufficientData
-        ? sigDetail.threshold
-        : 100;
-      const isWarming = sigDetail.insufficientData === true || candles < required;
-
-      items.push({
-        key: sig,
-        label: SIGNAL_LABELS[sig] || sig,
-        tf,
-        candles,
-        required,
-        isWarming,
-        statusMsg: isWarming ? `Warming (${candles}/${required})` : 'Ready'
-      });
-    }
-
-    return items;
-  }, [strategyConfig, bestOpp, signalResult]);
 
   // Compute live telemetry stats
   const streamAgeSec = Math.max(0, ((nowMs - lastAuthoritativeUpdateTs) / 1000)).toFixed(1);

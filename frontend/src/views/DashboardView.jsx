@@ -1930,7 +1930,13 @@ export function DashboardView({ initialStrategy }) {
     for (let i = 0; i < trades.length; i++) {
       const t = trades[i];
       if (t) {
-        const label = pnlMap[t.strategy_label] !== undefined ? t.strategy_label : strategyLabel;
+        const tradeLabel = t.strategy_label || strategyLabel;
+        if (pnlMap[tradeLabel] === undefined) {
+          pnlMap[tradeLabel] = 0;
+          estPnlMap[tradeLabel] = 0;
+          countMap[tradeLabel] = 0;
+        }
+        const label = tradeLabel;
         const pnlVal = safeNum(t.pnl);
         pnlMap[label] += pnlVal;
         estPnlMap[label] += safeNum(t.est_pnl_to_realize);
@@ -2124,15 +2130,21 @@ export function DashboardView({ initialStrategy }) {
 
       if (activeVariantIndex !== null) {
         // If newConfig is already the full merged root config from ConfigModal, preserve it directly
-        if (newConfig.strategy_variants && newConfig.strategy_label === config.strategy_label) {
+        if (Array.isArray(newConfig.strategy_variants) && newConfig.strategy_variants.length > 0 && newConfig.strategy_label === config.strategy_label) {
           finalConfig = newConfig;
         } else {
           const variants = [...(config.strategy_variants || [])];
           // Strip out top-level strategy_variants from the edited variant config to avoid recursive nesting
           const variantClean = { ...newConfig };
           delete variantClean.strategy_variants;
-          variants[activeVariantIndex] = { ...variantClean, strategy_label: variantClean.strategy_label || variants[activeVariantIndex]?.strategy_label || `Variant ${activeVariantIndex + 1}` };
+          const vLabel = variantClean.strategy_label || variants[activeVariantIndex]?.strategy_label || `Variant ${activeVariantIndex + 1}`;
+          variants[activeVariantIndex] = { ...variantClean, strategy_label: vLabel };
           finalConfig = { ...config, strategy_variants: variants };
+        }
+      } else {
+        // When saving base strategy, ensure variants from newConfig or existing config are strictly preserved
+        if (!Array.isArray(newConfig.strategy_variants) && Array.isArray(config.strategy_variants)) {
+          finalConfig = { ...newConfig, strategy_variants: config.strategy_variants };
         }
       }
 
@@ -3091,20 +3103,28 @@ export function DashboardView({ initialStrategy }) {
                     {(() => {
                       const activeVariants = (config?.strategy_variants || []).filter(v => v && v.enabled !== false);
                       const totalCards = 1 + activeVariants.length;
+                      const baseLabel = currentStrategy.strategy_label;
+                      const baseMetric = stratMetricsMap.get(baseLabel);
+                      const baseTotalPnl = safeVariantStats[baseLabel]?.totalPnl ?? (baseMetric ? baseMetric.totalPnl + (activePnlMap[baseLabel] || 0) : (activeVariants.length > 0 ? (activePnlMap[baseLabel] || 0) : currentStrategy.totalPnl));
+                      const baseEntryCount = safeVariantStats[baseLabel]?.entryCount ?? (baseMetric ? (baseMetric.wins + baseMetric.losses) : (activeVariants.length > 0 ? (activeTradeCountsMap[baseLabel] || 0) : currentStrategy.entryCount));
+                      const baseHitCount = safeVariantStats[baseLabel]?.hitCount ?? (baseMetric ? baseMetric.wins : (activeVariants.length > 0 ? 0 : currentStrategy.hitCount));
+
                       return (
                         <>
                           <StrategyCard
                             s={{
                               ...currentStrategy,
-                              ...safeVariantStats[currentStrategy.strategy_label],
-                              totalPnl: safeVariantStats[currentStrategy.strategy_label]?.totalPnl ?? (stratMetricsMap.get(currentStrategy.strategy_label)?.totalPnl ?? currentStrategy.totalPnl),
-                              activePnl: activePnlMap[currentStrategy.strategy_label] || 0,
-                              activeEstPnl: activeEstPnlToRealizeMap[currentStrategy.strategy_label] || 0,
-                              activeTradeCount: activeTradeCountsMap[currentStrategy.strategy_label] || 0,
-                              totalEstPnlToRealize: safeVariantStats[currentStrategy.strategy_label]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[currentStrategy.strategy_label] ?? 0,
-                              peakRrSwitchHits: strategyGateStates[currentStrategy.strategy_label]?.peakRrSwitchHits || 0
+                              ...safeVariantStats[baseLabel],
+                              totalPnl: baseTotalPnl,
+                              entryCount: baseEntryCount,
+                              hitCount: baseHitCount,
+                              activePnl: activePnlMap[baseLabel] || 0,
+                              activeEstPnl: activeEstPnlToRealizeMap[baseLabel] || 0,
+                              activeTradeCount: activeTradeCountsMap[baseLabel] || 0,
+                              totalEstPnlToRealize: safeVariantStats[baseLabel]?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[baseLabel] ?? 0,
+                              peakRrSwitchHits: strategyGateStates[baseLabel]?.peakRrSwitchHits || 0
                             }}
-                            scannerResults={variantScannerResults[currentStrategy.strategy_label]}
+                            scannerResults={variantScannerResults[baseLabel]}
                             config={config}
                             paused={pausedStrategies.includes(currentStrategy.strategy_label) || sessionPaused}
                             isPausing={!!pausingMap[currentStrategy.strategy_label]}

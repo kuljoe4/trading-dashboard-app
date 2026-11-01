@@ -1,6 +1,6 @@
 {
-  "summary":  "Mobile responsiveness enhancements, removal of redundant noisy header metrics/filters, interactive table column-header sorting with visual indicators, and collapsible/expandable sticky Target Strategy & Watchlist header. All 111 test suites (263 tests) verified and passing.",
-  "updatedAt":  "2026-10-30T15:02:47.866323941Z",
+  "summary":  "Comprehensive root cause investigation and resolution for strategy variants resetting, variant stripping in presets, and base strategy stats accumulation.",
+  "updatedAt":  "2026-11-01T12:19:15.301011105Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

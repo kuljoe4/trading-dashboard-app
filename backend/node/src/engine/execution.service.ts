@@ -454,6 +454,7 @@ export class ExecutionService {
               if (effectiveDelayMs > 0) {
                 const nowMs = Date.now();
                 const cooldownMins = Math.ceil(effectiveDelayMs / 60000);
+                const allowCandleGating = candleDelay > 0;
 
                 for (let i = 0; i < symbolClosedTrades.length; i++) {
                   const t = symbolClosedTrades[i];
@@ -475,7 +476,10 @@ export class ExecutionService {
                   const rawEntryTs = t.entry_ts || (t as any).opened_at || (t as any).timestamp || (t as any).created_at;
                   if (rawEntryTs) {
                     const entryTsMs = this.toTimestampMs(rawEntryTs);
-                    if (entryTsMs > 0 && entryTsMs <= nowMs + 60000 && (entryTsMs >= currentCandleStart || nowMs < entryTsMs + effectiveDelayMs)) {
+                    const isSameCandle = allowCandleGating && entryTsMs >= currentCandleStart;
+                    const isInCooldown = nowMs < entryTsMs + effectiveDelayMs;
+
+                    if (entryTsMs > 0 && entryTsMs <= nowMs + 60000 && (isSameCandle || isInCooldown)) {
                       sameCandleGated = true;
                       gatedTimeframe = tf;
                       gateReason = `entered during the current ${tf} candle period`;
@@ -487,10 +491,13 @@ export class ExecutionService {
                   if (rawExitTs) {
                     const exitTsMs = this.toTimestampMs(rawExitTs);
                     const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
-                    if (validExitTsMs > 0 && (validExitTsMs >= currentCandleStart || nowMs < validExitTsMs + effectiveDelayMs)) {
+                    const isSameCandle = allowCandleGating && validExitTsMs >= currentCandleStart;
+                    const isInCooldown = nowMs < validExitTsMs + effectiveDelayMs;
+
+                    if (validExitTsMs > 0 && (isSameCandle || isInCooldown)) {
                       sameCandleGated = true;
                       gatedTimeframe = tf;
-                      gateReason = validExitTsMs >= currentCandleStart
+                      gateReason = isSameCandle
                         ? `exited during the active ${tf} candle`
                         : `exited within the ${cooldownMins}m timeframe cooldown window`;
                       break;

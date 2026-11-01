@@ -1,36 +1,34 @@
-# Implementation Plan: Mobile-Friendly Scanner, Header Optimization, Column Sorting & Collapsible Sticky Target Strategy
+# Implementation Plan & Resolution: Strategy Variants Configuration, Preset Persistence & Metrics Isolation
 
-## Key Implementations Completed
+## Root Cause Analysis
 
-1. **Header De-Cluttering & Resource/Space Optimization**:
-   - Removed the bulky visible 400px+ telemetry bar from Row 1, replacing it with an ultra-compact status pill and WCAG-compliant screen-reader telemetry region.
-   - Removed the noisy `🔥 Fast Market Expansion` alert bar and "Focus Movers" clutter from Row 2, replacing it with a clean candidate counter badge and active gating pill.
-   - Removed the redundant, clunky `Filter:` and `Sort:` `<select>` dropdowns from Row 2.
+1. **`coerceAndSanitizeConfig` Forcibly Cleared Variants**:
+   - `coerceAndSanitizeConfig` in `ConfigModal.jsx` had a blanket assignment `c.strategy_variants = []` originally intended to prevent runaway recursion in nested variants. Because this function was also called on the root base strategy during save, it wiped `base.strategy_variants` back to `[]` whenever variant settings were updated.
+2. **`savePreset` & `handleConfirmSaveAsNew` Stripped Variants in Presets**:
+   - When updating or saving presets in the Presets library, `savePreset` and `handleConfirmSaveAsNew` explicitly forced `strategy_variants: []`, causing library presets to permanently lose their configured variants whenever preset parameters were updated.
+3. **`loadPreset` Ignored Saved Preset Variants**:
+   - `loadPreset` was discarding `p.config.strategy_variants` and falling back to filtering `cfg.strategy_variants`.
+4. **Base Card Metrics Aggregation & State Leakage**:
+   - In `DashboardView.jsx`, when `strategy_variants` was stripped or empty, active trades for variants fell back to the base strategy label in `pnlMap`.
+   - Furthermore, the base strategy card's `totalPnl`, `entryCount`, and `hitCount` defaulted to the global session aggregates (`currentStrategy.totalPnl`, `currentStrategy.entryCount`, `currentStrategy.hitCount`) rather than isolating the base strategy's own metrics. When the base strategy was paused and the user left the app, returning hours later showed only the base strategy with all variant stats accumulated into it.
 
-2. **Interactive Column-Header Sorting (Desktop & Mobile)**:
-   - Clickable column headers with visual sort direction indicators (`▲` / `▼`):
-     - `#`: Resets to algorithm score sort
-     - `Symbol & Trend` / `Symbol`: Toggles alphabetical sort (`symbol_asc` / `symbol_desc`)
-     - `24h Change` / `Move`: Toggles percent change sort (`pct_desc` / `pct_asc`)
-     - `Volume`: Toggles volume sort (`vol_desc` / `vol_asc`)
-     - `Score`: Toggles score sort (`score_asc` / `score_desc`)
-     - `Status`: Toggles opportunity proximity sort (`proximity` / `proximity_asc`)
-   - Both Desktop table headers and Mobile headers support 1-tap sorting.
+---
 
-3. **Collapsible / Expandable Sticky Target Strategy & Watchlist Header**:
-   - Pinned at the top of the scrollable scanner container (`sticky top-0 z-20` with blur backdrop).
-   - In collapsed state (default on mobile screens < 768px):
-     - Displays a slim ~36px summary strip with the active strategy title, solo coin (`Solo: LITUSDT` + In-Trade badge) or watchlist count (`Watchlist: 3 Pairs • AUTO`), and a `[Manage Watchlist ▼]` toggle button.
-     - Leaves maximum vertical screen real estate for viewing live scanner candidates.
-   - In expanded state:
-     - Smoothly slides open the full `WatchlistManager` (Solo Mode Hero card, quick swap input, candidate picker, and 1-click recommendations) with a `[Collapse ▲]` button.
-   - Pinned directly above the table column headers, remaining visible while scrolling through candidates.
+## Fixes Implemented
 
-4. **Mobile Responsiveness**:
-   - Wordmark label `Live Scanner` collapses to icon-only on small mobile screens to prevent crowding the Strategy Selector Dropdown and Search box.
-   - Solo Mode Hero Card adapts with `flex-col sm:flex-row` layout so action buttons wrap cleanly without horizontal scrolling on 320px-400px mobile devices.
-   - Candidate picker and search inputs scale gracefully with touch-friendly tap targets.
+1. **`ConfigModal.jsx` - Recursive Depth Guard with Variant Preservation**:
+   - Updated `coerceAndSanitizeConfig(rawConfig, isNestedVariant = false)`. When `isNestedVariant` is `true`, nested variants inside a variant are zeroed out (`c.strategy_variants = []`) to prevent infinite recursion (>1 level deep). When `isNestedVariant` is `false`, the base strategy's `strategy_variants` array is preserved and each child variant is mapped and sanitized.
+   - In `buildConfigToSave`: Updated variant editing branch to merge the edited variant into `base.strategy_variants` and invoke `coerceAndSanitizeConfig(base, false)` so that the full root config retains all variants.
+   - In `savePreset`: Base presets retain their configured `strategy_variants` in `presetPayload` instead of forcing `strategy_variants: []`. (Only saving an individual variant directly as a preset zeros out variants).
+   - In `loadPreset`: Presets with attached `strategy_variants` restore those variants upon loading, deduplicating any variant matching the promoted base name.
+   - In `handleConfirmSaveAsNew`: Preserves attached variants in the newly created preset.
 
-5. **Verification**:
-   - All 111 test suites (263 unit tests) passed with 100% success.
-   - `compile_applet` confirmed clean build with zero TypeScript / bundling errors.
+2. **`DashboardView.jsx` - Safe Merge & Metrics Isolation**:
+   - In `handleConfigSave`: Added checks ensuring that saving either a variant or the base strategy never wipes `finalConfig.strategy_variants`.
+   - In `activePnlMap`: If an active trade belongs to a specific variant label, that label is registered into `pnlMap` dynamically rather than collapsing into the base strategy label.
+   - In `StrategyCard` (Base Card): Derived `baseTotalPnl`, `baseEntryCount`, and `baseHitCount` strictly from the base strategy's metrics (`safeVariantStats[baseLabel]` or `baseMetric + activePnlMap[baseLabel]`). When variants are active, the base card never defaults to global session aggregates (`currentStrategy.totalPnl`), completely isolating each strategy card's metrics.
+
+3. **Verification**:
+   - Verified with `compile_applet` (100% successful build).
+   - Verified with `lint_applet` (passed without syntax or import issues).
+   - Restarted development server.

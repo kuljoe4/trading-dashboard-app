@@ -2670,7 +2670,7 @@ const flattenConfig = (config) => {
   } catch (e) { return { ...config }; }
 };
 
-const coerceAndSanitizeConfig = (rawConfig) => {
+const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
   if (!rawConfig) return {};
   try {
     const flat = flattenConfig(rawConfig);
@@ -2769,15 +2769,20 @@ const coerceAndSanitizeConfig = (rawConfig) => {
       }
     });
 
-    // Zero out nested variants to prevent runaway nesting
-    c.strategy_variants = [];
-
-    // Clean up temporary UI fields
-    Object.keys(c).forEach(k => {
-      if (k.startsWith('signal_params_') && k !== 'signal_params') {
-        delete c[k];
-      }
-    });
+    if (isNestedVariant) {
+      // Zero out nested variants within a variant to prevent runaway nesting
+      c.strategy_variants = [];
+    } else if (Array.isArray(rawConfig.strategy_variants)) {
+      c.strategy_variants = rawConfig.strategy_variants
+        .filter(Boolean)
+        .map(v => coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' }, true));
+    } else if (Array.isArray(flat.strategy_variants)) {
+      c.strategy_variants = flat.strategy_variants
+        .filter(Boolean)
+        .map(v => coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' }, true));
+    } else {
+      c.strategy_variants = [];
+    }
 
     return c;
   } catch (e) {
@@ -3419,7 +3424,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (editingVariantIdx !== null && baseConfigBackup) {
       const base = { ...baseConfigBackup };
       const variants = [...(base.strategy_variants || [])];
-      const sanitizedVariant = coerceAndSanitizeConfig(cfg);
+      const sanitizedVariant = coerceAndSanitizeConfig(cfg, true);
       delete sanitizedVariant.strategy_variants;
       const vLabel = cfg.strategy_label || `Variant ${editingVariantIdx + 1}`;
       sanitizedVariant.strategy_label = vLabel;
@@ -3429,7 +3434,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         variants.push(sanitizedVariant);
       }
       base.strategy_variants = variants;
-      return coerceAndSanitizeConfig(base);
+      return coerceAndSanitizeConfig(base, false);
     }
 
     const rawLabel = (cfg.strategy_label && cfg.strategy_label.trim())
@@ -3565,12 +3570,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
 
-      // Strip strategy_variants when persisting a library preset so presets remain single-strategy definitions
-      const sourceConfig = editingVariantIdx !== null ? coerceAndSanitizeConfig(cfg) : pc;
+      // Preserve strategy_variants when persisting a library preset so presets retain their configured variants
+      const isEditingVariant = editingVariantIdx !== null;
+      const sourceConfig = isEditingVariant ? coerceAndSanitizeConfig(cfg, true) : pc;
+      const presetVariants = isEditingVariant
+        ? []
+        : (Array.isArray(sourceConfig.strategy_variants)
+            ? sourceConfig.strategy_variants.map(v => coerceAndSanitizeConfig(v, true))
+            : []);
       const presetPayload = {
         ...sourceConfig,
         strategy_label: name,
-        strategy_variants: []
+        strategy_variants: presetVariants
       };
 
       const res = await presetsAPI.save(name, presetPayload);
@@ -3634,10 +3645,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     const presetLabel = p.name || p.config?.strategy_label;
 
+    // Load variants from the preset if present, otherwise fall back to non-conflicting existing variants
+    const targetVariants = (Array.isArray(p.config?.strategy_variants) && p.config.strategy_variants.length > 0)
+      ? p.config.strategy_variants
+      : (cfg.strategy_variants || []);
+
     // Deduplicate: If promoting preset "X" to base, strip any matching variant entry from strategy_variants
-    const existingVariants = cfg.strategy_variants || [];
-    const filteredVariants = existingVariants.filter(v => v.strategy_label !== p.name);
-    const wasDeduplicated = existingVariants.length !== filteredVariants.length;
+    const filteredVariants = targetVariants
+      .filter(v => v && v.strategy_label !== p.name && v.strategy_label !== presetLabel)
+      .map(v => coerceAndSanitizeConfig(v, true));
+    const wasDeduplicated = targetVariants.length !== filteredVariants.length;
 
     const cleanedConfig = {
       ...(p.config || {}),
@@ -3821,10 +3838,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (saveModalState.preset) {
       try {
         setIsSaving(true);
+        const sourceVariants = Array.isArray(saveModalState.preset.config?.strategy_variants)
+          ? saveModalState.preset.config.strategy_variants.map(v => coerceAndSanitizeConfig(v, true))
+          : (Array.isArray(cfg.strategy_variants) ? cfg.strategy_variants.map(v => coerceAndSanitizeConfig(v, true)) : []);
         const payload = {
           ...saveModalState.preset.config,
           strategy_label: newName,
-          strategy_variants: []
+          strategy_variants: sourceVariants
         };
         const res = await presetsAPI.save(newName, payload);
         if (res && res.data) {

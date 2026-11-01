@@ -168,18 +168,18 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
         if (targetMark === 0 || threshold === 0) return 0;
 
         if (isLong) {
-          if (targetMark >= threshold) return 100;
+          if (targetMark >= threshold) return maxVal;
           const progress = (targetMark / threshold) * 100;
           return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
         } else {
-          if (targetMark <= threshold) return 100;
+          if (targetMark <= threshold) return maxVal;
           const progress = (1 - (targetMark - threshold) / threshold) * 100;
           return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
         }
       }
 
       if (isLong) {
-        if (currentMark >= threshold) return 100;
+        if (currentMark >= threshold) return maxVal;
         const totalDist = threshold - entry;
         if (totalDist <= 0) return 0;
         const currentDist = currentMark - entry;
@@ -187,7 +187,7 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
         return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
       } else {
         // SHORT
-        if (currentMark <= threshold) return 100;
+        if (currentMark <= threshold) return maxVal;
         const totalDist = entry - threshold;
         if (totalDist <= 0) return 0;
         const currentDist = entry - currentMark;
@@ -207,20 +207,20 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
   // Direction-aware indicator threshold evaluation
   if (isLong) {
     if (threshold > 0) {
-      if (value >= threshold) return 100;
+      if (value >= threshold) return maxVal;
       if (value <= 0) return 0;
       const progress = (value / threshold) * 100;
       return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
     } else {
       // Negative threshold for LONG (e.g. RSI oversold <= 30)
-      if (value <= threshold) return 100;
+      if (value <= threshold) return maxVal;
       const progress = (threshold / Math.min(value, -1e-8)) * 100;
       return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
     }
   } else {
     // SHORT
     if (threshold < 0) {
-      if (value <= threshold) return 100;
+      if (value <= threshold) return maxVal;
       if (value >= 0) return 0;
       const progress = (value / threshold) * 100;
       return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
@@ -228,7 +228,7 @@ export const calculateProximity = (signal, mark, entryPrice, isLong = true, isEx
       // Positive threshold magnitude for SHORT (e.g., momentum_pct threshold 2.0 for SHORT)
       if (value >= 0) return 0; // Wrong direction for short
       const magValue = Math.abs(value);
-      if (magValue >= threshold) return 100;
+      if (magValue >= threshold) return maxVal;
       const progress = (magValue / threshold) * 100;
       return isFinite(progress) && !isNaN(progress) ? Math.max(0, Math.min(maxVal, progress)) : 0;
     }

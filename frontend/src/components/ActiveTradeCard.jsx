@@ -121,7 +121,7 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
   const peakPrice = isLong ? (entry + peakR * riskUnit) : (entry - peakR * riskUnit)
   const peakPos = pos(peakPrice)
 
-  // Dual Indicator Markers calculation (retained for telemetry & compatibility)
+  // Dual Indicator Markers calculation (Fast EMA & Slow EMA distinct runway landmarks)
   const { dualIndicatorMarkers } = React.useMemo(() => {
     if (!trade.exit_signals_status) return { dualIndicatorMarkers: [] }
     const list = []
@@ -129,44 +129,61 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
     for (const [key, sig] of Object.entries(trade.exit_signals_status)) {
       if (!sig) continue
 
-      if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
-        const item = {
-          key,
-          label: sig.label || key,
-          price: sig.threshold,
-          pos: pos(sig.threshold),
-          fired: sig.fired && sig.active,
-          isFast: key.includes('fast'),
-          isSlow: key.includes('slow'),
-          signal: sig
-        }
-        list.push(item)
-      }
+      const isDualEma = key.includes('dual') || key.includes('cross') ||
+        (sig.metric && (sig.metric.toLowerCase().includes('dual') || sig.metric.toLowerCase().includes('cross'))) ||
+        sig.is_indicator_pair ||
+        (typeof sig.fast_value === 'number') ||
+        (typeof sig.slow_value === 'number');
 
-      if (typeof sig.fast_value === 'number' && sig.fast_value > 0) {
-        const item = {
-          key: `${key}-fast`,
-          label: 'FAST EMA',
-          price: sig.fast_value,
-          pos: pos(sig.fast_value),
-          fired: sig.fired,
-          isFast: true,
-          signal: sig
-        }
-        list.push(item)
-      }
+      if (isDualEma) {
+        const fastPrice = (typeof sig.fast_value === 'number' && sig.fast_value > 0)
+          ? sig.fast_value
+          : (typeof sig.value === 'number' && sig.value > 0 ? sig.value : null);
 
-      if (typeof sig.slow_value === 'number' && sig.slow_value > 0) {
-        const item = {
-          key: `${key}-slow`,
-          label: 'SLOW EMA',
-          price: sig.slow_value,
-          pos: pos(sig.slow_value),
-          fired: sig.fired,
-          isSlow: true,
-          signal: sig
+        const slowPrice = (typeof sig.slow_value === 'number' && sig.slow_value > 0)
+          ? sig.slow_value
+          : (typeof sig.threshold === 'number' && sig.threshold > 0 ? sig.threshold : null);
+
+        if (fastPrice !== null && fastPrice > 0) {
+          list.push({
+            key: `${key}-fast`,
+            label: `${sig.label || 'Dual EMA'} (Fast)`,
+            shortLabel: 'FAST EMA',
+            price: fastPrice,
+            pos: pos(fastPrice),
+            fired: sig.fired && sig.active,
+            isFast: true,
+            colorType: 'fast',
+            signal: sig
+          });
         }
-        list.push(item)
+
+        if (slowPrice !== null && slowPrice > 0) {
+          list.push({
+            key: `${key}-slow`,
+            label: `${sig.label || 'Dual EMA'} (Slow)`,
+            shortLabel: 'SLOW EMA',
+            price: slowPrice,
+            pos: pos(slowPrice),
+            fired: sig.fired && sig.active,
+            isSlow: true,
+            colorType: 'slow',
+            signal: sig
+          });
+        }
+      } else {
+        if (sig.threshold_is_price && typeof sig.threshold === 'number' && sig.threshold > 0) {
+          list.push({
+            key,
+            label: sig.label || key,
+            shortLabel: 'EXIT',
+            price: sig.threshold,
+            pos: pos(sig.threshold),
+            fired: sig.fired && sig.active,
+            colorType: 'standard',
+            signal: sig
+          });
+        }
       }
     }
 
@@ -525,18 +542,38 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
           {/* Exit Signal Landmark Markers on Active Card Runway */}
           {dualIndicatorMarkers.map((m) => {
             if (m.pos < 0 || m.pos > 100) return null;
+
+            const isFast = m.colorType === 'fast';
+            const isSlow = m.colorType === 'slow';
+
+            const dotStyle = m.fired
+              ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-ping"
+              : isFast
+              ? "bg-cyan-400 border border-cyan-200 shadow-[0_0_6px_rgba(34,211,238,0.9)]"
+              : isSlow
+              ? "bg-purple-400 border border-purple-200 shadow-[0_0_6px_rgba(168,85,247,0.9)]"
+              : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]";
+
+            const lineStyle = m.fired
+              ? "bg-rose-500/80 shadow-[0_0_4px_rgba(244,63,94,0.8)]"
+              : isFast
+              ? "bg-cyan-400/80"
+              : isSlow
+              ? "bg-purple-400/80"
+              : "bg-amber-400/60";
+
             return (
               <Tooltip
                 key={`runway-sig-${m.key}`}
                 content={
                   <div className="flex flex-col gap-0.5 text-[10px] font-sans text-left">
                     <div className="font-bold flex items-center gap-1.5">
-                      <span className={m.fired ? "text-rose-400 font-black" : "text-amber-400 font-bold"}>
+                      <span className={m.fired ? "text-rose-400 font-black" : isFast ? "text-cyan-300 font-bold" : isSlow ? "text-purple-300 font-bold" : "text-amber-400 font-bold"}>
                         ⚡ {m.label || 'Exit Signal'}
                       </span>
                       {m.fired && <span className="bg-rose-500/20 text-rose-400 border border-rose-500/30 px-1 py-0.2 rounded text-[8px] font-black uppercase">CRITICAL</span>}
                     </div>
-                    <div className="text-dim">Trigger Level: <span className="text-text font-mono font-bold">{fmtUSD(m.price)}</span></div>
+                    <div className="text-dim">Level: <span className="text-text font-mono font-bold">{fmtUSD(m.price)}</span></div>
                     <div className="text-dim">Status: <span className={m.fired ? "text-rose-400 font-semibold" : "text-accent font-semibold"}>{m.fired ? 'FIRED / ACTIVE' : 'MONITORING'}</span></div>
                   </div>
                 }
@@ -548,15 +585,13 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
                   <div
                     className={cn(
                       "w-1.5 h-1.5 rounded-full transition-transform group-hover/sig:scale-150 shadow-sm",
-                      m.fired
-                        ? "bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-ping"
-                        : "bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]"
+                      dotStyle
                     )}
                   />
                   <div
                     className={cn(
                       "w-0.5 flex-1",
-                      m.fired ? "bg-rose-500/80 shadow-[0_0_4px_rgba(244,63,94,0.8)]" : "bg-amber-400/60"
+                      lineStyle
                     )}
                   />
                 </div>

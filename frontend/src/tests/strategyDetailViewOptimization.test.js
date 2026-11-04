@@ -85,7 +85,7 @@ test('StrategyDetailView label classification optimization', async (t) => {
   await t.test('initialization order prevents TDZ ReferenceError', async () => {
     const fs = await import('node:fs');
     const path = await import('node:path');
-    const src = fs.readFileSync(path.resolve('frontend/src/views/StrategyDetailView.jsx'), 'utf-8');
+    const src = fs.readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../src/views/StrategyDetailView.jsx'), 'utf-8');
 
     const activeTradesIdx = src.indexOf('const strategyActiveTrades = useMemo');
     const focusedOppIdx = src.indexOf('const focusedOpp = useMemo');

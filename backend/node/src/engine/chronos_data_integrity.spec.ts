@@ -14,7 +14,6 @@ import { AuditLogService } from '../trading/audit-log.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { ENGINE_EVENTS } from './events';
-import { EXIT_REASONS } from '../models/constants';
 import { TradingSessionService } from './trading_session.service';
 import { MomentumScannerService } from './momentum_scanner.service';
 import { AnalyticsService } from './analytics.service';

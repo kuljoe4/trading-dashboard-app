@@ -29,7 +29,6 @@ import { Trade } from '../models/Trade';
 
 describe('Chronos: PnL and Balance Integrity', () => {
   let tradingSessionService: TradingSessionService;
-  let sessionLifecycleService: SessionLifecycleService;
   let sessionState: SessionStateService;
   let positionTracker: PositionTrackerService;
 
@@ -65,7 +64,6 @@ describe('Chronos: PnL and Balance Integrity', () => {
 
     tradingSessionService = module.get<TradingSessionService>(TradingSessionService);
     // We need the real LifecycleService but with mocked dependencies
-    sessionLifecycleService = module.get<SessionLifecycleService>(SessionLifecycleService);
     sessionState = module.get<SessionStateService>(SessionStateService);
     positionTracker = module.get<PositionTrackerService>(PositionTrackerService);
 

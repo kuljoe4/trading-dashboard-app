@@ -27,7 +27,6 @@ import { Trade } from '../models/Trade';
 
 describe('Chronos: In-Flight Stop Abandonment Protection', () => {
   let tradingSession: TradingSessionService;
-  let sessionState: SessionStateService;
   let positionTracker: PositionTrackerService;
   let binanceClientMock: any;
 
@@ -77,7 +76,6 @@ describe('Chronos: In-Flight Stop Abandonment Protection', () => {
     }).compile();
 
     tradingSession = module.get<TradingSessionService>(TradingSessionService);
-    sessionState = module.get<SessionStateService>(SessionStateService);
     positionTracker = module.get<PositionTrackerService>(PositionTrackerService);
 
     // Mock live mode for stop check

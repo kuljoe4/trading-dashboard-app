@@ -15,18 +15,15 @@ import { MonitoringService } from './monitoring.service';
 import { AuditLogService } from '../trading/audit-log.service';
 import { MomentumScannerService } from './momentum_scanner.service';
 import { AnalyticsService } from './analytics.service';
-import { ENGINE_EVENTS } from './events';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
 import { EXIT_REASONS } from '../models/constants';
-import { ExecutionStatus } from '../models/ExecutionResult';
 
 describe('Chronos Authoritative Synchronization', () => {
   let orderManager: OrderManagerService;
   let sessionLifecycle: SessionLifecycleService;
   let sessionState: SessionStateService;
   let positionTracker: PositionTrackerService;
-  let eventEmitter: EventEmitter2;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -69,7 +66,6 @@ describe('Chronos Authoritative Synchronization', () => {
     sessionLifecycle = module.get<SessionLifecycleService>(SessionLifecycleService);
     sessionState = module.get<SessionStateService>(SessionStateService);
     positionTracker = module.get<PositionTrackerService>(PositionTrackerService);
-    eventEmitter = module.get<EventEmitter2>(EventEmitter2);
 
     (sessionState as any).config = { trading_mode: 'live', paper_mode: false };
     sessionState.balanceLive = 10000;

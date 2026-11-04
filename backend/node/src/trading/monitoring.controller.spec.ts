@@ -231,9 +231,9 @@ describe('MonitoringController', () => {
       delete process.env.BINANCE_API_KEY;
 
       process.env.ENCRYPTION_KEY = 'test_encryption_key_123456';
-      const fakeEncryptedKey = encrypt('live_api_key_1234567890_abcdef');
+      const fakeEncryptedKey = 'af4a7c382f654dd5a6828c27:806995b72708542404fb25a04b92dffa:cd42db38e0efac0f51372f14ece316a00dbd02a35e0cf1c25faea1f7fe11';
 
-      settingsRepository.findOne.mockResolvedValueOnce({
+      settingsRepository.findOne.mockResolvedValue({
         id: 'default',
         binance_api_key: fakeEncryptedKey,
         binance_testnet_api_key: null,

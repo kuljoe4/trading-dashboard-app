@@ -1,7 +1,5 @@
 import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
-import { Trade } from '../models/Trade';
-import { ENGINE_EVENTS } from './events';
 import { EXIT_REASONS } from '../models/constants';
 
 describe('Chronos: Multi-part PnL Integrity Recovery', () => {

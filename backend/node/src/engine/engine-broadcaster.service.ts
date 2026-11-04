@@ -396,18 +396,18 @@ export class EngineBroadcasterService {
         }
 
         if (isThin && !isMidFidelity) {
-          const { _sig_json, ...cleanThinTrade } = trade;
+          const { _sig_json: _, ...cleanThinTrade } = trade;
           return cleanThinTrade;
         }
 
         // Strip heavy diagnostics for everyone else
         const {
-          strategy_config,
-          live_rr_sequence,
-          exit_rr_sequence,
-          exit_signals_status,
-          _sig_json,
-          sl_adjustments,
+          strategy_config: _,
+          live_rr_sequence: __,
+          exit_rr_sequence: ___,
+          exit_signals_status: ____,
+          _sig_json: _____,
+          sl_adjustments: ______,
           active_trade_events,
           tp_mode,
           tp_ratio,

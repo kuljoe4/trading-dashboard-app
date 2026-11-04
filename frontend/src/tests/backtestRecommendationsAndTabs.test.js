@@ -50,7 +50,7 @@ test('SectionTabs Overflow Tab Classification & Indicator Logic', () => {
 test('BacktestPanel safely handles undefined results.trades without throwing TypeError', async () => {
   const fs = await import('node:fs');
   const path = await import('node:path');
-  const code = fs.readFileSync(path.resolve('frontend/src/components/BacktestPanel.jsx'), 'utf-8');
+  const code = fs.readFileSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), '../../src/components/BacktestPanel.jsx'), 'utf-8');
 
   // Verify that results.trades is safely accessed with optional chaining or array fallback
   assert.ok(

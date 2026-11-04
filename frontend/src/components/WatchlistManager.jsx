@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react'
-import { Eye, Shield, RefreshCw, Lock, Unlock, Plus, X, Sparkles, ChevronDown, ChevronUp, Clock, AlertCircle, Layers, Target, ArrowRightLeft } from 'lucide-react'
+import { Eye, Shield, RefreshCw, Lock, Unlock, Plus, X, XCircle, Sparkles, ChevronDown, ChevronUp, Clock, AlertCircle, Layers, Target, ArrowRightLeft } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
@@ -832,19 +832,26 @@ export const WatchlistManager = React.memo(({
                 if (e.key === 'Enter' && search) {
                   handleAddSymbol(search);
                 } else if (e.key === 'Escape') {
+                  setSearch('');
                   setIsDropdownOpen(false);
                 }
               }}
-              className="w-full bg-background/40 border border-border/60 rounded-xl px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim/40 focus:border-accent focus-visible:ring-1 focus-visible:ring-accent outline-none transition-colors"
+              className="w-full bg-background/40 border border-border/60 rounded-xl pl-3 pr-8 py-1.5 text-xs font-mono text-text placeholder:text-dim/40 focus:border-accent focus-visible:ring-1 focus-visible:ring-accent outline-none transition-colors"
             />
             {search && (
-              <button
-                type="button"
-                onClick={() => setSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-text"
-              >
-                <X size={12} />
-              </button>
+              <Tooltip content="Clear search">
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    setSearch('');
+                    inputRef.current?.focus();
+                  }}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-text"
+                >
+                  <XCircle size={14} />
+                </button>
+              </Tooltip>
             )}
           </div>
 

@@ -735,8 +735,27 @@ export class BacktestService {
       ? entryPrice * (1 - slDistPct / 100)
       : entryPrice * (1 + slDistPct / 100);
 
-    // Overwrite SL if technical signal provides explicit slPrice (e.g. Supertrend, Engulfing boundary)
-    if (details) {
+    // Overwrite SL if technical signal provides explicit slPrice or pattern boundary
+    if (config.sl_type === 'engulfing_boundary' || config.sl_type === 'streak_extreme') {
+      const mode = config.engulfing_mode || 'range';
+      const useBody = mode === 'body' || mode === 'close_body';
+      let boundary: number | undefined;
+      if (details) {
+        for (const sigKey of Object.keys(details)) {
+          const d = details[sigKey];
+          if (!d) continue;
+          if (direction === 'LONG') {
+            boundary = (useBody && d.body_low !== undefined) ? d.body_low : (d.pattern_low ?? d.body_low ?? d.slPrice);
+          } else {
+            boundary = (useBody && d.body_high !== undefined) ? d.body_high : (d.pattern_high ?? d.body_high ?? d.slPrice);
+          }
+          if (boundary !== undefined) break;
+        }
+      }
+      if (boundary && boundary > 0) {
+        initialSl = boundary;
+      }
+    } else if (details) {
       for (const sigKey of Object.keys(details)) {
         if (details[sigKey]?.slPrice && typeof details[sigKey].slPrice === 'number') {
           initialSl = details[sigKey].slPrice;

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SignalEngineService } from './signalEngine';
+import { RiskEngineService } from './riskEngine';
 import { KlineStoreService, Candle } from './kline_store.service';
 import { SessionConfig } from '../models/SessionConfig';
 
@@ -217,6 +218,73 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       expect(result.details?.macd_pbc?.fired).toBe(true);
       expect(result.details?.macd_pbc?.slPrice).toBeDefined();
       expect(result.details?.macd_pbc?.slPrice).toBeLessThan(330);
+      expect(result.details?.macd_pbc?.pattern_low).toBe(378);
+      expect(result.details?.macd_pbc?.pattern_high).toBe(381);
+      expect(result.details?.macd_pbc?.body_low).toBe(379);
+      expect(result.details?.macd_pbc?.body_high).toBe(380);
+    });
+
+    it('should emit trigger candle pattern_low/high and allow RiskEngine engulfing_boundary to set SL strictly at trigger candle extreme with macd_pbc_max_continuation: 1', () => {
+      const config = new SessionConfig();
+      config.enabled_signals = ['macd_pbc'];
+      config.sl_type = 'engulfing_boundary';
+      config.sl_min_pct = 0.1;
+      config.sl_max_pct = 5.0;
+      config.signal_params = {
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_pbc_trend_ema: 50,
+        macd_pbc_lookback: 5,
+        macd_pbc_max_continuation: 1,
+      };
+
+      const prices = Array(120).fill(100);
+      for (let i = 0; i < 120; i++) {
+        prices[i] = 100 + i * 2;
+      }
+
+      // Macro pullback swing low at 295, then exactly 1 continuation candle at 330
+      prices[117] = 300;
+      prices[118] = 295; // Macro pullback low: candle 118 has low 293
+      prices[119] = 330; // Trigger candle: open 329, close 330, high 331, low 328
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
+      expect(result.details?.macd_pbc?.fired).toBe(true);
+
+      const macdDetail = result.details?.macd_pbc!;
+      // Macro swing low over the 5-bar lookback window is from candle 118 (low = 293)
+      expect(macdDetail.slPrice).toBe(293);
+
+      // Trigger candle individual boundaries
+      expect(macdDetail.pattern_low).toBe(328);
+      expect(macdDetail.pattern_high).toBe(331);
+      expect(macdDetail.body_low).toBe(329);
+      expect(macdDetail.body_high).toBe(330);
+
+      // Feed into RiskEngine computeSl under 'engulfing_boundary'
+      const riskEngine = new RiskEngineService();
+      const slResult = riskEngine.computeSl(
+        330,
+        'LONG',
+        config,
+        undefined,
+        undefined,
+        'BTCUSDT',
+        macdDetail.pattern_low,
+        macdDetail.pattern_high,
+        macdDetail.body_low,
+        macdDetail.body_high,
+        undefined,
+        macdDetail.slPrice,
+      );
+
+      // Verify SL is placed strictly at trigger candle pattern_low (328) instead of macro swing low (293)
+      expect(slResult.slPrice).toBe(328);
+      expect(slResult.rejected).toBe(false);
     });
 
     it('should reject LONG when continuation candle count is greater than 2', () => {

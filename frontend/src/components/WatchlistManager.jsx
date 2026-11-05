@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react'
-import { Eye, Shield, RefreshCw, Lock, Unlock, Plus, X, Sparkles, ChevronDown, ChevronUp, Clock, AlertCircle, Layers, Target, ArrowRightLeft } from 'lucide-react'
+import { Eye, Shield, RefreshCw, Lock, Unlock, Plus, X, Sparkles, ChevronDown, ChevronUp, Clock, AlertCircle, Layers, Target, ArrowRightLeft, Download, CheckSquare, Square, Filter, CheckCircle2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTradingStore } from '../store/trading'
 import { cn, Tooltip } from './ui/primitives'
@@ -58,6 +58,7 @@ export const WatchlistManager = React.memo(({
   const activeTrades = useTradingStore(state => state.activeTrades || []);
   const patchConfig = useTradingStore(state => state.patchConfig);
   const addToWatchlist = useTradingStore(state => state.addToWatchlist);
+  const importBulkToWatchlist = useTradingStore(state => state.importBulkToWatchlist);
   const removeFromWatchlist = useTradingStore(state => state.removeFromWatchlist);
   const setWatchlistLimit = useTradingStore(state => state.setWatchlistLimit);
   const setWatchlistScheduler = useTradingStore(state => state.setWatchlistScheduler);
@@ -69,6 +70,13 @@ export const WatchlistManager = React.memo(({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [isRotating, setIsRotating] = useState(false);
+
+  // Global Scanner Import Modal state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importTargetStrategy, setImportTargetStrategy] = useState('base');
+  const [selectedImportSymbols, setSelectedImportSymbols] = useState(new Set());
+  const [importSearchQuery, setImportSearchQuery] = useState('');
+
   const dropdownRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -200,6 +208,99 @@ export const WatchlistManager = React.memo(({
       })
       .slice(0, 12);
   }, [scannerResults, variantScannerResults, symbols, search]);
+
+  // Consolidated list of ALL active scanner opportunities for the Global Scanner Import Modal
+  const allScannerCandidates = useMemo(() => {
+    const candidatesMap = new Map();
+
+    POPULAR_MARKET_PAIRS.forEach(p => {
+      candidatesMap.set(p.symbol, { ...p });
+    });
+
+    (scannerResults || []).forEach(opp => {
+      if (opp && opp.symbol) {
+        const existing = candidatesMap.get(opp.symbol) || {};
+        candidatesMap.set(opp.symbol, {
+          ...existing,
+          symbol: opp.symbol,
+          price: opp.price ?? existing.price,
+          pct: opp.pct ?? opp.momentum ?? existing.pct ?? 0,
+          score: opp.score ?? existing.score ?? 70,
+        });
+      }
+    });
+
+    Object.values(variantScannerResults || {}).forEach(resultsArr => {
+      if (Array.isArray(resultsArr)) {
+        resultsArr.forEach(opp => {
+          if (opp && opp.symbol) {
+            const existing = candidatesMap.get(opp.symbol) || {};
+            candidatesMap.set(opp.symbol, {
+              ...existing,
+              symbol: opp.symbol,
+              price: opp.price ?? existing.price,
+              pct: opp.pct ?? opp.momentum ?? existing.pct ?? 0,
+              score: opp.score ?? existing.score ?? 70,
+            });
+          }
+        });
+      }
+    });
+
+    return Array.from(candidatesMap.values()).sort((a, b) => (b.score || 0) - (a.score || 0));
+  }, [scannerResults, variantScannerResults]);
+
+  const targetImportConfig = useMemo(() => {
+    if (importTargetStrategy === 'base') return config;
+    const v = variants.find(varItem => varItem.strategy_label === importTargetStrategy);
+    return v || config;
+  }, [config, variants, importTargetStrategy]);
+
+  const targetImportSymbols = useMemo(() => {
+    return Array.isArray(targetImportConfig?.symbols) ? targetImportConfig.symbols : [];
+  }, [targetImportConfig?.symbols]);
+
+  const targetImportLimit = Number(targetImportConfig?.watchlist_max_symbols ?? config.watchlist_max_symbols) || 0;
+
+  const filteredScannerCandidates = useMemo(() => {
+    const q = importSearchQuery.trim().toUpperCase();
+    if (!q) return allScannerCandidates;
+    return allScannerCandidates.filter(c => c.symbol.includes(q));
+  }, [allScannerCandidates, importSearchQuery]);
+
+  const handleToggleCandidateSelect = (sym) => {
+    setSelectedImportSymbols(prev => {
+      const next = new Set(prev);
+      if (next.has(sym)) next.delete(sym);
+      else next.add(sym);
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedImportSymbols.size === filteredScannerCandidates.length) {
+      setSelectedImportSymbols(new Set());
+    } else {
+      const unadded = filteredScannerCandidates
+        .filter(c => !targetImportSymbols.includes(c.symbol))
+        .map(c => c.symbol);
+      setSelectedImportSymbols(new Set(unadded));
+    }
+  };
+
+  const handleSelectTopN = (n) => {
+    const unadded = filteredScannerCandidates
+      .filter(c => !targetImportSymbols.includes(c.symbol))
+      .slice(0, n)
+      .map(c => c.symbol);
+    setSelectedImportSymbols(new Set(unadded));
+  };
+
+  const handleExecuteBulkImport = async (symbolsToImport, targetLabel) => {
+    await importBulkToWatchlist(symbolsToImport, targetLabel);
+    setShowImportModal(false);
+    setSelectedImportSymbols(new Set());
+  };
 
   // Target-aware Watchlist Update Handler (Supports Strategy Variant Isolation)
   const handleUpdateTargetSymbols = async (nextSymbols) => {
@@ -418,6 +519,21 @@ export const WatchlistManager = React.memo(({
 
         {/* Status Indicators & Fast Actions */}
         <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+          {/* Import Scanner Symbols Action Button */}
+          <Tooltip content="Import symbols from Global Scanner into any strategy static watchlist with persistent sync">
+            <button
+              type="button"
+              onClick={() => {
+                setImportTargetStrategy(activeTab);
+                setShowImportModal(true);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-wider border border-accent/50 bg-accent/20 text-accent hover:bg-accent/30 transition-all outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer shadow-xs active:scale-95"
+            >
+              <Download size={11} className="text-accent" />
+              <span>Import Scanner Symbols</span>
+            </button>
+          </Tooltip>
+
           {/* Lock / Freeze Status Pill */}
           <Tooltip content={isLocked ? "Watchlist is Locked: Automated rotation is disabled" : "Watchlist is Unlocked: Click to Lock/Freeze"}>
             <button
@@ -913,6 +1029,221 @@ export const WatchlistManager = React.memo(({
           )}
         </AnimatePresence>
       </div>
+
+      {/* Global Scanner Bulk Import Modal */}
+      <AnimatePresence>
+        {showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="bg-surface border border-border/80 rounded-2xl shadow-2xl max-w-2xl w-full flex flex-col max-h-[85vh] overflow-hidden text-left"
+            >
+              {/* Modal Header */}
+              <div className="p-4 border-b border-border/50 bg-surface/50 flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-accent/20 border border-accent/40 flex items-center justify-center text-accent shrink-0">
+                    <Download size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-wider text-text flex items-center gap-2">
+                      <span>Import from Global Scanner</span>
+                      <span className="text-[9px] px-2 py-0.2 rounded-full bg-accent/10 border border-accent/30 text-accent font-mono font-bold">
+                        {allScannerCandidates.length} Active Candidates
+                      </span>
+                    </h3>
+                    <p className="text-[10px] text-dim leading-none mt-0.5">
+                      Select opportunities to add to static watchlist with persistent database sync.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowImportModal(false)}
+                  className="p-1.5 rounded-lg text-dim hover:text-text hover:bg-white/10 transition-colors"
+                  aria-label="Close modal"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Modal Control Bar */}
+              <div className="p-3 border-b border-border/30 bg-background/40 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+                {/* Target Strategy Dropdown */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-dim shrink-0">
+                    Target Strategy:
+                  </span>
+                  <select
+                    value={importTargetStrategy}
+                    onChange={(e) => setImportTargetStrategy(e.target.value)}
+                    className="bg-surface border border-border/70 rounded-lg px-2.5 py-1 text-xs font-mono font-bold text-text focus:border-accent outline-none"
+                  >
+                    <option value="base">Base: {config.strategy_label || 'Momentum Strategy'}</option>
+                    {variants.map((v, i) => (
+                      <option key={v.strategy_label || i} value={v.strategy_label}>
+                        Variant #{i + 1}: {v.strategy_label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Target Strategy Capacity Info */}
+                <div className="text-[10px] font-mono text-dim flex items-center gap-1.5">
+                  <span>Target Current:</span>
+                  <strong className="text-accent font-bold">
+                    {targetImportSymbols.length}
+                  </strong>
+                  <span>/</span>
+                  <strong className="text-text font-bold">
+                    {targetImportLimit > 0 ? `${targetImportLimit} Max` : 'Unlimited'}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Search & Bulk Select Actions Bar */}
+              <div className="px-4 py-2.5 border-b border-border/30 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <input
+                  type="text"
+                  placeholder="Filter scanner candidates..."
+                  value={importSearchQuery}
+                  onChange={(e) => setImportSearchQuery(e.target.value.toUpperCase())}
+                  className="bg-background/60 border border-border/60 rounded-xl px-3 py-1 text-xs font-mono text-text placeholder:text-dim/50 focus:border-accent outline-none w-full sm:w-56"
+                />
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleToggleSelectAll}
+                    className="px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase bg-surface border border-border text-dim hover:text-text transition-colors"
+                  >
+                    {selectedImportSymbols.size === filteredScannerCandidates.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTopN(3)}
+                    className="px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 transition-colors"
+                  >
+                    Top 3
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSelectTopN(5)}
+                    className="px-2.5 py-1 rounded-lg text-[9.5px] font-mono font-bold uppercase bg-accent/15 border border-accent/30 text-accent hover:bg-accent/25 transition-colors"
+                  >
+                    Top 5
+                  </button>
+                </div>
+              </div>
+
+              {/* Candidates List */}
+              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1.5 max-h-[350px] no-scrollbar">
+                {filteredScannerCandidates.length === 0 ? (
+                  <div className="py-8 text-center text-dim font-mono text-xs">
+                    No active scanner candidates match query
+                  </div>
+                ) : (
+                  filteredScannerCandidates.map((opp) => {
+                    const isSelected = selectedImportSymbols.has(opp.symbol);
+                    const isAlreadyInWatchlist = targetImportSymbols.includes(opp.symbol);
+                    const isLong = (opp.pct || opp.momentum || 0) >= 0;
+
+                    return (
+                      <div
+                        key={opp.symbol}
+                        onClick={() => {
+                          if (isAlreadyInWatchlist) return;
+                          handleToggleCandidateSelect(opp.symbol);
+                        }}
+                        className={cn(
+                          "flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer select-none",
+                          isAlreadyInWatchlist
+                            ? "bg-white/5 border-border/30 opacity-50 cursor-not-allowed"
+                            : isSelected
+                            ? "bg-accent/15 border-accent text-text"
+                            : "bg-surface/80 border-border/60 hover:bg-surface hover:border-accent/40"
+                        )}
+                      >
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            disabled={isAlreadyInWatchlist}
+                            className="text-accent"
+                          >
+                            {isSelected ? <CheckSquare size={16} /> : <Square size={16} className="text-dim/60" />}
+                          </button>
+                          <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs font-black text-text">{opp.symbol}</span>
+                              {isAlreadyInWatchlist && (
+                                <span className="text-[8px] font-mono font-bold px-1.5 py-0.2 rounded bg-purple/20 text-purple border border-purple/30">
+                                  IN WATCHLIST
+                                </span>
+                              )}
+                            </div>
+                            {opp.price && (
+                              <span className="text-[9.5px] font-mono text-dim">
+                                ${opp.price >= 1 ? opp.price.toFixed(2) : opp.price.toPrecision(4)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 font-mono text-xs">
+                          <span className={cn("font-bold", isLong ? "text-green" : "text-red")}>
+                            {isLong ? '+' : ''}{Number(opp.pct || opp.momentum || 0).toFixed(2)}%
+                          </span>
+                          {opp.score !== undefined && (
+                            <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent font-black">
+                              Score: {Number(opp.score).toFixed(0)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Modal Footer Action Bar */}
+              <div className="p-4 border-t border-border/50 bg-surface/80 flex items-center justify-between gap-3 shrink-0">
+                <span className="text-[10px] font-mono text-dim">
+                  {selectedImportSymbols.size} candidate{selectedImportSymbols.size === 1 ? '' : 's'} selected for import
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowImportModal(false)}
+                    className="px-3 py-1.5 rounded-xl border border-border text-xs font-mono text-dim hover:text-text hover:bg-white/5 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedImportSymbols.size === 0}
+                    onClick={() => {
+                      handleExecuteBulkImport(
+                        Array.from(selectedImportSymbols),
+                        importTargetStrategy === 'base' ? (config.strategy_label || 'Base Strategy') : importTargetStrategy
+                      );
+                    }}
+                    className={cn(
+                      "flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-mono font-bold transition-all shadow-md outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                      selectedImportSymbols.size > 0
+                        ? "bg-accent text-background font-black hover:bg-accent/90 cursor-pointer"
+                        : "bg-surface border border-border text-dim/40 cursor-not-allowed"
+                    )}
+                  >
+                    <Download size={13} />
+                    <span>Import {selectedImportSymbols.size} Symbol{selectedImportSymbols.size === 1 ? '' : 's'}</span>
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });

@@ -143,6 +143,37 @@ export class SessionConfig {
   @IsOptional()
   watchlist_offset?: number = 0;
 
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  watchlist_max_symbols?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  watchlist_auto_rotate?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  watchlist_locked?: boolean;
+
+  @IsNumber()
+  @Min(1)
+  @Max(10080)
+  @IsOptional()
+  watchlist_rotate_interval_min?: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  @IsOptional()
+  watchlist_min_score?: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  watchlist_last_rotated_ts?: number;
+
   @IsEnum(['volume', 'change_pct', 'abs_change_pct'])
   @IsOptional()
   discovery_mode?: 'volume' | 'change_pct' | 'abs_change_pct' = 'volume';

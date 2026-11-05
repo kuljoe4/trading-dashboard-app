@@ -184,6 +184,166 @@ export const StrategySelectorDropdown = React.memo(({
 });
 StrategySelectorDropdown.displayName = 'StrategySelectorDropdown';
 
+export const StrategyWatchlistPicker = React.memo(({ symbol, effectiveStrategyLabel, compact = false }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  const config = useTradingStore(state => state.config || {});
+  const addToWatchlist = useTradingStore(state => state.addToWatchlist);
+  const removeFromWatchlist = useTradingStore(state => state.removeFromWatchlist);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const variants = useMemo(() => {
+    return Array.isArray(config.strategy_variants) ? config.strategy_variants : [];
+  }, [config.strategy_variants]);
+
+  const baseLabel = config.strategy_label || 'Base Strategy';
+  const baseSymbols = useMemo(() => Array.isArray(config.symbols) ? config.symbols : [], [config.symbols]);
+  const isInBase = baseSymbols.includes(symbol);
+
+  const activeStrategyLabel = effectiveStrategyLabel || baseLabel;
+
+  const isVariantActive = activeStrategyLabel !== baseLabel;
+  const activeVariant = useMemo(() => {
+    return variants.find(v => v.strategy_label === activeStrategyLabel);
+  }, [variants, activeStrategyLabel]);
+  const activeSymbols = useMemo(() => {
+    if (isVariantActive) return Array.isArray(activeVariant?.symbols) ? activeVariant.symbols : [];
+    return baseSymbols;
+  }, [isVariantActive, activeVariant, baseSymbols]);
+  const isInActive = activeSymbols.includes(symbol);
+
+  return (
+    <div className="relative inline-flex items-center shrink-0 z-30" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (isInActive) removeFromWatchlist(symbol, activeStrategyLabel);
+          else addToWatchlist(symbol, activeStrategyLabel);
+        }}
+        className={cn(
+          "rounded-l-lg text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent border border-r-0",
+          compact ? "p-1" : "px-2 py-1",
+          isInActive
+            ? "text-accent bg-accent/20 border-accent/40"
+            : "bg-surface border-border text-dim hover:text-text hover:border-accent/40"
+        )}
+        aria-label={isInActive ? `Remove ${symbol} from watchlist for ${activeStrategyLabel}` : `Add ${symbol} to watchlist for ${activeStrategyLabel}`}
+      >
+        <Eye size={12} className={isInActive ? "text-accent fill-accent/20" : ""} />
+        {!compact && <span>{isInActive ? 'In Watchlist' : 'Add to Watchlist'}</span>}
+      </button>
+
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
+        className={cn(
+          "rounded-r-lg text-[10px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent border",
+          compact ? "p-1" : "px-1.5 py-1",
+          isInActive
+            ? "text-accent bg-accent/25 border-accent/40 hover:bg-accent/35"
+            : "bg-surface border-border text-dim hover:text-text hover:border-accent/40"
+        )}
+        aria-label={`Select strategy watchlist target for ${symbol}`}
+      >
+        <ChevronDown size={11} className={cn("transition-transform duration-150", isOpen && "rotate-180 text-accent")} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            className="absolute right-0 top-full mt-1 w-56 bg-surface/95 backdrop-blur-xl border border-border/80 rounded-xl shadow-2xl z-50 p-1.5 flex flex-col gap-1 text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-2 py-1 text-[8px] font-black uppercase tracking-wider text-dim border-b border-border/30 flex justify-between">
+              <span>Import Target Strategy</span>
+              <span>Watchlist</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (isInBase) removeFromWatchlist(symbol, baseLabel);
+                else addToWatchlist(symbol, baseLabel);
+                setIsOpen(false);
+              }}
+              className={cn(
+                "w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-[10.5px] font-mono font-bold transition-all text-left outline-none cursor-pointer",
+                isInBase
+                  ? "bg-accent/20 border border-accent/40 text-accent"
+                  : "hover:bg-white/5 border border-transparent text-dim hover:text-text"
+              )}
+            >
+              <div className="flex flex-col min-w-0 pr-1">
+                <span className="text-text font-black truncate">{baseLabel}</span>
+                <span className="text-[8px] text-dim/70">Base Strategy ({baseSymbols.length})</span>
+              </div>
+              <span className={cn(
+                "text-[8.5px] px-1.5 py-0.2 rounded font-black border shrink-0",
+                isInBase ? "bg-accent text-background border-accent" : "bg-white/5 border-border/40 text-dim"
+              )}>
+                {isInBase ? 'ADDED' : 'ADD +'}
+              </span>
+            </button>
+
+            {variants.map((v, idx) => {
+              const vSymbols = Array.isArray(v.symbols) ? v.symbols : [];
+              const isInVariant = vSymbols.includes(symbol);
+              const label = v.strategy_label || `Variant #${idx + 1}`;
+
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    if (isInVariant) removeFromWatchlist(symbol, label);
+                    else addToWatchlist(symbol, label);
+                    setIsOpen(false);
+                  }}
+                  className={cn(
+                    "w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-[10.5px] font-mono font-bold transition-all text-left outline-none cursor-pointer",
+                    isInVariant
+                      ? "bg-purple/20 border border-purple/40 text-purple"
+                      : "hover:bg-white/5 border border-transparent text-dim hover:text-text"
+                  )}
+                >
+                  <div className="flex flex-col min-w-0 pr-1">
+                    <span className="text-text font-black truncate">{label}</span>
+                    <span className="text-[8px] text-dim/70">Variant #{idx + 1} ({vSymbols.length})</span>
+                  </div>
+                  <span className={cn(
+                    "text-[8.5px] px-1.5 py-0.2 rounded font-black border shrink-0",
+                    isInVariant ? "bg-purple/80 text-white border-purple" : "bg-white/5 border-border/40 text-dim"
+                  )}>
+                    {isInVariant ? 'ADDED' : 'ADD +'}
+                  </span>
+                </button>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+StrategyWatchlistPicker.displayName = 'StrategyWatchlistPicker';
+
 const FreshnessIndicator = React.memo(({ ts }) => {
   const now = useNow();
 
@@ -424,10 +584,13 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
 
   const chartSl = useMemo(() => {
     if (config?.sl_type === 'streak_extreme' || config?.sl_type === 'engulfing_boundary') {
-       return engulfSignal?.slPrice || (isLong ? engulfSignal?.pattern_low : engulfSignal?.pattern_high);
+       const boundary = isLong
+         ? (engulfSignal?.pattern_low ?? checklistSignals.macd_pbc?.pattern_low ?? engulfSignal?.slPrice)
+         : (engulfSignal?.pattern_high ?? checklistSignals.macd_pbc?.pattern_high ?? engulfSignal?.slPrice);
+       return boundary;
     }
     if (config?.sl_type === 'lookback_low/high') {
-       return checklistSignals.breakout_hl?.slPrice;
+       return checklistSignals.breakout_hl?.slPrice || checklistSignals.macd_pbc?.slPrice;
     }
     if (config?.sl_type === 'supertrend') {
        return checklistSignals.supertrend?.slPrice || checklistSignals.exit_supertrend?.slPrice;
@@ -437,7 +600,7 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
        return isLong ? opp.price - dist : opp.price + dist;
     }
     return null;
-  }, [config, opp.price, isLong, engulfSignal, checklistSignals.breakout_hl, checklistSignals.supertrend, checklistSignals.exit_supertrend]);
+  }, [config, opp.price, isLong, engulfSignal, checklistSignals.breakout_hl, checklistSignals.macd_pbc, checklistSignals.supertrend, checklistSignals.exit_supertrend]);
 
   const closeEngulfEnabled = engulfingEnabled && config?.signal_params?.engulfing_mode?.startsWith('close');
   const funnelSteps = [
@@ -457,24 +620,10 @@ const ExpandedScannerRowContent = React.memo(({ opp, config, isLong, passing, th
          </div>
          <div className="flex items-center gap-2 shrink-0 ml-auto">
            <CopyButton value={opp.symbol} className="px-2 py-1 bg-surface border border-border rounded-lg text-[10px] font-mono font-bold flex items-center gap-1 text-dim hover:text-text transition-all" />
-           <button
-             type="button"
-             onClick={(e) => {
-               e.stopPropagation();
-               if (inWatchlist) removeFromWatchlist(opp.symbol, effectiveStrategyLabel);
-               else addToWatchlist(opp.symbol, effectiveStrategyLabel);
-             }}
-             className={cn(
-               "px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5 transition-all cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent",
-               inWatchlist
-                 ? "text-accent bg-accent/20 border border-accent/40"
-                 : "bg-surface border border-border text-dim hover:text-text hover:border-accent/40"
-             )}
-             aria-label={inWatchlist ? `Remove ${opp.symbol} from watchlist` : `Add ${opp.symbol} to watchlist`}
-           >
-             <Eye size={12} className={inWatchlist ? "text-accent fill-accent/20" : ""} />
-             <span>{inWatchlist ? 'In Watchlist' : 'Add to Watchlist'}</span>
-           </button>
+           <StrategyWatchlistPicker
+             symbol={opp.symbol}
+             effectiveStrategyLabel={effectiveStrategyLabel}
+           />
          </div>
       </div>
       <div className="p-3 md:p-4 grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 border-t border-white/5">
@@ -717,25 +866,11 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, scan
              <span className="text-[8px] text-dim font-mono opacity-50">/U</span>
              <FreshnessPill ts={opp.lastUpdate} />
              <CopyButton value={opp.symbol} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100 ml-0.5 p-0.5 scale-75" />
-             <Tooltip content={inWatchlist ? `${opp.symbol} is in Static Watchlist (Click to remove)` : `Add ${opp.symbol} to Static Watchlist${config?.watchlist_max_symbols ? ` (Limit: ${config.watchlist_max_symbols})` : ''}`}>
-               <button
-                 type="button"
-                 onClick={(e) => {
-                   e.stopPropagation();
-                   if (inWatchlist) removeFromWatchlist(opp.symbol, effectiveStrategyLabel);
-                   else addToWatchlist(opp.symbol, effectiveStrategyLabel);
-                 }}
-                 className={cn(
-                   "p-0.5 rounded transition-all text-[9px] font-mono font-bold flex items-center justify-center outline-none focus-visible:ring-1 focus-visible:ring-accent ml-0.5",
-                   inWatchlist
-                     ? "text-accent bg-accent/20 border border-accent/40 opacity-100"
-                     : "opacity-100 md:opacity-0 md:group-hover:opacity-100 text-dim hover:text-text hover:bg-white/10"
-                 )}
-                 aria-label={inWatchlist ? `Remove ${opp.symbol} from watchlist` : `Add ${opp.symbol} to watchlist`}
-               >
-                 <Eye size={12} className={inWatchlist ? "text-accent fill-accent/20" : ""} />
-               </button>
-             </Tooltip>
+             <StrategyWatchlistPicker
+               symbol={opp.symbol}
+               effectiveStrategyLabel={effectiveStrategyLabel}
+               compact={true}
+             />
              <div className="hidden md:block ml-2 opacity-80 group-hover:opacity-100 transition-opacity">
                <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={40} height={14} />
              </div>

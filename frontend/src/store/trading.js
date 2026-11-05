@@ -987,6 +987,63 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     return true;
   },
 
+  importBulkToWatchlist: async (symbolsToImport = [], targetStrategyLabel = null) => {
+    if (!Array.isArray(symbolsToImport) || symbolsToImport.length === 0) return false;
+
+    const validSymbols = Array.from(new Set(
+      symbolsToImport
+        .map(s => String(s || '').trim().toUpperCase())
+        .filter(s => s && s.endsWith('USDT'))
+    ));
+
+    if (validSymbols.length === 0) return false;
+
+    const st = get();
+    const variants = Array.isArray(st.config?.strategy_variants) ? [...st.config.strategy_variants] : [];
+    const isVariant = targetStrategyLabel && targetStrategyLabel !== st.config?.strategy_label && targetStrategyLabel !== 'Base Strategy';
+    const variantIdx = isVariant ? variants.findIndex(v => v.strategy_label === targetStrategyLabel) : -1;
+
+    const targetConfig = variantIdx >= 0 ? variants[variantIdx] : st.config;
+    const currentSymbols = Array.isArray(targetConfig?.symbols) ? [...targetConfig.symbols] : [];
+
+    const newSymbols = validSymbols.filter(s => !currentSymbols.includes(s));
+    if (newSymbols.length === 0) {
+      get().addAlert({
+        level: 'info',
+        title: 'Watchlist Unchanged',
+        message: `All selected symbols are already present in ${targetStrategyLabel || st.config?.strategy_label || 'Base Strategy'} static watchlist.`
+      });
+      return true;
+    }
+
+    const limit = Number(targetConfig?.watchlist_max_symbols) || 0;
+    let combinedSymbols = [...currentSymbols, ...newSymbols];
+
+    if (limit > 0 && combinedSymbols.length > limit) {
+      const activeSyms = new Set((st.activeTrades || []).map(t => t.symbol));
+      const inPos = combinedSymbols.filter(s => activeSyms.has(s));
+      const notInPos = combinedSymbols.filter(s => !activeSyms.has(s));
+      combinedSymbols = Array.from(new Set([...inPos, ...notInPos])).slice(0, limit);
+    }
+
+    if (variantIdx >= 0) {
+      variants[variantIdx] = {
+        ...variants[variantIdx],
+        symbols: combinedSymbols
+      };
+      await st.patchConfig({ strategy_variants: variants });
+    } else {
+      await st.patchConfig({ symbols: combinedSymbols });
+    }
+
+    get().addAlert({
+      level: 'success',
+      title: 'Bulk Import Successful',
+      message: `Successfully imported ${newSymbols.length} symbol${newSymbols.length === 1 ? '' : 's'} into ${targetStrategyLabel || st.config?.strategy_label || 'Base Strategy'} static watchlist.`
+    });
+    return true;
+  },
+
   removeFromWatchlist: async (symbol, targetStrategyLabel = null) => {
     const sym = String(symbol || '').trim().toUpperCase();
     const st = get();

@@ -1,0 +1,490 @@
+import { NestFactory, HttpAdapterHost } from "@nestjs/core";
+import { ValidationPipe, Logger } from "@nestjs/common";
+import { json, urlencoded } from "express";
+import { DynamicLogger } from "./lib/logger";
+import { ConfigService } from "@nestjs/config";
+import { getDataSourceToken } from "@nestjs/typeorm";
+import { WebSocketServer } from "ws";
+import { AppModule } from "./app.module";
+import { AllExceptionsFilter } from "./lib/all-exceptions.filter";
+import { safeCompare } from "./lib/crypto";
+import { isThrottled, recordFailure, clearFailures, extractIp } from "./lib/throttle";
+import { ENGINE_CONSTANTS } from "./models/constants";
+import { SessionService } from "./trading/session.service";
+import { MonitoringService } from "./engine/monitoring.service";
+import { TradingSessionService } from "./engine/trading_session.service";
+import { EngineBroadcasterService } from "./engine/engine-broadcaster.service";
+import { AuditLogService } from "./trading/audit-log.service";
+import { checkOrigin } from "./lib/origin";
+import "./lib/math"; // BOLT: Load math utilities early to initialize BigInt polyfill
+// Process-level unhandled exception and rejection guards to prevent process termination on transient socket errors
+process.on("unhandledRejection", (reason) => {
+    const processLogger = new Logger("UnhandledRejection");
+    const msg = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
+    processLogger.error(`Unhandled Promise Rejection caught: ${msg}`);
+});
+process.on("uncaughtException", (err) => {
+    const processLogger = new Logger("UncaughtException");
+    processLogger.error(`Uncaught Exception caught: ${err.stack || err.message}`);
+});
+async function bootstrap() {
+    const isProduction = process.env.NODE_ENV === "production";
+    const forceDebug = process.env.DEBUG === "true";
+    // Default to quiet logs even in dev, unless forceDebug is set.
+    // DynamicLogger will upgrade these levels at runtime if a session starts with debug_mode: true.
+    const logLevels = forceDebug
+        ? ["log", "error", "warn", "debug", "verbose"]
+        : ["log", "warn", "error"];
+    const logger = DynamicLogger.getInstance();
+    logger.setLogLevels(logLevels);
+    const app = await NestFactory.create(AppModule, {
+        logger,
+        bodyParser: false, // Disable default body parser to configure limits manually
+    });
+    // Enable graceful shutdown hooks so that onApplicationShutdown is called
+    app.enableShutdownHooks(['SIGTERM', 'SIGINT', 'SIGQUIT']);
+    // Security: Enable 'trust proxy' for accurate client IP detection behind load balancers/reverse proxies
+    const expressInstance = app.getHttpAdapter().getInstance();
+    expressInstance.set('trust proxy', 1);
+    // Security: Disable X-Powered-By header to reduce information disclosure
+    app.getHttpAdapter().getInstance().disable("x-powered-by");
+    // Security: Limit JSON and URL-encoded payload size to prevent DoS attacks
+    app.use(json({ limit: ENGINE_CONSTANTS.HTTP_BODY_LIMIT }));
+    app.use(urlencoded({ limit: ENGINE_CONSTANTS.HTTP_BODY_LIMIT, extended: true }));
+    const configService = app.get(ConfigService);
+    app.useGlobalPipes(new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+        // SENTINEL: Prevent information leakage in default validation error responses.
+        // Target object and input values are excluded from the output.
+        validationError: { target: false, value: false },
+    }));
+    // Audit Item 33: Global structured error tracking
+    const { httpAdapter } = app.get(HttpAdapterHost);
+    app.useGlobalFilters(new AllExceptionsFilter(app.get(HttpAdapterHost)));
+    const port = Number(process.env.PORT || configService.get("PORT") || 3000);
+    const nodeEnv = configService.get("NODE_ENV") || process.env.NODE_ENV || "development";
+    const adminKey = configService.get("ADMIN_API_KEY") || process.env.ADMIN_API_KEY;
+    const adminApiKeySet = Boolean(adminKey && adminKey.trim().length > 0);
+    const configuredOrigins = (configService.get("ALLOWED_ORIGINS") || process.env.ALLOWED_ORIGINS)
+        ?.split(",")
+        .map((o) => o.trim().replace(/^['"]/, "").replace(/['"]$/, ""))
+        .filter(Boolean);
+    const rawPinnedFrontend = configService.get("FRONTEND_URL")
+        || configService.get("RAILWAY_FRONTEND_URL")
+        || process.env.FRONTEND_URL
+        || process.env.RAILWAY_FRONTEND_URL;
+    const pinnedFrontend = rawPinnedFrontend
+        ? (rawPinnedFrontend.startsWith("http://") || rawPinnedFrontend.startsWith("https://")
+            ? rawPinnedFrontend
+            : `https://${rawPinnedFrontend}`)
+        : undefined;
+    const rawAllowedOrigins = [
+        ...(configuredOrigins && configuredOrigins.length > 0
+            ? configuredOrigins
+            : [
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+            ]),
+        ...(pinnedFrontend ? [pinnedFrontend] : []),
+    ];
+    const allowedOrigins = Array.from(new Set(rawAllowedOrigins.map((o) => o.trim().replace(/\/$/, "")).filter(Boolean)));
+    const serverLogger = new Logger("Server");
+    // Startup Config Check Diagnostic Log
+    serverLogger.log(`=======================================================`);
+    serverLogger.log(`🚀 [Config Check] Trading Engine Startup Diagnostics:`);
+    serverLogger.log(`   - Environment: ${nodeEnv}`);
+    serverLogger.log(`   - Listening Port: ${port}`);
+    serverLogger.log(`   - ADMIN_API_KEY: ${adminApiKeySet ? "Configured [SET]" : "Not Set [UNSET]"}`);
+    serverLogger.log(`   - Pinned Frontend URL: ${pinnedFrontend || "None"}`);
+    serverLogger.log(`   - Allowed Origins (${allowedOrigins.length}): ${allowedOrigins.join(", ")}`);
+    serverLogger.log(`=======================================================`);
+    // Security Headers Middleware
+    app.use((req, res, next) => {
+        res.setHeader("X-Frame-Options", "DENY");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("X-XSS-Protection", "1; mode=block");
+        res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+        res.setHeader("Referrer-Policy", "no-referrer");
+        res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+        res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+        // Prevent sensitive trading data from being cached by browsers or intermediate proxies
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+        res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; upgrade-insecure-requests;");
+        res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+        if (nodeEnv === "production") {
+            res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+        }
+        next();
+    });
+    // Enable CORS for frontend
+    app.enableCors({
+        origin: (origin, callback) => {
+            // Allow requests with no origin (like mobile apps or curl)
+            if (!origin)
+                return callback(null, true);
+            const isAllowed = checkOrigin(origin, allowedOrigins);
+            const isDevFallback = !isAllowed && nodeEnv !== "production";
+            if (isAllowed || isDevFallback) {
+                if (isDevFallback) {
+                    serverLogger.warn(`⚠️  Security Warning: Allowing unauthorized origin "${origin}" due to non-production environment.`);
+                }
+                callback(null, true);
+            }
+            else {
+                serverLogger.warn(`CORS blocked for origin: ${origin}`);
+                callback(new Error("Not allowed by CORS"));
+            }
+        },
+        credentials: true,
+    });
+    // Health check endpoint enhanced with port, allowedOrigins, and adminApiKeySet
+    app.getHttpAdapter().get("/health", async (req, res) => {
+        const healthInfo = {
+            port,
+            allowedOrigins,
+            adminApiKeySet,
+            timestamp: new Date().toISOString(),
+        };
+        try {
+            // Audit Item 35: Add DB health check. Resolve the TypeORM DataSource via
+            // its token (the string "EntityManager" is NOT a registered provider, which
+            // previously threw and made the /health probe fail).
+            const dataSource = app.get(getDataSourceToken());
+            await dataSource.query("SELECT 1");
+            res.status(200).send({ status: "ok", db: "connected", ...healthInfo });
+        }
+        catch (e) {
+            res.status(503).send({ status: "error", db: "disconnected", ...healthInfo });
+        }
+    });
+    // SENTINEL: Disable 'Server' header to further reduce information disclosure
+    app.getHttpAdapter().getInstance().use((req, res, next) => {
+        res.removeHeader("Server");
+        next();
+    });
+    await app.init();
+    const httpServer = app.getHttpServer();
+    const sessionService = app.get(SessionService);
+    const monitoringService = app.get(MonitoringService);
+    const engineBroadcaster = app.get(EngineBroadcasterService);
+    const auditLog = app.get(AuditLogService);
+    const wss = new WebSocketServer({
+        server: httpServer,
+        path: "/session/ws",
+        // SENTINEL: Support token-based auth via sub-protocol to avoid leaking keys in URLs/logs
+        handleProtocols: (protocols) => [...protocols][0],
+        perMessageDeflate: {
+            zlibDeflateOptions: {
+                chunkSize: 1024,
+                memLevel: 7,
+                level: 3,
+            },
+            zlibInflateOptions: {
+                chunkSize: 10 * 1024,
+            },
+            clientNoContextTakeover: true,
+            serverNoContextTakeover: true,
+            serverMaxWindowBits: 10,
+            concurrencyLimit: 10,
+            threshold: 1024,
+        },
+        verifyClient: (info, done) => {
+            const origin = info.origin ? info.origin.replace(/\/$/, "") : null;
+            const isOriginAllowed = !origin || checkOrigin(info.origin, allowedOrigins);
+            const isDevFallback = !isOriginAllowed && nodeEnv !== "production";
+            const clientIp = extractIp(info.req.headers, info.req.socket.remoteAddress || "unknown");
+            const userAgent = (Array.isArray(info.req.headers["user-agent"]) ? info.req.headers["user-agent"][0] : info.req.headers["user-agent"]) || "unknown";
+            const logAuthFailure = (action, details) => {
+                auditLog.log({
+                    action,
+                    actor: clientIp,
+                    ip: clientIp,
+                    userAgent,
+                    details,
+                    level: 'WARN'
+                }).catch((err) => serverLogger.error(`Failed to log WS auth failure: ${err.message}`));
+            };
+            // SENTINEL: Check WS IP throttle
+            if (isThrottled(clientIp)) {
+                serverLogger.warn(`WS Auth throttle triggered for IP: ${clientIp}`);
+                logAuthFailure('AUTH_THROTTLE_WS', { origin });
+                return done(false, 429, "Too many failed attempts");
+            }
+            if (!isOriginAllowed && !isDevFallback) {
+                serverLogger.warn(`Blocked WebSocket connection from unauthorized origin: ${info.origin} (IP: ${clientIp})`);
+                const count = recordFailure(clientIp);
+                logAuthFailure('AUTH_REJECT_WS_ORIGIN', { origin, count });
+                return done(false);
+            }
+            else if (isDevFallback) {
+                serverLogger.warn(`⚠️  Security Warning: Allowing unauthorized WebSocket origin "${info.origin}" due to non-production environment.`);
+            }
+            // Security: Validate API Key if ADMIN_API_KEY is configured
+            const adminKey = configService.get("ADMIN_API_KEY");
+            if (adminKey) {
+                try {
+                    // SENTINEL: Extract token from sub-protocol header instead of query params
+                    // to prevent sensitive keys from appearing in server access logs or browser history.
+                    const protocolHeader = info.req.headers['sec-websocket-protocol'];
+                    const token = Array.isArray(protocolHeader) ? protocolHeader[0] : protocolHeader;
+                    // SENTINEL: Validate token length and presence
+                    if (!token || token.length > 128) {
+                        serverLogger.warn(`Blocked WebSocket connection: Invalid API Key format/length from ${info.origin} (IP: ${clientIp})`);
+                        const count = recordFailure(clientIp);
+                        logAuthFailure('AUTH_FAILURE_WS', { reason: 'invalid_format', count });
+                        return done(false);
+                    }
+                    if (!safeCompare(token, adminKey)) {
+                        serverLogger.warn(`Blocked WebSocket connection: Invalid API Key from ${info.origin} (IP: ${clientIp})`);
+                        const count = recordFailure(clientIp);
+                        logAuthFailure('AUTH_FAILURE_WS', { reason: 'invalid_token', count });
+                        return done(false);
+                    }
+                    clearFailures(clientIp);
+                }
+                catch (err) {
+                    serverLogger.error(`WebSocket handshake URL parsing failed for ${info.origin} (IP: ${clientIp})`);
+                    const count = recordFailure(clientIp);
+                    logAuthFailure('AUTH_FAILURE_WS', { reason: 'parse_error', error: err instanceof Error ? err.message : String(err), count });
+                    return done(false);
+                }
+            }
+            else if (nodeEnv === "production") {
+                serverLogger.error("Blocked WebSocket connection: ADMIN_API_KEY is missing in production environment.");
+                return done(false);
+            }
+            else {
+                serverLogger.warn("⚠️  Security Warning: WebSocket connection allowed without ADMIN_API_KEY in non-production environment.");
+            }
+            done(true);
+        },
+    });
+    // Heartbeat interval to detect and terminate zombie connections
+    const heartbeatInterval = setInterval(() => {
+        wss.clients.forEach((ws) => {
+            if (ws.isAlive === false) {
+                serverLogger.warn("Terminating zombie WebSocket connection");
+                return ws.terminate();
+            }
+            ws.isAlive = false;
+            ws.ping();
+        });
+    }, ENGINE_CONSTANTS.WS_HEARTBEAT_INTERVAL_MS);
+    if (heartbeatInterval?.unref)
+        heartbeatInterval.unref();
+    wss.on("close", () => {
+        clearInterval(heartbeatInterval);
+    });
+    const updateMonitoringSuppression = () => {
+        const clients = Array.from(wss.clients);
+        // Synchronize listener count for loop optimization
+        const tradingSessionService = app.get(TradingSessionService);
+        const activeCount = clients.filter((c) => c.isActive !== false).length;
+        tradingSessionService.setListenerCount(activeCount);
+        const dashCount = clients.filter((c) => c.isActive !== false && (!c.focusMode || !!c.focusScannerSymbol)).length;
+        tradingSessionService.setDashboardCount(dashCount);
+    };
+    sessionService.setBroadcaster((data) => {
+        const isString = typeof data === "string";
+        let basePayload;
+        let cachedJson = isString ? data : null;
+        const getPayload = () => {
+            if (!basePayload) {
+                basePayload = isString ? JSON.parse(data) : data;
+            }
+            return basePayload;
+        };
+        wss.clients.forEach((client) => {
+            if (client.readyState !== client.OPEN)
+                return;
+            const payload = getPayload();
+            // Optimization: Skip ticks, scanner, and logs for inactive (background) clients to save network egress
+            if (client.isActive === false &&
+                (payload.type === "tick" ||
+                    payload.type === "scanner" ||
+                    payload.type === "log")) {
+                return;
+            }
+            if (payload.type === "tick") {
+                const tick = engineBroadcaster.getFidelityTick(payload, client);
+                client.send(JSON.stringify(tick));
+                return;
+            }
+            if (payload.type === "scanner") {
+                // Optimization: Prune heavy ohlc_history to save bandwidth unless specifically focused on this symbol
+                const pruneOpp = (opp) => {
+                    const keepOhlc = client.focusScannerSymbol && opp.symbol === client.focusScannerSymbol;
+                    if (keepOhlc)
+                        return opp;
+                    const { ohlc_history, ...rest } = opp;
+                    return rest;
+                };
+                const pruned = {
+                    ...payload,
+                    opportunities: (payload.opportunities || []).map(pruneOpp),
+                    variant_opportunities: (basePayload.variant_opportunities || []).map((v) => ({
+                        ...v,
+                        opportunities: (v.opportunities || []).map(pruneOpp),
+                    })),
+                };
+                client.send(JSON.stringify(pruned));
+                return;
+            }
+            if (payload.type === "log" && client.logFilters) {
+                if (client.logFilters[payload.level] === false)
+                    return;
+            }
+            if (payload.type === "status" &&
+                client.logFilters &&
+                Array.isArray(payload.logLines)) {
+                const filteredPayload = {
+                    ...payload,
+                    logLines: payload.logLines.filter((log) => client.logFilters[log.level] !== false),
+                };
+                client.send(JSON.stringify(filteredPayload));
+                return;
+            }
+            if (!cachedJson) {
+                cachedJson = JSON.stringify(payload);
+            }
+            client.send(cachedJson);
+        });
+    });
+    wss.on("connection", async (socket) => {
+        // Security/Stability: Every socket MUST have an error handler to prevent process crashes
+        socket.on("error", (err) => {
+            serverLogger.error(`WebSocket socket error: ${err.message}`);
+        });
+        socket.isAlive = true;
+        socket.on("pong", () => {
+            socket.isAlive = true;
+        });
+        socket.monitoringEnabled = true;
+        socket.focusMode = false;
+        socket.focusTradeId = null;
+        socket.focusStrategyLabel = null;
+        socket.focusScannerSymbol = null;
+        socket.isActive = true; // Default to active on connect
+        socket.logFilters = { info: true, warn: true, error: true };
+        socket.msgCount = 0;
+        socket.lastReset = Date.now();
+        socket.lockoutUntil = 0; // Audit Item 31: Lockout for rate limiting
+        updateMonitoringSuppression();
+        socket.on("message", async (message) => {
+            try {
+                const now = Date.now();
+                // Audit Item 31: 5s backoff lockout on rate limit breach
+                if (now < socket.lockoutUntil)
+                    return;
+                // Rate limiting: max 20 messages per second
+                if (now - socket.lastReset > 1000) {
+                    socket.msgCount = 0;
+                    socket.lastReset = now;
+                }
+                socket.msgCount++;
+                if (socket.msgCount > 20) {
+                    serverLogger.warn(`Rate limit exceeded for client. Locking out for 5s.`);
+                    socket.lockoutUntil = now + 5000;
+                    return;
+                }
+                if (message.length > 1000)
+                    return;
+                let data;
+                try {
+                    data = JSON.parse(message);
+                }
+                catch (e) {
+                    serverLogger.warn("Received malformed WebSocket JSON payload");
+                    return;
+                }
+                if (!data || typeof data !== "object")
+                    return;
+                if (data.type === "set_monitoring") {
+                    socket.monitoringEnabled = data.enabled === true;
+                    updateMonitoringSuppression();
+                }
+                if (data.type === "set_focus_mode") {
+                    const wasFocused = socket.focusMode;
+                    const wasScannerSymbol = socket.focusScannerSymbol;
+                    socket.focusMode = data.enabled === true;
+                    // SENTINEL: Enforce type assertions and 100 char max length on WebSocket focus properties
+                    const parseStrProp = (val) => {
+                        if (typeof val !== "string" || !val.trim())
+                            return null;
+                        const trimmed = val.trim();
+                        return trimmed.length > 100 ? trimmed.substring(0, 100) : trimmed;
+                    };
+                    socket.focusTradeId = parseStrProp(data.tradeId);
+                    socket.focusStrategyLabel = parseStrProp(data.strategyLabel);
+                    socket.focusScannerSymbol = parseStrProp(data.scannerSymbol);
+                    if (wasFocused !== socket.focusMode || wasScannerSymbol !== socket.focusScannerSymbol) {
+                        updateMonitoringSuppression();
+                    }
+                    // If becoming focused, immediately broadcast the current session state to the client
+                    // to prevent UI "data gaps" during transition.
+                    if (!wasFocused && socket.focusMode) {
+                        const sessionService = app.get(SessionService);
+                        const status = await sessionService.getStatus(false);
+                        socket.send(JSON.stringify({
+                            type: "status",
+                            ...status,
+                            _forced: true
+                        }));
+                    }
+                }
+                if (data.type === "set_active") {
+                    const wasActive = socket.isActive;
+                    socket.isActive = data.active === true;
+                    // If state changed, update backend listener count for loop optimization
+                    if (wasActive !== socket.isActive) {
+                        updateMonitoringSuppression();
+                    }
+                    // If becoming active again, send full status to sync state
+                    if (!wasActive && socket.isActive) {
+                        socket.send(JSON.stringify({
+                            type: "status",
+                            ...(await sessionService.getStatus(false)),
+                        }));
+                    }
+                }
+                if (data.type === "set_log_filters" &&
+                    typeof data.filters === "object" &&
+                    data.filters !== null) {
+                    socket.logFilters = {
+                        info: data.filters.info === true,
+                        warn: data.filters.warn === true,
+                        error: data.filters.error === true,
+                    };
+                }
+            }
+            catch (e) { }
+        });
+        socket.on("close", () => {
+            updateMonitoringSuppression();
+        });
+        socket.send(JSON.stringify({ type: "status", ...(await sessionService.getStatus(true)) }));
+    });
+    await app.listen(port, "0.0.0.0");
+    serverLogger.log(`✨ Trading Dashboard Backend running on port ${port}`);
+    serverLogger.log(`📡 WebSocket endpoint: ws://0.0.0.0:${port}/session/ws`);
+}
+process.on('uncaughtException', (err) => {
+    const logger = new Logger('UncaughtException');
+    logger.error('Uncaught Exception thrown', err.stack || err);
+    // Do not process.exit(0) here because it might bypass hooks; process will exit naturally or via forever
+});
+process.on('unhandledRejection', (reason, promise) => {
+    const logger = new Logger('UnhandledRejection');
+    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+bootstrap().catch((err) => {
+    const bootstrapLogger = new Logger("Bootstrap");
+    bootstrapLogger.error("Server startup failed:", err);
+    process.exit(1);
+});

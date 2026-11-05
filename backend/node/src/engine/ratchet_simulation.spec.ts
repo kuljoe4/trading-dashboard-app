@@ -2,6 +2,7 @@ import { OrderFilterService } from './order-filter.service';
 import { OrderManagerService } from './orderManager';
 import { MaintenanceService } from './maintenance.service';
 import { Trade } from '../models/Trade';
+import { ENGINE_EVENTS } from './events';
 
 describe('SL Ratchet Simulation & Synchronization Suite', () => {
   let orderManager: OrderManagerService;

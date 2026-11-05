@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
@@ -9,6 +10,7 @@ import { BinanceClientFactory } from '../lib/binanceClientFactory';
 import { encrypt } from '../lib/crypto';
 import * as throttle from '../lib/throttle';
 import { HttpException } from '@nestjs/common';
+import { describe, it, expect, beforeAll, beforeEach } from '@jest/globals';
 
 describe('Sentinel: maskApiKey helper security verification', () => {
   it('should return empty string for non-string, empty, or falsy values', () => {

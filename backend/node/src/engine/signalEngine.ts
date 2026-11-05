@@ -2166,6 +2166,11 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
+      const triggerPatternHigh = roundTo(currentCandle.high, 8);
+      const triggerPatternLow = roundTo(currentCandle.low, 8);
+      const triggerBodyHigh = roundTo(Math.max(currentCandle.open, currentCandle.close), 8);
+      const triggerBodyLow = roundTo(Math.min(currentCandle.open, currentCandle.close), 8);
+
       return {
         fired,
         value: roundTo(currHist, 8),
@@ -2175,6 +2180,10 @@ export class SignalEngineService {
         metric: 'MACD PBC',
         description,
         slPrice: fired ? roundTo(slPrice, 8) : undefined,
+        pattern_high: fired ? triggerPatternHigh : undefined,
+        pattern_low: fired ? triggerPatternLow : undefined,
+        body_high: fired ? triggerBodyHigh : undefined,
+        body_low: fired ? triggerBodyLow : undefined,
       };
     } catch (error) {
       this.logger.debug(`MACD PBC signal error: ${error instanceof Error ? error.message : String(error)}`);

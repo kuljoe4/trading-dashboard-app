@@ -1,0 +1,2876 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var SessionService_1;
+import { Injectable, Logger, BadRequestException, NotFoundException, ConflictException, Inject, forwardRef, } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, In } from "typeorm";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
+import { Session as SessionEntity } from "../models/entities/Session.entity";
+import { TradeEntity } from "../models/entities/Trade.entity";
+import { TERMINAL_STATUSES } from "../models/entities/constants";
+import { Log as LogEntity } from "../models/entities/Log.entity";
+import { BalanceHistory as BalanceHistoryEntity } from "../models/entities/BalanceHistory.entity";
+import { SessionConfig } from "../models/SessionConfig";
+import { TradingSessionService } from "../engine/trading_session.service";
+import { OrderManagerService } from "../engine/orderManager";
+import { ENGINE_EVENTS } from "../engine/events";
+import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
+import { AuditLogService } from "./audit-log.service";
+import { Trade } from "../models/Trade";
+import { v4 as uuid } from "uuid";
+import { Settings as SettingsEntity } from "../models/entities/Settings.entity";
+import { decrypt } from "../lib/crypto";
+import { ConfigValidationException } from "../lib/exceptions";
+import { BinanceClientFactory } from "../lib/binanceClientFactory";
+import { AnalyticsService } from "../engine/analytics.service";
+import { RrOptimizationService } from "../engine/rr-optimization.service";
+import { MarketFeedService } from "../engine/market_feed.service";
+import { updateLogLevels, sanitize, formatValidationErrors, } from "../lib/logger";
+import { roundEight } from "../lib/math";
+import { CONFIG_LIMITS, EXIT_REASONS, ENGINE_CONSTANTS, } from "../models/constants";
+let SessionService = class SessionService {
+    static { SessionService_1 = this; }
+    sessionRepository;
+    tradeRepository;
+    logRepository;
+    settingsRepository;
+    balanceHistoryRepository;
+    tradingSessionService;
+    orderManager;
+    marketFeed;
+    eventEmitter;
+    analyticsService;
+    rrOptimizationService;
+    binanceClientFactory;
+    auditLog;
+    configService;
+    logger = new Logger(SessionService_1.name);
+    sessionRunning = false;
+    currentSessionId = null;
+    wsBroadcaster = () => { };
+    // BOLT OPTIMIZATION: Non-blocking asynchronous log write queue & debounced flush
+    logWriteQueue = [];
+    logFlushTimer = null;
+    isFlushingLogs = false;
+    LOG_FLUSH_INTERVAL_MS = 500;
+    LOG_FLUSH_BATCH_SIZE = 50;
+    analyticsCache = null;
+    CACHE_TTL_MS = 60000; // 1 minute
+    // DATA-CONSISTENCY: Fields that cannot be modified while a session is active
+    static IMMUTABLE_SESSION_FIELDS = [
+        "trading_mode",
+        "paper_mode",
+        "paper_starting_balance",
+        "testnet_starting_balance",
+        "live_starting_balance",
+    ];
+    // SENTINEL: In-memory tracking to prevent database-heavy count() and log spamming
+    logRateLimits = new Map();
+    recentLogs = new Map();
+    sessionLogCounts = new Map();
+    adoptingSymbols = new Set();
+    // BOLT: In-memory state tracking to debounce high-frequency open trade tick updates
+    openTradeLastSavedState = new Map();
+    constructor(sessionRepository, tradeRepository, logRepository, settingsRepository, balanceHistoryRepository, tradingSessionService, orderManager, marketFeed, eventEmitter, analyticsService, rrOptimizationService, binanceClientFactory, auditLog, configService) {
+        this.sessionRepository = sessionRepository;
+        this.tradeRepository = tradeRepository;
+        this.logRepository = logRepository;
+        this.settingsRepository = settingsRepository;
+        this.balanceHistoryRepository = balanceHistoryRepository;
+        this.tradingSessionService = tradingSessionService;
+        this.orderManager = orderManager;
+        this.marketFeed = marketFeed;
+        this.eventEmitter = eventEmitter;
+        this.analyticsService = analyticsService;
+        this.rrOptimizationService = rrOptimizationService;
+        this.binanceClientFactory = binanceClientFactory;
+        this.auditLog = auditLog;
+        this.configService = configService;
+    }
+    clearBan() {
+        this.logger.log(`Manual request to clear Binance API ban.`);
+        BinanceClientFactory.setCooldownUntil(0);
+        this.eventEmitter.emit('binance.api_limit_cleared');
+    }
+    async onModuleInit() {
+        this.logger.log("SessionService initializing...");
+        // DEPLOY-03: Log truncated DB host to help verify environment isolation
+        try {
+            const dbUrl = this.configService.get("DATABASE_URL");
+            if (dbUrl) {
+                // Robust parsing using URL constructor to handle special characters in passwords
+                const url = new URL(dbUrl);
+                const dbHost = url.hostname || "unknown";
+                const truncatedHost = dbHost.length > 8
+                    ? `***${dbHost.substring(dbHost.length - 8)}`
+                    : dbHost;
+                this.logger.log(`[Diagnostic] Connected to Database Host: ${truncatedHost}`);
+            }
+        }
+        catch (e) {
+            this.logger.warn(`[Diagnostic] Could not identify DB host: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        // RESEARCH: Load persistent API ban status on startup to prevent immediate retry cycles
+        try {
+        }
+        catch (e) {
+            this.logger.error(`Failed to execute onModuleInit setup: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        // SEC-02: Cleanup old data on startup and periodically (every 1 hour)
+        await this.cleanupOldData();
+        const cleanupInterval = setInterval(() => this.cleanupOldData().catch((e) => this.logger.error(`Periodic cleanup failed: ${e.message}`)), 1 * 60 * 60 * 1000);
+        if (cleanupInterval?.unref)
+            cleanupInterval.unref();
+        this.logger.log("Checking security configurations...");
+        // DEPLOY-02: Check ENCRYPTION_KEY and ADMIN_API_KEY in production
+        // Note: We only log errors here to avoid boot loops. Enforcement happens at the operation level.
+        if (process.env.NODE_ENV === "production") {
+            if (!process.env.ENCRYPTION_KEY) {
+                this.logger.error("CRITICAL: ENCRYPTION_KEY is not set in production! App will fail on sensitive operations.");
+            }
+            if (!process.env.ADMIN_API_KEY) {
+                this.logger.error("CRITICAL: ADMIN_API_KEY is not set in production! App is UNPROTECTED.");
+            }
+        }
+        // Ensure default settings exist
+        this.logger.log("Ensuring default settings exist...");
+        const settings = await this.settingsRepository.findOne({
+            where: { id: "default" },
+        });
+        if (!settings) {
+            this.logger.log("Initializing default settings...");
+            await this.settingsRepository.save(this.settingsRepository.create({
+                id: "default",
+                paper_balance: 10000.0,
+                testnet_balance: 0,
+                live_balance: 0,
+            }));
+        }
+        // Cleanup any sessions marked as running in the database on startup
+        // BOLT: Optimize startup cleanup with a single bulk update instead of a loop.
+        // Note: Associated open trades are flagged with is_reconciliation: true during startSession().
+        this.logger.log("Cleaning up stale running sessions...");
+        const updateResult = await this.sessionRepository.update({ running: true }, {
+            running: false,
+            endTime: new Date(),
+        });
+        if (updateResult.affected && updateResult.affected > 0) {
+            this.logger.verbose(`Cleaned up ${updateResult.affected} stale running sessions`);
+        }
+        // DATA-03: One-time population of strategy_label for legacy trades to fix 'Uncategorized' issue
+        this.logger.log("Populating strategy_label for legacy trades...");
+        try {
+            const tradeUpdateResult = await this.tradeRepository
+                .createQueryBuilder()
+                .update(TradeEntity)
+                .set({ strategy_label: "Momentum Strategy" })
+                .where("strategy_label IS NULL")
+                .execute();
+            if (tradeUpdateResult.affected && tradeUpdateResult.affected > 0) {
+                this.logger.log(`Initialized strategy_label for ${tradeUpdateResult.affected} legacy trades`);
+            }
+        }
+        catch (e) {
+            this.logger.error(`Failed to initialize legacy trade labels: ${e.message}`);
+        }
+        this.logger.log("Wiring balance and trade updates...");
+        // Wire balance updates to persistence (legacy/standalone updates)
+        this.tradingSessionService.setBalanceUpdateCallback(async (balance, pnl) => {
+            const sessionId = this.currentSessionId;
+            if (sessionId && pnl === 0) {
+                const queryRunner = this.sessionRepository.manager.connection.createQueryRunner();
+                await queryRunner.connect();
+                await queryRunner.startTransaction();
+                try {
+                    // Lock Session row to ensure consistency and fetch mode
+                    const session = await queryRunner.manager.findOne(SessionEntity, {
+                        where: { id: sessionId },
+                        lock: { mode: "pessimistic_write" },
+                        select: ["id", "tradingMode", "paperMode", "config"],
+                    });
+                    if (session) {
+                        const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+                        // DATA-CONSISTENCY: Use trade summation for PnL in ALL modes (including Paper)
+                        // to ensure consistency and prevent corruption from external balance adjustments.
+                        const aggregation = await queryRunner.manager
+                            .createQueryBuilder(TradeEntity, "trade")
+                            .select("SUM(trade.pnl)", "sum")
+                            .where("trade.sessionId = :sessionId", { sessionId })
+                            .andWhere("trade.status IN (:...statuses)", {
+                            statuses: [...TERMINAL_STATUSES, "OPEN"],
+                        })
+                            .getRawOne();
+                        const realizedPnl = roundEight(Number(aggregation?.sum || 0));
+                        await queryRunner.manager.update(SessionEntity, sessionId, {
+                            balance,
+                            totalPnl: realizedPnl,
+                        });
+                        const updateData = {};
+                        if (mode === "paper")
+                            updateData.paper_balance = balance;
+                        else if (mode === "testnet")
+                            updateData.testnet_balance = balance;
+                        else if (mode === "live")
+                            updateData.live_balance = balance;
+                        await queryRunner.manager.update(SettingsEntity, "default", updateData);
+                    }
+                    await queryRunner.commitTransaction();
+                }
+                catch (error) {
+                    await queryRunner.rollbackTransaction();
+                    this.logger.error(`Failed to sync standalone balance for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+                }
+                finally {
+                    await queryRunner.release();
+                }
+            }
+        });
+        // Wire trade updates to persistence
+        this.tradingSessionService.setTradeUpdateCallback(async (trade, balance) => {
+            await this.saveTradeAtomic(trade, balance);
+        });
+        this.logger.log("SessionService initialization complete.");
+    }
+    async onModuleDestroy() {
+        this.logger.log("SessionService destroying, flushing log queue...");
+        await this.flushLogQueue();
+    }
+    async handleEngineLog(payload) {
+        await this.logMessage(payload.msg, payload.level || "info", {
+            channel: payload.channel,
+            symbol: payload.symbol,
+            tradeId: payload.tradeId,
+        });
+    }
+    validateTrade(trade) {
+        return (trade.symbol != null &&
+            trade.entry_price != null &&
+            !isNaN(Number(trade.entry_price)) &&
+            trade.qty != null &&
+            !isNaN(Number(trade.qty)) &&
+            trade.status != null);
+    }
+    saveTradePromiseChain = Promise.resolve();
+    async saveTradeAtomic(trade, balance) {
+        // Audit Item 13: Mutex/Promise chain to prevent race conditions during atomic saves
+        return (this.saveTradePromiseChain = this.saveTradePromiseChain
+            .then(() => this.executeSaveTradeAtomic(trade, balance))
+            .catch((e) => {
+            this.logger.error(`Atomic save failed in chain: ${e.message}`);
+            throw e;
+        }));
+    }
+    async executeSaveTradeAtomic(trade, balance) {
+        if (!this.validateTrade(trade)) {
+            this.logger.warn(`Attempted to save invalid trade ${trade.symbol}, skipping.`);
+            return;
+        }
+        const sessionId = this.currentSessionId || trade.sessionId;
+        if (!sessionId) {
+            this.logger.warn(`Cannot save trade ${trade.symbol}: No sessionId found.`);
+            return;
+        }
+        const isTradeOpen = trade.status === "OPEN";
+        // 0. OPEN TRADE DEBOUNCE / SKIP UNNECESSARY DB WRITES
+        // If trade is OPEN, check if critical persistence fields (current_sl, tp, rr_sequence_index, qty, status, pnl) changed.
+        // Routine mark_price / max_rr_achieved updates on open trades are throttled to at most once per 15s.
+        if (isTradeOpen && trade.id) {
+            const lastState = this.openTradeLastSavedState.get(trade.id);
+            if (lastState) {
+                const criticalChanged = Number(trade.current_sl || 0) !== lastState.current_sl ||
+                    Number(trade.tp || 0) !== (lastState.tp || 0) ||
+                    Number(trade.rr_sequence_index ?? -1) !== lastState.rr_sequence_index ||
+                    Number(trade.qty || 0) !== lastState.qty ||
+                    trade.status !== lastState.status ||
+                    Number(trade.pnl || 0) !== lastState.pnl;
+                const timeElapsed = Date.now() - lastState.lastSavedTs;
+                if (!criticalChanged && timeElapsed < 15000) {
+                    // Skip database write for routine tick update
+                    return;
+                }
+            }
+        }
+        else if (!isTradeOpen && trade.id) {
+            this.openTradeLastSavedState.delete(trade.id);
+        }
+        // 1. STREAMLINED PERSISTENCE FOR OPEN TRADES
+        // Bypasses FOR UPDATE pessimistic session locks and redundant SUM(trade.pnl), Session, Settings, & BalanceHistory updates
+        if (isTradeOpen) {
+            try {
+                const persistenceTrade = { ...trade };
+                persistenceTrade.pnl = Number(trade.pnl || 0);
+                persistenceTrade.pnl_pct = 0;
+                const tradeEntity = this.tradeRepository.create({
+                    ...persistenceTrade,
+                    exit_signal_type: trade.exit_signal_type,
+                    exit_signal_reason: trade.exit_signal_reason,
+                    exit_signals_status: trade.exit_signals_status,
+                    entry_signal_type: trade.entry_signal_type,
+                    entry_signal_confidence: trade.entry_signal_confidence,
+                    mark_price: trade.mark_price,
+                    last_price: trade.last_price,
+                    close_attempts: trade.close_attempts || 0,
+                    last_close_attempt_ts: trade.last_close_attempt_ts,
+                    close_blocked: !!trade.close_blocked,
+                    illiquid_blocked: !!trade.illiquid_blocked,
+                    _sig_json: trade._sig_json,
+                    sessionId,
+                });
+                await this.tradeRepository.save(tradeEntity);
+                if (trade.id) {
+                    this.openTradeLastSavedState.set(trade.id, {
+                        current_sl: Number(trade.current_sl || 0),
+                        tp: trade.tp ? Number(trade.tp) : null,
+                        rr_sequence_index: Number(trade.rr_sequence_index ?? -1),
+                        qty: Number(trade.qty || 0),
+                        status: trade.status,
+                        pnl: Number(trade.pnl || 0),
+                        lastSavedTs: Date.now(),
+                    });
+                }
+                return;
+            }
+            catch (error) {
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                this.logger.error(`[CRITICAL] Streamlined open trade save failed for ${trade.symbol}: ${errorMsg}`);
+                throw error;
+            }
+        }
+        // 2. FULL ATOMIC TRANSACTION FOR TERMINAL TRADE CLOSURES & BALANCE UPDATES
+        const queryRunner = this.sessionRepository.manager.connection.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            // Lock Session row to serialize all updates for this session and fetch metadata
+            const session = await queryRunner.manager.findOne(SessionEntity, {
+                where: { id: sessionId },
+                lock: { mode: "pessimistic_write" },
+                select: ["id", "tradingMode", "paperMode", "config"],
+            });
+            if (!session) {
+                throw new Error(`Session ${sessionId} not found during atomic save.`);
+            }
+            const persistenceTrade = { ...trade };
+            const tradeEntity = this.tradeRepository.create({
+                ...persistenceTrade,
+                exit_signal_type: trade.exit_signal_type,
+                exit_signal_reason: trade.exit_signal_reason,
+                exit_signals_status: trade.exit_signals_status,
+                entry_signal_type: trade.entry_signal_type,
+                entry_signal_confidence: trade.entry_signal_confidence,
+                mark_price: trade.mark_price,
+                last_price: trade.last_price,
+                close_attempts: trade.close_attempts || 0,
+                last_close_attempt_ts: trade.last_close_attempt_ts,
+                close_blocked: !!trade.close_blocked,
+                illiquid_blocked: !!trade.illiquid_blocked,
+                _sig_json: trade._sig_json,
+                sessionId,
+            });
+            await queryRunner.manager.save(TradeEntity, tradeEntity);
+            // Update Session PnL and Balance
+            // DATA-CONSISTENCY: Use trade summation for PnL in ALL modes (including Paper)
+            // to ensure consistency and prevent corruption from manual balance adjustments.
+            const aggregation = await queryRunner.manager
+                .createQueryBuilder(TradeEntity, "trade")
+                .select("SUM(trade.pnl)", "sum")
+                .where("trade.sessionId = :sessionId", { sessionId })
+                .andWhere("trade.status IN (:...statuses)", {
+                statuses: [...TERMINAL_STATUSES, "OPEN"],
+            })
+                .getRawOne();
+            const realizedPnl = roundEight(Number(aggregation?.sum || 0));
+            await queryRunner.manager.update(SessionEntity, sessionId, {
+                balance,
+                totalPnl: realizedPnl,
+            });
+            // Update Global Settings and record History for all modes
+            if (session) {
+                const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+                const updateData = {};
+                if (mode === "paper")
+                    updateData.paper_balance = balance;
+                else if (mode === "testnet")
+                    updateData.testnet_balance = balance;
+                else if (mode === "live")
+                    updateData.live_balance = balance;
+                await queryRunner.manager.update(SettingsEntity, "default", updateData);
+                // Record Balance Snapshot strictly on trade completion
+                if (trade.status !== "OPEN") {
+                    const snapshot = this.balanceHistoryRepository.create({
+                        timestamp: new Date(),
+                        balance: balance,
+                        pnl: roundEight(trade.pnl || 0),
+                        type: "TRADE_CLOSE",
+                        sessionId: sessionId,
+                        tradeId: trade.id,
+                        tradingMode: mode,
+                    });
+                    await queryRunner.manager.save(BalanceHistoryEntity, snapshot);
+                }
+            }
+            await queryRunner.commitTransaction();
+            this.logger.verbose(`Transaction committed: Saved trade ${trade.symbol} (${trade.status}) and updated session ${sessionId}`);
+        }
+        catch (error) {
+            await queryRunner.rollbackTransaction();
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            this.logger.error(`[CRITICAL] Transaction rolled back for ${trade.symbol}: ${errorMsg}`);
+            // SRE: Enhance visibility into persistence failures for debugging
+            if (errorMsg.includes("column") || errorMsg.includes("relation")) {
+                this.logger.error(`[DB_SCHEMA_MISMATCH] Potential schema drift detected during trade save: ${errorMsg}`);
+            }
+            throw error;
+        }
+        finally {
+            await queryRunner.release();
+        }
+    }
+    async saveTrade(trade) {
+        // Legacy method, keeping for compatibility if needed, but routing to atomic
+        const status = await this.getStatus();
+        await this.saveTradeAtomic(trade, status.balance);
+    }
+    validateConfig(config) {
+        if (!config)
+            throw new BadRequestException("Configuration is required");
+        // SENTINEL: Recursively validate nested strategy variants and guard against duplicate strategy labels
+        if (config.strategy_variants && Array.isArray(config.strategy_variants)) {
+            const baseLabel = config.strategy_label || "Momentum Strategy";
+            const seenLabels = new Set([baseLabel]);
+            for (const variant of config.strategy_variants) {
+                if (variant) {
+                    if (variant.strategy_label) {
+                        if (seenLabels.has(variant.strategy_label)) {
+                            throw new BadRequestException(`Duplicate strategy_label "${variant.strategy_label}" detected between base strategy and strategy_variants`);
+                        }
+                        seenLabels.add(variant.strategy_label);
+                    }
+                    const mergedVariant = {
+                        ...variant,
+                        strategy_variants: [],
+                        signal_params: {
+                            ...(config.signal_params || {}),
+                            ...(variant.signal_params || {}),
+                        },
+                    };
+                    this.validateConfig(mergedVariant);
+                }
+            }
+        }
+        if (config.single_symbol_configs && Array.isArray(config.single_symbol_configs)) {
+            for (const ssc of config.single_symbol_configs) {
+                if (ssc && ssc.use_custom_config && ssc.custom_config) {
+                    const mergedCustomConfig = {
+                        ...ssc.custom_config,
+                        strategy_variants: [],
+                        signal_params: {
+                            ...(config.signal_params || {}),
+                            ...(ssc.custom_config.signal_params || {}),
+                        },
+                    };
+                    this.validateConfig(mergedCustomConfig);
+                }
+            }
+        }
+        // 1. Scan Mode Dependencies
+        if (config.scan_mode === "active_window") {
+            if (!config.scan_window_duration_sec)
+                throw new BadRequestException("Window duration is required for Active Window mode");
+            if (!config.scan_check_interval_sec)
+                throw new BadRequestException("Check interval is required for Active Window mode");
+        }
+        // 2. Stop Loss Dependencies
+        if (config.sl_type === "lookback_low/high") {
+            if (!config.sl_lookback_period || config.sl_lookback_period < 1) {
+                throw new BadRequestException("Valid lookback period is required for Lookback SL type");
+            }
+        }
+        // 3. Take Profit Dependencies
+        if (config.tp_mode === "exp_rr_seq" || config.tp_mode === "exp_rr_seq_switch") {
+            if (!config.live_rr_sequence || config.live_rr_sequence.length === 0) {
+                throw new BadRequestException("Live RR sequence is required for Exponential RR mode");
+            }
+            if (!config.exit_rr_sequence ||
+                config.exit_rr_sequence.length !== config.live_rr_sequence.length) {
+                throw new BadRequestException("Exit RR sequence must match Live RR sequence length");
+            }
+        }
+        if (config.tp_mode === "exp_rr_seq_switch") {
+            if (config.peak_rr_switch_threshold === undefined || config.peak_rr_switch_threshold <= 0) {
+                throw new BadRequestException("Peak RR Switch Threshold must be > 0 for Dynamic RR Milestone (Switch) mode");
+            }
+        }
+        // 4. Signal Parameter Dependencies
+        const signalParams = config.signal_params || {};
+        const allEnabled = [
+            ...(config.enabled_signals || []),
+            ...(config.exit_signals || []),
+        ];
+        const getBaseSignalType = (sig) => {
+            if (sig === "ema_dual" || sig === "ema_dual_cross" || sig === "ema_dual_close")
+                return sig;
+            const lastUnderscore = sig.lastIndexOf("_");
+            if (lastUnderscore > 0) {
+                const base = sig.substring(0, lastUnderscore);
+                if (base === "ema_dual" || base === "ema_dual_cross" || base === "ema_dual_close")
+                    return base;
+            }
+            return sig;
+        };
+        const resolveDualEmaPeriods = (sig, purpose) => {
+            const baseType = getBaseSignalType(sig);
+            const suffix = sig === baseType ? "" : sig.substring(baseType.length);
+            const resolveKey = (key) => {
+                if (!signalParams)
+                    return undefined;
+                if (suffix) {
+                    const suffixedKey = `${key}${suffix}`;
+                    if (signalParams[suffixedKey] !== undefined &&
+                        signalParams[suffixedKey] !== null &&
+                        String(signalParams[suffixedKey]).trim() !== "") {
+                        return String(signalParams[suffixedKey]);
+                    }
+                    if (key.startsWith(baseType)) {
+                        const replacedKey = sig + key.substring(baseType.length);
+                        if (signalParams[replacedKey] !== undefined &&
+                            signalParams[replacedKey] !== null &&
+                            String(signalParams[replacedKey]).trim() !== "") {
+                            return String(signalParams[replacedKey]);
+                        }
+                    }
+                }
+                if (signalParams[key] !== undefined &&
+                    signalParams[key] !== null &&
+                    String(signalParams[key]).trim() !== "") {
+                    return String(signalParams[key]);
+                }
+                return undefined;
+            };
+            const isEntry = purpose === "entry";
+            const primaryFastKey = isEntry ? "entry_ema_fast" : "exit_ema_fast";
+            const fallbackFastKey = isEntry ? "exit_ema_fast" : "entry_ema_fast";
+            const primarySlowKey = isEntry ? "entry_ema_slow" : "exit_ema_slow";
+            const fallbackSlowKey = isEntry ? "exit_ema_slow" : "entry_ema_slow";
+            const fastStr = resolveKey(primaryFastKey) ??
+                resolveKey(fallbackFastKey) ??
+                resolveKey("ema_fast") ??
+                resolveKey(`${baseType}_fast`) ??
+                resolveKey("fast_ema") ??
+                "9";
+            const slowStr = resolveKey(primarySlowKey) ??
+                resolveKey(fallbackSlowKey) ??
+                resolveKey("ema_slow") ??
+                resolveKey(`${baseType}_slow`) ??
+                resolveKey("slow_ema") ??
+                "21";
+            return {
+                fast: parseInt(fastStr, 10),
+                slow: parseInt(slowStr, 10),
+            };
+        };
+        const enabledEntries = config.enabled_signals || [];
+        const enabledExits = config.exit_signals || [];
+        const validateDualEma = (sig, purpose) => {
+            const { fast, slow } = resolveDualEmaPeriods(sig, purpose);
+            if (isNaN(fast) || fast <= 0 || isNaN(slow) || slow <= 0) {
+                throw new BadRequestException("EMA Dual requires both fast and slow periods (e.g., 9 and 21)");
+            }
+            if (fast >= slow) {
+                throw new BadRequestException("EMA Dual: Fast period must be less than slow period");
+            }
+        };
+        for (const sig of enabledEntries) {
+            const base = getBaseSignalType(sig);
+            if (base === "ema_dual" || base === "ema_dual_cross" || base === "ema_dual_close") {
+                validateDualEma(sig, "entry");
+            }
+        }
+        for (const sig of enabledExits) {
+            const base = getBaseSignalType(sig);
+            if (base === "ema_dual" || base === "ema_dual_cross" || base === "ema_dual_close") {
+                validateDualEma(sig, "exit");
+            }
+        }
+        if (allEnabled.includes("ma") && !signalParams.ma_period) {
+            throw new BadRequestException("MA Cross signal requires ma_period in signal_params");
+        }
+        if ((allEnabled.includes("ema") || allEnabled.includes("ema_close")) &&
+            !signalParams.ema_period &&
+            !signalParams.entry_ema_period &&
+            !signalParams.exit_ema_period) {
+            throw new BadRequestException("EMA signals require an EMA period to be defined");
+        }
+        // DATA-02: Indicator Convergence validation
+        const maxCandles = parseInt(process.env.KLINE_MAX_CANDLES || "200", 10);
+        // Proactively scan all keys in signalParams for any indicator periods to protect against convergence failures
+        const indicatorPeriods = [];
+        for (const [key, val] of Object.entries(signalParams)) {
+            const lowerKey = key.toLowerCase();
+            const isPeriodKey = lowerKey.includes("period") || lowerKey.includes("slow") || lowerKey.includes("fast") || lowerKey.includes("_ema");
+            if (isPeriodKey) {
+                const parsed = parseInt(String(val), 10);
+                if (!isNaN(parsed)) {
+                    indicatorPeriods.push(parsed);
+                    // If this is a supertrend period (including layered supertrend like supertrend_2_period), enforce the 5x warmup limit
+                    if (lowerKey.includes("supertrend")) {
+                        if (parsed * 5 >= maxCandles) {
+                            throw new BadRequestException(`Supertrend ATR period ${parsed} is too large for current KLINE_MAX_CANDLES (${maxCandles}). The required warmup (${parsed * 5} candles) exceeds or equals KLINE_MAX_CANDLES. Please use an ATR Period < ${Math.floor(maxCandles / 5)} or increase KLINE_MAX_CANDLES.`);
+                        }
+                    }
+                }
+            }
+        }
+        for (const p of indicatorPeriods) {
+            if (p >= maxCandles * 0.5) {
+                throw new BadRequestException(`Indicator period ${p} is too large for current KLINE_MAX_CANDLES (${maxCandles}). Values may not converge for reliable signals. Use a period < ${Math.floor(maxCandles * 0.5)} or increase KLINE_MAX_CANDLES.`);
+            }
+        }
+        // 5. Risk Constraints
+        const riskPerTrade = config.risk_pct_per_trade ?? 0;
+        const maxTotalRisk = config.max_total_risk_pct ?? 100;
+        if (riskPerTrade > maxTotalRisk) {
+            throw new BadRequestException("Risk per trade cannot exceed maximum total risk");
+        }
+        if (config.slippage_abort_threshold != null &&
+            config.slippage_abort_threshold > CONFIG_LIMITS.SLIPPAGE_ABORT_MAX) {
+            throw new BadRequestException(`Slippage abort threshold cannot exceed ${CONFIG_LIMITS.SLIPPAGE_ABORT_MAX * 100}%`);
+        }
+        // SENTINEL: Validate Record properties to prevent Stored XSS, injection, or DoS
+        const validateRecord = (name, record, maxKeys, valueValidator, valError) => {
+            if (!record || typeof record !== "object" || Array.isArray(record))
+                return;
+            const keys = Object.keys(record);
+            if (keys.length > maxKeys) {
+                throw new BadRequestException(`${name} cannot exceed ${maxKeys} entries`);
+            }
+            for (const k of keys) {
+                if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+                    throw new BadRequestException(`Invalid key format in ${name}`);
+                }
+                if (!valueValidator(record[k])) {
+                    throw new BadRequestException(`${valError} for key "${k}"`);
+                }
+            }
+        };
+        validateRecord("exit_signal_delays", config.exit_signal_delays, 50, (v) => (typeof v === "number" && !isNaN(v) && v >= 0 && v <= 86400) || (typeof v === "string" && /^\d+c$/.test(v)), "exit_signal_delays values must be numbers between 0 and 86400 or a valid candle delay format like '3c'");
+        validateRecord("exit_signal_actions", config.exit_signal_actions, 50, (v) => v === "close" || v === "lock_sl", "exit_signal_actions values must be 'close' or 'lock_sl'");
+        validateRecord("signal_timeframes", config.signal_timeframes, 50, (v) => typeof v === "string" && v.length <= 10 && /^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|3d|1w|1M|default)$/.test(v), "signal_timeframes values must be valid Binance kline intervals");
+        validateRecord("scanner_weights", config.scanner_weights, 10, (v) => typeof v === "number" && !isNaN(v) && v >= 0 && v <= 100, "scanner_weights values must be numbers between 0 and 100");
+        if (config.signal_params && typeof config.signal_params === "object" && !Array.isArray(config.signal_params)) {
+            const keys = Object.keys(config.signal_params);
+            if (keys.length > 50) {
+                throw new BadRequestException("signal_params cannot exceed 50 entries");
+            }
+            const valPrimitive = (v) => {
+                if (v === null || v === undefined)
+                    return true;
+                const t = typeof v;
+                if (t === "boolean" || t === "number")
+                    return !isNaN(v);
+                if (t === "string")
+                    return v.length <= 100 && !/<[a-zA-Z!/]/.test(v);
+                return false;
+            };
+            for (const k of keys) {
+                if (k.length > 50 || !/^[a-zA-Z0-9_\-]*$/.test(k) || /<[a-zA-Z!/]/.test(k)) {
+                    throw new BadRequestException("Invalid key format in signal_params");
+                }
+                const v = config.signal_params[k];
+                if (Array.isArray(v)) {
+                    if (v.length > 50)
+                        throw new BadRequestException(`Array values in signal_params for key "${k}" cannot exceed 50 items`);
+                    for (const item of v) {
+                        if (!valPrimitive(item))
+                            throw new BadRequestException(`Invalid value in signal_params array for key "${k}"`);
+                    }
+                }
+                else if (v && typeof v === "object") {
+                    throw new BadRequestException(`Nested objects in signal_params are not allowed for key "${k}"`);
+                }
+                else {
+                    if (!valPrimitive(v))
+                        throw new BadRequestException(`Invalid value in signal_params for key "${k}"`);
+                }
+            }
+        }
+    }
+    async startSession(config, paperMode, sessionId, ip, userAgent) {
+        let mode = config.trading_mode || (paperMode ? "paper" : "live");
+        if (mode !== "paper" && !process.env.ENCRYPTION_KEY) {
+            throw new ConfigValidationException("ENCRYPTION_KEY must be set to start a session in live or testnet mode.");
+        }
+        if (this.sessionRunning) {
+            throw new ConflictException("Session already running");
+        }
+        // Force mode consistency: testnet/live must have paper_mode disabled
+        if (mode === "testnet" || mode === "live") {
+            config.paper_mode = false;
+            paperMode = false;
+        }
+        else {
+            config.paper_mode = true;
+            paperMode = true;
+        }
+        // Deep validation of dependent fields
+        this.validateConfig(config);
+        let session;
+        if (sessionId) {
+            session = await this.sessionRepository.findOne({
+                where: { id: sessionId },
+            });
+            if (!session)
+                throw new NotFoundException("Session not found");
+            // CODE-03: Validate config on restart
+            this.validateConfig(session.config);
+            // Update session to running
+            session.running = true;
+            await this.sessionRepository.save(session);
+            // Use existing config and balance
+            config = session.config;
+            paperMode = session.paperMode;
+            mode = session.tradingMode || (paperMode ? "paper" : "live");
+            // Preserving starting balance if it exists in the config to maintain correct PnL calculation across restarts
+            if (mode === "paper") {
+                config.paper_starting_balance =
+                    config.paper_starting_balance ||
+                        roundEight(Number(session.balance) - Number(session.totalPnl));
+            }
+            else if (mode === "testnet") {
+                config.testnet_starting_balance =
+                    config.testnet_starting_balance ||
+                        roundEight(Number(session.balance) - Number(session.totalPnl));
+            }
+            else {
+                config.live_starting_balance =
+                    config.live_starting_balance ||
+                        roundEight(Number(session.balance) - Number(session.totalPnl));
+            }
+        }
+        else {
+            // Ensure starting balance is explicitly in the config for new sessions
+            if (mode === "paper") {
+                // Inherit from settings if not explicitly provided
+                if (config.paper_starting_balance === undefined ||
+                    config.paper_starting_balance === null) {
+                    const settings = await this.settingsRepository.findOne({
+                        where: { id: "default" },
+                    });
+                    config.paper_starting_balance = settings
+                        ? Number(settings.paper_balance)
+                        : 10000.0;
+                }
+            }
+            else if (mode === "testnet") {
+                if (config.testnet_starting_balance === undefined ||
+                    config.testnet_starting_balance === null) {
+                    const settings = await this.settingsRepository.findOne({
+                        where: { id: "default" },
+                    });
+                    // Note: If Binance fetch is used later, this acts as a fallback for the risk engine
+                    config.testnet_starting_balance = settings
+                        ? Number(settings.testnet_balance)
+                        : 0;
+                }
+            }
+            else {
+                if (config.live_starting_balance === undefined ||
+                    config.live_starting_balance === null) {
+                    const settings = await this.settingsRepository.findOne({
+                        where: { id: "default" },
+                    });
+                    config.live_starting_balance = settings
+                        ? Number(settings.live_balance)
+                        : 0;
+                }
+            }
+            session = this.sessionRepository.create({
+                running: true,
+                paperMode,
+                tradingMode: config.trading_mode || (paperMode ? "paper" : "live"),
+                balance: mode === "paper"
+                    ? config.paper_starting_balance
+                    : mode === "testnet"
+                        ? config.testnet_starting_balance
+                        : config.live_starting_balance,
+                strategyLabel: config.strategy_label || "Momentum Strategy",
+                config,
+            });
+            session = await this.sessionRepository.save(session);
+        }
+        this.currentSessionId = session.id;
+        this.sessionRunning = true;
+        // Load potentially orphaned open trades for reconciliation
+        // For the active session, we'll resume these trades in the engine
+        let openTrades = [];
+        try {
+            openTrades = await this.tradeRepository.find({
+                where: { status: "OPEN" },
+            });
+        }
+        catch (e) {
+            this.logger.error(`Failed to fetch open trades for reconciliation: ${e.message}`);
+            // Check if it's a schema issue and provide more context
+            if (e.message.includes("column") || e.message.includes("relation")) {
+                this.logger.error("CRITICAL: Database schema mismatch detected. Ensure all migrations have run successfully.");
+            }
+            throw e; // Still throw because we can't safely proceed without knowing open trades
+        }
+        // Instantiate Binance client if not in paper mode
+        let binanceClient = null;
+        if (mode !== "paper") {
+            const settings = await this.settingsRepository.findOne({
+                where: { id: "default" },
+                select: [
+                    "id",
+                    "binance_api_key",
+                    "binance_api_secret",
+                    "binance_testnet_api_key",
+                    "binance_testnet_api_secret",
+                    "proxy_url"
+                ],
+            });
+            if (!settings)
+                throw new NotFoundException("Settings not found. Please configure API keys first.");
+            const isTestnet = mode === "testnet";
+            const key = isTestnet
+                ? settings.binance_testnet_api_key
+                : settings.binance_api_key;
+            const secret = isTestnet
+                ? settings.binance_testnet_api_secret
+                : settings.binance_api_secret;
+            if (!key || !secret) {
+                throw new BadRequestException(`Binance ${isTestnet ? "Testnet" : "Live"} API keys are not configured.`);
+            }
+            const decryptedKey = decrypt(key);
+            const decryptedSecret = decrypt(secret);
+            if (!decryptedKey || !decryptedSecret) {
+                throw new BadRequestException(`Binance ${isTestnet ? "Testnet" : "Live"} API keys cannot be successfully decrypted. Please check or re-configure them in Settings.`);
+            }
+            binanceClient = this.binanceClientFactory.createClient(decryptedKey, decryptedSecret, isTestnet, settings.proxy_url || undefined);
+        }
+        // CHRONOS: Start User Data Stream buffering BEFORE any REST snapshot reconciliation
+        // to eliminate the blind spot where exchange activity during startup is missed.
+        if (binanceClient && mode !== "paper") {
+            await this.tradingSessionService.startUds(binanceClient);
+            this.tradingSessionService.startBuffering();
+        }
+        // DATA-07: Ensure exchange filters are loaded BEFORE reconciliation to avoid "Symbol not found" errors
+        try {
+            const isTestnet = mode === "testnet";
+            const restBase = isTestnet
+                ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL
+                : ENGINE_CONSTANTS.BINANCE_REST_BASE;
+            await this.marketFeed.fetchExchangeInfo(restBase);
+        }
+        catch (e) {
+            this.logger.error(`Failed to pre-load exchange info: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        // 1. Reconciliation Prep: Identification of potential orphans.
+        // SRE: Deferring final closure of orphans until exchange state is verified.
+        let potentialOrphans = [];
+        let recalculationNeeded = false;
+        for (const trade of openTrades) {
+            let isOrphaned = false;
+            let orphanReason = "";
+            if (trade.sessionId) {
+                const tSession = await this.sessionRepository.findOne({
+                    where: { id: trade.sessionId },
+                });
+                if (!tSession) {
+                    isOrphaned = true;
+                    orphanReason = `Session ${trade.sessionId} not found`;
+                }
+                else if (!tSession.running && tSession.id !== this.currentSessionId) {
+                    isOrphaned = true;
+                    orphanReason = `Session ${trade.sessionId} is no longer running`;
+                }
+            }
+            else {
+                const STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+                const entryTime = trade.entry_ts
+                    ? new Date(trade.entry_ts).getTime()
+                    : 0;
+                if (Date.now() - entryTime > STALE_THRESHOLD_MS) {
+                    isOrphaned = true;
+                    orphanReason = `Trade exceeded stale threshold (Entry: ${trade.entry_ts})`;
+                }
+            }
+            if (isOrphaned) {
+                trade.orphanReason = orphanReason;
+                potentialOrphans.push(trade);
+                continue;
+            }
+            // Offline Breach Detection for paper trades in the current session
+            // SRE: Re-verify that the trade still belongs to this session and hasn't been reconciled out
+            if (mode === "paper" &&
+                trade.sessionId === this.currentSessionId &&
+                !trade.reconciled_out) {
+                const currentPrice = await this.tradingSessionService.fetchTickerPrice(trade.symbol);
+                if (currentPrice) {
+                    const side = trade.direction.toUpperCase();
+                    const sl = Number(trade.current_sl || 0);
+                    const tp = Number(trade.tp || 0);
+                    let breached = false;
+                    let reason = EXIT_REASONS.AUTO_RECONCILED_EXIT;
+                    if (side === "LONG") {
+                        if (sl > 0 && currentPrice <= sl) {
+                            breached = true;
+                            reason = EXIT_REASONS.AUTO_RECONCILED_SL;
+                        }
+                        else if (tp > 0 && currentPrice >= tp) {
+                            breached = true;
+                            reason = EXIT_REASONS.AUTO_RECONCILED_TP;
+                        }
+                    }
+                    else {
+                        if (sl > 0 && currentPrice >= sl) {
+                            breached = true;
+                            reason = EXIT_REASONS.AUTO_RECONCILED_SL;
+                        }
+                        else if (tp > 0 && currentPrice <= tp) {
+                            breached = true;
+                            reason = EXIT_REASONS.AUTO_RECONCILED_TP;
+                        }
+                    }
+                    if (breached) {
+                        this.logger.warn(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closing at ${currentPrice}.`);
+                        await this.logMessage(`Resumed trade ${trade.symbol} breached SL/TP during downtime. Auto-closed at ${currentPrice} (${reason}).`, "warn");
+                        const pnl = roundEight(side === "LONG"
+                            ? (currentPrice - Number(trade.entry_price)) * Number(trade.qty)
+                            : (Number(trade.entry_price) - currentPrice) *
+                                Number(trade.qty));
+                        // Map reason to specific terminal status
+                        let terminalStatus = "CLOSED";
+                        if (reason === EXIT_REASONS.AUTO_RECONCILED_SL)
+                            terminalStatus = "CLOSED_SL";
+                        else if (reason === EXIT_REASONS.AUTO_RECONCILED_TP)
+                            terminalStatus = "CLOSED_TP";
+                        const updatedTrade = {
+                            ...trade,
+                            status: terminalStatus,
+                            exit_ts: new Date(),
+                            exit_price: currentPrice,
+                            pnl,
+                            exit_reason: reason,
+                            is_reconciliation: true,
+                        };
+                        // SRE: Accumulate PnL directly on the session instance during the loop
+                        // to ensure multiple breaches are correctly reflected in the final balance.
+                        session.balance = roundEight(Number(session.balance) + pnl);
+                        await this.saveTradeAtomic(updatedTrade, Number(session.balance));
+                        trade.reconciled_out = true;
+                        recalculationNeeded = true;
+                    }
+                }
+            }
+        }
+        const sessionOpenTrades = openTrades.filter((t) => t.sessionId === this.currentSessionId && !t.reconciled_out);
+        // Fetch current global balance to ensure risk engine uses real-time account state
+        const currentSettings = await this.settingsRepository.findOne({
+            where: { id: "default" },
+        });
+        const currentGlobalBalance = currentSettings
+            ? mode === "paper"
+                ? Number(currentSettings.paper_balance)
+                : mode === "testnet"
+                    ? Number(currentSettings.testnet_balance)
+                    : Number(currentSettings.live_balance)
+            : mode === "paper"
+                ? config.paper_starting_balance || 10000
+                : mode === "testnet"
+                    ? config.testnet_starting_balance
+                    : config.live_starting_balance;
+        this.logger.log(`[Lifecycle] Starting session ${this.currentSessionId} in ${mode} mode. Detected starting balance: ${currentGlobalBalance}`);
+        // Update global log levels based on session config
+        updateLogLevels(!!config.debug_mode);
+        // BOLT: Set binance client before reconciliation so fetchPosition works
+        this.tradingSessionService.setBinanceClient(binanceClient, mode === "paper");
+        // 2. Reconciliation: Verify and Process Potential Orphans and Active Trades
+        // Reconcile open trades with actual exchange positions
+        if (mode !== "paper" && binanceClient) {
+            try {
+                // PERF: Optimization - If we have a very small number of session trades, fetch them individually to save weight.
+                // positionInformationV3 (all) = 5 weight, but fetches ALL symbols.
+                // positionInformationV3 (symbol) = 5 weight, but only returns 1.
+                // currentAllOpenOrders (all) = 40 weight.
+                // currentAllOpenOrders (symbol) = 1 weight.
+                const tradesToVerify = [...sessionOpenTrades, ...potentialOrphans];
+                const uniqueSymbols = Array.from(new Set(tradesToVerify.map((t) => t.symbol)));
+                // Smart Hybrid Audit:
+                // Position info: Bulk fetchAllPositions() costs 5 weight total regardless of symbol count,
+                // whereas per-symbol fetchPosition() costs 5 weight per symbol. So for uniqueSymbols.length >= 2,
+                // bulk position fetching saves 5 * (N - 1) API weight.
+                // Open orders: Targeted fetchOpenOrders() costs 2 weight per symbol (1 standard + 1 algo),
+                // whereas bulk fetchAllOpenOrders() costs 60 weight (40 standard + 20 algo).
+                this.logger.log(`[Reconciliation] Starting audit for ${uniqueSymbols.length} symbols. Mode: HYBRID`);
+                let activeExPositions = [];
+                let allOpenOrders = [];
+                // 1. Positions: Bulk fetch if >= 2 symbols (5 weight total vs 5*N weight)
+                if (uniqueSymbols.length >= 2) {
+                    this.logger.debug(`[Reconciliation] Dispatching bulk positionInformationV3 (Weight: 5) for ${uniqueSymbols.length} symbols`);
+                    const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
+                    const targetSymbolSet = new Set(uniqueSymbols);
+                    activeExPositions = allExchangePositions.filter((p) => targetSymbolSet.has(p.symbol) && Math.abs(parseFloat(p.positionAmt)) > 0);
+                }
+                else if (uniqueSymbols.length === 1) {
+                    this.logger.debug(`[Reconciliation] Dispatching targeted positionInformationV3 (Weight: 5) for ${uniqueSymbols[0]}`);
+                    const pos = await this.orderManager.fetchPosition(uniqueSymbols[0], {
+                        forceFresh: true,
+                    });
+                    if (pos && Math.abs(parseFloat(pos.positionAmt)) > 0) {
+                        activeExPositions.push(pos);
+                    }
+                }
+                // 2. Open Orders: Bulk if > 20 symbols, targeted if <= 20 symbols
+                if (uniqueSymbols.length > 20) {
+                    this.logger.debug(`[Reconciliation] Dispatching bulk currentAllOpenOrders & currentAllAlgoOpenOrders (Weight: 60) for ${uniqueSymbols.length} symbols`);
+                    allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+                }
+                else {
+                    this.logger.debug(`[Reconciliation] Dispatching targeted open orders (currentAllOpenOrders & currentAllAlgoOpenOrders, Weight: ${uniqueSymbols.length * 2}) for ${uniqueSymbols.length} symbols`);
+                    for (const symbol of uniqueSymbols) {
+                        const orders = await this.orderManager.fetchOpenOrders(symbol);
+                        allOpenOrders.push(...orders);
+                        if (uniqueSymbols.length > 1) {
+                            await new Promise((resolve) => setTimeout(resolve, 100));
+                        }
+                    }
+                }
+                const ordersBySymbol = new Map();
+                for (const o of allOpenOrders) {
+                    const list = ordersBySymbol.get(o.symbol) || [];
+                    list.push(o);
+                    ordersBySymbol.set(o.symbol, list);
+                }
+                // PERF: Use Map for O(1) lookup during cross-reconciliation
+                const activeExMap = new Map(activeExPositions.map((p) => [p.symbol, p]));
+                // WebSocket-First Baseline: Seed the real-time position cache with established exchange state
+                for (const p of activeExPositions) {
+                    this.tradingSessionService.seedRealTimePosition(p.symbol, parseFloat(p.positionAmt), parseFloat(p.entryPrice));
+                }
+                // 1. Verify and Process Potential Orphans
+                for (const trade of potentialOrphans) {
+                    const position = activeExMap.get(trade.symbol);
+                    const posAmt = position ? parseFloat(position.positionAmt) : 0;
+                    const hasPosition = Math.abs(posAmt) > 0;
+                    if (hasPosition) {
+                        const msg = `[Reconciliation] Potential orphan ${trade.symbol} (${trade.id}) is STILL ACTIVE on exchange (Amt: ${posAmt}). Resuming instead of closing. Reason: ${trade.orphanReason}`;
+                        this.logger.warn(msg);
+                        await this.logMessage(msg, "warn");
+                        // BOLT: Rehydrate strategy config for resumed orphans to ensure they keep updating
+                        // with the current session's settings.
+                        trade.strategy_config = {
+                            ...config,
+                            ...(trade.strategy_config || {}),
+                            strategy_label: trade.strategy_label ||
+                                config.strategy_label ||
+                                "Momentum Strategy",
+                        };
+                        // Move to sessionOpenTrades so it gets resumed
+                        sessionOpenTrades.push(trade);
+                    }
+                    else {
+                        const msg = `[Reconciliation] Verified: Orphan ${trade.symbol} (${trade.id}) is flat on exchange. Marking closed. Reason: ${trade.orphanReason}`;
+                        this.logger.log(msg);
+                        const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
+                        const context = await this.orderManager.recoverClosingContext(trade.symbol, trade, tickerPrice);
+                        const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
+                        await this.tradeRepository.update(trade.id, updates);
+                        recalculationNeeded = true;
+                    }
+                }
+                // 2. Reconcile Active Session Trades
+                for (const trade of sessionOpenTrades) {
+                    try {
+                        // SRE: Critical Check - Does the position actually exist on exchange?
+                        const position = activeExMap.get(trade.symbol);
+                        const posAmt = position ? parseFloat(position.positionAmt) : 0;
+                        const hasPosition = Math.abs(posAmt) > 0;
+                        if (!hasPosition) {
+                            this.logger.warn(`[Reconciliation] Local trade ${trade.symbol} has no corresponding exchange position. Marking as closed.`);
+                            await this.logMessage(`Live position for ${trade.symbol} was not found on exchange during reconciliation. Marking as orphaned.`, "warn");
+                            const tickerPrice = this.orderManager.tickerCache?.getPrice(trade.symbol) || Number(trade.current_sl || trade.entry_price || 0);
+                            const context = await this.orderManager.recoverClosingContext(trade.symbol, trade, tickerPrice);
+                            const updates = await this.finalizeOrphanedTrade(trade, mode, context.price, context.reason);
+                            await this.tradeRepository.update(trade.id, updates);
+                            trade.reconciled_out = true;
+                            recalculationNeeded = true;
+                            continue;
+                        }
+                        // SRE: Secondary Check - Is there any order (Entry or SL) active for this trade?
+                        const symbolOrders = ordersBySymbol.get(trade.symbol) || [];
+                        const hasOrder = symbolOrders.some((o) => o.orderId == trade.binance_order_id ||
+                            o.orderId == trade.binance_stop_order_id ||
+                            o.clientOrderId === `sl-${trade.id.substring(0, 8)}`);
+                        if (!hasOrder) {
+                            this.logger.warn(`[Reconciliation] Trade ${trade.symbol} exists on exchange but has NO protection SL orders. Adoption will proceed, Watchdog will re-arm.`);
+                        }
+                        // Sync local trade state with actual exchange position to ensure entry price and qty accuracy
+                        const exEntryPrice = parseFloat(position.entryPrice);
+                        if (exEntryPrice > 0 &&
+                            Math.abs(exEntryPrice - Number(trade.entry_price)) >
+                                exEntryPrice * 0.0001) {
+                            this.logger.log(`Syncing entry price for ${trade.symbol}: ${trade.entry_price} -> ${exEntryPrice}`);
+                            trade.entry_price = exEntryPrice;
+                        }
+                        if (Math.abs(posAmt) !== Math.abs(Number(trade.qty))) {
+                            this.logger.log(`Syncing quantity for ${trade.symbol}: ${trade.qty} -> ${Math.abs(posAmt)}`);
+                            trade.qty = Math.abs(posAmt);
+                        }
+                        // Update direction if mismatch (rare but safe)
+                        const exDir = posAmt > 0 ? "LONG" : "SHORT";
+                        if (trade.direction !== exDir) {
+                            this.logger.warn(`Syncing direction for ${trade.symbol}: ${trade.direction} -> ${exDir}`);
+                            trade.direction = exDir;
+                        }
+                    }
+                    catch (innerErr) {
+                        this.logger.error(`Failed to reconcile ${trade.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+                    }
+                }
+                // INVERSE RECONCILIATION: Check for exchange positions with NO local record
+                const localSymbols = new Set(sessionOpenTrades
+                    .filter((t) => !t.reconciled_out)
+                    .map((t) => t.symbol));
+                const ghostPositions = activeExPositions.filter((p) => !localSymbols.has(p.symbol));
+                if (ghostPositions.length > 0) {
+                    const imported = await this.adoptExchangePositions(ghostPositions, mode, config, allOpenOrders);
+                    if (imported.length > 0) {
+                        sessionOpenTrades.push(...imported);
+                        recalculationNeeded = true;
+                    }
+                }
+            }
+            catch (e) {
+                this.logger.warn(`Failed to fetch all positions for bulk reconciliation: ${e instanceof Error ? e.message : String(e)}`);
+            }
+        }
+        const filteredOpenTrades = sessionOpenTrades.filter((t) => !t.reconciled_out);
+        // Load initial history for TOD and period-based risk context
+        // DATA-07: Load history for the current mode across all sessions to ensure risk limits are enforced after restart
+        // BOLT: History must be loaded AFTER reconciliation to include newly closed orphans.
+        const rawHistory = await this.tradeRepository.find({
+            where: { status: In(TERMINAL_STATUSES) },
+            order: { exit_ts: "DESC" },
+            take: 1000,
+        });
+        const initialHistory = rawHistory
+            .filter((t) => {
+            const tConfig = t.strategy_config || {};
+            const tMode = tConfig.trading_mode ||
+                (tConfig.paper_mode === false ? "live" : "paper");
+            return tMode === mode;
+        })
+            .slice(0, 500);
+        // Paper mode orphan handling (Simplified verification as there is no exchange)
+        if (mode === "paper") {
+            for (const trade of potentialOrphans) {
+                this.logger.warn(`[Reconciliation] Trade ${trade.symbol} (${trade.id}) is orphaned. Reason: ${trade.orphanReason}. Marking as closed.`);
+                const updates = await this.finalizeOrphanedTrade(trade, mode);
+                await this.tradeRepository.update(trade.id, updates);
+                await this.logMessage(`Trade ${trade.symbol} was orphaned (${trade.orphanReason}) and marked closed.`, "warn");
+                recalculationNeeded = true;
+            }
+        }
+        if (recalculationNeeded) {
+            this.logger.log(`[Lifecycle] Triggering PnL recalculation after reconciliation for session ${this.currentSessionId}`);
+            const aggregation = await this.tradeRepository
+                .createQueryBuilder("trade")
+                .select("SUM(trade.pnl)", "sum")
+                .where("trade.sessionId = :sessionId", {
+                sessionId: this.currentSessionId,
+            })
+                .andWhere("trade.status IN (:...statuses)", {
+                statuses: [...TERMINAL_STATUSES, "OPEN"],
+            })
+                .getRawOne();
+            const realizedPnl = roundEight(Number(aggregation?.sum || 0));
+            await this.sessionRepository.update(this.currentSessionId, {
+                totalPnl: realizedPnl,
+            });
+        }
+        // Start the actual trading engine
+        await this.tradingSessionService.start(config, binanceClient, this.currentSessionId, initialHistory, currentGlobalBalance, filteredOpenTrades);
+        // CHRONOS: Replay buffered events AFTER engine is fully initialized
+        // to ensure any activity during the REST snapshot phase is incorporated.
+        if (mode !== "paper") {
+            await this.tradingSessionService.replayBuffer();
+        }
+        this.logger.log(`Session ${this.currentSessionId} ${sessionId ? "restarted" : "started"} in ${mode} mode`);
+        await this.logMessage(`Session started in ${mode} mode with ${currentGlobalBalance} starting balance.`, "info");
+        await this.auditLog.log({
+            action: sessionId ? "RESTART_SESSION" : "START_SESSION",
+            resourceId: this.currentSessionId || undefined,
+            actor: ip,
+            ip,
+            userAgent,
+            details: { mode, paperMode },
+        });
+        return { strategyId: this.currentSessionId, status: "started" };
+    }
+    async getUntrackedPositions() {
+        if (!this.sessionRunning || !this.currentSessionId) {
+            return { positions: [] };
+        }
+        const session = await this.sessionRepository.findOne({
+            where: { id: this.currentSessionId },
+            select: ["id", "tradingMode", "paperMode", "config"],
+        });
+        if (!session)
+            return { positions: [] };
+        const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+        if (mode === "paper") {
+            return { positions: [] }; // No exchange positions in paper mode
+        }
+        try {
+            const allExchangePositions = await this.tradingSessionService.fetchAllPositions();
+            const activeExPositions = allExchangePositions.filter((p) => Math.abs(parseFloat(p.positionAmt)) > 0);
+            const localOpenTrades = this.tradingSessionService.getActiveTradesRaw();
+            const localSymbols = new Set(localOpenTrades.map((t) => t.symbol));
+            const untracked = [];
+            const allOpenOrders = await this.orderManager.fetchAllOpenOrders();
+            const ordersBySymbol = new Map();
+            for (const o of allOpenOrders) {
+                const list = ordersBySymbol.get(o.symbol) || [];
+                list.push(o);
+                ordersBySymbol.set(o.symbol, list);
+            }
+            for (const p of activeExPositions) {
+                if (!localSymbols.has(p.symbol)) {
+                    const qty = Math.abs(parseFloat(p.positionAmt));
+                    const entryPrice = parseFloat(p.entryPrice);
+                    const notional = qty * entryPrice;
+                    if (notional < 0.1)
+                        continue; // Dust check based on Notional Value instead of raw quantity
+                    const symOrders = ordersBySymbol.get(p.symbol) || [];
+                    const discovery = await this.discoverPositionStrategy(p.symbol, symOrders);
+                    const isSl = (o) => {
+                        const type = (o.type || o.algoType || "").toUpperCase();
+                        return type.includes("STOP");
+                    };
+                    const isReduce = (o) => o.reduceOnly === true ||
+                        o.reduceOnly === "true" ||
+                        o.closePosition === true ||
+                        o.closePosition === "true";
+                    const slOrder = symOrders.find((o) => isSl(o) && isReduce(o));
+                    const currentSl = slOrder ? parseFloat(slOrder.stopPrice || slOrder.triggerPrice || "0") : null;
+                    untracked.push({
+                        symbol: p.symbol,
+                        amount: parseFloat(p.positionAmt),
+                        entryPrice: entryPrice,
+                        markPrice: parseFloat(p.markPrice),
+                        notional,
+                        startedByUs: discovery.startedByUs,
+                        suggestedStrategyLabel: discovery.strategyLabel || null,
+                        currentSl: currentSl && currentSl > 0 ? currentSl : null,
+                    });
+                }
+            }
+            return { positions: untracked };
+        }
+        catch (e) {
+            this.logger.error(`Failed to fetch untracked positions: ${e.message}`);
+            throw new BadRequestException(`Failed to fetch untracked positions: ${e.message}`);
+        }
+    }
+    async adoptPositionManually(symbol, strategyLabel, initialSl, currentSl, ip, userAgent) {
+        if (!this.sessionRunning || !this.currentSessionId) {
+            throw new BadRequestException("No active trading session running");
+        }
+        const session = await this.sessionRepository.findOne({
+            where: { id: this.currentSessionId },
+            select: ["id", "tradingMode", "paperMode", "config"],
+        });
+        if (!session)
+            throw new NotFoundException("Active session not found");
+        const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+        if (mode === "paper") {
+            throw new BadRequestException("Cannot manually adopt exchange positions in Paper mode");
+        }
+        // Check if symbol is already tracked
+        const isTracked = this.tradingSessionService.getActiveTradesRaw().some(t => t.symbol === symbol);
+        if (isTracked) {
+            throw new ConflictException(`Symbol ${symbol} is already tracked by this session`);
+        }
+        // Resolve target strategy config
+        let targetConfig = session.config;
+        if (strategyLabel !== (session.config.strategy_label || "Momentum Strategy")) {
+            const variant = (session.config.strategy_variants || []).find((v) => v && (v.strategy_label === strategyLabel));
+            if (variant) {
+                targetConfig = {
+                    ...session.config,
+                    ...variant,
+                };
+            }
+        }
+        try {
+            // Fetch specific symbol position from exchange
+            const position = await this.orderManager.fetchPosition(symbol, { forceFresh: true });
+            if (!position || Math.abs(parseFloat(position.positionAmt)) === 0) {
+                throw new NotFoundException(`No active position found on exchange for symbol ${symbol}`);
+            }
+            const activeOrders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: true });
+            // Run adoption with bypassStartedByUsCheck = true and overrides
+            const imported = await this.adoptExchangePositions([position], mode, targetConfig, activeOrders, true, // bypassStartedByUsCheck
+            initialSl, currentSl);
+            if (imported.length === 0) {
+                throw new BadRequestException(`Failed to adopt position for ${symbol}`);
+            }
+            const t = imported[0];
+            const tradeModel = plainToInstance(Trade, t);
+            // Hot-add adopted trade to the running engine
+            this.tradingSessionService.addTrade(tradeModel);
+            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade: tradeModel });
+            // Seed and broadcast updates
+            this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
+            this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+            this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+            await this.auditLog.log({
+                action: "MANUAL_POSITION_ADOPT",
+                resourceId: t.id,
+                actor: ip,
+                ip,
+                userAgent,
+                details: { symbol, direction: t.direction, qty: t.qty, entryPrice: t.entry_price, strategyLabel },
+            });
+            return { status: "adopted", trade: t };
+        }
+        catch (e) {
+            this.logger.error(`Manual adoption failed for ${symbol}: ${e.message}`);
+            if (e instanceof ConflictException || e instanceof NotFoundException || e instanceof BadRequestException) {
+                throw e;
+            }
+            throw new BadRequestException(`Manual adoption failed for ${symbol}: ${e.message}`);
+        }
+    }
+    async handleAdoptPositions(payload) {
+        if (!this.sessionRunning || !this.currentSessionId)
+            return;
+        const session = await this.sessionRepository.findOne({
+            where: { id: this.currentSessionId },
+            select: ["id", "tradingMode", "paperMode", "config"],
+        });
+        if (!session)
+            return;
+        const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+        const positionsToAdopt = (payload.positions || []).filter((p) => p && p.symbol && !this.adoptingSymbols.has(p.symbol));
+        if (positionsToAdopt.length === 0) {
+            this.logger.debug(`[Reconciliation] All positions in adoption request are already being adopted. Skipping.`);
+            return;
+        }
+        for (const p of positionsToAdopt) {
+            this.adoptingSymbols.add(p.symbol);
+        }
+        this.logger.warn(`[Reconciliation] Processing adoption request for ${positionsToAdopt.length} positions.`);
+        try {
+            const imported = await this.adoptExchangePositions(positionsToAdopt, mode, session.config, payload.orders);
+            // Hot-add adopted trades to the running engine
+            for (const t of imported) {
+                const tradeModel = plainToInstance(Trade, t);
+                // BOLT: Use addTrade to ensure PositionTracker correctly initializes milestone state
+                this.tradingSessionService.addTrade(tradeModel);
+                this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, {
+                    trade: tradeModel,
+                });
+            }
+            if (imported.length > 0) {
+                // BOLT: Synchronize active trades state and trigger watchlist update for newly adopted trades
+                this.tradingSessionService.seedActiveTrades(this.tradingSessionService.getActiveTradesRaw());
+                this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE);
+                this.eventEmitter.emit(ENGINE_EVENTS.RISK_GATES_UPDATED);
+            }
+        }
+        finally {
+            for (const p of positionsToAdopt) {
+                this.adoptingSymbols.delete(p.symbol);
+            }
+        }
+    }
+    async finalizeOrphanedTrade(trade, mode, contextPrice, contextReason) {
+        const exitPriceToUse = contextPrice || Number(trade.entry_price || 0);
+        const initialQty = Number(trade.qty || 1);
+        const realizedFee = Number(trade.realized_fee || 0);
+        // SRE: Fix History inaccuracy by not fabricating PnL for orphaned trades
+        return {
+            status: "CLOSED_ORPHANED",
+            exit_price: exitPriceToUse,
+            exit_ts: new Date(),
+            is_reconciliation: true,
+            pnl: 0,
+            pnl_pct: 0,
+            qty: initialQty,
+            realized_fee: realizedFee,
+            exit_reason: contextReason || trade.exit_reason || "CLOSED_ORPHANED",
+        };
+    }
+    /**
+     * Checks if an exchange position was started by this app instance.
+     */
+    async isPositionStartedByUs(symbol, openOrdersOfSymbol) {
+        const res = await this.discoverPositionStrategy(symbol, openOrdersOfSymbol);
+        return res.startedByUs;
+    }
+    /**
+     * Discovers the strategy label and app instance ownership of a position based on exchange active order mappings.
+     */
+    async discoverPositionStrategy(symbol, openOrdersOfSymbol) {
+        // 1. Is there an active open trade in our database for this symbol?
+        const openTrade = await this.tradeRepository.findOne({
+            where: { symbol, status: "OPEN" },
+            select: ["id", "strategy_label"],
+        });
+        if (openTrade)
+            return { startedByUs: true, strategyLabel: openTrade.strategy_label };
+        // 2. If no open trade, check if there are any open orders for this symbol.
+        if (!openOrdersOfSymbol || openOrdersOfSymbol.length === 0) {
+            return { startedByUs: false };
+        }
+        // Load all trades for this symbol (both open and closed) to match clientOrderIds
+        const allSymbolTrades = await this.tradeRepository.find({
+            where: { symbol },
+            select: ["id", "strategy_label"],
+        });
+        if (allSymbolTrades.length === 0) {
+            return { startedByUs: false };
+        }
+        // Build sets and maps of possible identifiers from our trade records
+        const tradeIds = new Set(allSymbolTrades.map(t => t.id.toLowerCase()));
+        const tradeIdsNoHyphens = new Set(allSymbolTrades.map(t => t.id.replace(/-/g, '').toLowerCase()));
+        const idToStrategyMap = new Map(allSymbolTrades.map(t => [t.id.toLowerCase(), t.strategy_label]));
+        const idNoHyphensToStrategyMap = new Map(allSymbolTrades.map(t => [t.id.replace(/-/g, '').toLowerCase(), t.strategy_label]));
+        // Check if any open order's clientOrderId points to one of our trade IDs
+        for (const order of openOrdersOfSymbol) {
+            const clientOrderId = (order.clientOrderId || order.clientAlgoId || "").toLowerCase();
+            if (!clientOrderId)
+                continue;
+            // Stop Loss pattern: sl-${trade.id.substring(0, 8)}
+            if (clientOrderId.startsWith("sl-")) {
+                const prefix = clientOrderId.substring(3, 11);
+                for (const id of tradeIds) {
+                    if (id.startsWith(prefix)) {
+                        return { startedByUs: true, strategyLabel: idToStrategyMap.get(id) };
+                    }
+                }
+            }
+            // Entry pattern: ent-${trade.id.replace(/-/g, '').substring(0, 20)}
+            if (clientOrderId.startsWith("ent-")) {
+                const prefix = clientOrderId.substring(4, 24);
+                for (const idNoHyphen of tradeIdsNoHyphens) {
+                    if (idNoHyphen.startsWith(prefix)) {
+                        return { startedByUs: true, strategyLabel: idNoHyphensToStrategyMap.get(idNoHyphen) };
+                    }
+                }
+            }
+            // Limit close pattern: cls-lim-${trade.id.replace(/-/g, '').substring(0, 16)}
+            if (clientOrderId.startsWith("cls-lim-")) {
+                const prefix = clientOrderId.substring(8, 24);
+                for (const idNoHyphen of tradeIdsNoHyphens) {
+                    if (idNoHyphen.startsWith(prefix)) {
+                        return { startedByUs: true, strategyLabel: idNoHyphensToStrategyMap.get(idNoHyphen) };
+                    }
+                }
+            }
+            // Other close patterns: cls-..., tp-..., sig-... (e.g. prefix-${trade.id.replace(/-/g, '').substring(0, 20)})
+            const genericPrefixes = ["cls-", "tp-", "sig-"];
+            for (const p of genericPrefixes) {
+                if (clientOrderId.startsWith(p) && !clientOrderId.startsWith("cls-lim-")) {
+                    const prefix = clientOrderId.substring(p.length, p.length + 20);
+                    for (const idNoHyphen of tradeIdsNoHyphens) {
+                        if (idNoHyphen.startsWith(prefix)) {
+                            return { startedByUs: true, strategyLabel: idNoHyphensToStrategyMap.get(idNoHyphen) };
+                        }
+                    }
+                }
+            }
+        }
+        return { startedByUs: false };
+    }
+    /**
+     * SRE: Adopts exchange positions by creating local synthetic trade records.
+     * Ensures that "ghost" trades are brought under system protection and UI visibility.
+     */
+    async adoptExchangePositions(ghostPositions, mode, config, preFetchedOrders, bypassStartedByUsCheck = false, manualInitialSl, manualCurrentSl) {
+        const imported = [];
+        if (ghostPositions.length === 0)
+            return imported;
+        // PERF: Smart Audit for ghost positions.
+        // If few ghosts, fetch orders individually (Weight 1 per sym).
+        // If many, fetch bulk (Weight 40).
+        let allOrdersMap = new Map();
+        const useBulkAudit = ghostPositions.length > 5 && !preFetchedOrders;
+        try {
+            if (preFetchedOrders) {
+                for (const o of preFetchedOrders) {
+                    const list = allOrdersMap.get(o.symbol) || [];
+                    list.push(o);
+                    allOrdersMap.set(o.symbol, list);
+                }
+            }
+            else if (useBulkAudit) {
+                this.logger.log(`[Reconciliation] Performing fresh bulk open order audit for ${ghostPositions.length} ghost positions...`);
+                const allExOrders = await this.orderManager.fetchAllOpenOrders();
+                for (const o of allExOrders) {
+                    const list = allOrdersMap.get(o.symbol) || [];
+                    list.push(o);
+                    allOrdersMap.set(o.symbol, list);
+                }
+            }
+            // If not bulk and not prefetched, we fetch per symbol in the loop below
+        }
+        catch (e) {
+            this.logger.warn(`[Reconciliation] Failed to prepare orders for adoption: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        for (const exPos of ghostPositions) {
+            try {
+                const amt = parseFloat(exPos.positionAmt);
+                const entryPrice = parseFloat(exPos.entryPrice);
+                const direction = amt > 0 ? "LONG" : "SHORT";
+                const qty = Math.abs(amt);
+                const positionSide = exPos.positionSide || "BOTH";
+                // SRE: Dust Threshold Guard. Ignore ghost positions with negligible notional value (e.g. < 0.10 USDT)
+                // to avoid unnecessary alarms and "Nuclear Options" for residual precision dust.
+                const notional = qty * entryPrice;
+                if (notional < 0.1) {
+                    this.logger.debug(`[Reconciliation] Skipping adoption for ${exPos.symbol}: negligible notional value (${notional.toFixed(4)} USDT)`);
+                    continue;
+                }
+                // SRE: Resilience against Hedge Mode leftovers.
+                // We only support One-Way mode (BOTH).
+                if (positionSide !== "BOTH") {
+                    this.logger.warn(`[Reconciliation] Skipping adoption for ${exPos.symbol}: Position side is ${positionSide} (Expected BOTH). Engine only supports One-Way mode.`);
+                    continue;
+                }
+                // Fetch/get open orders of this symbol to verify if we started the position
+                let exOrders = allOrdersMap.get(exPos.symbol);
+                if (!exOrders && !useBulkAudit && !preFetchedOrders) {
+                    this.logger.debug(`[Reconciliation] Fetching targeted orders for ghost ${exPos.symbol}`);
+                    try {
+                        exOrders = await this.orderManager.fetchOpenOrders(exPos.symbol);
+                        allOrdersMap.set(exPos.symbol, exOrders);
+                    }
+                    catch (err) {
+                        this.logger.warn(`[Reconciliation] Failed to fetch orders for ${exPos.symbol} during safety check: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                }
+                exOrders = exOrders || [];
+                const startedByUs = bypassStartedByUsCheck || await this.isPositionStartedByUs(exPos.symbol, exOrders);
+                if (!startedByUs) {
+                    this.logger.warn(`[Reconciliation] Ghost position ${exPos.symbol} was NOT started by this app instance. Skipping adoption/reconciliation to prevent multi-user interference.`);
+                    continue;
+                }
+                // RESEARCH: Attempt to discover existing SL/TP protection on exchange for this position
+                let slPrice = 0;
+                let slId = undefined;
+                let slType = undefined;
+                let tpPrice = 0;
+                try {
+                    // COMPLIANCE: Recognize more SL/TP order types during adoption
+                    const isSl = (o) => {
+                        const type = (o.type || o.algoType || "").toUpperCase();
+                        return type.includes("STOP");
+                    };
+                    const isTp = (o) => {
+                        const type = (o.type || o.algoType || "").toUpperCase();
+                        return type.includes("TAKE_PROFIT");
+                    };
+                    const isReduce = (o) => o.reduceOnly === true ||
+                        o.reduceOnly === "true" ||
+                        o.closePosition === true ||
+                        o.closePosition === "true";
+                    const slOrder = exOrders.find((o) => isSl(o) && isReduce(o));
+                    const tpOrder = exOrders.find((o) => isTp(o) && isReduce(o));
+                    if (slOrder) {
+                        slPrice = parseFloat(slOrder.stopPrice || slOrder.triggerPrice || "0");
+                        slId = String(slOrder.algoId || slOrder.orderId);
+                        slType = slOrder.algoId || slOrder.algoType ? "algo" : "standard";
+                        this.logger.log(`[Reconciliation] Found existing SL for ${exPos.symbol}: ${slId} @ ${slPrice}`);
+                    }
+                    if (tpOrder) {
+                        tpPrice = parseFloat(tpOrder.stopPrice || tpOrder.triggerPrice || "0");
+                        this.logger.log(`[Reconciliation] Found existing TP for ${exPos.symbol} @ ${tpPrice}`);
+                    }
+                    if (!slOrder) {
+                        this.logger.debug(`[Reconciliation] No SL order found for ghost position ${exPos.symbol} in initial set. Performing exhaustive check...`);
+                        // SRE: Exhaustive SL Discovery.
+                        // Standard fetchOpenOrders (via bulk or symbol) might miss algo orders if not explicitly polled.
+                        // We force a fresh algo-specific check to ensure no ghost SLs remain orphaned.
+                        try {
+                            const freshAlgoOrders = await this.orderManager.fetchOpenAlgoOrders(exPos.symbol, {
+                                forceFresh: true,
+                            });
+                            const freshSlOrder = freshAlgoOrders.find((o) => isSl(o) && isReduce(o));
+                            if (freshSlOrder) {
+                                slPrice = parseFloat(freshSlOrder.stopPrice || freshSlOrder.triggerPrice || "0");
+                                slId = String(freshSlOrder.algoId || freshSlOrder.orderId);
+                                slType = "algo";
+                                this.logger.log(`[Reconciliation] Found exhaustive ghost SL for ${exPos.symbol}: ${slId} @ ${slPrice}`);
+                            }
+                        }
+                        catch (freshErr) {
+                            this.logger.debug(`[Reconciliation] Exhaustive algo check failed for ${exPos.symbol}: ${freshErr instanceof Error ? freshErr.message : String(freshErr)}`);
+                        }
+                    }
+                    if (!slOrder && !slId) {
+                        this.logger.debug(`[Reconciliation] No SL order found for ghost position ${exPos.symbol}. Total orders checked for symbol: ${exOrders.length}`);
+                    }
+                }
+                catch (orderErr) {
+                    this.logger.warn(`[Reconciliation] Failed to fetch existing orders for ${exPos.symbol}: ${orderErr instanceof Error ? orderErr.message : String(orderErr)}`);
+                }
+                const msg = `CRITICAL: Found exchange-only position for ${exPos.symbol} (${direction} ${qty} @ ${entryPrice}). ${slId ? "Discovered existing SL at " + slPrice : "No SL found"}. Importing as synthetic trade. Mode: ${mode.toUpperCase()}`;
+                this.logger.error(msg);
+                await this.logMessage(msg, "error");
+                // DATA-07: Restore full state of the trade including exit strategy baseline.
+                // Use session's sl_distance_pct to estimate a more realistic initial_sl if none exists,
+                // providing a better baseline for ratcheting RR calculations.
+                const slDistPct = config?.sl_distance_pct || 2.0;
+                const estimatedInitialSl = entryPrice *
+                    (direction === "LONG" ? 1 - slDistPct / 100 : 1 + slDistPct / 100);
+                // Intelligence: If the exchange SL is further away than our estimate, it's likely the true initial SL.
+                let initialSl = manualInitialSl !== undefined && manualInitialSl !== null && manualInitialSl > 0
+                    ? manualInitialSl
+                    : estimatedInitialSl;
+                if (!(manualInitialSl !== undefined && manualInitialSl > 0) && slPrice > 0) {
+                    const isFurther = direction === "LONG"
+                        ? slPrice < estimatedInitialSl
+                        : slPrice > estimatedInitialSl;
+                    if (isFurther)
+                        initialSl = slPrice;
+                }
+                const activeSl = manualCurrentSl !== undefined && manualCurrentSl !== null && manualCurrentSl > 0
+                    ? manualCurrentSl
+                    : slPrice;
+                let rrSequenceIndex = -1;
+                let maxRrAchieved = 0;
+                if (activeSl > 0 && config) {
+                    const tempTrade = {
+                        symbol: exPos.symbol,
+                        direction,
+                        entry_price: entryPrice,
+                        initial_sl: initialSl,
+                        rr_sequence_index: -1,
+                        max_rr_achieved: 0,
+                    };
+                    rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(tempTrade, activeSl, config);
+                    maxRrAchieved = tempTrade.max_rr_achieved;
+                    this.logger.log(`[Reconciliation] Adopted ${exPos.symbol} reconciled milestone index: ${rrSequenceIndex}, peak RR: ${maxRrAchieved}`);
+                }
+                let finalStopOrderId = slId;
+                let finalStopOrderType = slType;
+                let finalSlPrice = manualCurrentSl !== undefined && manualCurrentSl !== null && manualCurrentSl > 0
+                    ? manualCurrentSl
+                    : (slPrice || initialSl);
+                const tradeId = uuid();
+                if (!slId && mode !== "paper") {
+                    this.logger.log(`[Reconciliation] Proactively placing Stop Loss order on exchange for adopted ${exPos.symbol} @ ${finalSlPrice}`);
+                    try {
+                        const tempTrade = {
+                            id: tradeId,
+                            symbol: exPos.symbol,
+                            direction,
+                            entry_price: entryPrice,
+                            qty,
+                            initial_sl: initialSl,
+                            current_sl: finalSlPrice,
+                            binance_order_id: "RECON-" + tradeId.substring(0, 8),
+                            is_reconciliation: true,
+                        };
+                        const slResult = await this.orderManager.placeStopLoss(tempTrade, finalSlPrice, entryPrice);
+                        if (slResult && slResult.orderId) {
+                            finalStopOrderId = slResult.orderId;
+                            finalStopOrderType = "algo";
+                            finalSlPrice = slResult.price;
+                            this.logger.log(`[Reconciliation] Successfully placed proactive SL on exchange for adopted ${exPos.symbol}: ${finalStopOrderId} @ ${finalSlPrice}`);
+                        }
+                    }
+                    catch (slPlaceErr) {
+                        this.logger.error(`[Reconciliation] Failed to place proactive SL on exchange for adopted ${exPos.symbol}: ${slPlaceErr instanceof Error ? slPlaceErr.message : String(slPlaceErr)}`);
+                    }
+                }
+                // Create synthetic trade for tracking/protection
+                const syntheticTrade = this.tradeRepository.create({
+                    id: tradeId,
+                    symbol: exPos.symbol,
+                    direction,
+                    entry_price: entryPrice,
+                    qty,
+                    initial_sl: initialSl,
+                    current_sl: finalSlPrice,
+                    tp: tpPrice || null,
+                    rr_sequence_index: rrSequenceIndex,
+                    max_rr_achieved: maxRrAchieved,
+                    status: "OPEN",
+                    sessionId: this.currentSessionId,
+                    entry_ts: new Date(),
+                    is_reconciliation: true,
+                    strategy_label: config?.strategy_label || "Exchange Reconciliation",
+                    strategy_config: {
+                        ...config,
+                        trading_mode: mode,
+                        paper_mode: mode === "paper",
+                    },
+                    close_attempts: 0,
+                    close_blocked: false,
+                    illiquid_blocked: false,
+                    binance_order_id: "RECON-" + uuid().substring(0, 8),
+                    binance_stop_order_id: finalStopOrderId,
+                    binance_stop_order_type: finalStopOrderType,
+                    pnl: 0,
+                    risk_usdt: roundEight(Math.abs(entryPrice - initialSl) * qty),
+                    initial_risk_usdt: roundEight(Math.abs(entryPrice - initialSl) * qty),
+                    mark_price: parseFloat(exPos.markPrice || "0") || entryPrice,
+                    last_price: entryPrice,
+                    updated_at: new Date(),
+                });
+                await this.tradeRepository.save(syntheticTrade);
+                imported.push(syntheticTrade);
+            }
+            catch (innerErr) {
+                this.logger.error(`[Reconciliation] Failed to adopt position for ${exPos.symbol}: ${innerErr instanceof Error ? innerErr.message : String(innerErr)}`);
+            }
+        }
+        return imported;
+    }
+    updateSessionPromiseChains = new Map();
+    async forceBackfillKlines(symbol, interval) {
+        const result = await this.marketFeed.forceBackfillKlines(symbol, interval);
+        const activeTrades = this.tradingSessionService?.sessionState?.activeTrades || [];
+        const activeTrade = activeTrades.find((t) => t.symbol === symbol && t.status === "OPEN");
+        if (activeTrade) {
+            const config = (this.tradingSessionService?.sessionState?.config || activeTrade.strategy_config || {});
+            this.orderManager.checkExitSignals(symbol, activeTrade, config, config.scan_interval || "1m");
+        }
+        return {
+            ...result,
+            trade: activeTrade || null,
+        };
+    }
+    async updateSession(id, partialConfig, ip, userAgent) {
+        // Audit Item 13: Mutex/Promise chain to prevent race conditions during high-frequency config updates.
+        // Scoped per-session to prevent global bottlenecks.
+        const chain = this.updateSessionPromiseChains.get(id) || Promise.resolve();
+        const next = chain
+            .then(() => this.executeUpdateSession(id, partialConfig, ip, userAgent))
+            .catch((e) => {
+            // Log error but don't rethrow to avoid breaking the chain for subsequent updates.
+            // We throw it inside a wrapper so the caller gets the error, but the chain itself recovers.
+            this.logger.error(`Config update failed for session ${id}: ${e.message}`);
+            throw e;
+        })
+            .finally(() => {
+            // Optional: clean up the map if this was the last update in the chain
+        });
+        this.updateSessionPromiseChains.set(id, next.catch(() => { })); // The chain itself must always be resolved for the next update
+        return next;
+    }
+    async executeUpdateSession(id, partialConfig, ip, userAgent) {
+        const queryRunner = this.sessionRepository.manager.connection.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        try {
+            // 0. Lock Session row to serialize all updates and fetch latest state
+            const session = await queryRunner.manager.findOne(SessionEntity, {
+                where: { id },
+                lock: { mode: "pessimistic_write" },
+                select: ["id", "tradingMode", "paperMode", "config"],
+            });
+            if (!session)
+                throw new NotFoundException("Session not found");
+            // DATA-CONSISTENCY: Block modification of starting balances while session is running
+            if (this.sessionRunning && this.currentSessionId === id) {
+                const startingBalanceFields = [
+                    "paper_starting_balance",
+                    "testnet_starting_balance",
+                    "live_starting_balance",
+                ];
+                for (const field of startingBalanceFields) {
+                    const typedPartial = partialConfig;
+                    if (typedPartial[field] !== undefined &&
+                        typedPartial[field] !== session.config?.[field]) {
+                        throw new BadRequestException(`Cannot modify ${field} while session is running`);
+                    }
+                }
+            }
+            // 1. Merge state instead of overwriting, strictly preserving the live mode and established paper mode
+            const mergedConfig = {
+                ...(session.config || {}),
+                ...partialConfig,
+                trading_mode: session.tradingMode,
+                paper_mode: session.paperMode,
+            };
+            // Force consistency on update
+            if (mergedConfig.trading_mode === "testnet" ||
+                mergedConfig.trading_mode === "live") {
+                mergedConfig.paper_mode = false;
+            }
+            else {
+                mergedConfig.paper_mode = true;
+            }
+            // 2. Deep validation of full merged config
+            // SEC-01: Re-apply DTO-level validation on the merged object to ensure data integrity
+            // SENTINEL: Enforce whitelist and forbidNonWhitelisted to prevent arbitrary parameter injection/pollution
+            const configInstance = plainToInstance(SessionConfig, mergedConfig);
+            const errors = await validate(configInstance, { whitelist: true, forbidNonWhitelisted: true });
+            if (errors.length > 0) {
+                // SENTINEL: Extract non-sensitive metadata from validation errors for reporting
+                const detailedErrors = formatValidationErrors(errors);
+                // SENTINEL: Sanitize validation errors to mask 'value' fields containing sensitive inputs
+                const sanitizedErrors = sanitize(errors);
+                this.logger.warn(`Validation failed for merged config: ${JSON.stringify(sanitizedErrors)}`);
+                throw new BadRequestException({
+                    message: "Invalid configuration parameters",
+                    detail: detailedErrors,
+                });
+            }
+            this.validateConfig(configInstance);
+            // 3. Save updated config
+            this.logger.log(`[Config Persistence] Saving updated config for session ${id}: frequency_shaping=${mergedConfig.frequency_shaping_enabled}, max_24h=${mergedConfig.max_trades_24h}, jitter=${mergedConfig.trades_jitter_pct}, spacing=${mergedConfig.min_trade_interval_min}`);
+            await queryRunner.manager.update(SessionEntity, id, {
+                config: mergedConfig,
+            });
+            await queryRunner.commitTransaction();
+            // 4. If this is the active session, hot-reload the config in the engine
+            if (this.sessionRunning && this.currentSessionId === id) {
+                updateLogLevels(!!mergedConfig.debug_mode);
+                this.tradingSessionService.updateConfig(mergedConfig);
+            }
+            await this.auditLog.log({
+                action: "UPDATE_SESSION_CONFIG",
+                resourceId: id,
+                actor: ip,
+                ip,
+                userAgent,
+                details: { partialConfig },
+            });
+            return { status: "updated", config: mergedConfig };
+        }
+        catch (error) {
+            await queryRunner.rollbackTransaction();
+            this.logger.error(`Transaction rolled back: Failed to update session ${id}: ${error instanceof Error ? error.message : String(error)}`);
+            throw error;
+        }
+        finally {
+            await queryRunner.release();
+        }
+    }
+    async updateTradeConfig(id, dto, ip, userAgent) {
+        // 1. Fetch trade entity
+        const trade = await this.tradeRepository.findOne({
+            where: [{ id }, { symbol: id, status: "OPEN" }],
+        });
+        if (!trade) {
+            throw new NotFoundException(`Active trade ${id} not found`);
+        }
+        if (trade.status !== "OPEN") {
+            throw new BadRequestException("Can only update open trades");
+        }
+        const session = await this.sessionRepository.findOne({
+            where: { id: trade.sessionId || undefined },
+            select: ["id", "tradingMode", "paperMode", "config"],
+        });
+        if (!session) {
+            throw new NotFoundException(`Session ${trade.sessionId} not found`);
+        }
+        const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+        const isPaper = mode === "paper";
+        // 2. Perform Stop-Loss Exchange Modification if requested
+        let finalSl = trade.current_sl;
+        if (dto.current_sl !== undefined && dto.current_sl !== null && dto.current_sl !== trade.current_sl) {
+            const newSl = Number(dto.current_sl);
+            if (isNaN(newSl) || newSl <= 0) {
+                throw new BadRequestException("Invalid stop loss price");
+            }
+            if (isPaper) {
+                finalSl = newSl;
+            }
+            else {
+                const engineTrade = this.tradingSessionService.getTrade(trade.id);
+                if (!engineTrade) {
+                    throw new BadRequestException("Active trade not loaded in trading engine");
+                }
+                // Use standard OrderManager updateStopLoss replacement sequence
+                const res = await this.orderManager.updateStopLoss(engineTrade, newSl, trade.current_sl);
+                if (!res.success) {
+                    throw new BadRequestException("Exchange failed to replace stop loss order");
+                }
+                finalSl = res.price || newSl;
+            }
+        }
+        // 3. Validate Strategy Configuration overrides (if provided) to prevent parameter injection / Stored XSS
+        if (dto.strategy_config) {
+            const inputInstance = plainToInstance(SessionConfig, dto.strategy_config);
+            const errors = await validate(inputInstance, { whitelist: true, forbidNonWhitelisted: true });
+            if (errors.length > 0) {
+                const detailedErrors = formatValidationErrors(errors);
+                this.logger.warn(`Trade strategy_config input validation failed: ${JSON.stringify(detailedErrors)}`);
+                throw new BadRequestException({
+                    message: "Invalid trade strategy configuration overrides",
+                    detail: detailedErrors,
+                });
+            }
+        }
+        // Merge Strategy Configuration overrides (MACD Fade, Supertrend, etc.)
+        const strategyConfig = this.deepMerge(trade.strategy_config || {}, dto.strategy_config || {});
+        if (dto.strategy_config) {
+            // Re-validate structural dependencies and bounds constraints on the fully merged trade strategy configuration
+            const mergedInstance = plainToInstance(SessionConfig, strategyConfig);
+            this.validateConfig(mergedInstance);
+        }
+        // SENTINEL: Validate profit-locking sequences to prevent CPU Denial of Service (DoS) and data integrity issues
+        const finalLiveSeq = dto.live_rr_sequence !== undefined ? dto.live_rr_sequence : (trade.live_rr_sequence || session.config?.live_rr_sequence || []);
+        const finalExitSeq = dto.exit_rr_sequence !== undefined ? dto.exit_rr_sequence : (trade.exit_rr_sequence || session.config?.exit_rr_sequence || []);
+        if (finalLiveSeq.length > 10 || finalExitSeq.length > 10) {
+            throw new BadRequestException("Risk-to-Reward sequences cannot exceed 10 elements");
+        }
+        const tpMode = strategyConfig.tp_mode || session.config?.tp_mode || "fixed";
+        if (tpMode === "exp_rr_seq" || tpMode === "exp_rr_seq_switch") {
+            if (finalLiveSeq.length === 0) {
+                throw new BadRequestException("Live RR sequence is required for Exponential RR mode");
+            }
+            if (finalLiveSeq.length !== finalExitSeq.length) {
+                throw new BadRequestException("Exit RR sequence must match Live RR sequence length");
+            }
+        }
+        else {
+            if (finalLiveSeq.length !== finalExitSeq.length) {
+                throw new BadRequestException("Exit RR sequence must match Live RR sequence length");
+            }
+        }
+        // 4. Update dynamic variables
+        trade.current_sl = finalSl;
+        if (dto.live_rr_sequence) {
+            trade.live_rr_sequence = dto.live_rr_sequence;
+        }
+        if (dto.exit_rr_sequence) {
+            trade.exit_rr_sequence = dto.exit_rr_sequence;
+        }
+        trade.strategy_config = strategyConfig;
+        trade.updated_at = new Date();
+        // Preserve local and database states
+        await this.tradeRepository.save(trade);
+        // 5. Hot-reload to the active engine state
+        const engineTrade = this.tradingSessionService.getTrade(trade.id);
+        if (engineTrade) {
+            engineTrade.current_sl = finalSl;
+            if (dto.live_rr_sequence) {
+                engineTrade.live_rr_sequence = dto.live_rr_sequence;
+            }
+            if (dto.exit_rr_sequence) {
+                engineTrade.exit_rr_sequence = dto.exit_rr_sequence;
+            }
+            engineTrade.strategy_config = strategyConfig;
+            // Trigger immediate trailing stop evaluation for instant live trade updates
+            const currentPrice = (await this.tradingSessionService.fetchTickerPrice(engineTrade.symbol)) || engineTrade.mark_price || engineTrade.last_price;
+            if (currentPrice && currentPrice > 0) {
+                this.tradingSessionService.checkTrailingStop(engineTrade.symbol, currentPrice, strategyConfig).catch(err => {
+                    this.logger.warn(`Immediate checkTrailingStop failed for ${engineTrade.symbol}: ${err instanceof Error ? err.message : String(err)}`);
+                });
+            }
+            // Seed update to WS clients & memory loops
+            this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade: engineTrade });
+        }
+        await this.auditLog.log({
+            action: "UPDATE_TRADE_CONFIG",
+            resourceId: trade.id,
+            actor: ip,
+            ip,
+            userAgent,
+            details: {
+                symbol: trade.symbol,
+                current_sl: dto.current_sl,
+                live_rr_sequence: dto.live_rr_sequence,
+                exit_rr_sequence: dto.exit_rr_sequence,
+                strategy_config: dto.strategy_config,
+            },
+        });
+        return { status: "updated", trade };
+    }
+    async pauseSession(paused, strategyLabel, ip, userAgent) {
+        if (!this.sessionRunning)
+            throw new ConflictException("No session running");
+        this.tradingSessionService.setPaused(paused, strategyLabel);
+        if (this.currentSessionId) {
+            try {
+                const session = await this.sessionRepository.findOne({
+                    where: { id: this.currentSessionId },
+                });
+                if (session && session.config) {
+                    session.config.paused = this.tradingSessionService.sessionState.paused;
+                    session.config.paused_strategies = Array.from(this.tradingSessionService.sessionState.pausedStrategies || []);
+                    await this.sessionRepository.save(session);
+                }
+            }
+            catch (e) {
+                this.logger.error(`Failed to save paused state to session config in DB: ${e.message}`);
+            }
+        }
+        await this.auditLog.log({
+            action: paused ? "PAUSE_SESSION" : "RESUME_SESSION",
+            resourceId: this.currentSessionId || undefined,
+            actor: ip,
+            ip,
+            userAgent,
+            details: strategyLabel ? { strategyLabel } : undefined,
+        });
+        return { status: paused ? "paused" : "resumed", strategyLabel };
+    }
+    async deleteSession(id, actor, userAgent) {
+        // Security: Prevent deleting the active session
+        if (this.sessionRunning && this.currentSessionId === id) {
+            throw new ConflictException("Cannot delete an active trading session. Stop it first.");
+        }
+        await this.auditLog.log({
+            action: "DELETE_SESSION",
+            resourceId: id,
+            actor,
+            ip: actor,
+            userAgent,
+        });
+        // Manually delete session, ensuring no cascade to trades (as there is no FK link in the current entity model)
+        await this.sessionRepository.delete(id);
+        return { status: "deleted" };
+    }
+    async deleteOrphanedTrades(actor, userAgent) {
+        const sessions = await this.sessionRepository.find({ select: ["id"] });
+        const sessionIds = sessions.map((s) => s.id);
+        const queryBuilder = this.tradeRepository
+            .createQueryBuilder()
+            .delete()
+            .where("sessionId IS NULL");
+        if (sessionIds.length > 0) {
+            queryBuilder.orWhere("sessionId NOT IN (:...ids)", { ids: sessionIds });
+        }
+        const result = await queryBuilder.execute();
+        await this.auditLog.log({
+            action: "DELETE_ORPHANED_TRADES",
+            actor,
+            ip: actor,
+            userAgent,
+            details: { affected: result.affected },
+        });
+        return { status: "deleted", affected: result.affected };
+    }
+    async listSessions() {
+        // WISP OPTIMIZATION: Sparse column selection prevents loading unused columns, while mapping config blocks keeps only minimum properties needed by the UI to reduce network transit weight.
+        const sessions = await this.sessionRepository.find({
+            select: [
+                "id",
+                "running",
+                "paperMode",
+                "tradingMode",
+                "balance",
+                "totalPnl",
+                "strategyLabel",
+                "startTime",
+                "endTime",
+                "config"
+            ],
+            order: { startTime: "DESC" },
+            take: 20,
+        });
+        return sessions.map(session => {
+            if (session.config) {
+                session.config = {
+                    scan_interval: session.config.scan_interval,
+                    trading_mode: session.config.trading_mode,
+                    strategy_label: session.config.strategy_label,
+                    paper_mode: session.config.paper_mode
+                };
+            }
+            return session;
+        });
+    }
+    async stopSession(ip, userAgent) {
+        if (!this.sessionRunning || !this.currentSessionId) {
+            throw new ConflictException("No session running");
+        }
+        const sessionId = this.currentSessionId;
+        await this.sessionRepository.update(sessionId, {
+            running: false,
+            endTime: new Date(),
+        });
+        // Stop the actual trading engine
+        await this.tradingSessionService.stop();
+        // Reset log levels to default when session stops
+        updateLogLevels(false);
+        // Flush any pending logs before session ends
+        await this.flushLogQueue();
+        this.logger.log(`Stopping trading session.`);
+        this.sessionRunning = false;
+        this.currentSessionId = null;
+        await this.auditLog.log({
+            action: "STOP_SESSION",
+            resourceId: sessionId,
+            actor: ip,
+            ip,
+            userAgent,
+        });
+        return { status: "stopped" };
+    }
+    async getStatus(includeLogs = false) {
+        if (!this.currentSessionId) {
+            const activeSession = await this.sessionRepository.findOne({
+                where: { running: true },
+                order: { startTime: "DESC" },
+            });
+            if (activeSession) {
+                this.currentSessionId = activeSession.id;
+                this.sessionRunning = true;
+            }
+            else {
+                // No active session, but we want to return the last known state and global balance
+                const lastSession = await this.sessionRepository.findOne({
+                    where: {},
+                    order: { startTime: "DESC" },
+                });
+                const settings = await this.settingsRepository.findOne({
+                    where: { id: "default" },
+                });
+                // Determine which balance to show based on last session mode, defaulting to paper
+                const mode = lastSession?.tradingMode ||
+                    (lastSession?.paperMode === false ? "live" : "paper");
+                let balance = 10000;
+                if (settings) {
+                    if (mode === "paper")
+                        balance = Number(settings.paper_balance);
+                    else if (mode === "testnet")
+                        balance = Number(settings.testnet_balance);
+                    else if (mode === "live")
+                        balance = Number(settings.live_balance);
+                }
+                return {
+                    running: false,
+                    balance,
+                    tradingMode: mode,
+                    paperMode: mode === "paper",
+                    config: lastSession?.config || null,
+                };
+            }
+        }
+        const session = await this.sessionRepository.findOne({
+            where: { id: this.currentSessionId },
+        });
+        if (!session)
+            return { running: false };
+        const engineStatus = this.tradingSessionService.getStatus();
+        const activeTrades = (await this.tradeRepository.find({
+            where: { status: "OPEN", sessionId: session.id },
+        })).filter((trade) => trade.entry_price != null &&
+            !isNaN(Number(trade.entry_price)) &&
+            trade.qty != null &&
+            !isNaN(Number(trade.qty))).map((t) => ({
+            ...t,
+            max_rr: Number(t.max_rr_achieved || 0),
+            max_rr_achieved: Number(t.max_rr_achieved || 0),
+        }));
+        const logs = includeLogs
+            ? await this.logRepository.find({
+                select: ["id", "sessionId", "ts", "level", "msg"],
+                where: { sessionId: session.id },
+                order: { ts: "DESC" },
+                take: 100,
+            })
+            : undefined;
+        return {
+            running: session.running,
+            paused: engineStatus.paused,
+            paused_strategies: engineStatus.paused_strategies,
+            strategy_gate_states: engineStatus.strategy_gate_states,
+            strategyId: session.id,
+            paperMode: session.paperMode,
+            tradingMode: session.tradingMode,
+            balance: engineStatus.running
+                ? session.paperMode
+                    ? engineStatus.balance_paper
+                    : engineStatus.balance_live
+                : session.balance,
+            totalPnl: engineStatus.running
+                ? engineStatus.total_pnl
+                : session.totalPnl,
+            logLines: logs,
+            activeTrades: engineStatus.activeTrades?.length
+                ? engineStatus.activeTrades
+                : activeTrades,
+            scannerResults: engineStatus.scannerResults,
+            variant_opportunities: engineStatus.variant_opportunities || engineStatus.variantScannerResults || [],
+            activeWindows: engineStatus.activeWindows,
+            gateState: engineStatus.gateState,
+            scannerPaused: engineStatus.scannerPaused,
+            totalRiskPct: session.paperMode
+                ? engineStatus.balance_paper > 0
+                    ? (engineStatus.total_risk / engineStatus.balance_paper) * 100
+                    : 0
+                : engineStatus.balance_live > 0
+                    ? (engineStatus.total_risk / engineStatus.balance_live) * 100
+                    : 0,
+            totalSlUsed: engineStatus.total_risk,
+            apiStatus: engineStatus.apiStatus,
+            config: session.config,
+            startTime: session.startTime,
+        };
+    }
+    async getLogs(limit = 50) {
+        // Flush any pending logs so caller sees up-to-date entries
+        await this.flushLogQueue();
+        let sid = this.currentSessionId;
+        if (!sid) {
+            const activeSession = await this.sessionRepository.findOne({
+                where: { running: true },
+                order: { startTime: "DESC" },
+            });
+            if (activeSession) {
+                sid = activeSession.id;
+            }
+            else {
+                const lastSession = await this.sessionRepository.findOne({
+                    where: {},
+                    order: { startTime: "DESC" },
+                });
+                if (lastSession)
+                    sid = lastSession.id;
+            }
+        }
+        if (!sid)
+            return [];
+        const takeAmount = limit === 0 ? 1000 : Math.min(Math.max(limit, 1), 1000);
+        const logs = await this.logRepository.find({
+            select: ["id", "sessionId", "ts", "level", "msg"],
+            where: { sessionId: sid },
+            order: { ts: "DESC" },
+            take: takeAmount,
+        });
+        return logs;
+    }
+    async getHistory(sessionId, limit) {
+        // If no sessionId is provided, we default to the current session ID if one is running.
+        // If we want GLOBAL history (all sessions), we must explicitly pass 'all' or similar.
+        const filterId = sessionId === "all" ? undefined : sessionId || this.currentSessionId;
+        const takeLimit = typeof limit === 'number' && limit > 0 ? Math.min(limit, 5000) : 1000;
+        // WISP OPTIMIZATION: Sparse column selection prevents loading heavy JSON configurations like strategy_config and exit_signals_status, reducing memory and bandwidth.
+        const closedTrades = await this.tradeRepository.find({
+            select: [
+                "id",
+                "symbol",
+                "direction",
+                "entry_price",
+                "qty",
+                "initial_sl",
+                "current_sl",
+                "max_rr_achieved",
+                "min_rr_achieved",
+                "exit_rr",
+                "entry_ts",
+                "tp",
+                "pnl",
+                "realized_fee",
+                "funding_fee",
+                "status",
+                "exit_ts",
+                "exit_price",
+                "exit_reason",
+                "exit_signal_type",
+                "exit_signal_reason",
+                "pnl_pct",
+                "entry_daily_change_pct",
+                "sessionId",
+                "strategy_label",
+                "is_reconciliation",
+                "is_knife",
+                "is_martingale",
+                "martingale_multiplier",
+                "martingale_step",
+                "martingale_threshold_reset"
+            ],
+            where: {
+                status: In(TERMINAL_STATUSES),
+                ...(filterId ? { sessionId: filterId } : {}),
+            },
+            order: { exit_ts: "DESC" },
+            take: takeLimit,
+        });
+        return { trades: closedTrades };
+    }
+    async getAnalytics() {
+        const now = Date.now();
+        if (this.analyticsCache &&
+            now - this.analyticsCache.ts < this.CACHE_TTL_MS) {
+            return this.analyticsCache.data;
+        }
+        // WISP OPTIMIZATION: Bypassed the heavy this.getStatus() method inside getAnalytics() to retrieve only the lightweight session and settings metadata directly.
+        // This eliminates a redundant database query (OPEN trades) and avoids compiling and serializing complex, high-frequency engine status structures
+        // (such as activeTrades and scannerResults) that are immediately discarded, reducing memory footprint and CPU overhead safely.
+        let sessionId = this.currentSessionId;
+        if (!sessionId) {
+            const activeSession = await this.sessionRepository.findOne({
+                where: { running: true },
+                order: { startTime: "DESC" },
+                select: ["id"],
+            });
+            if (activeSession) {
+                sessionId = activeSession.id;
+                this.currentSessionId = sessionId;
+                this.sessionRunning = true;
+            }
+        }
+        let config = null;
+        let balance = 10000;
+        if (sessionId) {
+            const session = await this.sessionRepository.findOne({
+                where: { id: sessionId },
+                select: ["id", "balance", "config", "tradingMode", "paperMode"],
+            });
+            if (session) {
+                config = session.config;
+                const engineStatus = this.tradingSessionService.getStatus();
+                balance = engineStatus.running
+                    ? session.paperMode
+                        ? engineStatus.balance_paper
+                        : engineStatus.balance_live
+                    : session.balance;
+            }
+        }
+        else {
+            const lastSession = await this.sessionRepository.findOne({
+                where: {},
+                order: { startTime: "DESC" },
+                select: ["id", "config", "tradingMode", "paperMode"],
+            });
+            const settings = await this.settingsRepository.findOne({
+                where: { id: "default" },
+                select: ["id", "paper_balance", "testnet_balance", "live_balance"],
+            });
+            const mode = lastSession?.tradingMode || (lastSession?.paperMode === false ? "live" : "paper");
+            if (settings) {
+                if (mode === "paper")
+                    balance = Number(settings.paper_balance);
+                else if (mode === "testnet")
+                    balance = Number(settings.testnet_balance);
+                else if (mode === "live")
+                    balance = Number(settings.live_balance);
+            }
+            config = lastSession?.config || null;
+        }
+        const trades = await this.tradeRepository.find({
+            select: [
+                "id", "pnl", "exit_ts", "status", "max_rr_achieved", "min_rr_achieved", "exit_rr",
+                "is_reconciliation", "initial_risk_usdt", "risk_usdt", "entry_price", "current_sl", "initial_sl", "qty"
+            ],
+            where: {
+                status: In(TERMINAL_STATUSES),
+                ...(sessionId ? { sessionId } : {}),
+            },
+        });
+        const startingBalance = sessionId
+            ? (config?.paper_mode
+                ? config?.paper_starting_balance
+                : config?.live_starting_balance) || await this.getStartingBalanceForSession(sessionId)
+            : undefined;
+        // SRE: Provide stable fallback startingBalance (10000) if undefined to prevent metrics/drawdowns from being distorted by deposits/withdrawals.
+        const result = this.analyticsService.calculateAnalytics(trades, startingBalance || 10000, balance);
+        // BOLT: Add RR optimization data to analytics response
+        try {
+            result.rrOptimization =
+                this.rrOptimizationService.calculateRrOptimization(trades);
+        }
+        catch (e) {
+            this.logger.warn(`Failed to calculate RR optimization: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        this.analyticsCache = { data: result, ts: now };
+        return result;
+    }
+    async getStartingBalanceForSession(sessionId) {
+        const session = await this.sessionRepository.findOne({
+            where: { id: sessionId },
+            select: ["config", "tradingMode", "paperMode"],
+        });
+        if (!session || !session.config)
+            return undefined;
+        const mode = session.tradingMode || (session.paperMode ? "paper" : "live");
+        if (mode === "paper")
+            return session.config.paper_starting_balance;
+        if (mode === "testnet")
+            return session.config.testnet_starting_balance;
+        return session.config.live_starting_balance;
+    }
+    async getBinanceRateLimit() {
+        return this.tradingSessionService.getBinanceRateLimit();
+    }
+    async getTrade(idOrSymbol) {
+        return this.tradingSessionService.getTrade(idOrSymbol);
+    }
+    // WebSocket broadcaster
+    setBroadcaster(callback) {
+        this.wsBroadcaster = callback;
+        this.tradingSessionService.setWsBroadcaster(callback);
+    }
+    // Broadcast event to WebSocket clients
+    broadcastEvent(eventType, payload) {
+        if (this.wsBroadcaster) {
+            try {
+                this.wsBroadcaster({ type: eventType, ...payload });
+            }
+            catch (err) {
+                this.logger.error(`Broadcast error: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+    }
+    // Manually close a trade
+    async closeTradeManually(symbol, actor, userAgent) {
+        if (!this.sessionRunning) {
+            throw new ConflictException("No session running");
+        }
+        const result = await this.tradingSessionService.closeTradeManually(symbol);
+        if (result.success && result.trade) {
+            this.logger.log(`Manually closed trade ${symbol}`);
+            await this.auditLog.log({
+                action: "MANUAL_TRADE_CLOSE",
+                resourceId: result.trade.id,
+                actor,
+                ip: actor,
+                userAgent,
+                details: { symbol, tradeId: result.trade.id },
+            });
+        }
+        return result;
+    }
+    /**
+     * Cleanup task for old database records (Logs and closed Trades)
+     */
+    async cleanupOldData() {
+        try {
+            const settings = await this.settingsRepository.findOne({
+                where: { id: "default" },
+            });
+            const logRetentionDays = settings?.log_retention_days || 2;
+            const tradeRetentionDays = settings?.trade_retention_days || 30;
+            const klineRetentionDays = settings?.kline_retention_days || 1;
+            const logCutoff = new Date(Date.now() - logRetentionDays * 24 * 60 * 60 * 1000);
+            const tradeCutoff = new Date(Date.now() - tradeRetentionDays * 24 * 60 * 60 * 1000);
+            const deletedLogs = await this.logRepository
+                .createQueryBuilder()
+                .delete()
+                .where("ts < :cutoff", { cutoff: logCutoff.toISOString() })
+                .execute();
+            const deletedTrades = await this.tradeRepository
+                .createQueryBuilder()
+                .delete()
+                .where("exit_ts < :cutoff", { cutoff: tradeCutoff })
+                .andWhere("status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
+                .execute();
+            const balanceCutoff = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000);
+            const deletedBalanceHistory = await this.balanceHistoryRepository
+                .createQueryBuilder()
+                .delete()
+                .where("timestamp < :cutoff", { cutoff: balanceCutoff })
+                .execute();
+            // SEC-02: Interval-aware kline cleanup to protect HTF EMA Cross Ranking (4h) & warmup while pruning high-volume 1m rows
+            // 1m klines: 3 days retention (~210K rows saved)
+            // HTF klines (4h, 1h, 1d, etc.): 60 days retention (ensures ~180-200 HTF candles for 4h EMA 9/21 cross ranking accuracy)
+            const klineCutoff1m = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
+            const klineCutoffHtf = Date.now() - 60 * 24 * 60 * 60 * 1000;
+            const deletedKlines = await this.sessionRepository.manager
+                .createQueryBuilder()
+                .delete()
+                .from("klines")
+                .where("(interval = '1m' AND time < :cutoff1m) OR (interval != '1m' AND time < :cutoffHtf)", {
+                cutoff1m: klineCutoff1m,
+                cutoffHtf: klineCutoffHtf,
+            })
+                .execute();
+            // SENTINEL: Also cleanup audit logs periodically
+            const auditRetentionDays = settings?.audit_retention_days || 90;
+            const deletedAudit = await this.auditLog.cleanup(auditRetentionDays);
+            // SENTINEL: Implement memory cleanup for session-specific trackers to prevent memory exhaustion
+            // Iterate through the maps and remove entries for sessions that are no longer running.
+            const runningSessions = await this.sessionRepository.find({
+                where: { running: true },
+                select: ["id"],
+            });
+            const runningIds = new Set(runningSessions.map((s) => s.id));
+            if (this.currentSessionId)
+                runningIds.add(this.currentSessionId);
+            let logRateLimitCleared = 0;
+            for (const sid of this.logRateLimits.keys()) {
+                if (!runningIds.has(sid)) {
+                    this.logRateLimits.delete(sid);
+                    logRateLimitCleared++;
+                }
+            }
+            let sessionLogCountCleared = 0;
+            for (const sid of this.sessionLogCounts.keys()) {
+                if (!runningIds.has(sid)) {
+                    this.sessionLogCounts.delete(sid);
+                    sessionLogCountCleared++;
+                }
+            }
+            // Refresh PostgreSQL query planner statistics via lightweight ANALYZE without CPU spikes (autovacuum handles dead tuple vacuuming in background)
+            const totalDeleted = (deletedLogs.affected || 0) + (deletedTrades.affected || 0) + (deletedBalanceHistory.affected || 0) + (deletedKlines.affected || 0) + (deletedAudit || 0);
+            if (totalDeleted > 0) {
+                try {
+                    await this.sessionRepository.query("ANALYZE klines; ANALYZE trade_entity; ANALYZE balance_history; ANALYZE log; ANALYZE audit_logs;");
+                }
+                catch (analyzeErr) {
+                    this.logger.debug(`Periodic ANALYZE skipped or non-Postgres driver: ${analyzeErr?.message || analyzeErr}`);
+                }
+            }
+            this.logger.log(`Cleanup completed: ${deletedLogs.affected || 0} logs, ${deletedTrades.affected || 0} trades, ${deletedBalanceHistory.affected || 0} balance history, ${deletedKlines.affected || 0} klines, and ${deletedAudit || 0} audit entries removed. Tracker memory cleared for ${logRateLimitCleared + sessionLogCountCleared} stale sessions.`);
+        }
+        catch (e) {
+            this.logger.error(`Data cleanup failed: ${e.message}`);
+        }
+    }
+    // BOLT OPTIMIZATION: Non-blocking asynchronous log write buffer flush
+    async flushLogQueue() {
+        if (this.logFlushTimer) {
+            clearTimeout(this.logFlushTimer);
+            this.logFlushTimer = null;
+        }
+        if (this.isFlushingLogs || this.logWriteQueue.length === 0)
+            return;
+        this.isFlushingLogs = true;
+        try {
+            while (this.logWriteQueue.length > 0) {
+                const batch = this.logWriteQueue.splice(0, 100);
+                if (batch.length === 0)
+                    break;
+                await this.logRepository.insert(batch);
+                // Check if batch pruning is needed for any sessions in this batch
+                const uniqueSessionIds = Array.from(new Set(batch.map((b) => b.sessionId)));
+                for (const sid of uniqueSessionIds) {
+                    const count = this.sessionLogCounts.get(sid) || 0;
+                    if (count >= 2000) {
+                        try {
+                            const pruneCutoff = await this.logRepository.find({
+                                select: ["id"],
+                                where: { sessionId: sid },
+                                order: { ts: "ASC" },
+                                take: 200,
+                            });
+                            if (pruneCutoff.length > 0) {
+                                const idsToDelete = pruneCutoff.map((l) => l.id);
+                                await this.logRepository.delete(idsToDelete);
+                                const newCount = Math.max(0, count - idsToDelete.length);
+                                this.sessionLogCounts.set(sid, newCount);
+                                this.logger.debug(`Batch pruned ${idsToDelete.length} oldest logs for session ${sid}. New count: ${newCount}`);
+                            }
+                        }
+                        catch (pruneErr) {
+                            this.logger.error(`Failed to batch prune logs for session ${sid}: ${pruneErr?.message || pruneErr}`);
+                        }
+                    }
+                }
+            }
+        }
+        catch (err) {
+            this.logger.error(`Failed to flush log write queue: ${err?.message || err}`);
+        }
+        finally {
+            this.isFlushingLogs = false;
+            if (this.logWriteQueue.length > 0 && !this.logFlushTimer) {
+                this.logFlushTimer = setTimeout(() => {
+                    this.logFlushTimer = null;
+                    void this.flushLogQueue();
+                }, this.LOG_FLUSH_INTERVAL_MS);
+                if (this.logFlushTimer.unref)
+                    this.logFlushTimer.unref();
+            }
+        }
+    }
+    // Add log line with optional structured context
+    async logMessage(msg, level = "info", context) {
+        // SENTINEL: Truncate message to prevent excessive database growth from oversized logs
+        const safeMsg = typeof msg === 'string' ? msg : String(msg || '');
+        const sanitizedMsg = safeMsg.length > 4000
+            ? safeMsg.substring(0, 4000) + "... [truncated]"
+            : safeMsg;
+        const logId = uuid();
+        const logIsoTs = new Date().toISOString();
+        if (!this.currentSessionId) {
+            // UX-01: Even without active sessionId, broadcast early engine logs to UI so startup transitions aren't lost
+            this.broadcastEvent("log", {
+                id: logId,
+                msg: sanitizedMsg,
+                level,
+                channel: context?.channel,
+                symbol: context?.symbol,
+                tradeId: context?.tradeId,
+                ts: logIsoTs,
+            });
+            return;
+        }
+        // Deduplicate repeating identical logs within a short timeframe (e.g. 5 seconds)
+        const now = Date.now();
+        const sid = this.currentSessionId;
+        // Efficient hashing to prevent string allocation memory spikes
+        let hash = 0;
+        for (let i = 0; i < sanitizedMsg.length; i++) {
+            hash = ((hash << 5) - hash) + sanitizedMsg.charCodeAt(i);
+            hash |= 0;
+        }
+        const msgHash = hash.toString(16);
+        const recentLogKey = `${sid}-${msgHash}`;
+        const recentLog = this.recentLogs.get(recentLogKey);
+        if (recentLog && now - recentLog.timestamp < 5000) {
+            // Skip logging if identical message was sent in the last 5 seconds
+            return;
+        }
+        // Periodically clean up the recentLogs map
+        if (this.recentLogs.size > 1000) {
+            for (const [key, data] of this.recentLogs.entries()) {
+                if (now - data.timestamp > 5000) {
+                    this.recentLogs.delete(key);
+                }
+            }
+        }
+        this.recentLogs.set(recentLogKey, { hash: msgHash, timestamp: now });
+        // Broadcast to UI immediately for real-time visibility with persistent ID
+        this.broadcastEvent("log", {
+            id: logId,
+            msg: sanitizedMsg,
+            level,
+            channel: context?.channel,
+            symbol: context?.symbol,
+            tradeId: context?.tradeId,
+            ts: logIsoTs,
+        });
+        // SENTINEL: Per-session log rate limiting (max 60 logs per minute) to prevent resource exhaustion
+        const rateLimit = this.logRateLimits.get(sid) || {
+            count: 0,
+            resetAt: now + 60000,
+        };
+        if (now > rateLimit.resetAt) {
+            rateLimit.count = 0;
+            rateLimit.resetAt = now + 60000;
+        }
+        rateLimit.count++;
+        this.logRateLimits.set(sid, rateLimit);
+        // UX-01: Exempt critical transition, decision, SL, exit, and lifecycle events from the 60/min throttle
+        const channel = context?.channel;
+        const isCriticalChannel = channel === 'decision' ||
+            channel === 'state' ||
+            channel === 'sl_ratchet' ||
+            channel === 'exit' ||
+            channel === 'lifecycle' ||
+            channel === 'watchdog' ||
+            channel === 'order';
+        const isCriticalLog = level === 'error' ||
+            level === 'warn' ||
+            isCriticalChannel ||
+            sanitizedMsg.includes('[Decision]') ||
+            sanitizedMsg.includes('[State]') ||
+            sanitizedMsg.includes('[SL Ratchet]') ||
+            sanitizedMsg.includes('[Exit]') ||
+            sanitizedMsg.includes('[Lifecycle]') ||
+            sanitizedMsg.includes('[Watchdog]');
+        if (!isCriticalLog && rateLimit.count > 60) {
+            if (rateLimit.count === 61) {
+                this.logger.warn(`Log rate limit (60/min) exceeded for session ${sid}. Further routine logs suppressed.`);
+            }
+            return;
+        }
+        // SENTINEL: Use in-memory counter to enforce cap (2000 logs) and avoid DB overhead
+        let logCount = this.sessionLogCounts.get(sid);
+        if (logCount === undefined) {
+            logCount = await this.logRepository.count({ where: { sessionId: sid } });
+            this.sessionLogCounts.set(sid, logCount);
+        }
+        if (logCount >= 2000 && level !== "error") {
+            // If we already reached the cap for this session, we only keep errors
+            return;
+        }
+        this.sessionLogCounts.set(sid, logCount + 1);
+        // BOLT OPTIMIZATION: Non-blocking asynchronous log write buffer with deterministic ID
+        this.logWriteQueue.push({
+            id: logId,
+            sessionId: this.currentSessionId,
+            ts: logIsoTs,
+            level,
+            msg: sanitizedMsg,
+        });
+        if (this.logWriteQueue.length >= this.LOG_FLUSH_BATCH_SIZE) {
+            void this.flushLogQueue();
+        }
+        else if (!this.logFlushTimer) {
+            this.logFlushTimer = setTimeout(() => {
+                this.logFlushTimer = null;
+                void this.flushLogQueue();
+            }, this.LOG_FLUSH_INTERVAL_MS);
+            if (this.logFlushTimer.unref)
+                this.logFlushTimer.unref();
+        }
+    }
+    /**
+     * Directly sets the binance client on the underlying trading service.
+     * Useful for reconciliation before the full engine start.
+     */
+    setBinanceClient(client, paperMode) {
+        this.tradingSessionService.setBinanceClient(client, paperMode);
+    }
+    /**
+     * Proactively starts the user data stream to begin buffering events during reconciliation.
+     */
+    async startUds(client) {
+        await this.tradingSessionService.startUds(client);
+    }
+    async resetPaperBalance(actor, userAgent) {
+        const defaultBalance = 10000.0;
+        await this.auditLog.log({
+            action: "RESET_PAPER_BALANCE",
+            actor,
+            ip: actor,
+            userAgent,
+            details: { balance: defaultBalance },
+        });
+        await this.settingsRepository.update("default", {
+            paper_balance: defaultBalance,
+        });
+        // Record reset in history
+        await this.balanceHistoryRepository.save({
+            timestamp: new Date(),
+            balance: defaultBalance,
+            pnl: 0,
+            type: "RESET",
+        });
+        // If a session is running and it's paper mode, we might want to update it,
+        // but usually, a reset is done when no session is active or as a hard override.
+        if (this.sessionRunning) {
+            const session = await this.sessionRepository.findOne({
+                where: { id: this.currentSessionId },
+            });
+            if (session && session.paperMode) {
+                // Hot update the engine if running
+                this.tradingSessionService.updatePaperBalance(defaultBalance);
+            }
+        }
+        return { status: "reset", balance: defaultBalance };
+    }
+    async getLifetimeAnalytics(mode = "paper") {
+        // 1. WISP OPTIMIZATION: Filter trades by trading mode directly at the database level using an innerJoin on the session table.
+        // This avoids fetching potentially thousands of trades with heavy strategy_config JSON blocks into memory, optimizing memory footprint and SQL speed.
+        const filteredTrades = await this.tradeRepository
+            .createQueryBuilder("trade")
+            .innerJoin("trade.session", "session")
+            .select([
+            "trade.id",
+            "trade.pnl",
+            "trade.exit_ts",
+            "trade.status",
+            "trade.max_rr_achieved",
+            "trade.min_rr_achieved",
+            "trade.exit_rr",
+            "trade.is_reconciliation",
+            "trade.initial_risk_usdt",
+            "trade.risk_usdt",
+            "trade.entry_price",
+            "trade.current_sl",
+            "trade.initial_sl",
+            "trade.qty",
+            "trade.strategy_label",
+            "trade.is_knife",
+            "trade.is_martingale",
+            "trade.martingale_multiplier",
+            "trade.martingale_step",
+            "trade.martingale_threshold_reset",
+        ])
+            .where("trade.status IN (:...statuses)", { statuses: TERMINAL_STATUSES })
+            .andWhere("session.tradingMode = :mode", { mode })
+            .orderBy("trade.exit_ts", "ASC")
+            .getMany();
+        // 2. Fetch the oldest balance history snapshot to establish startingBalance
+        const firstHistory = await this.balanceHistoryRepository.findOne({
+            where: { tradingMode: mode },
+            order: { timestamp: "ASC" },
+        });
+        // 3. Calculate analytics using the full trade set
+        // We assume the very first starting balance was 10000 for paper, and 10000 for live if history is empty, to prevent division-by-zero or astronomical drawdowns.
+        const startingBalance = mode === "paper"
+            ? 10000
+            : firstHistory
+                ? Number(firstHistory.balance) - Number(firstHistory.pnl)
+                : 10000;
+        const analytics = this.analyticsService.calculateAnalytics(filteredTrades, startingBalance);
+        // BOLT: Add RR optimization data to lifetime analytics
+        try {
+            analytics.rrOptimization =
+                this.rrOptimizationService.calculateRrOptimization(filteredTrades);
+        }
+        catch (e) {
+            this.logger.warn(`Failed to calculate lifetime RR optimization: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        // 4. Skip overriding cumulative PnL with h.balance to prevent exchange deposits/withdrawals from distorting metrics and charts.
+        // The trade-by-trade cumulative PnL calculated above is purely performance-based and completely immune to funding changes.
+        return analytics;
+    }
+    deepMerge(target, source) {
+        if (!source || typeof source !== 'object' || Array.isArray(source))
+            return source;
+        if (!target || typeof target !== 'object' || Array.isArray(target))
+            return source;
+        const output = { ...target };
+        Object.keys(source).forEach(key => {
+            if (key === "__proto__" || key === "constructor" || key === "prototype")
+                return;
+            if (source[key] instanceof Object && !Array.isArray(source[key])) {
+                if (key in target) {
+                    output[key] = this.deepMerge(target[key], source[key]);
+                }
+                else {
+                    output[key] = this.deepMerge({}, source[key]);
+                }
+            }
+            else {
+                output[key] = source[key];
+            }
+        });
+        return output;
+    }
+};
+__decorate([
+    OnEvent(ENGINE_EVENTS.LOG_MESSAGE),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], SessionService.prototype, "handleEngineLog", null);
+__decorate([
+    OnEvent("reconciliation.adopt_positions"),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], SessionService.prototype, "handleAdoptPositions", null);
+SessionService = SessionService_1 = __decorate([
+    Injectable(),
+    __param(0, InjectRepository(SessionEntity)),
+    __param(1, InjectRepository(TradeEntity)),
+    __param(2, InjectRepository(LogEntity)),
+    __param(3, InjectRepository(SettingsEntity)),
+    __param(4, InjectRepository(BalanceHistoryEntity)),
+    __param(6, Inject(forwardRef(() => OrderManagerService))),
+    __metadata("design:paramtypes", [Repository,
+        Repository,
+        Repository,
+        Repository,
+        Repository,
+        TradingSessionService,
+        OrderManagerService,
+        MarketFeedService,
+        EventEmitter2,
+        AnalyticsService,
+        RrOptimizationService,
+        BinanceClientFactory,
+        AuditLogService,
+        ConfigService])
+], SessionService);
+export { SessionService };

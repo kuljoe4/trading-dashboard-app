@@ -599,16 +599,17 @@ export class ExecutionService {
           this.marketFeedService.queueBackfill(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
         }
 
-        // Extract engulfing pattern details if available
+        // Extract structural pattern details if available (engulfing, macd_pbc, etc.)
         const engulfingDetail = signalResult.details?.engulfing;
-        const patternLow = engulfingDetail?.pattern_low;
-        const patternHigh = engulfingDetail?.pattern_high;
-        const bodyLow = engulfingDetail?.body_low;
-        const bodyHigh = engulfingDetail?.body_high;
+        const macdPbcKey = Object.keys(signalResult.details || {}).find(k => k === 'macd_pbc' || k.startsWith('macd_pbc_'));
+        const macdPbcDetail = macdPbcKey ? signalResult.details?.[macdPbcKey] : undefined;
+        const patternLow = engulfingDetail?.pattern_low ?? macdPbcDetail?.pattern_low;
+        const patternHigh = engulfingDetail?.pattern_high ?? macdPbcDetail?.pattern_high;
+        const bodyLow = engulfingDetail?.body_low ?? macdPbcDetail?.body_low;
+        const bodyHigh = engulfingDetail?.body_high ?? macdPbcDetail?.body_high;
 
         const supertrendDetail = signalResult.details?.supertrend || signalResult.details?.['exit_supertrend'];
         const supertrendSlPrice = supertrendDetail?.slPrice;
-        const macdPbcDetail = signalResult.details?.macd_pbc;
         const macdPbcSlPrice = macdPbcDetail?.slPrice;
 
         const slResult = this.riskEngine.computeSl(

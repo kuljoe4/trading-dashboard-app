@@ -45,7 +45,7 @@ export class SettingsController {
   async getKeys(@Req() req: Request) {
     const settings = await this.settingsRepository.findOne({
       where: { id: 'default' },
-      select: ['id', 'binance_api_key', 'binance_testnet_api_key', 'proxy_url']
+      select: ['id', 'binance_api_key', 'binance_testnet_api_key', 'proxy_url'] as any
     });
 
     const clientIp = req.ip || extractIp(req.headers, req.socket?.remoteAddress || 'unknown');
@@ -219,7 +219,7 @@ export class SettingsController {
     try {
       let settings = await this.settingsRepository.findOne({
         where: { id: 'default' },
-        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret', 'proxy_url']
+        select: ['id', 'binance_api_key', 'binance_api_secret', 'binance_testnet_api_key', 'binance_testnet_api_secret', 'proxy_url'] as any
       });
       
       if (!settings) {

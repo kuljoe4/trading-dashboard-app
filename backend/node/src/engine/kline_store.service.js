@@ -1,0 +1,451 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var KlineStoreService_1;
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Kline as KlineEntity } from '../models/entities/Kline.entity';
+let KlineStoreService = class KlineStoreService {
+    static { KlineStoreService_1 = this; }
+    klineRepository;
+    logger = new Logger(KlineStoreService_1.name);
+    klines = new Map();
+    MAX_CANDLES = this.readMaxCandles();
+    // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) lookbacks
+    hlStableCache = new Map();
+    // BOLT OPTIMIZATION: Cache pre-parsed milliseconds values for interval strings
+    intervalMsCache = new Map();
+    // DOWNSAMPLING OPTIMIZATION: Metadata cache to make downsampling lazy & O(1) during the same tick
+    synthMeta = new Map();
+    constructor(klineRepository) {
+        this.klineRepository = klineRepository;
+    }
+    readMaxCandles() {
+        const parsed = Number(process.env.KLINE_MAX_CANDLES || 200);
+        return Number.isFinite(parsed) ? Math.min(Math.max(Math.floor(parsed), 50), 500) : 200;
+    }
+    getMaxCandles() {
+        return this.MAX_CANDLES;
+    }
+    static EMPTY_ARRAY = [];
+    async upsertCandle(symbol, interval, kline) {
+        const key = `${symbol}_${interval}`;
+        let existing = this.klines.get(key);
+        if (!existing) {
+            existing = [];
+            this.klines.set(key, existing);
+        }
+        // BOLT OPTIMIZATION: Parse kline data into local variables first to avoid premature object allocation
+        // Use open time (t) instead of close time (T) for more reliable interval indexing
+        const time = parseInt(kline.t || kline[0] || Date.now(), 10);
+        const open = parseFloat(kline.o || kline[1] || 0);
+        const high = parseFloat(kline.h || kline[2] || 0);
+        const low = parseFloat(kline.l || kline[3] || 0);
+        const close = parseFloat(kline.c || kline[4] || 0);
+        const volume = parseFloat(kline.q || kline[7] || 0); // Standardize to Quote Volume (USDT)
+        // BOLT OPTIMIZATION: Replace [].every() with direct numeric checks to avoid array allocation and functional calls
+        const isValidCandle = Number.isFinite(open) && open > 0 &&
+            Number.isFinite(high) && high > 0 &&
+            Number.isFinite(low) && low > 0 &&
+            Number.isFinite(close) && close > 0;
+        if (!isValidCandle) {
+            this.logger.verbose(`Ignoring invalid candle for ${symbol}/${interval} at ${time}: open=${open}, high=${high}, low=${low}, close=${close}`);
+            return;
+        }
+        const lastIdx = existing.length - 1;
+        // BOLT OPTIMIZATION: O(1) paths for real-time streams
+        if (existing.length > 0) {
+            const lastCandle = existing[lastIdx];
+            if (lastCandle.time === time) {
+                // BOLT OPTIMIZATION: Mutate existing object in-place to avoid new allocations for every market tick
+                lastCandle.open = open;
+                lastCandle.high = high;
+                lastCandle.low = low;
+                lastCandle.close = close;
+                lastCandle.volume = volume;
+                return;
+            }
+            if (time > lastCandle.time) {
+                // Persist completed candle to DB if it's new
+                this.persistCandle(symbol, interval, lastCandle).catch(() => { });
+                // New candle arriving - allocate only once per interval
+                existing.push({ time, open, high, low, close, volume });
+                if (existing.length > this.MAX_CANDLES) {
+                    existing.shift(); // O(1) removal from start (for small N like 500)
+                }
+                return;
+            }
+        }
+        else {
+            existing.push({ time, open, high, low, close, volume });
+            return;
+        }
+        // Fallback for out-of-order candles (rare in real-time)
+        const idx = existing.findIndex(c => c.time === time);
+        if (idx !== -1) {
+            const c = existing[idx];
+            c.open = open;
+            c.high = high;
+            c.low = low;
+            c.close = close;
+            c.volume = volume;
+        }
+        else {
+            existing.push({ time, open, high, low, close, volume });
+            existing.sort((a, b) => a.time - b.time);
+            if (existing.length > this.MAX_CANDLES) {
+                existing.shift();
+            }
+        }
+    }
+    /**
+     * Synthesize higher timeframe candles by downsampling 1m candles in memory.
+     */
+    synthesizeHigherInterval(symbol, targetInterval, sourceInterval = '1m') {
+        const sourceKey = `${symbol}_${sourceInterval}`;
+        const sourceCandles = this.klines.get(sourceKey);
+        if (!sourceCandles || sourceCandles.length === 0) {
+            return KlineStoreService_1.EMPTY_ARRAY;
+        }
+        const targetMs = this.parseIntervalToMs(targetInterval);
+        const sourceMs = this.parseIntervalToMs(sourceInterval);
+        if (targetMs <= sourceMs) {
+            return sourceCandles;
+        }
+        const buckets = new Map();
+        for (let i = 0; i < sourceCandles.length; i++) {
+            const c = sourceCandles[i];
+            const bucketTime = Math.floor(c.time / targetMs) * targetMs;
+            let b = buckets.get(bucketTime);
+            if (!b) {
+                b = {
+                    time: bucketTime,
+                    open: c.open,
+                    high: c.high,
+                    low: c.low,
+                    close: c.close,
+                    volume: c.volume,
+                };
+                buckets.set(bucketTime, b);
+            }
+            else {
+                if (c.high > b.high)
+                    b.high = c.high;
+                if (c.low < b.low)
+                    b.low = c.low;
+                b.close = c.close;
+                b.volume += c.volume;
+            }
+        }
+        const synthesized = Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+        const targetKey = `${symbol}_${targetInterval}`;
+        this.klines.set(targetKey, synthesized);
+        // Track metadata for lazy freshness validation
+        const last1m = sourceCandles[sourceCandles.length - 1];
+        if (last1m) {
+            this.synthMeta.set(targetKey, {
+                last1mTime: last1m.time,
+                last1mClose: last1m.close,
+            });
+        }
+        return synthesized;
+    }
+    getRecentCandles(symbol, interval, count) {
+        const raw = this.getRawCandles(symbol, interval);
+        if (!raw || raw.length === 0)
+            return KlineStoreService_1.EMPTY_ARRAY;
+        return raw.slice(-count);
+    }
+    /**
+     * BOLT OPTIMIZATION: Provides direct access to the internal candle array.
+     * Synthesizes higher intervals lazily on demand when requested.
+     */
+    getRawCandles(symbol, interval) {
+        const key = `${symbol}_${interval}`;
+        let candles = this.klines.get(key);
+        if (interval !== '1m') {
+            const source1mKey = `${symbol}_1m`;
+            const source1m = this.klines.get(source1mKey);
+            if (source1m && source1m.length > 0) {
+                const last1m = source1m[source1m.length - 1];
+                const meta = this.synthMeta.get(key);
+                // If candles already exist natively with full history (e.g. >= 50 candles), do NOT clobber them!
+                // Instead, perform an O(1) tail update of the latest HTF candle from the newest 1m tick.
+                if (candles && candles.length >= 50) {
+                    this.updateHTFTailFrom1m(candles, interval, last1m);
+                    return candles;
+                }
+                // Check if synthesized cache is missing or stale
+                if (!candles || !meta || meta.last1mTime !== last1m.time || meta.last1mClose !== last1m.close) {
+                    const synthesized = this.synthesizeHigherInterval(symbol, interval, '1m');
+                    if (!candles || synthesized.length >= candles.length) {
+                        candles = synthesized;
+                    }
+                    else {
+                        // Keep native candles and update tail
+                        this.updateHTFTailFrom1m(candles, interval, last1m);
+                    }
+                }
+            }
+        }
+        return candles || KlineStoreService_1.EMPTY_ARRAY;
+    }
+    updateHTFTailFrom1m(candles, interval, last1m) {
+        if (!candles || candles.length === 0 || !last1m)
+            return;
+        const targetMs = this.parseIntervalToMs(interval);
+        const bucketTime = Math.floor(last1m.time / targetMs) * targetMs;
+        const lastHTF = candles[candles.length - 1];
+        if (bucketTime === lastHTF.time) {
+            if (last1m.high > lastHTF.high)
+                lastHTF.high = last1m.high;
+            if (last1m.low < lastHTF.low)
+                lastHTF.low = last1m.low;
+            lastHTF.close = last1m.close;
+            lastHTF.volume += last1m.volume;
+        }
+        else if (bucketTime > lastHTF.time) {
+            // New HTF bucket started
+            candles.push({
+                time: bucketTime,
+                open: last1m.open,
+                high: last1m.high,
+                low: last1m.low,
+                close: last1m.close,
+                volume: last1m.volume,
+            });
+            if (candles.length > this.MAX_CANDLES) {
+                candles.shift();
+            }
+        }
+    }
+    /**
+     * BOLT OPTIMIZATION: Calculate min/max extremes in a single pass with stable caching for completed candles.
+     * This turns O(N) into O(1) for the vast majority of calls and eliminates hot-path string allocations/logging.
+     */
+    parseIntervalToMs(interval) {
+        // Robust Defensive Guard: ensure interval is a valid, non-empty string before slicing or parsing
+        if (typeof interval !== 'string' || !interval) {
+            return 60 * 1000; // default to 1m
+        }
+        // BOLT OPTIMIZATION: Return cached parsed ms value if present to skip string slicing/parsing
+        const cached = this.intervalMsCache.get(interval);
+        if (cached !== undefined)
+            return cached;
+        const unit = interval.slice(-1);
+        const value = parseInt(interval.slice(0, -1), 10);
+        let ms = 60 * 1000; // default to 1m
+        if (!isNaN(value) && value > 0) {
+            switch (unit) {
+                case 'm':
+                    ms = value * 60 * 1000;
+                    break;
+                case 'h':
+                    ms = value * 60 * 60 * 1000;
+                    break;
+                case 'd':
+                    ms = value * 24 * 60 * 60 * 1000;
+                    break;
+                case 'w':
+                    ms = value * 7 * 24 * 60 * 60 * 1000;
+                    break;
+                case 'M':
+                    ms = value * 30 * 24 * 60 * 60 * 1000;
+                    break;
+            }
+        }
+        this.intervalMsCache.set(interval, ms);
+        return ms;
+    }
+    /**
+     * Helper to verify if the last completed candle is too old relative to the expected interval.
+     * Returns true if stale, false otherwise.
+     */
+    isLookbackStale(targetCandle, expectedIntervalMs, symbol, interval) {
+        if (targetCandle.time > 1000000000000) {
+            const ageMs = Date.now() - targetCandle.time;
+            const maxAgeMs = expectedIntervalMs * 2.5;
+            if (ageMs > maxAgeMs) {
+                this.logger.warn(`[Lookback Validation] STALE_DATA: Completed candle for ${symbol} (${interval}) is too old. Age: ${Math.round(ageMs / 1000)}s (Last Candle Time: ${targetCandle.time}), Max Allowed: ${Math.round(maxAgeMs / 1000)}s. Triggering fallback to Pct SL.`);
+                return true;
+            }
+        }
+        return false;
+    }
+    getLookbackExtremes(symbol, interval, period) {
+        const effectiveInterval = (!interval || interval === 'default') ? '1m' : interval;
+        const key = `${symbol}_${effectiveInterval}`;
+        const candles = this.klines.get(key) || [];
+        if (candles.length <= 1) {
+            return { minLow: 0, maxHigh: 0, reason: 'too_few_candles' };
+        }
+        const endIdx = candles.length - 1;
+        const startIdx = Math.max(0, endIdx - period);
+        const targetCandle = candles[endIdx - 1];
+        const expectedIntervalMs = this.parseIntervalToMs(interval);
+        // BOLT OPTIMIZATION: Try stable cache FIRST before any O(N) loops.
+        // Since completed candles are immutable, the gap detection and extremes result remains static.
+        // We only need to check freshness dynamically (which is O(1) time comparison).
+        const stableKey = `${symbol}:${effectiveInterval}:${period}`;
+        const stable = this.hlStableCache.get(stableKey);
+        if (stable && stable.time === targetCandle.time && stable.count === period) {
+            if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, effectiveInterval)) {
+                return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
+            }
+            return { minLow: stable.minLow, maxHigh: stable.maxHigh };
+        }
+        if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, interval)) {
+            return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
+        }
+        // 2. Gap Detection: Scan consecutive completed candles within the lookback window for any time gaps.
+        for (let i = startIdx + 1; i < endIdx; i++) {
+            const currentCandle = candles[i];
+            const prevCandle = candles[i - 1];
+            const delta = currentCandle.time - prevCandle.time;
+            if (delta > expectedIntervalMs * 1.5) {
+                this.logger.warn(`[Lookback Validation] TIME_GAP: Detected data gap of ${Math.round(delta / 1000)}s between consecutive candles at times ${prevCandle.time} and ${currentCandle.time} for ${symbol} (${interval}). Expected Interval: ${Math.round(expectedIntervalMs / 1000)}s (Threshold: ${Math.round(expectedIntervalMs * 1.5 / 1000)}s). Lookback period: ${period}. Triggering fallback to Pct SL.`);
+                return { minLow: 0, maxHigh: 0, reason: 'time_gap' };
+            }
+        }
+        let minLow = Infinity;
+        let maxHigh = -Infinity;
+        for (let i = startIdx; i < endIdx; i++) {
+            const candle = candles[i];
+            if (candle.low < minLow)
+                minLow = candle.low;
+            if (candle.high > maxHigh)
+                maxHigh = candle.high;
+        }
+        // Maintain stable cache
+        this.hlStableCache.set(stableKey, {
+            time: targetCandle.time,
+            minLow,
+            maxHigh,
+            count: period,
+        });
+        if (this.hlStableCache.size > 1000) {
+            const iter = this.hlStableCache.keys();
+            for (let i = 0; i < 100; i++) {
+                const next = iter.next();
+                if (next.done)
+                    break;
+                this.hlStableCache.delete(next.value);
+            }
+        }
+        return { minLow, maxHigh };
+    }
+    async seedFromRest(symbol, interval, klines) {
+        const key = `${symbol}_${interval}`;
+        const candles = klines.map((k) => ({
+            time: parseInt(k[0], 10),
+            open: parseFloat(k[1]),
+            high: parseFloat(k[2]),
+            low: parseFloat(k[3]),
+            close: parseFloat(k[4]),
+            volume: parseFloat(k[7]),
+        }));
+        // Keep only the last N candles
+        const trimmed = candles.slice(-this.MAX_CANDLES);
+        this.klines.set(key, trimmed);
+        this.logger.verbose(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
+        // Persist to DB for future boots
+        this.bulkPersist(symbol, interval, trimmed).catch(() => { });
+    }
+    async loadFromDb(symbol, interval, count) {
+        try {
+            const entities = await this.klineRepository.find({
+                where: { symbol, interval },
+                order: { time: 'DESC' },
+                take: count,
+            });
+            if (entities.length > 0) {
+                const candles = entities.reverse().map(e => ({
+                    time: Number(e.time),
+                    open: Number(e.open),
+                    high: Number(e.high),
+                    low: Number(e.low),
+                    close: Number(e.close),
+                    volume: Number(e.volume),
+                }));
+                this.klines.set(`${symbol}_${interval}`, candles);
+                return candles.length;
+            }
+        }
+        catch (err) {
+            this.logger.error(`Failed to load klines from DB: ${err.message}`);
+        }
+        return 0;
+    }
+    async persistCandle(symbol, interval, candle) {
+        try {
+            const id = `${symbol}_${interval}_${candle.time}`;
+            await this.klineRepository.upsert({
+                id,
+                symbol,
+                interval,
+                time: candle.time,
+                open: candle.open,
+                high: candle.high,
+                low: candle.low,
+                close: candle.close,
+                volume: candle.volume,
+            }, ['id']);
+        }
+        catch (err) { }
+    }
+    async bulkPersist(symbol, interval, candles) {
+        try {
+            const entities = candles.map(c => ({
+                id: `${symbol}_${interval}_${c.time}`,
+                symbol,
+                interval,
+                time: c.time,
+                open: c.open,
+                high: c.high,
+                low: c.low,
+                close: c.close,
+                volume: c.volume,
+            }));
+            // Chunk large inserts to avoid parameter limits
+            for (let i = 0; i < entities.length; i += 100) {
+                await this.klineRepository.upsert(entities.slice(i, i + 100), ['id']);
+            }
+        }
+        catch (err) { }
+    }
+    getStats() {
+        const counts = {};
+        for (const [key, candles] of this.klines) {
+            counts[key] = candles.length;
+        }
+        return {
+            keys: Array.from(this.klines.keys()),
+            counts,
+        };
+    }
+    /**
+     * Clear all stored klines to free up memory (Deep Sleep)
+     */
+    clear() {
+        this.klines.clear();
+        this.hlStableCache.clear();
+        this.synthMeta.clear();
+        this.logger.verbose('KlineStore cleared');
+    }
+};
+KlineStoreService = KlineStoreService_1 = __decorate([
+    Injectable(),
+    __param(0, InjectRepository(KlineEntity)),
+    __metadata("design:paramtypes", [Repository])
+], KlineStoreService);
+export { KlineStoreService };

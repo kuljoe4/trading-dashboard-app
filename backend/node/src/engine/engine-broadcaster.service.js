@@ -1,0 +1,677 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var EngineBroadcasterService_1;
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { TickerCacheService } from './ticker_cache.service';
+import { SessionStateService } from './session_state.service';
+import { MonitoringService } from './monitoring.service';
+import { AnalyticsService } from './analytics.service';
+import { BroadcastService } from './broadcast.service';
+import { VariantAnalyticsService } from './variant-analytics.service';
+import { RiskEngineService } from './riskEngine';
+import { PositionTrackerService } from './positionTracker';
+import { roundEight, roundTo } from '../lib/math';
+// BOLT OPTIMIZATION: Module-level static frozen constants to eliminate GC allocations on hot broadcast paths
+const EMPTY_ARRAY = Object.freeze([]);
+const EMPTY_OBJECT = Object.freeze({});
+let EngineBroadcasterService = EngineBroadcasterService_1 = class EngineBroadcasterService {
+    tickerCache;
+    sessionState;
+    monitoringService;
+    analyticsService;
+    broadcastService;
+    variantAnalytics;
+    riskEngine;
+    positionTracker;
+    logger = new Logger(EngineBroadcasterService_1.name);
+    lastTickData = null;
+    lastTickTime = 0;
+    lastAnalyticsResult = null;
+    lastRiskResult = null;
+    lastAnalyticsTradeCount = -1;
+    lastAnalyticsStartingBalance = -1;
+    /**
+     * BOLT OPTIMIZATION: Track the last state successfully broadcast to clients.
+     * This ensures true delta updates even if tick data is cleared or partial.
+     */
+    lastSentTrades = new Map();
+    constructor(tickerCache, sessionState, monitoringService, analyticsService, broadcastService, variantAnalytics, riskEngine, positionTracker) {
+        this.tickerCache = tickerCache;
+        this.sessionState = sessionState;
+        this.monitoringService = monitoringService;
+        this.analyticsService = analyticsService;
+        this.broadcastService = broadcastService;
+        this.variantAnalytics = variantAnalytics;
+        this.riskEngine = riskEngine;
+        this.positionTracker = positionTracker;
+    }
+    /**
+     * BOLT OPTIMIZATION: Move strategy label helper to class level to avoid re-allocation in hot path.
+     */
+    getStrategyLabel(c) {
+        return (c?.strategy_label || 'Momentum Strategy').toString();
+    }
+    /**
+     * BOLT OPTIMIZATION: Single-pass serialization of strategy gate states to eliminate intermediate array and tuple allocations.
+     */
+    serializeStrategyGateStates() {
+        const map = this.sessionState.strategyGateStates;
+        if (!map || map.size === 0)
+            return EMPTY_OBJECT;
+        const res = {};
+        for (const [k, v] of map.entries()) {
+            res[k] = {
+                gateState: v?.gateState || null,
+                gateReason: v?.gateReason || null,
+                isAdaptiveTightened: v?.isAdaptiveTightened || false,
+                peakRrSwitchHits: this.positionTracker?.peakRrSwitchHits?.get(k) || 0,
+            };
+        }
+        return res;
+    }
+    /**
+     * BOLT OPTIMIZATION: Clears broadcast caches to minimize RAM.
+     */
+    minimize() {
+        this.lastTickData = null;
+        this.lastSentTrades.clear();
+        this.lastAnalyticsResult = null;
+        this.lastAnalyticsTradeCount = -1;
+        this.logger.verbose('EngineBroadcasterService: Broadcast caches cleared');
+    }
+    getLastTickData() { return this.lastTickData; }
+    getLastRiskResult() { return this.lastRiskResult; }
+    getLastAnalyticsResult() { return this.lastAnalyticsResult; }
+    /**
+     * DATA-07: Get the current trades list from the last broadcast tick.
+     */
+    getLastTickTrades() {
+        return this.lastTickData?.trades || [];
+    }
+    /**
+     * DATA-07: Get the current scanner results from the last broadcast tick.
+     */
+    getLastScannerResults() {
+        return this.lastTickData?.scannerResults || [];
+    }
+    serializeTrade(trade, config, currentPrice, minimal = false) {
+        const direction = (trade.direction || 'LONG').toString().toUpperCase();
+        const entry = trade.entry_price ?? 0;
+        const cpv = currentPrice !== undefined && Number.isFinite(currentPrice) && currentPrice > 0;
+        const current = cpv ? currentPrice : trade.exit_price ?? trade.last_price ?? entry;
+        if (cpv) {
+            trade.last_price = currentPrice;
+            trade.mark_price = currentPrice;
+        }
+        let pnl = 0;
+        let rrValue = 0;
+        let pnlPct = 0;
+        const isTerminal = trade.status !== 'OPEN';
+        if (isTerminal) {
+            // DATA-CONSISTENCY: For terminal trades, use stored Net values to ensure fees are reflected in history
+            pnl = trade.pnl ?? 0;
+            pnlPct = trade.pnl_pct ?? 0;
+            const exitPrice = trade.exit_price ?? entry;
+            const risk = Math.abs(entry - (trade.initial_sl ?? entry)) || 1;
+            rrValue = (direction === 'LONG' ? (exitPrice - entry) : (entry - exitPrice)) / risk;
+        }
+        else if (current !== undefined && Number.isFinite(current) && Number.isFinite(entry)) {
+            const grossPnl = direction === 'LONG' ? (current - entry) * (trade.qty ?? 0) : (entry - current) * (trade.qty ?? 0);
+            // BOLT: For active trades, we display Unrealized PnL (Gross) to match exchange UI.
+            // Total wallet balance already accounts for entry fees, so we only subtract realized_fee
+            // during the final trade closure recording in the database.
+            pnl = roundEight(grossPnl);
+            pnlPct = entry ? ((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1) : 0;
+            const risk = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
+            rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / risk;
+        }
+        const slPriceForEst = trade.current_sl || trade.sl_price || 0;
+        let ratchetPnl = undefined;
+        if (slPriceForEst > 0) {
+            if (direction === 'LONG') {
+                ratchetPnl = (slPriceForEst - entry) * (trade.qty ?? 0);
+            }
+            else {
+                ratchetPnl = (entry - slPriceForEst) * (trade.qty ?? 0);
+            }
+        }
+        let maxEstPnlForTrade = ratchetPnl;
+        let estPnlSource = 'sl';
+        // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
+        if (trade.exit_signals_status) {
+            for (const key in trade.exit_signals_status) {
+                if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key))
+                    continue;
+                const sigStatus = trade.exit_signals_status[key];
+                if (!sigStatus)
+                    continue;
+                const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+                if (isDelayActive)
+                    continue;
+                let signalPnl = null;
+                if (sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+                    if (direction === 'LONG') {
+                        signalPnl = (sigStatus.threshold - entry) * (trade.qty ?? 0);
+                    }
+                    else {
+                        signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
+                    }
+                }
+                if (signalPnl !== null && (maxEstPnlForTrade === undefined || signalPnl > maxEstPnlForTrade)) {
+                    maxEstPnlForTrade = signalPnl;
+                    estPnlSource = `signal:${key}`;
+                }
+            }
+        }
+        // Unified Exit Estimation PnL Overrides if available
+        const exitEst = trade.exit_estimation;
+        if (exitEst && typeof exitEst.estimatedPnl === 'number') {
+            maxEstPnlForTrade = exitEst.estimatedPnl;
+            estPnlSource = `exit_estimation:${exitEst.selectedSignalKey || 'composite'}`;
+        }
+        if (minimal) {
+            return {
+                id: trade.id,
+                symbol: trade.symbol,
+                strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
+                current_price: roundTo(current ?? entry, 8),
+                exit_price: trade.exit_price !== undefined ? roundTo(trade.exit_price, 8) : undefined,
+                exit_reason: trade.exit_reason,
+                sl_price: roundTo(trade.current_sl, 8),
+                tp_price: roundTo(trade.tp, 8),
+                pnl: roundTo(pnl, 2),
+                pnl_pct: roundTo(pnlPct, 4),
+                realized_fee: roundTo(trade.realized_fee, 2),
+                funding_fee: roundTo(trade.funding_fee || 0, 2),
+                rr: roundTo(rrValue, 4),
+                max_rr: roundTo(Number(trade.max_rr_achieved || 0), 4),
+                max_rr_achieved: roundTo(Number(trade.max_rr_achieved || 0), 4),
+                direction,
+                entry_price: roundTo(entry, 8),
+                qty: roundTo(trade.qty ?? 0, 8),
+                is_knife: trade.is_knife ?? false,
+                is_martingale: trade.is_martingale ?? false,
+                is_reconciliation: trade.is_reconciliation ?? false,
+                martingale_multiplier: trade.martingale_multiplier ?? undefined,
+                martingale_step: trade.martingale_step ?? undefined,
+                martingale_threshold_reset: trade.martingale_threshold_reset ?? false,
+                exit_signals_status: trade.exit_signals_status || {},
+                sl_adjustments: trade.sl_adjustments || [],
+                active_trade_events: trade.active_trade_events || [],
+                entry_daily_change_pct: trade.entry_daily_change_pct,
+                initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
+                risk_usdt: trade.risk_usdt ?? 0,
+                risk_lock_reason: trade.risk_lock_reason,
+                est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+                est_pnl_source: estPnlSource,
+                exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
+                min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
+                rr_sequence_index: trade.rr_sequence_index ?? -1,
+                close_attempts: trade.close_attempts,
+                close_blocked: trade.close_blocked,
+                exit_estimation: exitEst,
+                _delta: true,
+            };
+        }
+        return {
+            ...trade,
+            direction,
+            is_knife: trade.is_knife ?? false,
+            is_martingale: trade.is_martingale ?? false,
+            is_reconciliation: trade.is_reconciliation ?? false,
+            martingale_multiplier: trade.martingale_multiplier ?? undefined,
+            martingale_step: trade.martingale_step ?? undefined,
+            martingale_threshold_reset: trade.martingale_threshold_reset ?? false,
+            entry_daily_change_pct: trade.entry_daily_change_pct,
+            initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
+            risk_usdt: trade.risk_usdt ?? 0,
+            risk_lock_reason: trade.risk_lock_reason,
+            close_attempts: trade.close_attempts,
+            close_blocked: trade.close_blocked,
+            current_price: roundTo(current ?? entry, 8),
+            sl_price: roundTo(trade.current_sl, 8),
+            tp_price: roundTo(trade.tp, 8),
+            pnl: roundTo(pnl, 2),
+            pnl_pct: roundTo(pnlPct, 4),
+            realized_fee: roundTo(trade.realized_fee, 2),
+            funding_fee: roundTo(trade.funding_fee || 0, 2),
+            rr: roundTo(rrValue, 4),
+            paper_mode: config?.paper_mode,
+            trading_mode: config?.trading_mode || (config?.paper_mode ? 'paper' : 'live'),
+            max_rr: roundTo(Number(trade.max_rr_achieved || 0), 4),
+            max_rr_achieved: roundTo(Number(trade.max_rr_achieved || 0), 4),
+            est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+            est_pnl_source: estPnlSource,
+            exit_estimation: exitEst,
+            exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
+            min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
+            strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
+            strategy_config: trade.strategy_config,
+            live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
+            exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
+            exit_signal_logic: trade.strategy_config?.exit_signal_logic || config?.exit_signal_logic || 'any',
+            tp_mode: trade.strategy_config?.tp_mode || config?.tp_mode || 'fixed',
+            tp_ratio: trade.strategy_config?.tp_ratio || config?.tp_ratio || 2,
+        };
+    }
+    /**
+     * BOLT OPTIMIZATION: High-performance serialization for the broadcast tick.
+     * Avoids double-allocations and redundant mapping by returning TickTradeDto directly.
+     */
+    serializeTickTrade(trade, config, current, pnlValue, rrValue) {
+        const direction = (trade.direction || 'LONG').toString().toUpperCase();
+        const entry = trade.entry_price ?? 0;
+        const slPriceForEst = trade.current_sl || trade.sl_price || 0;
+        let ratchetPnl = undefined;
+        if (slPriceForEst > 0) {
+            if (direction === 'LONG') {
+                ratchetPnl = (slPriceForEst - entry) * (trade.qty ?? 0);
+            }
+            else {
+                ratchetPnl = (entry - slPriceForEst) * (trade.qty ?? 0);
+            }
+        }
+        let maxEstPnlForTrade = ratchetPnl;
+        let estPnlSource = 'sl';
+        // WISP OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations on per-tick serialization path
+        if (trade.exit_signals_status) {
+            for (const key in trade.exit_signals_status) {
+                if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key))
+                    continue;
+                const sigStatus = trade.exit_signals_status[key];
+                if (!sigStatus)
+                    continue;
+                const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+                if (isDelayActive)
+                    continue;
+                let signalPnl = null;
+                if (sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
+                    if (direction === 'LONG') {
+                        signalPnl = (sigStatus.threshold - entry) * (trade.qty ?? 0);
+                    }
+                    else {
+                        signalPnl = (entry - sigStatus.threshold) * (trade.qty ?? 0);
+                    }
+                }
+                if (signalPnl !== null && (maxEstPnlForTrade === undefined || signalPnl > maxEstPnlForTrade)) {
+                    maxEstPnlForTrade = signalPnl;
+                    estPnlSource = `signal:${key}`;
+                }
+            }
+        }
+        // Unified Exit Estimation PnL Overrides if available
+        const exitEst = trade.exit_estimation;
+        if (exitEst && typeof exitEst.estimatedPnl === 'number') {
+            maxEstPnlForTrade = exitEst.estimatedPnl;
+            estPnlSource = `exit_estimation:${exitEst.selectedSignalKey || 'composite'}`;
+        }
+        return {
+            id: trade.id,
+            symbol: trade.symbol,
+            strategy_label: trade.strategy_label || this.getStrategyLabel(trade.strategy_config || config),
+            current_price: roundTo(current, 8),
+            mark_price: roundTo(current, 8),
+            last_price: roundTo(current, 8),
+            sl_price: roundTo(trade.current_sl, 8),
+            tp_price: roundTo(trade.tp, 8),
+            pnl: roundTo(pnlValue, 2),
+            pnl_pct: entry ? roundTo(((current - entry) / entry) * 100 * (direction === 'LONG' ? 1 : -1), 4) : 0,
+            realized_fee: roundTo(trade.realized_fee, 2),
+            funding_fee: roundTo(trade.funding_fee || 0, 2),
+            rr: roundTo(rrValue, 4),
+            max_rr: roundTo(Number(trade.max_rr_achieved || 0), 4),
+            max_rr_achieved: roundTo(Number(trade.max_rr_achieved || 0), 4),
+            direction,
+            entry_price: roundTo(entry, 8),
+            qty: roundTo(trade.qty ?? 0, 8),
+            is_knife: trade.is_knife ?? false,
+            is_martingale: trade.is_martingale ?? false,
+            is_reconciliation: trade.is_reconciliation ?? false,
+            martingale_multiplier: trade.martingale_multiplier ?? undefined,
+            martingale_step: trade.martingale_step ?? undefined,
+            martingale_threshold_reset: trade.martingale_threshold_reset ?? false,
+            entry_daily_change_pct: trade.entry_daily_change_pct,
+            close_attempts: trade.close_attempts,
+            close_blocked: trade.close_blocked,
+            initial_risk_usdt: trade.initial_risk_usdt ?? undefined,
+            risk_usdt: trade.risk_usdt ?? 0,
+            risk_lock_reason: trade.risk_lock_reason,
+            est_pnl_to_realize: roundTo(maxEstPnlForTrade, 2),
+            est_pnl_source: estPnlSource,
+            exit_rr: trade.exit_rr !== undefined ? roundTo(trade.exit_rr, 4) : undefined,
+            min_rr_achieved: trade.min_rr_achieved !== undefined ? roundTo(trade.min_rr_achieved, 4) : undefined,
+            rr_sequence_index: trade.rr_sequence_index ?? -1,
+            _thin: true,
+            _sl_len: trade.sl_adjustments?.length || 0,
+            active_trade_events: trade.active_trade_events || [],
+            _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
+            live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
+            exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
+            exit_estimation: exitEst,
+        };
+    }
+    /**
+     * Refactor: Move tiered fidelity logic from server.ts to a dedicated method
+     * to decouple business/display logic from the transport layer.
+     */
+    getFidelityTick(payload, client) {
+        if (payload.type !== 'tick')
+            return payload;
+        const tick = { ...payload };
+        if (tick.trades && Array.isArray(tick.trades)) {
+            tick.trades = tick.trades.map((trade) => {
+                // BOLT: If trade is already thin (from a tick delta), we can skip most stripping
+                // unless focused fidelity is requested.
+                const isThin = trade._thin === true;
+                // 1. Full Fidelity: ONLY for a specific focused trade ID
+                const isFullFidelity = client.focusMode && client.focusTradeId === trade.id;
+                // 2. Mid Fidelity: For a strategy list or the global trades view
+                const isMidFidelity = client.focusMode &&
+                    (client.focusTradeId === 'all' || client.focusStrategyLabel === trade.strategy_label);
+                if (isFullFidelity) {
+                    return trade;
+                }
+                if (isThin && !isMidFidelity) {
+                    const { _sig_json, ...cleanThinTrade } = trade;
+                    return cleanThinTrade;
+                }
+                // Strip heavy diagnostics for everyone else
+                const { strategy_config, live_rr_sequence, exit_rr_sequence, exit_signals_status, _sig_json, sl_adjustments, active_trade_events, tp_mode, tp_ratio, exit_signal_logic, ...thinTrade } = trade;
+                if (isMidFidelity) {
+                    return {
+                        ...thinTrade,
+                        live_rr_sequence: trade.live_rr_sequence,
+                        exit_rr_sequence: trade.exit_rr_sequence,
+                        _thin: true,
+                    };
+                }
+                // Low Fidelity: For Dashboard overview (No sequences, no logs)
+                return { ...thinTrade, _thin: true };
+            });
+        }
+        if (!client.focusMode) {
+            tick.activeWindows = [];
+        }
+        if (client.monitoringEnabled === false) {
+            delete tick.monitoring;
+        }
+        return tick;
+    }
+    broadcastTick(activeTrades, config, strategyConfigs, isEcoMode, getActiveWindows, getBinanceRateLimit) {
+        if (this.sessionState.listenerCount === 0)
+            return;
+        const now = Date.now();
+        const isHeartbeat = !this.lastTickData || (now - this.lastTickTime > 10000);
+        const trades = [];
+        const len = activeTrades.length;
+        let anyPriceChangedSignificant = false;
+        let activePnl = 0;
+        let totalRiskUsdt = 0;
+        let totalEstPnlToRealize = 0;
+        const hasVariants = !!(config?.strategy_variants?.length);
+        const variantGroups = {};
+        const priceCache = new Map();
+        const riskResult = this.riskEngine.canEnter(this.positionTracker.activeList(), this.sessionState.closedTrades, this.sessionState.getBalance(config?.paper_mode ?? true), 'DUMMY', config, this.positionTracker.totalRisk());
+        this.lastRiskResult = riskResult;
+        const currentTickSentTrades = new Map();
+        for (let i = 0; i < len; i++) {
+            const trade = activeTrades[i];
+            const prevTrade = this.lastSentTrades.get(trade.id);
+            let currentPrice = priceCache.get(trade.symbol);
+            if (currentPrice === undefined) {
+                currentPrice = this.tickerCache.getPrice(trade.symbol);
+                priceCache.set(trade.symbol, currentPrice);
+            }
+            if (currentPrice === null && prevTrade)
+                currentPrice = prevTrade.current_price;
+            const current = currentPrice ?? trade.exit_price ?? trade.last_price ?? trade.entry_price;
+            if (currentPrice !== null) {
+                trade.last_price = currentPrice;
+                trade.mark_price = currentPrice;
+            }
+            const direction = trade.direction || 'LONG';
+            const entry = Number(trade.entry_price) || 0;
+            const qty = Number(trade.qty) || 0;
+            let currentVal = Number(current);
+            if (isNaN(currentVal) || !isFinite(currentVal)) {
+                this.logger.warn(`[DEBUG] Invalid current price: ${current} for ${trade.symbol} (${trade.id}). Falling back to entry price: ${entry}`);
+                currentVal = entry;
+            }
+            let grossPnl = direction === 'LONG' ? (currentVal - entry) * qty : (entry - currentVal) * qty;
+            if (isNaN(grossPnl) || !isFinite(grossPnl)) {
+                this.logger.warn(`[DEBUG] NaN grossPnl detected for ${trade.symbol} (${trade.id}). Current: ${currentVal}, Entry: ${entry}, Qty: ${qty}. Forcing to 0`);
+                grossPnl = 0;
+            }
+            // BOLT: Match exchange Unrealized PnL (Gross)
+            let pnlValue = roundEight(grossPnl);
+            if (isNaN(pnlValue) || !isFinite(pnlValue)) {
+                pnlValue = 0;
+            }
+            activePnl += pnlValue;
+            totalRiskUsdt += (Number(trade.risk_usdt) || 0);
+            const slPriceForEst = Number(trade.current_sl || trade.sl_price) || 0;
+            let ratchetPnl = undefined;
+            if (slPriceForEst > 0 && !isNaN(slPriceForEst) && isFinite(slPriceForEst)) {
+                if (direction === 'LONG') {
+                    ratchetPnl = (slPriceForEst - entry) * qty;
+                }
+                else {
+                    ratchetPnl = (entry - slPriceForEst) * qty;
+                }
+            }
+            let maxEstPnlForTrade = ratchetPnl;
+            // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
+            if (trade.exit_signals_status) {
+                for (const key in trade.exit_signals_status) {
+                    if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key))
+                        continue;
+                    const sigStatus = trade.exit_signals_status[key];
+                    if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0 && !isNaN(sigStatus.threshold) && isFinite(sigStatus.threshold)) {
+                        let signalPnl = 0;
+                        if (direction === 'LONG') {
+                            signalPnl = (sigStatus.threshold - entry) * qty;
+                        }
+                        else {
+                            signalPnl = (entry - sigStatus.threshold) * qty;
+                        }
+                        if (!isNaN(signalPnl) && isFinite(signalPnl)) {
+                            const isDelayActive = typeof sigStatus.remaining_delay === 'number' && sigStatus.remaining_delay > 0;
+                            if (!isDelayActive && (maxEstPnlForTrade === undefined || signalPnl > maxEstPnlForTrade)) {
+                                maxEstPnlForTrade = signalPnl;
+                            }
+                        }
+                    }
+                }
+            }
+            if (maxEstPnlForTrade !== undefined && !isNaN(maxEstPnlForTrade) && isFinite(maxEstPnlForTrade)) {
+                totalEstPnlToRealize += maxEstPnlForTrade;
+            }
+            const riskDist = Math.abs(entry - (trade.initial_sl ?? trade.current_sl ?? entry)) || 1;
+            const rrValue = (direction === 'LONG' ? (current - entry) : (entry - current)) / riskDist;
+            if (hasVariants) {
+                const label = trade.strategy_label || 'Momentum Strategy';
+                if (!variantGroups[label])
+                    variantGroups[label] = { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
+                const g = variantGroups[label];
+                g.pnl = roundEight(g.pnl + pnlValue);
+                g.risk = roundEight(g.risk + (trade.risk_usdt || 0));
+                g.count++;
+                if (pnlValue > 0)
+                    g.hits++;
+                g.estPnlToRealize = roundEight(g.estPnlToRealize + (maxEstPnlForTrade || 0));
+            }
+            let tradeChanged = !prevTrade || isHeartbeat;
+            if (!tradeChanged && prevTrade) {
+                if (trade.current_sl !== prevTrade.sl_price || trade.max_rr_achieved !== prevTrade.max_rr || trade.direction !== prevTrade.direction) {
+                    tradeChanged = true;
+                }
+                else if ((trade.sl_adjustments?.length || 0) !== (prevTrade._sl_len || 0)) {
+                    tradeChanged = true;
+                }
+                else if (trade._sig_json !== prevTrade._sig_json) {
+                    tradeChanged = true;
+                }
+                else {
+                    const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));
+                    // BOLT: Standard operational thresholds for broadcast balance.
+                    if (pnlDelta >= 0.05) {
+                        tradeChanged = true;
+                        anyPriceChangedSignificant = true;
+                    }
+                    else {
+                        const priceMoveRatio = Math.abs(current - (prevTrade.current_price || 0)) / (prevTrade.current_price || 1);
+                        if (priceMoveRatio >= 0.0001) {
+                            tradeChanged = true;
+                        }
+                        else {
+                            if (Math.abs(rrValue - (prevTrade.rr || 0)) >= 0.01) {
+                                tradeChanged = true;
+                                anyPriceChangedSignificant = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if (tradeChanged) {
+                const thin = this.serializeTickTrade(trade, config, current, pnlValue, rrValue);
+                trades.push(thin);
+                currentTickSentTrades.set(trade.id, thin);
+            }
+            else if (prevTrade) {
+                currentTickSentTrades.set(trade.id, prevTrade);
+            }
+        }
+        const balance = this.sessionState.getBalance(config?.paper_mode ?? true);
+        const mode = config?.trading_mode || (config?.paper_mode ? 'paper' : 'live');
+        const startingBalance = (mode === 'paper') ? config?.paper_starting_balance : config?.live_starting_balance;
+        // WISP OPTIMIZATION: Eliminate O(N) closed trades array iteration loop on the high-frequency broadcast tick path.
+        // Instead of looping through up to 500 closed trades every 500ms tick, retrieve pre-accumulated realized PnL
+        // directly from this.sessionState.stats.totalPnl in O(1) time.
+        let realizedPnl = 0;
+        if (this.sessionState.closedTrades && this.sessionState.closedTrades.length > 0) {
+            realizedPnl = roundEight(this.sessionState.stats?.totalPnl ?? 0);
+        }
+        else {
+            realizedPnl = roundEight(balance - (startingBalance ?? balance));
+        }
+        const totalPnl = roundEight(realizedPnl + activePnl);
+        const analyticsCondition = !this.lastAnalyticsResult ||
+            this.sessionState.closedTrades.length !== this.lastAnalyticsTradeCount ||
+            (startingBalance !== undefined && startingBalance !== null && startingBalance !== this.lastAnalyticsStartingBalance);
+        if (analyticsCondition) {
+            this.lastAnalyticsResult = this.analyticsService.calculateAnalytics(this.sessionState.closedTrades, startingBalance);
+            this.lastAnalyticsTradeCount = this.sessionState.closedTrades.length;
+            this.lastAnalyticsStartingBalance = startingBalance ?? 0;
+        }
+        const monitoringInterval = 15000;
+        const lastMonitoringTime = this.lastTickData?._monitoring_ts || 0;
+        const shouldUpdateMonitoring = (now - lastMonitoringTime > monitoringInterval) || !this.lastTickData;
+        const monitoring = shouldUpdateMonitoring ? this.monitoringService.getMetrics() : null;
+        let variantStats;
+        if (hasVariants) {
+            variantStats = {};
+            const closedStats = this.sessionState.cachedClosedTradesStats;
+            for (let i = 0; i < strategyConfigs.length; i++) {
+                const l = strategyConfigs[i].strategy_label;
+                const a = variantGroups[l] || { pnl: 0, risk: 0, count: 0, hits: 0, estPnlToRealize: 0 };
+                const c = closedStats[l] || { pnl: 0, count: 0, hits: 0 };
+                variantStats[l] = {
+                    totalPnl: roundEight(c.pnl + a.pnl),
+                    entryCount: c.count + a.count,
+                    hitCount: c.hits + a.hits,
+                    totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2),
+                    activeTradeCount: a.count,
+                    totalSlUsed: roundTo(a.risk, 2),
+                    totalEstPnlToRealize: roundTo(c.pnl + (a.estPnlToRealize || 0), 2)
+                };
+            }
+        }
+        const tickData = {
+            balance: roundTo(balance, 2),
+            total_pnl: roundTo(totalPnl, 2),
+            total_risk_pct: roundTo(balance > 0 ? (totalRiskUsdt / balance) * 100 : 0, 2),
+            total_sl_used: roundTo(totalRiskUsdt, 2),
+            total_est_pnl_to_realize: roundTo(realizedPnl + totalEstPnlToRealize, 2),
+            trades,
+            gateState: this.sessionState.gateState,
+            gateReason: this.lastRiskResult?.reason || 'OK',
+            tradesInPeriod: this.lastRiskResult?.tradesInPeriod,
+            maxTradesPeriod: this.lastRiskResult?.maxTradesPeriod,
+            tradesIn24h: this.lastRiskResult?.tradesIn24h,
+            maxTrades24h: this.lastRiskResult?.maxTrades24h,
+            effectivePeriodMs: this.lastRiskResult?.effectivePeriodMs,
+            jitterFactor: this.lastRiskResult?.jitterFactor,
+            hibernating: this.sessionState.hibernating,
+            hibernation_mode: config.hibernation_mode || 'adaptive',
+            isAdaptiveTightened: this.sessionState.isAdaptiveTightened,
+            paused: this.sessionState.paused,
+            paused_strategies: (this.sessionState.pausedStrategies && this.sessionState.pausedStrategies.size > 0)
+                ? Array.from(this.sessionState.pausedStrategies)
+                : EMPTY_ARRAY,
+            strategy_gate_states: this.serializeStrategyGateStates(),
+            scannerPaused: this.sessionState.gateState === 'max_trades' || this.sessionState.gateState === 'sl_guard' || this.sessionState.gateState === 'max_trades_period' || this.sessionState.paused,
+            last_scan_ts: this.sessionState.last_scan_ts,
+            next_scan_ts: this.sessionState.next_scan_ts,
+            scan_interval_ms: this.sessionState.scan_interval_ms,
+            activeWindows: getActiveWindows(),
+            rateLimit: getBinanceRateLimit(),
+            stats: this.sessionState.stats,
+            monitoring,
+            isEcoMode: isEcoMode,
+            apiStatus: this.sessionState.apiStatus,
+            _statsVersion: this.sessionState.statsVersion,
+        };
+        if (variantStats)
+            tickData.variant_stats = variantStats;
+        // BOLT: Heartbeat frequency should be 10s if any trades are active, regardless of "significance".
+        // This prevents the UI from appearing stuck when prices are moving slowly.
+        const heartbeatInterval = activeTrades.length > 0 ? 10000 : (this.sessionState.listenerCount > 0 ? 30000 : 60000);
+        let shouldBroadcast = !this.lastTickData || (now - this.lastTickTime > heartbeatInterval);
+        if (shouldBroadcast)
+            tickData._heartbeat = true;
+        if (!shouldBroadcast) {
+            const tradesChanged = trades.length > 0 || anyPriceChangedSignificant;
+            // BOLT: Standard threshold for total session PnL change (0.10 USDT)
+            const pnlChanged = Math.abs(totalPnl - (this.lastTickData?.total_pnl || 0)) >= 0.10;
+            const balanceChanged = Math.abs(tickData.balance - (this.lastTickData?.balance || 0)) >= 0.01;
+            const gateChanged = tickData.gateState !== this.lastTickData?.gateState;
+            const statsChanged = tickData._statsVersion !== this.lastTickData?._statsVersion;
+            if (!shouldUpdateMonitoring)
+                delete tickData.monitoring;
+            else
+                tickData._monitoring_ts = now;
+            if (tradesChanged || pnlChanged || balanceChanged || gateChanged || statsChanged) {
+                shouldBroadcast = true;
+            }
+        }
+        if (shouldBroadcast) {
+            this.broadcastService.broadcast('tick', tickData);
+            this.lastTickData = tickData;
+            this.lastTickTime = now;
+            this.lastSentTrades = currentTickSentTrades;
+        }
+    }
+};
+EngineBroadcasterService = EngineBroadcasterService_1 = __decorate([
+    Injectable(),
+    __param(7, Inject(forwardRef(() => PositionTrackerService))),
+    __metadata("design:paramtypes", [TickerCacheService,
+        SessionStateService,
+        MonitoringService,
+        AnalyticsService,
+        BroadcastService,
+        VariantAnalyticsService,
+        RiskEngineService,
+        PositionTrackerService])
+], EngineBroadcasterService);
+export { EngineBroadcasterService };

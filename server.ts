@@ -1087,7 +1087,7 @@ async function getBinanceHealthStatus(isFresh = false) {
     geo_restricted: isGeo,
     live,
     testnet,
-    uds_status: state.running ? 'CONNECTED' : 'DISCONNECTED',
+    uds_status: (state as any).running ? 'CONNECTED' : 'DISCONNECTED',
     ip_status: {
       is_banned: isBanned,
       is_rate_limited: isRateLimited,
@@ -1935,7 +1935,7 @@ app.get('/session', (req, res, next) => {
   if (req.accepts('html')) {
     return next();
   }
-  res.json(state.activeSession || { status: 'idle', active: false });
+  res.json((state as any).activeSession || { status: 'idle', active: false });
 });
 
 // Vite Middleware for Frontend Integration
@@ -1949,7 +1949,7 @@ async function startServer() {
       server: {
         middlewareMode: true,
         hmr: false,
-        proxy: false,
+        proxy: {},
       },
       appType: 'spa',
       root: path.resolve(__dirname, 'frontend'),

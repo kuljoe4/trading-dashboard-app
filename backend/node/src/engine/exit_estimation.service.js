@@ -1,0 +1,784 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var ExitEstimationService_1;
+import { Injectable, Logger } from '@nestjs/common';
+import { KlineStoreService } from './kline_store.service';
+import { roundTo, parseIntervalToMs } from '../lib/math';
+let ExitEstimationService = ExitEstimationService_1 = class ExitEstimationService {
+    klineStore;
+    logger = new Logger(ExitEstimationService_1.name);
+    constructor(klineStore) {
+        this.klineStore = klineStore;
+    }
+    /**
+     * Calculates Average True Range (ATR) over N candles.
+     */
+    calculateATR(candles, period = 10) {
+        if (candles.length < 2)
+            return 0;
+        let trSum = 0;
+        const startIdx = Math.max(1, candles.length - period);
+        const count = candles.length - startIdx;
+        if (count <= 0)
+            return 0;
+        for (let i = startIdx; i < candles.length; i++) {
+            const high = candles[i].high;
+            const low = candles[i].low;
+            const prevClose = candles[i - 1].close;
+            const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+            trSum += tr;
+        }
+        return trSum / count;
+    }
+    /**
+     * Calculates EMA series for a given array of prices or candles.
+     * BOLT OPTIMIZATION: Supports operating directly on Candle[] or number[] to eliminate
+     * intermediate candles.map(c => c.close) array heap allocations.
+     */
+    calculateEMAValues(prices, period) {
+        const len = prices.length;
+        if (len < period)
+            return [];
+        const k = 2 / (period + 1);
+        const emaValues = new Array(len);
+        let sum = 0;
+        for (let i = 0; i < period; i++) {
+            const p = typeof prices[i] === 'number' ? prices[i] : prices[i].close;
+            sum += p;
+        }
+        emaValues[period - 1] = sum / period;
+        for (let i = period; i < len; i++) {
+            const p = typeof prices[i] === 'number' ? prices[i] : prices[i].close;
+            emaValues[i] = p * k + emaValues[i - 1] * (1 - k);
+        }
+        return emaValues;
+    }
+    /**
+     * Calculates MACD histogram series from candles.
+     * BOLT OPTIMIZATION: Eliminates candles.map(c => c.close) and preallocates macdLine and histogram
+     * arrays with new Array(len) to eliminate dynamic array growth/resizes during MACD calculation.
+     */
+    calculateMACDHistogramSeries(candles, fastPeriod = 12, slowPeriod = 26, signalPeriod = 9) {
+        const len = candles.length;
+        if (len < slowPeriod + signalPeriod)
+            return [];
+        const fastEma = this.calculateEMAValues(candles, fastPeriod);
+        const slowEma = this.calculateEMAValues(candles, slowPeriod);
+        const macdStartIdx = slowPeriod - 1;
+        const macdLen = len - macdStartIdx;
+        const macdLine = new Array(macdLen);
+        for (let i = 0; i < macdLen; i++) {
+            const idx = macdStartIdx + i;
+            macdLine[i] = fastEma[idx] - slowEma[idx];
+        }
+        if (macdLen < signalPeriod)
+            return [];
+        const signalEma = this.calculateEMAValues(macdLine, signalPeriod);
+        const signalStartIdx = signalPeriod - 1;
+        const histLen = macdLen - signalStartIdx;
+        const histogram = new Array(histLen);
+        for (let i = 0; i < histLen; i++) {
+            const idx = signalStartIdx + i;
+            histogram[i] = macdLine[idx] - signalEma[idx];
+        }
+        return histogram;
+    }
+    /**
+     * Single-signal exit estimation logic based on exact technical indicator dynamics.
+     */
+    estimateExitSignal(signalType, trade, config, interval = '1m', passedCandles, signalDetail) {
+        const symbol = trade.symbol;
+        const isLong = trade.direction === 'LONG';
+        const entryPrice = trade.entry_price;
+        const qty = trade.qty;
+        const initialRiskUsdt = trade.initial_risk_usdt || (Math.abs(entryPrice - trade.initial_sl) * qty);
+        const signalTf = config.signal_timeframes?.[signalType] && config.signal_timeframes[signalType] !== 'default'
+            ? config.signal_timeframes[signalType]
+            : interval;
+        const candles = passedCandles || this.klineStore.getRawCandles(symbol, signalTf);
+        const intervalMs = parseIntervalToMs(signalTf);
+        if (candles.length < 5) {
+            return {
+                signalType,
+                state: 'approaching',
+                proximity: 0,
+                etaCandles: null,
+                etaSeconds: null,
+                confidence: 0,
+                estimatedExitPrice: null,
+                estimatedPnl: null,
+                estimatedR: null,
+                method: 'event_state',
+                description: 'Insufficient candle data for exit estimation'
+            };
+        }
+        const currentCandle = candles[candles.length - 1];
+        const currentPrice = currentCandle.close;
+        // Helper for PnL / R calculations
+        const computePnLAndR = (estPrice) => {
+            if (!estPrice || estPrice <= 0 || qty <= 0)
+                return { estPnl: null, estR: null };
+            const rawPnl = isLong
+                ? (estPrice - entryPrice) * qty
+                : (entryPrice - estPrice) * qty;
+            const estPnl = roundTo(rawPnl, 2);
+            const estR = initialRiskUsdt > 0 ? roundTo(rawPnl / initialRiskUsdt, 2) : null;
+            return { estPnl, estR };
+        };
+        // 1. Check for engine rejection or fired state
+        const isFired = !!signalDetail?.fired;
+        const isBlocked = !!(signalDetail?.rejected || signalDetail?.status === 'blocked');
+        const isStale = !!(signalDetail?.status === 'stale');
+        if (isFired) {
+            const { estPnl, estR } = computePnLAndR(currentPrice);
+            return {
+                signalType,
+                state: 'fired',
+                proximity: 100,
+                etaCandles: 0,
+                etaSeconds: 0,
+                confidence: 100,
+                estimatedExitPrice: currentPrice,
+                estimatedPnl: estPnl,
+                estimatedR: estR,
+                method: 'event_state',
+                description: 'Exit signal fired'
+            };
+        }
+        if (isBlocked) {
+            return {
+                signalType,
+                state: 'blocked',
+                proximity: 0,
+                etaCandles: null,
+                etaSeconds: null,
+                confidence: 0,
+                estimatedExitPrice: null,
+                estimatedPnl: null,
+                estimatedR: null,
+                method: 'event_state',
+                description: signalDetail?.description || 'Blocked by filter'
+            };
+        }
+        if (isStale) {
+            return {
+                signalType,
+                state: 'stale',
+                proximity: 0,
+                etaCandles: null,
+                etaSeconds: null,
+                confidence: 0,
+                estimatedExitPrice: null,
+                estimatedPnl: null,
+                estimatedR: null,
+                method: 'event_state',
+                description: 'Exit condition already passed'
+            };
+        }
+        let baseType = signalType;
+        const lastUnderscore = signalType.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+            const potentialBase = signalType.substring(0, lastUnderscore);
+            if (['ema', 'ema_cross', 'ema_dual_cross', 'ema_close', 'ema_dual_close', 'macd_impulse', 'macd_fade', 'macd_pbc', 'supertrend'].includes(potentialBase)) {
+                baseType = potentialBase;
+            }
+        }
+        // --- ESTIMATOR 1: DUAL EMA CONVERGENCE (ema_dual_cross) ---
+        if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close') {
+            const val = Number(signalDetail?.value || 0);
+            const thresh = Number(signalDetail?.threshold || 0);
+            // Look back 3-5 candles to estimate Fast EMA velocity ($V_f$) and Slow EMA velocity ($V_s$)
+            const prevIdx = Math.max(0, candles.length - 4);
+            const lookbackCount = (candles.length - 1) - prevIdx;
+            // Price velocity
+            const priceDelta = currentCandle.close - candles[prevIdx].close;
+            const priceVelocity = lookbackCount > 0 ? priceDelta / lookbackCount : 0;
+            if (val > 0 && thresh > 0) {
+                // Fast/Slow spread: distance remaining until cross
+                // For LONG: before cross, Fast < Slow, so distance = Slow - Fast (thresh - val)
+                // For SHORT: before cross, Fast > Slow, so distance = Fast - Slow (val - thresh)
+                const currentSpread = isLong ? (thresh - val) : (val - thresh);
+                // Previous spread
+                const prevFast = Number(signalDetail?.prevFast || val);
+                const prevSlow = Number(signalDetail?.prevSlow || thresh);
+                const prevSpread = isLong ? (prevSlow - prevFast) : (prevFast - prevSlow);
+                // Spread contraction rate per candle: negative rate means spread is narrowing towards 0 (crossover)
+                const spreadDelta = currentSpread - prevSpread;
+                let spreadVelocity = lookbackCount > 0 ? -(spreadDelta / lookbackCount) : 0;
+                // --- KALMAN FILTER FOR SPREAD VELOCITY AND ETA ---
+                // Run Kalman filter over the last 10 candles (or available) to build state
+                const kalmanLookback = Math.min(10, candles.length);
+                const kStartIdx = candles.length - kalmanLookback;
+                // Compute EMAs for historical spreads
+                // We will just approximate historical spread using price delta if fast/slow history is unavailable,
+                // but since we only have `val` and `thresh` (current) and `prevFast`/`prevSlow`, we can interpolate
+                // or just use a simple history array. Actually, we should compute the EMA series if we want exact history.
+                // Or we can use the Kalman filter over the available prevSpread and currentSpread.
+                // For a more robust filter without full EMA recalculation, we can just apply the filter on the available points
+                // But to truly build state we need more points. Let's recalculate the fast/slow EMA series for the lookback.
+                const sp = config.signal_params || {};
+                const isCloseSignal = baseType === 'ema_dual_close';
+                const p1 = Number(sp[isCloseSignal ? 'entry_ema_fast' : 'ema_dual_fast']) || Number(sp['ema_fast']) || 9;
+                const p2 = Number(sp[isCloseSignal ? 'entry_ema_slow' : 'ema_dual_slow']) || Number(sp['ema_slow']) || 21;
+                const fastSeries = this.calculateEMAValues(candles, p1);
+                const slowSeries = this.calculateEMAValues(candles, p2);
+                // P (covariance) and Q (process noise), R (measurement noise)
+                let p00 = 1, p01 = 0, p10 = 0, p11 = 1;
+                let pp00 = 1, pp01 = 0, pp10 = 0, pp11 = 1;
+                const q = 0.01;
+                const r = 1.0;
+                const dt = 1;
+                let k_x = 0;
+                let k_v = 0;
+                let p_x = candles[kStartIdx].close;
+                let p_v = 0;
+                // Initialize with first point in window
+                if (fastSeries.length >= candles.length && slowSeries.length >= candles.length) {
+                    const initFast = fastSeries[kStartIdx];
+                    const initSlow = slowSeries[kStartIdx];
+                    k_x = isLong ? (initSlow - initFast) : (initFast - initSlow);
+                }
+                else {
+                    k_x = prevSpread;
+                }
+                for (let i = kStartIdx + 1; i < candles.length; i++) {
+                    // Spread measurement
+                    let z_spread = 0;
+                    if (fastSeries.length >= candles.length && slowSeries.length >= candles.length) {
+                        z_spread = isLong ? (slowSeries[i] - fastSeries[i]) : (fastSeries[i] - slowSeries[i]);
+                    }
+                    else {
+                        z_spread = i === candles.length - 1 ? currentSpread : prevSpread;
+                    }
+                    // Predict Spread
+                    const x_pred = k_x + k_v * dt;
+                    const v_pred = k_v;
+                    const p00_pred = p00 + dt * p10 + dt * (p01 + dt * p11) + q;
+                    const p01_pred = p01 + dt * p11;
+                    const p10_pred = p10 + dt * p11;
+                    const p11_pred = p11 + q;
+                    // Update Spread
+                    const y_err = z_spread - x_pred;
+                    const S = p00_pred + r;
+                    const K0 = p00_pred / S;
+                    const K1 = p10_pred / S;
+                    k_x = x_pred + K0 * y_err;
+                    k_v = v_pred + K1 * y_err;
+                    p00 = (1 - K0) * p00_pred;
+                    p01 = (1 - K0) * p01_pred;
+                    p10 = -K1 * p00_pred + p10_pred;
+                    p11 = -K1 * p01_pred + p11_pred;
+                    // Price measurement
+                    const z_price = candles[i].close;
+                    // Predict Price
+                    const px_pred = p_x + p_v * dt;
+                    const pv_pred = p_v;
+                    const pp00_pred = pp00 + dt * pp10 + dt * (pp01 + dt * pp11) + q;
+                    const pp01_pred = pp01 + dt * pp11;
+                    const pp10_pred = pp10 + dt * pp11;
+                    const pp11_pred = pp11 + q;
+                    // Update Price
+                    const py_err = z_price - px_pred;
+                    const pS = pp00_pred + r;
+                    const pK0 = pp00_pred / pS;
+                    const pK1 = pp10_pred / pS;
+                    p_x = px_pred + pK0 * py_err;
+                    p_v = pv_pred + pK1 * py_err;
+                    pp00 = (1 - pK0) * pp00_pred;
+                    pp01 = (1 - pK0) * pp01_pred;
+                    pp10 = -pK1 * pp00_pred + pp10_pred;
+                    pp11 = -pK1 * pp01_pred + pp11_pred;
+                }
+                // Use Kalman velocity (negated since we track contraction)
+                spreadVelocity = -k_v;
+                if (spreadVelocity > 0 && currentSpread > 0) {
+                    const rawEta = currentSpread / spreadVelocity;
+                    const etaCandles = Math.max(1, Math.round(rawEta * 10) / 10);
+                    const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+                    const filteredPriceVelocity = p_v;
+                    const estimatedExitPrice = roundTo(currentPrice + filteredPriceVelocity * etaCandles, 8);
+                    const { estPnl, estR } = computePnLAndR(estimatedExitPrice);
+                    const proximity = Math.min(99, Math.max(1, Math.round((1 - (currentSpread / (currentSpread + spreadVelocity * 5))) * 100)));
+                    return {
+                        signalType,
+                        state: 'approaching',
+                        proximity,
+                        etaCandles,
+                        etaSeconds,
+                        confidence: 78,
+                        estimatedExitPrice,
+                        estimatedPnl: estPnl,
+                        estimatedR: estR,
+                        method: 'dual_convergence',
+                        description: `Fast/Slow EMA converging (~${etaCandles} candles)`,
+                        components: {
+                            fastValue: val,
+                            slowValue: thresh,
+                            spread: roundTo(currentSpread, 8),
+                            spreadVelocity: roundTo(spreadVelocity, 8),
+                            priceVelocity: roundTo(priceVelocity, 8)
+                        }
+                    };
+                }
+                else if (currentSpread <= 0) {
+                    // Cross already satisfied
+                    const { estPnl, estR } = computePnLAndR(currentPrice);
+                    return {
+                        signalType,
+                        state: 'ready',
+                        proximity: 99,
+                        etaCandles: 0,
+                        etaSeconds: 0,
+                        confidence: 90,
+                        estimatedExitPrice: currentPrice,
+                        estimatedPnl: estPnl,
+                        estimatedR: estR,
+                        method: 'dual_convergence',
+                        description: 'EMA cross condition met',
+                        components: { fastValue: val, slowValue: thresh, spread: roundTo(currentSpread, 8), distancePct: roundTo(Math.abs((val - thresh) / thresh) * 100, 4) }
+                    };
+                }
+                else {
+                    // Spread is widening (diverging)
+                    return {
+                        signalType,
+                        state: 'diverging',
+                        proximity: 0,
+                        etaCandles: null,
+                        etaSeconds: null,
+                        confidence: 60,
+                        estimatedExitPrice: null,
+                        estimatedPnl: null,
+                        estimatedR: null,
+                        method: 'dual_convergence',
+                        description: 'Fast/Slow EMA diverging',
+                        components: { fastValue: val, slowValue: thresh, spread: roundTo(currentSpread, 8), spreadVelocity: roundTo(spreadVelocity, 8) }
+                    };
+                }
+            }
+        }
+        // Calculate True ATR over 10 candles for distance scaling
+        const atr = this.calculateATR(candles, 10) || (currentPrice * 0.01);
+        // Lookback for price velocity over 3 candles
+        const prevPriceIdx = Math.max(0, candles.length - 4);
+        const lookbackCount = (candles.length - 1) - prevPriceIdx;
+        const priceDelta = currentCandle.close - candles[prevPriceIdx].close;
+        const priceVelocity = lookbackCount > 0 ? priceDelta / lookbackCount : 0;
+        // --- ESTIMATOR 2: SUPERTREND TREND & CROSSOVER ---
+        if (baseType === 'supertrend') {
+            const thresh = Number(signalDetail?.threshold || 0);
+            if (thresh > 0) {
+                const dist = Math.abs(currentPrice - thresh);
+                const { estPnl, estR } = computePnLAndR(thresh);
+                // Directional velocity towards Supertrend threshold
+                const dirVelocity = isLong ? -priceVelocity : priceVelocity;
+                const effectiveSpeed = Math.max(dirVelocity, atr / 5);
+                const etaCandles = Math.max(1, Math.round((dist / effectiveSpeed) * 10) / 10);
+                const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+                const proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (3 * atr))) * 100)));
+                return {
+                    signalType,
+                    state: 'approaching',
+                    proximity,
+                    etaCandles,
+                    etaSeconds,
+                    confidence: 82,
+                    estimatedExitPrice: thresh,
+                    estimatedPnl: estPnl,
+                    estimatedR: estR,
+                    method: 'indicator_convergence',
+                    description: `Supertrend band ${dist.toFixed(2)} away (ATR: ${atr.toFixed(2)})`,
+                    components: { atr: roundTo(atr, 4), distance: roundTo(dist, 4) }
+                };
+            }
+        }
+        // --- ESTIMATOR 3: MACD IMPULSE / FADE / PBC ---
+        if (baseType === 'macd_impulse' || baseType === 'macd_fade' || baseType === 'macd_pbc') {
+            const sp = config.signal_params || {};
+            const fastPeriod = Number(sp.macd_fast || 12);
+            const slowPeriod = Number(sp.macd_slow || 26);
+            const signalPeriod = Number(sp.macd_signal || 9);
+            const histSeries = this.calculateMACDHistogramSeries(candles, fastPeriod, slowPeriod, signalPeriod);
+            if (histSeries.length >= 3) {
+                const currHist = histSeries[histSeries.length - 1];
+                const prevHist = histSeries[histSeries.length - 2];
+                const histVelocity = currHist - prevHist; // Velocity of histogram change per candle
+                // Long exit triggers when green histogram contracts (velocity < 0) or flips negative (currHist < 0)
+                // Short exit triggers when red histogram contracts (velocity > 0) or flips positive (currHist > 0)
+                const isFading = isLong ? (currHist < 0 || histVelocity < 0) : (currHist > 0 || histVelocity > 0);
+                if (isFading) {
+                    // If already crossed 0 or flipped, it's ready/firing
+                    const isCrossed = isLong ? currHist <= 0 : currHist >= 0;
+                    if (isCrossed) {
+                        const { estPnl, estR } = computePnLAndR(currentPrice);
+                        return {
+                            signalType,
+                            state: 'ready',
+                            proximity: 99,
+                            etaCandles: 0,
+                            etaSeconds: 0,
+                            confidence: 90,
+                            estimatedExitPrice: currentPrice,
+                            estimatedPnl: estPnl,
+                            estimatedR: estR,
+                            method: 'momentum_projection',
+                            description: 'MACD histogram reversal condition met',
+                            components: { currHist: roundTo(currHist, 6), histVelocity: roundTo(histVelocity, 6) }
+                        };
+                    }
+                    // Distance remaining to 0-level histogram reversal
+                    const distToZero = Math.abs(currHist);
+                    const contractionSpeed = Math.max(Math.abs(histVelocity), 1e-6);
+                    const etaCandles = Math.max(1, Math.round((distToZero / contractionSpeed) * 10) / 10);
+                    const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+                    const estimatedExitPrice = roundTo(currentPrice + priceVelocity * etaCandles, 8);
+                    const { estPnl, estR } = computePnLAndR(estimatedExitPrice);
+                    const proximity = Math.min(99, Math.max(1, Math.round((1 - (distToZero / (distToZero + contractionSpeed * 5))) * 100)));
+                    return {
+                        signalType,
+                        state: 'approaching',
+                        proximity,
+                        etaCandles,
+                        etaSeconds,
+                        confidence: 76,
+                        estimatedExitPrice,
+                        estimatedPnl: estPnl,
+                        estimatedR: estR,
+                        method: 'momentum_projection',
+                        description: `MACD histogram fading towards reversal (~${etaCandles} candles)`,
+                        components: { currHist: roundTo(currHist, 6), histVelocity: roundTo(histVelocity, 6), priceVelocity: roundTo(priceVelocity, 8) }
+                    };
+                }
+                else {
+                    // Histogram expanding in favor of position
+                    return {
+                        signalType,
+                        state: 'diverging',
+                        proximity: 0,
+                        etaCandles: null,
+                        etaSeconds: null,
+                        confidence: 60,
+                        estimatedExitPrice: null,
+                        estimatedPnl: null,
+                        estimatedR: null,
+                        method: 'momentum_projection',
+                        description: 'MACD histogram expanding in trade direction',
+                        components: { currHist: roundTo(currHist, 6), histVelocity: roundTo(histVelocity, 6) }
+                    };
+                }
+            }
+        }
+        // --- ESTIMATOR 4: SINGLE EMA / MA / INDICATOR CONVERGENCE ---
+        const thresh = Number(signalDetail?.threshold || 0);
+        const val = Number(signalDetail?.value ?? currentPrice);
+        if (thresh > 0) {
+            const dist = Math.abs(val - thresh);
+            const effectiveSpeed = Math.max(Math.abs(priceVelocity), atr / 4);
+            const etaCandles = Math.max(1, Math.round((dist / effectiveSpeed) * 10) / 10);
+            const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+            const targetPrice = signalDetail?.threshold_is_price ? thresh : roundTo(currentPrice + (isLong ? -dist : dist), 8);
+            const { estPnl, estR } = computePnLAndR(targetPrice);
+            let proximity = 0;
+            if (signalDetail?.threshold_is_price) {
+                proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (3 * atr))) * 100)));
+            }
+            else {
+                const magnitude = Math.max(Math.abs(thresh), 1e-8);
+                proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / magnitude)) * 100)));
+            }
+            return {
+                signalType,
+                state: 'approaching',
+                proximity,
+                etaCandles,
+                etaSeconds,
+                confidence: 80,
+                estimatedExitPrice: targetPrice,
+                estimatedPnl: estPnl,
+                estimatedR: estR,
+                method: 'indicator_convergence',
+                description: `Approaching indicator threshold (${dist.toFixed(2)} away)`,
+                components: { atr: roundTo(atr, 4), distance: roundTo(dist, 4) }
+            };
+        }
+        // --- ESTIMATOR 5: MOMENTUM % / BREAKOUT H/L / ENGULFING ---
+        if (baseType === 'breakout_hl') {
+            const lookback = Number(config.signal_params?.scan_lookback || 3);
+            if (candles.length >= lookback + 1) {
+                // BOLT OPTIMIZATION: Replaced candles.slice().map() and Math.min/Math.max spread
+                // with a zero-allocation single-pass scalar loop.
+                const startIdx = candles.length - 1 - lookback;
+                const endIdx = candles.length - 1;
+                let boundPrice = isLong ? Infinity : -Infinity;
+                for (let i = startIdx; i < endIdx; i++) {
+                    const p = isLong ? candles[i].low : candles[i].high;
+                    if (isLong ? p < boundPrice : p > boundPrice) {
+                        boundPrice = p;
+                    }
+                }
+                const dist = Math.abs(currentPrice - boundPrice);
+                const { estPnl, estR } = computePnLAndR(boundPrice);
+                const effectiveSpeed = Math.max(Math.abs(priceVelocity), atr / 4);
+                const etaCandles = Math.max(1, Math.round((dist / effectiveSpeed) * 10) / 10);
+                const etaSeconds = Math.round((etaCandles * intervalMs) / 1000);
+                const proximity = Math.min(99, Math.max(1, Math.round(Math.max(0, 1 - (dist / (2 * atr))) * 100)));
+                return {
+                    signalType,
+                    state: 'approaching',
+                    proximity,
+                    etaCandles,
+                    etaSeconds,
+                    confidence: 75,
+                    estimatedExitPrice: boundPrice,
+                    estimatedPnl: estPnl,
+                    estimatedR: estR,
+                    method: 'event_state',
+                    description: `Approaching ${lookback}-period ${isLong ? 'low' : 'high'} boundary (${boundPrice.toFixed(2)})`,
+                    components: { boundPrice: roundTo(boundPrice, 8), distance: roundTo(dist, 4) }
+                };
+            }
+        }
+        if (baseType === 'momentum_pct') {
+            const sp = config.signal_params || {};
+            const thresholdPct = Number(sp.exit_momentum_pct_threshold || sp.scan_pct_threshold || 2.0);
+            const lookback = Number(sp.exit_momentum_lookback || sp.scan_lookback || 3);
+            if (candles.length >= lookback + 1) {
+                const pastPrice = candles[candles.length - 1 - lookback].close;
+                const rawPct = ((currentPrice - pastPrice) / pastPrice) * 100;
+                // Evaluate distance in the correct direction
+                const currentPct = isLong ? rawPct : -rawPct;
+                let proximity = 0;
+                if (currentPct > 0) {
+                    proximity = Math.min(99, Math.max(1, Math.round((currentPct / thresholdPct) * 100)));
+                }
+                const { estPnl, estR } = computePnLAndR(currentPrice);
+                return {
+                    signalType,
+                    state: 'approaching',
+                    proximity,
+                    etaCandles: 1,
+                    etaSeconds: Math.round(intervalMs / 1000),
+                    confidence: 70,
+                    estimatedExitPrice: currentPrice,
+                    estimatedPnl: estPnl,
+                    estimatedR: estR,
+                    method: 'momentum_projection',
+                    description: `Momentum at ${currentPct.toFixed(2)}% / ${thresholdPct}% target`,
+                    components: { currentPct: roundTo(currentPct, 2), thresholdPct }
+                };
+            }
+        }
+        // --- DEFAULT FALLBACK FOR PATTERN / EVENT SIGNALS (Engulfing, Knife Catch) ---
+        const { estPnl, estR } = computePnLAndR(currentPrice);
+        return {
+            signalType,
+            state: 'approaching',
+            proximity: 0,
+            etaCandles: null,
+            etaSeconds: null,
+            confidence: 30,
+            estimatedExitPrice: currentPrice,
+            estimatedPnl: estPnl,
+            estimatedR: estR,
+            method: 'event_state',
+            description: 'Event-based signal (0% until qualifying structure develops)'
+        };
+    }
+    /**
+     * Aggregates multiple exit signal estimations based on configured logic (ANY, ALL, COMBO).
+     */
+    estimateExitMonitoring(trade, config, interval = '1m', passedCandles, signalDetails) {
+        const exitSignals = config.exit_signals || [];
+        const logic = config.exit_signal_logic || 'any';
+        const requiredExitSigs = config.required_exit_signals || [];
+        if (exitSignals.length === 0) {
+            return {
+                selectedSignalKey: null,
+                state: 'approaching',
+                proximity: 0,
+                etaCandles: null,
+                etaSeconds: null,
+                confidence: 0,
+                estimatedExitPrice: null,
+                estimatedPnl: null,
+                estimatedR: null,
+                description: 'No exit signals configured',
+                signalEstimations: {}
+            };
+        }
+        const signalEstimations = {};
+        for (const sigKey of exitSignals) {
+            const detail = signalDetails?.[sigKey] || trade.exit_signals_status?.[sigKey];
+            signalEstimations[sigKey] = this.estimateExitSignal(sigKey, trade, config, interval, passedCandles, detail);
+        }
+        const estimationsList = Object.values(signalEstimations);
+        // Get the fired/ready logic inside each branch so ALL and COMBO can act correctly.
+        const allReadyOrFired = estimationsList.every(e => e.state === 'fired' || e.state === 'ready');
+        const getTopPriority = (ests) => {
+            const fired = ests.find((e) => e.state === 'fired');
+            if (fired)
+                return {
+                    selectedSignalKey: fired.signalType,
+                    state: 'fired',
+                    proximity: 100,
+                    etaCandles: 0,
+                    etaSeconds: 0,
+                    confidence: 100,
+                    estimatedExitPrice: fired.estimatedExitPrice,
+                    estimatedPnl: fired.estimatedPnl,
+                    estimatedR: fired.estimatedR,
+                    description: `Exit fired by ${fired.signalType}`,
+                    signalEstimations
+                };
+            const ready = ests.find((e) => e.state === 'ready');
+            if (ready)
+                return {
+                    selectedSignalKey: ready.signalType,
+                    state: 'ready',
+                    proximity: 99,
+                    etaCandles: 0,
+                    etaSeconds: 0,
+                    confidence: ready.confidence,
+                    estimatedExitPrice: ready.estimatedExitPrice,
+                    estimatedPnl: ready.estimatedPnl,
+                    estimatedR: ready.estimatedR,
+                    description: `Exit ready via ${ready.signalType}`,
+                    signalEstimations
+                };
+            return null;
+        };
+        if (logic === 'any') {
+            const top = getTopPriority(estimationsList);
+            if (top)
+                return top;
+            // ANY logic: Select actionable signal with highest proximity
+            // BOLT OPTIMIZATION: Single-pass O(N) loop replaces array mutation sort()
+            let sel = estimationsList[0];
+            for (let i = 1; i < estimationsList.length; i++) {
+                if (estimationsList[i].proximity > sel.proximity) {
+                    sel = estimationsList[i];
+                }
+            }
+            return {
+                selectedSignalKey: sel.signalType,
+                state: sel.state,
+                proximity: sel.proximity,
+                etaCandles: sel.etaCandles,
+                etaSeconds: sel.etaSeconds,
+                confidence: sel.confidence,
+                estimatedExitPrice: sel.estimatedExitPrice,
+                estimatedPnl: sel.estimatedPnl,
+                estimatedR: sel.estimatedR,
+                description: sel.description,
+                signalEstimations
+            };
+        }
+        else if (logic === 'all') {
+            // ALL logic: Bottlenecked by signal with lowest proximity
+            if (allReadyOrFired) {
+                const top = getTopPriority(estimationsList);
+                if (top)
+                    return top;
+            }
+            if (estimationsList.length > 0) {
+                let sel = estimationsList[0];
+                for (let i = 1; i < estimationsList.length; i++) {
+                    if (estimationsList[i].proximity < sel.proximity) {
+                        sel = estimationsList[i];
+                    }
+                }
+                return {
+                    selectedSignalKey: sel.signalType,
+                    state: sel.state,
+                    proximity: sel.proximity,
+                    etaCandles: sel.etaCandles,
+                    etaSeconds: sel.etaSeconds,
+                    confidence: sel.confidence,
+                    estimatedExitPrice: sel.estimatedExitPrice,
+                    estimatedPnl: sel.estimatedPnl,
+                    estimatedR: sel.estimatedR,
+                    description: `Bottlenecked by ${sel.signalType}`,
+                    signalEstimations
+                };
+            }
+        }
+        else if (logic === 'combo') {
+            // COMBO logic: Required bottleneck combined with optional max
+            const reqKeys = requiredExitSigs.length > 0 ? requiredExitSigs : [exitSignals[0]];
+            const optKeys = exitSignals.filter(k => !reqKeys.includes(k));
+            const reqEsts = estimationsList.filter(e => reqKeys.includes(e.signalType));
+            const optEsts = estimationsList.filter(e => optKeys.includes(e.signalType));
+            const reqAllReadyOrFired = reqEsts.every(e => e.state === 'fired' || e.state === 'ready');
+            const optAnyReadyOrFired = optEsts.some(e => e.state === 'fired' || e.state === 'ready') || optEsts.length === 0;
+            if (reqAllReadyOrFired && optAnyReadyOrFired) {
+                const reqTop = getTopPriority(reqEsts);
+                if (reqTop)
+                    return reqTop;
+            }
+            if (reqEsts.length > 0) {
+                let selReq = reqEsts[0];
+                for (let i = 1; i < reqEsts.length; i++) {
+                    if (reqEsts[i].proximity < selReq.proximity) {
+                        selReq = reqEsts[i];
+                    }
+                }
+                let selOpt = optEsts.length > 0 ? optEsts[0] : null;
+                if (selOpt) {
+                    for (let i = 1; i < optEsts.length; i++) {
+                        if (optEsts[i].proximity > selOpt.proximity) {
+                            selOpt = optEsts[i];
+                        }
+                    }
+                }
+                const finalProximity = selOpt ? Math.min(selReq.proximity, selOpt.proximity) : selReq.proximity;
+                const sel = (selOpt && selOpt.proximity < selReq.proximity) ? selOpt : selReq;
+                return {
+                    selectedSignalKey: sel.signalType,
+                    state: sel.state,
+                    proximity: finalProximity,
+                    etaCandles: sel.etaCandles,
+                    etaSeconds: sel.etaSeconds,
+                    confidence: sel.confidence,
+                    estimatedExitPrice: sel.estimatedExitPrice,
+                    estimatedPnl: sel.estimatedPnl,
+                    estimatedR: sel.estimatedR,
+                    description: `Required exit ${selReq.signalType}${selOpt ? `, Optional ${selOpt.signalType}` : ''}`,
+                    signalEstimations
+                };
+            }
+        }
+        // Fallback: Pick highest proximity estimation
+        // BOLT OPTIMIZATION: Single-pass O(N) loop replaces array mutation sort()
+        let sel = estimationsList[0];
+        for (let i = 1; i < estimationsList.length; i++) {
+            if (estimationsList[i].proximity > sel.proximity) {
+                sel = estimationsList[i];
+            }
+        }
+        return {
+            selectedSignalKey: sel.signalType,
+            state: sel.state,
+            proximity: sel.proximity,
+            etaCandles: sel.etaCandles,
+            etaSeconds: sel.etaSeconds,
+            confidence: sel.confidence,
+            estimatedExitPrice: sel.estimatedExitPrice,
+            estimatedPnl: sel.estimatedPnl,
+            estimatedR: sel.estimatedR,
+            description: sel.description,
+            signalEstimations
+        };
+    }
+};
+ExitEstimationService = ExitEstimationService_1 = __decorate([
+    Injectable(),
+    __metadata("design:paramtypes", [KlineStoreService])
+], ExitEstimationService);
+export { ExitEstimationService };

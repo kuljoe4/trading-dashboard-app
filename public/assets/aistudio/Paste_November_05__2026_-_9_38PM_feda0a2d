@@ -1,0 +1,1651 @@
+Run pnpm test
+  pnpm test
+  shell: /usr/bin/bash -e {0}
+
+> momentum-engine-frontend@0.0.0 test /home/runner/work/trading-dashboard-app/trading-dashboard-app/frontend
+> node --test src/tests/*.test.js src/api/client.test.js
+
+TAP version 13
+# Subtest: normalizeUrl
+    # Subtest: passes through null/undefined
+    ok 1 - passes through null/undefined
+      ---
+      duration_ms: 1.157709
+      type: 'test'
+      ...
+    # Subtest: removes trailing slashes
+    ok 2 - removes trailing slashes
+      ---
+      duration_ms: 0.359631
+      type: 'test'
+      ...
+    # Subtest: fixes double protocols
+    ok 3 - fixes double protocols
+      ---
+      duration_ms: 0.219209
+      type: 'test'
+      ...
+    # Subtest: fixes missing colons
+    ok 4 - fixes missing colons
+      ---
+      duration_ms: 0.326479
+      type: 'test'
+      ...
+    # Subtest: handles user provided case from logs
+    ok 5 - handles user provided case from logs
+      ---
+      duration_ms: 0.200073
+      type: 'test'
+      ...
+    # Subtest: enforces protocol if requested
+    ok 6 - enforces protocol if requested
+      ---
+      duration_ms: 0.173574
+      type: 'test'
+      ...
+    1..6
+ok 1 - normalizeUrl
+  ---
+  duration_ms: 4.078055
+  type: 'suite'
+  ...
+# Subtest: sanitizeSessionConfig
+    # Subtest: keeps only allowed session config keys
+    ok 1 - keeps only allowed session config keys
+      ---
+      duration_ms: 1.633736
+      type: 'test'
+      ...
+    # Subtest: returns an empty object for invalid config values
+    ok 2 - returns an empty object for invalid config values
+      ---
+      duration_ms: 0.386621
+      type: 'test'
+      ...
+    # Subtest: preserves numeric and boolean config values
+    ok 3 - preserves numeric and boolean config values
+      ---
+      duration_ms: 0.497107
+      type: 'test'
+      ...
+    # Subtest: passes sanitized payload to axios on start
+    ok 4 - passes sanitized payload to axios on start
+      ---
+      duration_ms: 0.660872
+      type: 'test'
+      ...
+    # Subtest: passes sanitized payload to axios on update
+    ok 5 - passes sanitized payload to axios on update
+      ---
+      duration_ms: 0.450901
+      type: 'test'
+      ...
+    # Subtest: sanitizes a browser-like session start payload before sending
+    ok 6 - sanitizes a browser-like session start payload before sending
+      ---
+      duration_ms: 0.519629
+      type: 'test'
+      ...
+    # Subtest: recursively sanitizes strategy_variants and single_symbol_configs
+    ok 7 - recursively sanitizes strategy_variants and single_symbol_configs
+      ---
+      duration_ms: 0.518527
+      type: 'test'
+      ...
+    # Subtest: converts stringified signal_params back to object
+    ok 8 - converts stringified signal_params back to object
+      ---
+      duration_ms: 0.306412
+      type: 'test'
+      ...
+    # Subtest: preserves auto_scale_min_notional
+    ok 9 - preserves auto_scale_min_notional
+      ---
+      duration_ms: 0.232434
+      type: 'test'
+      ...
+    # Subtest: removes signal_params if it is null
+    ok 10 - removes signal_params if it is null
+      ---
+      duration_ms: 0.15588
+      type: 'test'
+      ...
+    # Subtest: preserves smart watchlist and trailing stop fields
+    ok 11 - preserves smart watchlist and trailing stop fields
+      ---
+      duration_ms: 0.253522
+      type: 'test'
+      ...
+    # Subtest: preserves combo signal logic and required signal lists
+    ok 12 - preserves combo signal logic and required signal lists
+      ---
+      duration_ms: 0.245247
+      type: 'test'
+      ...
+    # Subtest: preserves MACD Histogram Filter fields inside signal_params for persistence
+    ok 13 - preserves MACD Histogram Filter fields inside signal_params for persistence
+      ---
+      duration_ms: 0.288929
+      type: 'test'
+      ...
+    # Subtest: preserves HTF EMA Cross ranking fields and SL exceeds max rejection flag for persistence
+    ok 14 - preserves HTF EMA Cross ranking fields and SL exceeds max rejection flag for persistence
+      ---
+      duration_ms: 0.252901
+      type: 'test'
+      ...
+    1..14
+ok 2 - sanitizeSessionConfig
+  ---
+  duration_ms: 7.445766
+  type: 'suite'
+  ...
+# Subtest: presetsAPI
+    # Subtest: encodes special characters in preset names during delete requests
+    ok 1 - encodes special characters in preset names during delete requests
+      ---
+      duration_ms: 0.588588
+      type: 'test'
+      ...
+    # Subtest: normalizes railway.app URLs properly for production environments
+    ok 2 - normalizes railway.app URLs properly for production environments
+      ---
+      duration_ms: 0.153196
+      type: 'test'
+      ...
+    1..2
+ok 3 - presetsAPI
+  ---
+  duration_ms: 0.892414
+  type: 'suite'
+  ...
+# Subtest: ActiveTradeBar Micro-UX & Keyboard Accessibility Standard
+    # Subtest: liquidation button specifies explicit type="button" and cursor-pointer
+    ok 1 - liquidation button specifies explicit type="button" and cursor-pointer
+      ---
+      duration_ms: 0.712398
+      type: 'test'
+      ...
+    # Subtest: liquidation button includes enriched aria-label with symbol, direction, and PnL
+    ok 2 - liquidation button includes enriched aria-label with symbol, direction, and PnL
+      ---
+      duration_ms: 0.140542
+      type: 'test'
+      ...
+    # Subtest: estimated stop loss badge includes Tooltip, tabIndex={0}, aria-label, and focus ring without role="region"
+    ok 3 - estimated stop loss badge includes Tooltip, tabIndex={0}, aria-label, and focus ring without role="region"
+      ---
+      duration_ms: 0.26807
+      type: 'test'
+      ...
+    1..3
+ok 4 - ActiveTradeBar Micro-UX & Keyboard Accessibility Standard
+  ---
+  duration_ms: 3.103918
+  type: 'suite'
+  ...
+# Subtest: R-multiple Price Runway: LONG position initial state with explicit TP
+ok 5 - R-multiple Price Runway: LONG position initial state with explicit TP
+  ---
+  duration_ms: 1.87192
+  type: 'test'
+  ...
+# Subtest: R-multiple Price Runway: Open-ended trailing trade without explicit TP (zero synthetic TP)
+ok 6 - R-multiple Price Runway: Open-ended trailing trade without explicit TP (zero synthetic TP)
+  ---
+  duration_ms: 0.304238
+  type: 'test'
+  ...
+# Subtest: R-multiple Price Runway: Trailing SL past entry does NOT invert entry and mark
+ok 7 - R-multiple Price Runway: Trailing SL past entry does NOT invert entry and mark
+  ---
+  duration_ms: 0.299198
+  type: 'test'
+  ...
+# Subtest: R-multiple Price Runway: SHORT position trailing SL past entry
+ok 8 - R-multiple Price Runway: SHORT position trailing SL past entry
+  ---
+  duration_ms: 0.2304
+  type: 'test'
+  ...
+# Subtest: ActiveTradeCard.jsx imports all used lucide-react icons including Zap
+ok 9 - ActiveTradeCard.jsx imports all used lucide-react icons including Zap
+  ---
+  duration_ms: 3.450234
+  type: 'test'
+  ...
+# Subtest: Active Trade Runway Card Dual Indicators & Global 24h Market Range Verification
+ok 10 - Active Trade Runway Card Dual Indicators & Global 24h Market Range Verification
+  ---
+  duration_ms: 3.514264
+  type: 'test'
+  ...
+# Subtest: Adaptive Chart X-Axis, Presets, Brush Slider, Tooltip & Circular Crosshairs Standard
+    # Subtest: StrategyPerformanceOverlayChart supports axis mode switching ("By Time" vs "By Trade")
+    ok 1 - StrategyPerformanceOverlayChart supports axis mode switching ("By Time" vs "By Trade")
+      ---
+      duration_ms: 1.071268
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart renders range zoom presets (1W, 1M, 3M, 6M, YTD, 1Y, ALL)
+    ok 2 - StrategyPerformanceOverlayChart renders range zoom presets (1W, 1M, 3M, 6M, YTD, 1Y, ALL)
+      ---
+      duration_ms: 1.815826
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart includes draggable mini range brush slider underneath chart
+    ok 3 - StrategyPerformanceOverlayChart includes draggable mini range brush slider underneath chart
+      ---
+      duration_ms: 0.363919
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart renders bottom win/loss markers and rich floating hover tooltip
+    ok 4 - StrategyPerformanceOverlayChart renders bottom win/loss markers and rich floating hover tooltip
+      ---
+      duration_ms: 0.308054
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart renders perfectly circular crosshair overlay markers via CSS absolute positioning
+    ok 5 - StrategyPerformanceOverlayChart renders perfectly circular crosshair overlay markers via CSS absolute positioning
+      ---
+      duration_ms: 0.223827
+      type: 'test'
+      ...
+    1..5
+ok 11 - Adaptive Chart X-Axis, Presets, Brush Slider, Tooltip & Circular Crosshairs Standard
+  ---
+  duration_ms: 5.47502
+  type: 'suite'
+  ...
+# ⚡ Bolt Performance Benchmark (Analytics Grouping, List size: 1500, 5000 iterations):
+#   - Original (slice + forEach):  348.7676 ms
+#   - Optimized (for loop):        218.4445 ms
+#   - Execution Speedup:           1.6x faster
+# Subtest: Analytics Grouping Optimization: Correctness and Performance
+ok 12 - Analytics Grouping Optimization: Correctness and Performance
+  ---
+  duration_ms: 577.563615
+  type: 'test'
+  ...
+# Subtest: Anti-Whipsaw Config Wiring & Delay Calculation Standard
+    # Subtest: frontend/src/api/client.js whitelists all anti-whipsaw config fields
+    ok 1 - frontend/src/api/client.js whitelists all anti-whipsaw config fields
+      ---
+      duration_ms: 1.403007
+      type: 'test'
+      ...
+    # Subtest: backend SessionConfig.ts includes anti_whipsaw_max_tf and anti_whipsaw_timeframes with default values
+    ok 2 - backend SessionConfig.ts includes anti_whipsaw_max_tf and anti_whipsaw_timeframes with default values
+      ---
+      duration_ms: 1.959454
+      type: 'test'
+      ...
+    # Subtest: effectiveDelayMs computes maximum between candle delay and timeframe minute delay
+    ok 3 - effectiveDelayMs computes maximum between candle delay and timeframe minute delay
+      ---
+      duration_ms: 0.278079
+      type: 'test'
+      ...
+    1..3
+ok 13 - Anti-Whipsaw Config Wiring & Delay Calculation Standard
+  ---
+  duration_ms: 5.357371
+  type: 'suite'
+  ...
+# Subtest: AuthOverlay Micro-UX & Accessibility Standard
+    # Subtest: includes dialog ARIA attributes role="dialog", aria-modal, aria-labelledby, and aria-describedby
+    ok 1 - includes dialog ARIA attributes role="dialog", aria-modal, aria-labelledby, and aria-describedby
+      ---
+      duration_ms: 1.105341
+      type: 'test'
+      ...
+    # Subtest: includes accessible input label and ARIA attributes for password field
+    ok 2 - includes accessible input label and ARIA attributes for password field
+      ---
+      duration_ms: 1.270449
+      type: 'test'
+      ...
+    # Subtest: provides show/hide password visibility toggle with Tooltip and focus-visible rings
+    ok 3 - provides show/hide password visibility toggle with Tooltip and focus-visible rings
+      ---
+      duration_ms: 0.215101
+      type: 'test'
+      ...
+    # Subtest: provides clear input button with focus-visible ring and focus recovery
+    ok 4 - provides clear input button with focus-visible ring and focus recovery
+      ---
+      duration_ms: 0.181048
+      type: 'test'
+      ...
+    # Subtest: enforces submit button disabled affordance, accessibility, and focus ring styling
+    ok 5 - enforces submit button disabled affordance, accessibility, and focus ring styling
+      ---
+      duration_ms: 0.24107
+      type: 'test'
+      ...
+    1..5
+ok 14 - AuthOverlay Micro-UX & Accessibility Standard
+  ---
+  duration_ms: 6.109925
+  type: 'suite'
+  ...
+# Subtest: Backtest Symbol Performance Leaderboard & Injection Logic
+ok 15 - Backtest Symbol Performance Leaderboard & Injection Logic
+  ---
+  duration_ms: 2.270864
+  type: 'test'
+  ...
+# Subtest: SectionTabs Overflow Tab Classification & Indicator Logic
+ok 16 - SectionTabs Overflow Tab Classification & Indicator Logic
+  ---
+  duration_ms: 0.338341
+  type: 'test'
+  ...
+# Subtest: BacktestPanel safely handles undefined results.trades without throwing TypeError
+not ok 17 - BacktestPanel safely handles undefined results.trades without throwing TypeError
+  ---
+  duration_ms: 1.943524
+  type: 'test'
+  location: '/home/runner/work/trading-dashboard-app/trading-dashboard-app/frontend/src/tests/backtestRecommendationsAndTabs.test.js:50:1'
+  failureType: 'testCodeFailure'
+  error: "ENOENT: no such file or directory, open '/home/runner/work/trading-dashboard-app/trading-dashboard-app/frontend/frontend/src/components/BacktestPanel.jsx'"
+  code: 'ENOENT'
+  stack: |-
+    Module.readFileSync (node:fs:440:20)
+    TestContext.<anonymous> (file:///home/runner/work/trading-dashboard-app/trading-dashboard-app/frontend/src/tests/backtestRecommendationsAndTabs.test.js:53:19)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: Backtest API & UI Integration
+    # Subtest: correctly creates backtest API request with sanitized config payload
+    ok 1 - correctly creates backtest API request with sanitized config payload
+      ---
+      duration_ms: 2.196626
+      type: 'test'
+      ...
+    # Subtest: sanitizes backtest config parameters cleanly
+    ok 2 - sanitizes backtest config parameters cleanly
+      ---
+      duration_ms: 0.287016
+      type: 'test'
+      ...
+    1..2
+ok 18 - Backtest API & UI Integration
+  ---
+  duration_ms: 3.798554
+  type: 'suite'
+  ...
+# Subtest: calculateProximity unit tests
+    # Subtest: calculateOpportunityProximity calculates consistent composite readiness across views
+    ok 1 - calculateOpportunityProximity calculates consistent composite readiness across views
+      ---
+      duration_ms: 1.14207
+      type: 'test'
+      ...
+    # Subtest: calculateOpportunityProximity respects signal_logic ALL vs ANY vs COMBO
+    ok 2 - calculateOpportunityProximity respects signal_logic ALL vs ANY vs COMBO
+      ---
+      duration_ms: 0.228126
+      type: 'test'
+      ...
+    # Subtest: distinguishes unfired event-based signals from state satisfaction
+    ok 3 - distinguishes unfired event-based signals from state satisfaction
+      ---
+      duration_ms: 0.237813
+      type: 'test'
+      ...
+    # Subtest: evaluates rejected MACD filter signals as 0% (blocked state)
+    ok 4 - evaluates rejected MACD filter signals as 0% (blocked state)
+      ---
+      duration_ms: 0.191347
+      type: 'test'
+      ...
+    # Subtest: returns 0 for null/undefined/missing signals
+    ok 5 - returns 0 for null/undefined/missing signals
+      ---
+      duration_ms: 0.147865
+      type: 'test'
+      ...
+    # Subtest: returns 0 if insufficientData is true
+    ok 6 - returns 0 if insufficientData is true
+      ---
+      duration_ms: 0.190275
+      type: 'test'
+      ...
+    # Subtest: returns 100 if fired and active are true
+    ok 7 - returns 100 if fired and active are true
+      ---
+      duration_ms: 0.171309
+      type: 'test'
+      ...
+    # Subtest: clamps progress to 99% if not fired yet (price-based)
+    ok 8 - clamps progress to 99% if not fired yet (price-based)
+      ---
+      duration_ms: 0.332961
+      type: 'test'
+      ...
+    # Subtest: handles price-based LONG progress correctly
+    ok 9 - handles price-based LONG progress correctly
+      ---
+      duration_ms: 0.292776
+      type: 'test'
+      ...
+    # Subtest: handles indicator-based signals with opposite sign guard
+    ok 10 - handles indicator-based signals with opposite sign guard
+      ---
+      duration_ms: 0.310399
+      type: 'test'
+      ...
+    # Subtest: handles indicator-based signals with correct sign
+    ok 11 - handles indicator-based signals with correct sign
+      ---
+      duration_ms: 0.131465
+      type: 'test'
+      ...
+    # Subtest: handles direction-aware exit signals for LONG when profitable
+    ok 12 - handles direction-aware exit signals for LONG when profitable
+      ---
+      duration_ms: 0.141634
+      type: 'test'
+      ...
+    # Subtest: handles direction-aware exit signals for SHORT when profitable
+    ok 13 - handles direction-aware exit signals for SHORT when profitable
+      ---
+      duration_ms: 0.117299
+      type: 'test'
+      ...
+    # Subtest: handles dual EMA cross/close when entry is zero or equal to threshold
+    ok 14 - handles dual EMA cross/close when entry is zero or equal to threshold
+      ---
+      duration_ms: 0.11288
+      type: 'test'
+      ...
+    # Subtest: handles dual EMA cross/close for live trades with non-zero entry price
+    ok 15 - handles dual EMA cross/close for live trades with non-zero entry price
+      ---
+      duration_ms: 0.131796
+      type: 'test'
+      ...
+    # Subtest: ensures dual params read > 0% no matter how far apart and increase monotonically as they converge
+    ok 16 - ensures dual params read > 0% no matter how far apart and increase monotonically as they converge
+      ---
+      duration_ms: 0.248113
+      type: 'test'
+      ...
+    1..16
+ok 19 - calculateProximity unit tests
+  ---
+  duration_ms: 7.662019
+  type: 'test'
+  ...
+# ⚡ Bolt Performance Benchmark (CandlestickChart Bar Rendering, 100 candles, 15 signals, 10 markers, 5000 iterations):
+#   - Original Multi-pass & Render-loop Scans: 250.3301 ms
+#   - Optimized Single-pass & Map/Set Lookup:  93.6636 ms
+#   - Execution Speedup:                       2.7x faster
+# Subtest: CandlestickChart optimization: correctness of bar computation, hasSignal, and decisionMarker
+ok 20 - CandlestickChart optimization: correctness of bar computation, hasSignal, and decisionMarker
+  ---
+  duration_ms: 5.752418
+  type: 'test'
+  ...
+# Subtest: CandlestickChart optimization: performance benchmark
+ok 21 - CandlestickChart optimization: performance benchmark
+  ---
+  duration_ms: 347.469001
+  type: 'test'
+  ...
+# Subtest: Card and Modal Proximity Alignment Tests
+    # Subtest: ActiveTradeCard fallback and backend estimation proximity resolution
+    ok 1 - ActiveTradeCard fallback and backend estimation proximity resolution
+      ---
+      duration_ms: 0.925015
+      type: 'test'
+      ...
+    # Subtest: Modal falls back gracefully to calculateProximity when exit_estimation is missing
+    ok 2 - Modal falls back gracefully to calculateProximity when exit_estimation is missing
+      ---
+      duration_ms: 0.559093
+      type: 'test'
+      ...
+    1..2
+ok 22 - Card and Modal Proximity Alignment Tests
+  ---
+  duration_ms: 2.842702
+  type: 'test'
+  ...
+# Subtest: Chart Line Widths & Sharpe/Sortino Metrics UX Standard
+    # Subtest: chart SVG paths specify minimal line stroke widths (<= 0.8px)
+    ok 1 - chart SVG paths specify minimal line stroke widths (<= 0.8px)
+      ---
+      duration_ms: 1.218783
+      type: 'test'
+      ...
+    # Subtest: chart SVG filters specify minimal glow blur stdDeviation (<= 0.2)
+    ok 2 - chart SVG filters specify minimal glow blur stdDeviation (<= 0.2)
+      ---
+      duration_ms: 0.223848
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart computes and plots rolling PF, Sharpe, and Sortino ratio curves
+    ok 3 - StrategyPerformanceOverlayChart computes and plots rolling PF, Sharpe, and Sortino ratio curves
+      ---
+      duration_ms: 0.358769
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart uses underlying cumulativeTradeCount for bucketed hit rate calculation and clamps 0-100%
+    ok 4 - StrategyPerformanceOverlayChart uses underlying cumulativeTradeCount for bucketed hit rate calculation and clamps 0-100%
+      ---
+      duration_ms: 0.259214
+      type: 'test'
+      ...
+    # Subtest: strategy cards in DashboardView render Sharpe (Sh) and Sortino (So) alongside PF with recommended value tooltips
+    ok 5 - strategy cards in DashboardView render Sharpe (Sh) and Sortino (So) alongside PF with recommended value tooltips
+      ---
+      duration_ms: 0.30061
+      type: 'test'
+      ...
+    # Subtest: StrategyDetailView renders Sharpe (Sh) and Sortino (So) StatCards and ratio toggles with recommended values tooltips
+    ok 6 - StrategyDetailView renders Sharpe (Sh) and Sortino (So) StatCards and ratio toggles with recommended values tooltips
+      ---
+      duration_ms: 0.42393
+      type: 'test'
+      ...
+    1..6
+ok 23 - Chart Line Widths & Sharpe/Sortino Metrics UX Standard
+  ---
+  duration_ms: 4.330486
+  type: 'suite'
+  ...
+# Subtest: Chart Smart Hierarchical Time Axis, Exact Crosshairs, Touch Zoom & Fullscreen Standard
+    # Subtest: StrategyPerformanceOverlayChart implements Smart Hierarchical Time Axis formatting
+    ok 1 - StrategyPerformanceOverlayChart implements Smart Hierarchical Time Axis formatting
+      ---
+      duration_ms: 1.27616
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart supports Smart Trade Grouping / Bucketing
+    ok 2 - StrategyPerformanceOverlayChart supports Smart Trade Grouping / Bucketing
+      ---
+      duration_ms: 0.240639
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart calculates exact crosshairs against SVG plotRef box
+    ok 3 - StrategyPerformanceOverlayChart calculates exact crosshairs against SVG plotRef box
+      ---
+      duration_ms: 0.266727
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart supports touch & mobile drag on zoom slider with pointer capture
+    ok 4 - StrategyPerformanceOverlayChart supports touch & mobile drag on zoom slider with pointer capture
+      ---
+      duration_ms: 0.225511
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart includes Fullscreen Expansion Toggle for Desktop & Mobile
+    ok 5 - StrategyPerformanceOverlayChart includes Fullscreen Expansion Toggle for Desktop & Mobile
+      ---
+      duration_ms: 0.159558
+      type: 'test'
+      ...
+    # Subtest: StrategyPerformanceOverlayChart satisfies WCAG 2.1 accessibility standards
+    ok 6 - StrategyPerformanceOverlayChart satisfies WCAG 2.1 accessibility standards
+      ---
+      duration_ms: 0.308065
+      type: 'test'
+      ...
+    1..6
+ok 24 - Chart Smart Hierarchical Time Axis, Exact Crosshairs, Touch Zoom & Fullscreen Standard
+  ---
+  duration_ms: 4.651214
+  type: 'suite'
+  ...
+# Subtest: Config Modal Default Collapsed State & Fast Market Indications Verification
+ok 25 - Config Modal Default Collapsed State & Fast Market Indications Verification
+  ---
+  duration_ms: 5.60367
+  type: 'test'
+  ...
+# Subtest: ConfigModal HTF EMA Cross Ranking & SL Exceeds Max Form Wiring Verification
+ok 26 - ConfigModal HTF EMA Cross Ranking & SL Exceeds Max Form Wiring Verification
+  ---
+  duration_ms: 3.413365
+  type: 'test'
+  ...
+# Subtest: ConfirmationModal Safe-by-Default Micro-UX & Accessibility Standard
+    # Subtest: guards backdrop onOpenChange when loading={true}
+    ok 1 - guards backdrop onOpenChange when loading={true}
+      ---
+      duration_ms: 0.987702
+      type: 'test'
+      ...
+    # Subtest: enforces button explicit type="button" and cursor-pointer
+    ok 2 - enforces button explicit type="button" and cursor-pointer
+      ---
+      duration_ms: 1.688357
+      type: 'test'
+      ...
+    # Subtest: includes explicit aria-label attributes for confirm and cancel actions
+    ok 3 - includes explicit aria-label attributes for confirm and cancel actions
+      ---
+      duration_ms: 0.202397
+      type: 'test'
+      ...
+    # Subtest: disables cancel, close, and confirm controls during loading state
+    ok 4 - disables cancel, close, and confirm controls during loading state
+      ---
+      duration_ms: 0.155821
+      type: 'test'
+      ...
+    # Subtest: preserves auto-focus ref on cancel action for safe-by-default behavior
+    ok 5 - preserves auto-focus ref on cancel action for safe-by-default behavior
+      ---
+      duration_ms: 0.238645
+      type: 'test'
+      ...
+    1..5
+ok 27 - ConfirmationModal Safe-by-Default Micro-UX & Accessibility Standard
+  ---
+  duration_ms: 4.994363
+  type: 'suite'
+  ...
+# [BENCHMARK] Separate useMemos: 493.65ms
+# [BENCHMARK] Fused single useMemo: 415.94ms
+# [BENCHMARK] Speedup: 1.19x faster
+# Subtest: Dashboard active trades loop fusion benchmark
+ok 28 - Dashboard active trades loop fusion benchmark
+  ---
+  duration_ms: 1086.180784
+  type: 'test'
+  ...
+# [Config Trace] patchConfig initiating: { debug_mode: true }
+# [Config Trace] updateConfig called with: { debug_mode: true }
+# [Config Trace] patchConfig initiating: { debug_mode: false }
+# Subtest: Debug Mode App Settings Persistence Standard
+    # Subtest: patchConfig saves debug_mode to localStorage and sessionStorage config_draft
+    ok 1 - patchConfig saves debug_mode to localStorage and sessionStorage config_draft
+      ---
+      duration_ms: 3.358413
+      type: 'test'
+      ...
+    # Subtest: updateConfig saves debug_mode to localStorage
+    ok 2 - updateConfig saves debug_mode to localStorage
+      ---
+      duration_ms: 0.751942
+      type: 'test'
+      ...
+    # Subtest: patchConfig turns off debug_mode and updates localStorage to false
+    ok 3 - patchConfig turns off debug_mode and updates localStorage to false
+      ---
+      duration_ms: 0.833665
+      type: 'test'
+      ...
+    1..3
+ok 29 - Debug Mode App Settings Persistence Standard
+  ---
+  duration_ms: 6.494541
+  type: 'suite'
+  ...
+# Subtest: DecisionLog Fetch, Limit Selectors & Non-Destructive Log Merge Standard
+ok 30 - DecisionLog Fetch, Limit Selectors & Non-Destructive Log Merge Standard
+  ---
+  duration_ms: 2.94954
+  type: 'test'
+  ...
+# Subtest: DecisionLog UX & Keyboard Accessibility Standard
+ok 31 - DecisionLog UX & Keyboard Accessibility Standard
+  ---
+  duration_ms: 1.011927
+  type: 'test'
+  ...
+# Subtest: ConfigModal includes discovery_mode input field and maps it to scan tab in TAB_ERROR_MAP
+ok 32 - ConfigModal includes discovery_mode input field and maps it to scan tab in TAB_ERROR_MAP
+  ---
+  duration_ms: 2.408151
+  type: 'test'
+  ...
+# Subtest: ScannerOverlay supports all discovery modes including volume, change_pct, and abs_change_pct
+ok 33 - ScannerOverlay supports all discovery modes including volume, change_pct, and abs_change_pct
+  ---
+  duration_ms: 0.460489
+  type: 'test'
+  ...
+# ⚡ Bolt Performance Benchmark (EquityCurve single-pass optimization, 50000 iterations):
+#   - Original (Multi-pass filter/map/spread + peak mapping): 1532.48 ms
+#   - Optimized (Fused single-pass loop):                       767.23 ms
+#   - Execution Speedup:                                        2.00x faster
+# Subtest: EquityCurve Single-Pass Optimization Tests
+    # Subtest: Analytics.jsx file contains single-pass fused EquityCurve optimization and no redundant declarations
+    ok 1 - Analytics.jsx file contains single-pass fused EquityCurve optimization and no redundant declarations
+      ---
+      duration_ms: 3.631533
+      type: 'test'
+      ...
+    # Subtest: handles empty, invalid or small inputs identically
+    ok 2 - handles empty, invalid or small inputs identically
+      ---
+      duration_ms: 1.76396
+      type: 'test'
+      ...
+    # Subtest: computes exact numerical points, scalar bounds, and path strings
+    ok 3 - computes exact numerical points, scalar bounds, and path strings
+      ---
+      duration_ms: 0.577467
+      type: 'test'
+      ...
+    # Subtest: handles large downsampled datasets with exact fidelity
+    ok 4 - handles large downsampled datasets with exact fidelity
+      ---
+      duration_ms: 1.330572
+      type: 'test'
+      ...
+    # Subtest: benchmark: single-pass fused loop vs multi-pass chaining and peak mapping
+    ok 5 - benchmark: single-pass fused loop vs multi-pass chaining and peak mapping
+      ---
+      duration_ms: 2360.884475
+      type: 'test'
+      ...
+    1..5
+ok 34 - EquityCurve Single-Pass Optimization Tests
+  ---
+  duration_ms: 2369.993473
+  type: 'suite'
+  ...
+# Subtest: ErrorBoundary Micro-UX & Keyboard Accessibility Standard
+    # Subtest: interactive buttons specify explicit type="button" and cursor-pointer
+    ok 1 - interactive buttons specify explicit type="button" and cursor-pointer
+      ---
+      duration_ms: 0.728218
+      type: 'test'
+      ...
+    # Subtest: interactive buttons specify explicit aria-label attributes
+    ok 2 - interactive buttons specify explicit aria-label attributes
+      ---
+      duration_ms: 0.167933
+      type: 'test'
+      ...
+    # Subtest: interactive buttons specify focus-visible rings for WCAG keyboard accessibility
+    ok 3 - interactive buttons specify focus-visible rings for WCAG keyboard accessibility
+      ---
+      duration_ms: 0.256698
+      type: 'test'
+      ...
+    1..3
+ok 35 - ErrorBoundary Micro-UX & Keyboard Accessibility Standard
+  ---
+  duration_ms: 2.999174
+  type: 'suite'
+  ...
+# ⚡ Bolt Performance Benchmark (ExitMonitor single-pass loop, 200000 iterations):
+#   - Original (Multi-pass filter/map/sort): 258.45 ms
+#   - Optimized (Single-pass loop fusion):     181.29 ms
+#   - Execution Speedup:                      1.43x faster
+# Subtest: ExitMonitor single-pass loop fusion optimization test
+ok 36 - ExitMonitor single-pass loop fusion optimization test
+  ---
+  duration_ms: 472.705715
+  type: 'test'
+  ...
+# Subtest: Account Balance & ConfigModal Defensiveness Tests
+    # Subtest: calculates fee and funding percentage relative to account balance correctly
+    ok 1 - calculates fee and funding percentage relative to account balance correctly
+      ---
+      duration_ms: 0.851709
+      type: 'test'
+      ...
+    # Subtest: handles trading_windows array mapping defensively when non-array is passed
+    ok 2 - handles trading_windows array mapping defensively when non-array is passed
+      ---
+      duration_ms: 0.90057
+      type: 'test'
+      ...
+    1..2
+ok 37 - Account Balance & ConfigModal Defensiveness Tests
+  ---
+  duration_ms: 3.096765
+  type: 'suite'
+  ...
+# ⚡ Bolt Performance Benchmark (formatDuration direct string template, 500000 iterations):
+#   - Total Time: 22.69 ms
+#   - Time per call: 45.39 ns
+# Subtest: formatDuration correctness & parity tests
+    # Subtest: handles null, undefined, and negative values gracefully
+    ok 1 - handles null, undefined, and negative values gracefully
+      ---
+      duration_ms: 0.874711
+      type: 'test'
+      ...
+    # Subtest: formats sub-minute and exact 0ms durations
+    ok 2 - formats sub-minute and exact 0ms durations
+      ---
+      duration_ms: 0.178232
+      type: 'test'
+      ...
+    # Subtest: formats minute-only durations
+    ok 3 - formats minute-only durations
+      ---
+      duration_ms: 0.181308
+      type: 'test'
+      ...
+    # Subtest: formats hours and minutes durations
+    ok 4 - formats hours and minutes durations
+      ---
+      duration_ms: 0.232354
+      type: 'test'
+      ...
+    # Subtest: formats days, hours, and minutes durations
+    ok 5 - formats days, hours, and minutes durations
+      ---
+      duration_ms: 0.178674
+      type: 'test'
+      ...
+    1..5
+ok 38 - formatDuration correctness & parity tests
+  ---
+  duration_ms: 5.094631
+  type: 'test'
+  ...
+# Subtest: formatDuration performance benchmark
+ok 39 - formatDuration performance benchmark
+  ---
+  duration_ms: 25.083829
+  type: 'test'
+  ...
+# Subtest: calculateProximity contract tests
+    # Subtest: returns 0 for missing or undefined signal
+    ok 1 - returns 0 for missing or undefined signal
+      ---
+      duration_ms: 1.205998
+      type: 'test'
+      ...
+    # Subtest: returns 0 for insufficient data
+    ok 2 - returns 0 for insufficient data
+      ---
+      duration_ms: 0.248854
+      type: 'test'
+      ...
+    # Subtest: returns 100 when fired and active
+    ok 3 - returns 100 when fired and active
+      ---
+      duration_ms: 0.317842
+      type: 'test'
+      ...
+    # Subtest: stale event based signals should return 0
+    ok 4 - stale event based signals should return 0
+      ---
+      duration_ms: 1.44779
+      type: 'test'
+      ...
+    # Subtest: returns 0 when state is blocked, rejected or description includes rejected
+    ok 5 - returns 0 when state is blocked, rejected or description includes rejected
+      ---
+      duration_ms: 0.257339
+      type: 'test'
+      ...
+    # Subtest: returns 0 for stale indicator-pair signals
+    ok 6 - returns 0 for stale indicator-pair signals
+      ---
+      duration_ms: 0.284861
+      type: 'test'
+      ...
+    # Subtest: price-based entry signal progress calculation
+    ok 7 - price-based entry signal progress calculation
+      ---
+      duration_ms: 0.199853
+      type: 'test'
+      ...
+    # Subtest: price-based exit signal progress calculation
+    ok 8 - price-based exit signal progress calculation
+      ---
+      duration_ms: 0.368548
+      type: 'test'
+      ...
+    # Subtest: indicator-based signals progress (threshold === 0)
+    ok 9 - indicator-based signals progress (threshold === 0)
+      ---
+      duration_ms: 0.546148
+      type: 'test'
+      ...
+    # Subtest: indicator-based signals progress (positive threshold, long)
+    ok 10 - indicator-based signals progress (positive threshold, long)
+      ---
+      duration_ms: 0.333622
+      type: 'test'
+      ...
+    # Subtest: indicator-based signals progress (positive threshold, short magnitude calculation)
+    ok 11 - indicator-based signals progress (positive threshold, short magnitude calculation)
+      ---
+      duration_ms: 0.177632
+      type: 'test'
+      ...
+    # Subtest: diverging is capped or zero depending on direction and indicator
+    ok 12 - diverging is capped or zero depending on direction and indicator
+      ---
+      duration_ms: 0.17696
+      type: 'test'
+      ...
+    1..12
+ok 40 - calculateProximity contract tests
+  ---
+  duration_ms: 9.697364
+  type: 'test'
+  ...
+# ⚡ Bolt Performance Benchmark (HistoryView modeTrades filtering, List size: 5000, 2000 iterations):
+#   - Original Multi-pass (.filter(Boolean).filter().slice()): 402.2317 ms
+#   - Optimized Single-pass (for loop with early break):         4.4071 ms
+#   - Execution Speedup:                                         91.3x faster
+# Subtest: HistoryView modeTrades filtering bottleneck optimization
+ok 41 - HistoryView modeTrades filtering bottleneck optimization
+  ---
+  duration_ms: 411.502995
+  type: 'test'
+  ...
+# Subtest: SessionGroup Per-Session Strategy Filtering & Top Wins/Losses Unit Tests
+    # Subtest: derives available strategy badges for a single session with fee and funding subtotals
+    ok 1 - derives available strategy badges for a single session with fee and funding subtotals
+      ---
+      duration_ms: 1.385166
+      type: 'test'
+      ...
+    # Subtest: aggregates session fees and funding correctly for selected strategy variant
+    ok 2 - aggregates session fees and funding correctly for selected strategy variant
+      ---
+      duration_ms: 0.529233
+      type: 'test'
+      ...
+    # Subtest: extracts top 5 wins and losses per session under ALL strategies filter
+    ok 3 - extracts top 5 wins and losses per session under ALL strategies filter
+      ---
+      duration_ms: 1.286443
+      type: 'test'
+      ...
+    # Subtest: filters session trades and top wins/losses when filtering by strategy variant
+    ok 4 - filters session trades and top wins/losses when filtering by strategy variant
+      ---
+      duration_ms: 0.278981
+      type: 'test'
+      ...
+    # Subtest: filters session trades by symbol independently
+    ok 5 - filters session trades by symbol independently
+      ---
+      duration_ms: 0.248468
+      type: 'test'
+      ...
+    # Subtest: filters session trades by symbol AND strategy together
+    ok 6 - filters session trades by symbol AND strategy together
+      ---
+      duration_ms: 1.305012
+      type: 'test'
+      ...
+    1..6
+ok 42 - SessionGroup Per-Session Strategy Filtering & Top Wins/Losses Unit Tests
+  ---
+  duration_ms: 7.29206
+  type: 'test'
+  ...
+# Subtest: HistoryView Filter Toolbar non-sticky and collapsible UX standard
+ok 43 - HistoryView Filter Toolbar non-sticky and collapsible UX standard
+  ---
+  duration_ms: 2.439554
+  type: 'test'
+  ...
+# Subtest: HistoryView Optimization - sessionTopWins and sessionTopLosses bounded insertion sort check
+ok 44 - HistoryView Optimization - sessionTopWins and sessionTopLosses bounded insertion sort check
+  ---
+  duration_ms: 1.399777
+  type: 'test'
+  ...
+# Subtest: HistoryView Optimization - topWins and topLosses bounded insertion sort check
+ok 45 - HistoryView Optimization - topWins and topLosses bounded insertion sort check
+  ---
+  duration_ms: 0.361941
+  type: 'test'
+  ...
+# Subtest: HistoryView UX - General Overview Card structure updated
+ok 46 - HistoryView UX - General Overview Card structure updated
+  ---
+  duration_ms: 0.294242
+  type: 'test'
+  ...
+# Subtest: Strategy Pause/Resume State Management & Race Condition Guards
+    # Subtest: prevents duplicate pause toggle requests while request is in flight
+    ok 1 - prevents duplicate pause toggle requests while request is in flight
+      ---
+      duration_ms: 0.969204
+      type: 'test'
+      ...
+    # Subtest: computes WCAG accessibility and spinner attributes when isPausing is active
+    ok 2 - computes WCAG accessibility and spinner attributes when isPausing is active
+      ---
+      duration_ms: 0.291868
+      type: 'test'
+      ...
+    1..2
+ok 47 - Strategy Pause/Resume State Management & Race Condition Guards
+  ---
+  duration_ms: 2.657672
+  type: 'test'
+  ...
+# Subtest: RR Milestone Copy/Paste Format Parser
+    # Subtest: parses arrow format "1 -> 0\\n2 -> 1\\n4 -> 2"
+    ok 1 - parses arrow format "1 -> 0\\n2 -> 1\\n4 -> 2"
+      ---
+      duration_ms: 1.290913
+      type: 'test'
+      ...
+    # Subtest: parses comma-separated values "1, 2, 4"
+    ok 2 - parses comma-separated values "1, 2, 4"
+      ---
+      duration_ms: 0.4883
+      type: 'test'
+      ...
+    1..2
+ok 48 - RR Milestone Copy/Paste Format Parser
+  ---
+  duration_ms: 3.549898
+  type: 'test'
+  ...
+# Subtest: Trade Liquidation Closing Map Race Condition Guard
+    # Subtest: prevents concurrent closeTrade requests for the same symbol
+    ok 1 - prevents concurrent closeTrade requests for the same symbol
+      ---
+      duration_ms: 0.268179
+      type: 'test'
+      ...
+    1..1
+ok 49 - Trade Liquidation Closing Map Race Condition Guard
+  ---
+  duration_ms: 0.724113
+  type: 'test'
+  ...
+# Subtest: Session Knife Catch trade PnL aggregation logic
+ok 50 - Session Knife Catch trade PnL aggregation logic
+  ---
+  duration_ms: 1.307206
+  type: 'test'
+  ...
+# Subtest: TradeItem knife tag identification
+ok 51 - TradeItem knife tag identification
+  ---
+  duration_ms: 0.220061
+  type: 'test'
+  ...
+# Subtest: TradeDetailContent knife tag badge presence
+ok 52 - TradeDetailContent knife tag badge presence
+  ---
+  duration_ms: 0.248428
+  type: 'test'
+  ...
+# Subtest: Granular negative exit R:R buckets distribution verification
+ok 53 - Granular negative exit R:R buckets distribution verification
+  ---
+  duration_ms: 0.273059
+  type: 'test'
+  ...
+# Subtest: Layout CLS & WCAG 2.1 UX Standards
+    # Subtest: MonthlyRevenueChart pre-reserves period detail banner container height to eliminate CLS
+    ok 1 - MonthlyRevenueChart pre-reserves period detail banner container height to eliminate CLS
+      ---
+      duration_ms: 0.723702
+      type: 'test'
+      ...
+    # Subtest: InteractiveLimitCard enforces WCAG spinbutton role, valuenow, lock/unlock ARIA labels, tooltips, and button semantics
+    ok 2 - InteractiveLimitCard enforces WCAG spinbutton role, valuenow, lock/unlock ARIA labels, tooltips, and button semantics
+      ---
+      duration_ms: 0.170919
+      type: 'test'
+      ...
+    # Subtest: StatCard enforces WCAG region role and keyboard focus-visible ring styles
+    ok 3 - StatCard enforces WCAG region role and keyboard focus-visible ring styles
+      ---
+      duration_ms: 0.206423
+      type: 'test'
+      ...
+    # Subtest: StrategyCard enforces WCAG button role, keyboard interaction, and focus ring
+    ok 4 - StrategyCard enforces WCAG button role, keyboard interaction, and focus ring
+      ---
+      duration_ms: 0.204087
+      type: 'test'
+      ...
+    1..4
+ok 54 - Layout CLS & WCAG 2.1 UX Standards
+  ---
+  duration_ms: 2.491882
+  type: 'suite'
+  ...
+# ⚡ Bolt Performance Benchmark (Decision Log Sorting, 1000 logs, 500 iterations):
+#   - Original (new Date() in sort comparator): 3285.94 ms
+#   - Optimized (ts_ms integer subtraction):     95.96 ms
+#   - Execution Speedup:                          34.24x faster
+# Subtest: normalizeLog pre-calculates numeric ts_ms timestamp
+ok 55 - normalizeLog pre-calculates numeric ts_ms timestamp
+  ---
+  duration_ms: 1.395046
+  type: 'test'
+  ...
+# Subtest: normalizeLog handles fallback and timestamp field variations
+ok 56 - normalizeLog handles fallback and timestamp field variations
+  ---
+  duration_ms: 6.69663
+  type: 'test'
+  ...
+# Subtest: Decision log sorting with pre-calculated ts_ms vs raw Date parsing benchmark
+ok 57 - Decision log sorting with pre-calculated ts_ms vs raw Date parsing benchmark
+  ---
+  duration_ms: 3387.855423
+  type: 'test'
+  ...
+# Subtest: Market Regime Analytics Unit Tests - getMarketRegimeInfo
+    # Subtest: evaluates quiet / slow market regime correctly when candidates are below scan threshold
+    ok 1 - evaluates quiet / slow market regime correctly when candidates are below scan threshold
+      ---
+      duration_ms: 1.641892
+      type: 'test'
+      ...
+    1..1
+ok 58 - Market Regime Analytics Unit Tests - getMarketRegimeInfo
+  ---
+  duration_ms: 2.807448
+  type: 'test'
+  ...
+# Subtest: Navigation buttons include explicit type="button", cursor-pointer, focus rings, and dynamic ARIA labels
+ok 59 - Navigation buttons include explicit type="button", cursor-pointer, focus rings, and dynamic ARIA labels
+  ---
+  duration_ms: 0.923871
+  type: 'test'
+  ...
+# ⚡ Bolt Performance Benchmark (normalizeOpportunity signals mapping, 100000 iterations):
+#   - Original Object.entries.reduce: 38.94 ms
+#   - Optimized for...in loop:          37.98 ms
+#   - Execution Speedup:                1.03x faster
+# Subtest: normalizeOpportunity benchmark: Object.entries.reduce vs single-pass loop
+ok 60 - normalizeOpportunity benchmark: Object.entries.reduce vs single-pass loop
+  ---
+  duration_ms: 79.716097
+  type: 'test'
+  ...
+# ⚡ Bolt Performance Benchmark (normalizeOpportunity signals mapping, 50000 iterations):
+#   - Original Object.entries.reduce: 81.45 ms
+#   - Optimized for...in loop:          125.39 ms
+# Subtest: normalizeOpportunity optimization: correctness of signal mapping
+ok 61 - normalizeOpportunity optimization: correctness of signal mapping
+  ---
+  duration_ms: 2.673255
+  type: 'test'
+  ...
+# Subtest: normalizeOpportunity optimization: performance benchmark comparison
+ok 62 - normalizeOpportunity optimization: performance benchmark comparison
+  ---
+  duration_ms: 208.387752
+  type: 'test'
+  ...
+# Subtest: MonthlyRevenueChart Periodic PnL Tooltip & Micro-UX Standard
+    # Subtest: MonthlyRevenueChart wraps bar canvas items in Radix Tooltip with Portal to prevent clipping
+    ok 1 - MonthlyRevenueChart wraps bar canvas items in Radix Tooltip with Portal to prevent clipping
+      ---
+      duration_ms: 1.223502
+      type: 'test'
+      ...
+    # Subtest: MonthlyRevenueChart renders Active Selected Period Detail Banner above canvas
+    ok 2 - MonthlyRevenueChart renders Active Selected Period Detail Banner above canvas
+      ---
+      duration_ms: 0.331689
+      type: 'test'
+      ...
+    # Subtest: MonthlyRevenueChart bar item includes WCAG region role, tabIndex={0}, and aria-label
+    ok 3 - MonthlyRevenueChart bar item includes WCAG region role, tabIndex={0}, and aria-label
+      ---
+      duration_ms: 1.392606
+      type: 'test'
+      ...
+    1..3
+ok 63 - MonthlyRevenueChart Periodic PnL Tooltip & Micro-UX Standard
+  ---
+  duration_ms: 4.658177
+  type: 'suite'
+  ...
+# Subtest: Preset Auto-Naming & 10-Character Mobile Budget Standard
+    # Subtest: generates ultra-compact name without timeframe within 10 chars
+    ok 1 - generates ultra-compact name without timeframe within 10 chars
+      ---
+      duration_ms: 1.042154
+      type: 'test'
+      ...
+    # Subtest: differentiates presets with slight SL distance variations under 10 chars
+    ok 2 - differentiates presets with slight SL distance variations under 10 chars
+      ---
+      duration_ms: 0.22505
+      type: 'test'
+      ...
+    # Subtest: differentiates presets with trailing stop enabled vs disabled under 10 chars
+    ok 3 - differentiates presets with trailing stop enabled vs disabled under 10 chars
+      ---
+      duration_ms: 0.173814
+      type: 'test'
+      ...
+    # Subtest: preserves existing loaded preset name during updates
+    ok 4 - preserves existing loaded preset name during updates
+      ---
+      duration_ms: 0.201796
+      type: 'test'
+      ...
+    # Subtest: generates fallback Scl label with risk % when no signals enabled
+    ok 5 - generates fallback Scl label with risk % when no signals enabled
+      ---
+      duration_ms: 0.172933
+      type: 'test'
+      ...
+    # Subtest: generates Mlt label when multiple signals enabled
+    ok 6 - generates Mlt label when multiple signals enabled
+      ---
+      duration_ms: 0.143447
+      type: 'test'
+      ...
+    # Subtest: maps individual signal types to clean 10-char abbreviations with SL modifier
+    ok 7 - maps individual signal types to clean 10-char abbreviations with SL modifier
+      ---
+      duration_ms: 0.228035
+      type: 'test'
+      ...
+    # Subtest: enforces strict hard-cap at 10 characters on long inputs
+    ok 8 - enforces strict hard-cap at 10 characters on long inputs
+      ---
+      duration_ms: 0.349542
+      type: 'test'
+      ...
+    1..8
+ok 64 - Preset Auto-Naming & 10-Character Mobile Budget Standard
+  ---
+  duration_ms: 4.826731
+  type: 'suite'
+  ...
+# Subtest: ConfigModal Preset Batch Management Standard
+    # Subtest: handleSelectAllPresets correctly toggles selection between empty Set and all presets Set
+    ok 1 - handleSelectAllPresets correctly toggles selection between empty Set and all presets Set
+      ---
+      duration_ms: 0.414303
+      type: 'test'
+      ...
+    # Subtest: batch actions handleSelectedPresets correctly filter selected preset objects without ReferenceError
+    ok 2 - batch actions handleSelectedPresets correctly filter selected preset objects without ReferenceError
+      ---
+      duration_ms: 0.306211
+      type: 'test'
+      ...
+    # Subtest: handleDeleteSelectedPresets calls presetsAPI.delete for each selected preset name
+    ok 3 - handleDeleteSelectedPresets calls presetsAPI.delete for each selected preset name
+      ---
+      duration_ms: 0.807726
+      type: 'test'
+      ...
+    # Subtest: handleFileImport calls presetsAPI.save for each valid preset in array import
+    ok 4 - handleFileImport calls presetsAPI.save for each valid preset in array import
+      ---
+      duration_ms: 0.1988
+      type: 'test'
+      ...
+    1..4
+ok 65 - ConfigModal Preset Batch Management Standard
+  ---
+  duration_ms: 2.026749
+  type: 'suite'
+  ...
+# Subtest: ConfigModal Presets Data Validation & Array Resilience
+    # Subtest: correctly normalizes direct array response
+    ok 1 - correctly normalizes direct array response
+      ---
+      duration_ms: 1.13147
+      type: 'test'
+      ...
+    # Subtest: correctly normalizes nested { data: { presets: [...] } } response
+    ok 2 - correctly normalizes nested { data: { presets: [...] } } response
+      ---
+      duration_ms: 0.201977
+      type: 'test'
+      ...
+    # Subtest: correctly normalizes nested { data: { data: [...] } } response
+    ok 3 - correctly normalizes nested { data: { data: [...] } } response
+      ---
+      duration_ms: 0.452354
+      type: 'test'
+      ...
+    # Subtest: filters out invalid or non-object entries missing valid name
+    ok 4 - filters out invalid or non-object entries missing valid name
+      ---
+      duration_ms: 1.712504
+      type: 'test'
+      ...
+    # Subtest: safely falls back to empty array on error objects or 404 responses
+    ok 5 - safely falls back to empty array on error objects or 404 responses
+      ---
+      duration_ms: 1.699529
+      type: 'test'
+      ...
+    # Subtest: partitionPresets functions properly with safe array data
+    ok 6 - partitionPresets functions properly with safe array data
+      ---
+      duration_ms: 0.323473
+      type: 'test'
+      ...
+    1..6
+ok 66 - ConfigModal Presets Data Validation & Array Resilience
+  ---
+  duration_ms: 7.136148
+  type: 'suite'
+  ...
+# Subtest: Presets & Variant UX Verification
+    # Subtest: 1. Start Session / Apply Changes button is NOT overlapped by fixed bottom bar in Presets panel
+    ok 1 - 1. Start Session / Apply Changes button is NOT overlapped by fixed bottom bar in Presets panel
+      ---
+      duration_ms: 1.019441
+      type: 'test'
+      ...
+    # Subtest: 2. "Save as new" and SavePresetModal dialog are properly integrated
+    ok 2 - 2. "Save as new" and SavePresetModal dialog are properly integrated
+      ---
+      duration_ms: 0.431335
+      type: 'test'
+      ...
+    # Subtest: 3. Variant presets are color-coded with violet palette and badge
+    ok 3 - 3. Variant presets are color-coded with violet palette and badge
+      ---
+      duration_ms: 1.159923
+      type: 'test'
+      ...
+    # Subtest: 4. Editing variant preserves base strategy configuration in memory and prevents becoming active base
+    ok 4 - 4. Editing variant preserves base strategy configuration in memory and prevents becoming active base
+      ---
+      duration_ms: 0.703112
+      type: 'test'
+      ...
+    # Subtest: 5. Preset section search and filter tabs are clear and responsive
+    ok 5 - 5. Preset section search and filter tabs are clear and responsive
+      ---
+      duration_ms: 0.567529
+      type: 'test'
+      ...
+    # Subtest: 6. Preset sub-header ribbon in other tabs is ultra-dense, without redundant preset labels or links
+    ok 6 - 6. Preset sub-header ribbon in other tabs is ultra-dense, without redundant preset labels or links
+      ---
+      duration_ms: 1.507651
+      type: 'test'
+      ...
+    1..6
+ok 67 - Presets & Variant UX Verification
+  ---
+  duration_ms: 8.988341
+  type: 'test'
+  ...
+# ⚡ Bolt Performance Benchmark (price formatter with pre-instantiated Intl.NumberFormat, 100000 iterations):
+#   - Total Time: 60.98 ms
+#   - Time per call: 0.61 ns
+# Subtest: price formatter correctness & parity tests
+    # Subtest: handles null, undefined, and NaN gracefully
+    ok 1 - handles null, undefined, and NaN gracefully
+      ---
+      duration_ms: 0.953728
+      type: 'test'
+      ...
+    # Subtest: handles zero correctly
+    ok 2 - handles zero correctly
+      ---
+      duration_ms: 0.18743
+      type: 'test'
+      ...
+    # Subtest: formats prices >= 100 with 2 decimal places and thousands separators
+    ok 3 - formats prices >= 100 with 2 decimal places and thousands separators
+      ---
+      duration_ms: 0.43424
+      type: 'test'
+      ...
+    # Subtest: formats prices between 1 and 100 with up to 4 decimal places
+    ok 4 - formats prices between 1 and 100 with up to 4 decimal places
+      ---
+      duration_ms: 0.318073
+      type: 'test'
+      ...
+    # Subtest: formats small prices (< 1) dynamically with significant digits
+    ok 5 - formats small prices (< 1) dynamically with significant digits
+      ---
+      duration_ms: 0.350564
+      type: 'test'
+      ...
+    1..5
+ok 68 - price formatter correctness & parity tests
+  ---
+  duration_ms: 5.270358
+  type: 'test'
+  ...
+# Subtest: price formatter performance benchmark
+ok 69 - price formatter performance benchmark
+  ---
+  duration_ms: 64.442222
+  type: 'test'
+  ...
+# Subtest: QA Automation: scan_pct_threshold boundary filter validation
+    # Subtest: filters out symbols when 4h momentum is below scan_pct_threshold (1.5%)
+    ok 1 - filters out symbols when 4h momentum is below scan_pct_threshold (1.5%)
+      ---
+      duration_ms: 0.724601
+      type: 'test'
+      ...
+    # Subtest: passes symbols when momentum meets or exceeds scan_pct_threshold
+    ok 2 - passes symbols when momentum meets or exceeds scan_pct_threshold
+      ---
+      duration_ms: 0.183893
+      type: 'test'
+      ...
+    1..2
+ok 70 - QA Automation: scan_pct_threshold boundary filter validation
+  ---
+  duration_ms: 1.908068
+  type: 'test'
+  ...
+# Subtest: QA Automation: MACD Impulse entry window (bars 1-2) boundary condition validation
+    # Subtest: fires signal on bar \#1 of green histogram
+    ok 1 - fires signal on bar \#1 of green histogram
+      ---
+      duration_ms: 0.212116
+      type: 'test'
+      ...
+    # Subtest: fires signal on bar \#2 of green histogram
+    ok 2 - fires signal on bar \#2 of green histogram
+      ---
+      duration_ms: 1.121421
+      type: 'test'
+      ...
+    # Subtest: rejects signal on bar \#3 or higher of green histogram (late entry prevention)
+    ok 3 - rejects signal on bar \#3 or higher of green histogram (late entry prevention)
+      ---
+      duration_ms: 0.298506
+      type: 'test'
+      ...
+    # Subtest: rejects signal on bar \#4 (e.g. after 12-16 hours on 4h timeframe)
+    ok 4 - rejects signal on bar \#4 (e.g. after 12-16 hours on 4h timeframe)
+      ---
+      duration_ms: 0.167822
+      type: 'test'
+      ...
+    1..4
+ok 71 - QA Automation: MACD Impulse entry window (bars 1-2) boundary condition validation
+  ---
+  duration_ms: 2.577086
+  type: 'test'
+  ...
+# Subtest: Rest Telemetry & Preset Multi-Select UI/UX Standards
+    # Subtest: SystemMetrics renders ultra-dense REST Call Distribution badges and mobile telemetry drawer
+    ok 1 - SystemMetrics renders ultra-dense REST Call Distribution badges and mobile telemetry drawer
+      ---
+      duration_ms: 2.565424
+      type: 'test'
+      ...
+    # Subtest: ConfigModal implements multi-select preset controls and batch actions
+    ok 2 - ConfigModal implements multi-select preset controls and batch actions
+      ---
+      duration_ms: 2.553642
+      type: 'test'
+      ...
+    1..2
+ok 72 - Rest Telemetry & Preset Multi-Select UI/UX Standards
+  ---
+  duration_ms: 6.528204
+  type: 'suite'
+  ...
+# ⚡ Bolt Performance Benchmark (RiskEngine canEnter activeKnifeCount loop fusion, 500000 iterations):
+#   - Original (Multi-pass filter): 185.41 ms
+#   - Optimized (Single-pass loop fusion): 108.86 ms
+#   - Execution Speedup: 1.70x faster
+# Subtest: RiskEngine activeKnifeCount loop fusion optimization test
+ok 73 - RiskEngine activeKnifeCount loop fusion optimization test
+  ---
+  duration_ms: 297.665959
+  type: 'test'
+  ...
+# Subtest: Risk Per Trade 4% Configuration Standard
+    # Subtest: allows and preserves 4% risk_pct_per_trade during config validation and processing
+    ok 1 - allows and preserves 4% risk_pct_per_trade during config validation and processing
+      ---
+      duration_ms: 0.920506
+      type: 'test'
+      ...
+    # Subtest: validates that risk_pct_per_trade up to 4% does not trigger aggressive warning in ConfigModal
+    ok 2 - validates that risk_pct_per_trade up to 4% does not trigger aggressive warning in ConfigModal
+      ---
+      duration_ms: 0.24137
+      type: 'test'
+      ...
+    # Subtest: evaluates aggressive risk profile threshold at > 4% in RiskSummary
+    ok 3 - evaluates aggressive risk profile threshold at > 4% in RiskSummary
+      ---
+      duration_ms: 0.268831
+      type: 'test'
+      ...
+    1..3
+ok 74 - Risk Per Trade 4% Configuration Standard
+  ---
+  duration_ms: 2.82058
+  type: 'suite'
+  ...
+# Subtest: RrWinRateCalculator header accessibility & WCAG keyboard standard
+ok 75 - RrWinRateCalculator header accessibility & WCAG keyboard standard
+  ---
+  duration_ms: 2.139951
+  type: 'test'
+  ...
+# Subtest: R:R Dynamic Trailing Stop & Runway Flag Calculations Unit Tests
+    # Subtest: calculates trailing distance in currency units based on pct vs rr mode
+    ok 1 - calculates trailing distance in currency units based on pct vs rr mode
+      ---
+      duration_ms: 0.920205
+      type: 'test'
+      ...
+    # Subtest: calculates trailing activation threshold price and activation status for LONG position
+    ok 2 - calculates trailing activation threshold price and activation status for LONG position
+      ---
+      duration_ms: 0.207597
+      type: 'test'
+      ...
+    # Subtest: calculates trailing activation threshold price and activation status for SHORT position
+    ok 3 - calculates trailing activation threshold price and activation status for SHORT position
+      ---
+      duration_ms: 0.291484
+      type: 'test'
+      ...
+    1..3
+ok 76 - R:R Dynamic Trailing Stop & Runway Flag Calculations Unit Tests
+  ---
+  duration_ms: 2.844073
+  type: 'suite'
+  ...
+# Subtest: ScannerOverlay loop optimization
+ok 77 - ScannerOverlay loop optimization
+  ---
+  duration_ms: 1.114198
+  type: 'test'
+  ...
+# Subtest: ScannerRow interactive element includes dynamic aria-label and high-contrast focus-visible ring
+ok 78 - ScannerRow interactive element includes dynamic aria-label and high-contrast focus-visible ring
+  ---
+  duration_ms: 1.740936
+  type: 'test'
+  ...
+# Subtest: ScannerOverlay utility controls and close button include explicit focus-visible rings and button semantics
+ok 79 - ScannerOverlay utility controls and close button include explicit focus-visible rings and button semantics
+  ---
+  duration_ms: 0.649922
+  type: 'test'
+  ...
+# Subtest: SettingsView sections default to collapsed and include performance controls
+ok 80 - SettingsView sections default to collapsed and include performance controls
+  ---
+  duration_ms: 1.691033
+  type: 'test'
+  ...
+# Subtest: SettingsView Hibernation Mode buttons enforce aria-pressed, aria-label, and cursor-pointer
+ok 81 - SettingsView Hibernation Mode buttons enforce aria-pressed, aria-label, and cursor-pointer
+  ---
+  duration_ms: 1.176925
+  type: 'test'
+  ...
+# Subtest: SettingsView Backend Log Feed buttons enforce aria-pressed, aria-label, and Tooltip wrapping
+ok 82 - SettingsView Backend Log Feed buttons enforce aria-pressed, aria-label, and Tooltip wrapping
+  ---
+  duration_ms: 1.229593
+  type: 'test'
+  ...
+# Subtest: ShortcutsModal component triggers shortcut actions and auto-closes dialog
+ok 83 - ShortcutsModal component triggers shortcut actions and auto-closes dialog
+  ---
+  duration_ms: 1.017427
+  type: 'test'
+  ---
+  duration_ms: 0.181719
+  type: 'test'
+  ...
+# Subtest: WebSocket Reconnection Grace Period & UX Validation
+    # Subtest: PersistentAlertBanner requires confirmed error status and wsError before displaying red alert
+    ok 1 - PersistentAlertBanner requires confirmed error status and wsError before displaying red alert
+      ---
+      duration_ms: 0.554234
+      type: 'test'
+      ...
+    # Subtest: PersistentAlertBanner includes non-intrusive ambient reconnection status pill
+    ok 2 - PersistentAlertBanner includes non-intrusive ambient reconnection status pill
+      ---
+      duration_ms: 0.142025
+      type: 'test'
+      ...
+    # Subtest: SystemMetrics supports reconnecting state with amber pulse dot and Reconnecting label
+    ok 3 - SystemMetrics supports reconnecting state with amber pulse dot and Reconnecting label
+      ---
+      duration_ms: 0.134311
+      type: 'test'
+      ...
+    # Subtest: main.jsx delegates tab visibility handling to setThrottled without double REST sync
+    ok 4 - main.jsx delegates tab visibility handling to setThrottled without double REST sync
+      ---
+      duration_ms: 0.135803
+      type: 'test'
+      ...
+    # Subtest: trading.js implements grace period debounce and fast wakeup reconnection in ws.onclose
+    ok 5 - trading.js implements grace period debounce and fast wakeup reconnection in ws.onclose
+      ---
+      duration_ms: 0.141614
+      type: 'test'
+      ...
+    1..5
+ok 115 - WebSocket Reconnection Grace Period & UX Validation
+  ---
+  duration_ms: 2.724481
+  type: 'test'
+  ...
+1..115
+# tests 289
+# suites 28
+# pass 286
+# fail 3
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6232.235548
+ ELIFECYCLE  Test failed. See above for more details.
+Error: Process completed with exit code 1.

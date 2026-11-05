@@ -1,5 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 test('Backtest Symbol Performance Leaderboard & Injection Logic', () => {
   const mockSymbolPerformance = [
@@ -48,9 +54,10 @@ test('SectionTabs Overflow Tab Classification & Indicator Logic', () => {
 });
 
 test('BacktestPanel safely handles undefined results.trades without throwing TypeError', async () => {
-  const fs = await import('node:fs');
-  const path = await import('node:path');
-  const code = fs.readFileSync(path.resolve('frontend/src/components/BacktestPanel.jsx'), 'utf-8');
+  const backtestPanelPath = fs.existsSync(path.resolve(__dirname, '../components/BacktestPanel.jsx'))
+    ? path.resolve(__dirname, '../components/BacktestPanel.jsx')
+    : path.resolve('frontend/src/components/BacktestPanel.jsx');
+  const code = fs.readFileSync(backtestPanelPath, 'utf-8');
 
   // Verify that results.trades is safely accessed with optional chaining or array fallback
   assert.ok(

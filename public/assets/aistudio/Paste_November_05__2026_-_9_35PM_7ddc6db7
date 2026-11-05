@@ -1,0 +1,287 @@
+Run pnpm lint
+
+> trading-dashboard-node@1.0.0 lint /home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node
+> eslint src --ext .ts
+
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_authoritative_sync.spec.ts
+Warning:   18:10  warning  'ENGINE_EVENTS' is defined but never used          @typescript-eslint/no-unused-vars
+Warning:   22:10  warning  'ExecutionStatus' is defined but never used        @typescript-eslint/no-unused-vars
+Warning:   29:7   warning  'eventEmitter' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_close_rearm_rollback.spec.ts
+Warning:   16:28  warning  'symbol' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   42:30  warning  'symbol' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   80:14  warning  'e' is defined but never used       @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_data_integrity.spec.ts
+Warning:   17:10  warning  'EXIT_REASONS' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_entry_promotion.spec.ts
+Warning:   16:10  warning  'ENGINE_EVENTS' is defined but never used          @typescript-eslint/no-unused-vars
+Warning:   21:7   warning  'sessionState' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_fee_integrity.spec.ts
+Warning:   17:10  warning  'ENGINE_EVENTS' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_in_flight_stop.spec.ts
+Warning:   30:7  warning  'sessionState' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_lifecycle_integrity.spec.ts
+Warning:   4:10  warning  'roundEight' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_partial_fill.spec.ts
+Warning:   18:10  warning  'EXIT_REASONS' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_pnl_integrity.spec.ts
+Warning:   32:7  warning  'sessionLifecycleService' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_pnl_multipart_recovery.spec.ts
+Warning:   3:10  warning  'Trade' is defined but never used          @typescript-eslint/no-unused-vars
+Warning:   4:10  warning  'ENGINE_EVENTS' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/chronos_reduce_only_retry.spec.ts
+Warning:   20:10  warning  'EXIT_REASONS' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/ema_warmup.spec.ts
+Warning:   2:10  warning  'KlineStoreService' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   3:10  warning  'ConfigService' is defined but never used      @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/engine-broadcaster.service.ts
+Warning:   399:19  warning  '_sig_json' is assigned a value but never used            @typescript-eslint/no-unused-vars
+Warning:   405:11  warning  'strategy_config' is assigned a value but never used      @typescript-eslint/no-unused-vars
+Warning:   406:11  warning  'live_rr_sequence' is assigned a value but never used     @typescript-eslint/no-unused-vars
+Warning:   407:11  warning  'exit_rr_sequence' is assigned a value but never used     @typescript-eslint/no-unused-vars
+Warning:   408:11  warning  'exit_signals_status' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   409:11  warning  '_sig_json' is assigned a value but never used            @typescript-eslint/no-unused-vars
+Warning:   410:11  warning  'sl_adjustments' is assigned a value but never used       @typescript-eslint/no-unused-vars
+Warning:   411:11  warning  'active_trade_events' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   412:11  warning  'tp_mode' is assigned a value but never used              @typescript-eslint/no-unused-vars
+Warning:   413:11  warning  'tp_ratio' is assigned a value but never used             @typescript-eslint/no-unused-vars
+Warning:   414:11  warning  'exit_signal_logic' is assigned a value but never used    @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/execution.service.ts
+Warning:   293:11  warning  'maxOpportunities' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/exit_estimation.service.ts
+Warning:   5:51  warning  'ExitState' is defined but never used   @typescript-eslint/no-unused-vars
+Warning:   5:62  warning  'ExitMethod' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/external_close_pnl.spec.ts
+Warning:    16:10  warning  'ENGINE_EVENTS' is defined but never used             @typescript-eslint/no-unused-vars
+Warning:    22:7   warning  'positionTracker' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:    23:7   warning  'eventEmitter' is assigned a value but never used     @typescript-eslint/no-unused-vars
+Warning:   127:11  warning  'closeRes' is assigned a value but never used         @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/funding_pnl_sync.spec.ts
+Warning:   33:7  warning  'eventEmitter' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/gating.service.ts
+Warning:   11:10  warning  'PositionTrackerService' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/ghost_position_sl_rejection.spec.ts
+Warning:   30:7  warning  'orderManager' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   32:7  warning  'eventEmitter' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/hibernation_pnl.spec.ts
+Warning:    2:10  warning  'Trade' is defined but never used                                                                                    @typescript-eslint/no-unused-vars
+Warning:   69:6   warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:   71:6   warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/independent_strategies.spec.ts
+Warning:   3:10  warning  'Trade' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/kline_store.service.ts
+Warning:     3:22  warning  'MoreThanOrEqual' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   446:14  warning  'err' is defined but never used              @typescript-eslint/no-unused-vars
+Warning:   467:14  warning  'err' is defined but never used              @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/leak_prevention.spec.ts
+Warning:   11:10  warning  'BinanceSubscriptionManager' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   16:63  warning  'wsUrl' is defined but never used                       @typescript-eslint/no-unused-vars
+Warning:   16:70  warning  'options' is defined but never used                     @typescript-eslint/no-unused-vars
+Warning:   36:7   warning  'tickerCache' is assigned a value but never used        @typescript-eslint/no-unused-vars
+Warning:   89:11  warning  'ws' is assigned a value but never used                 @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/lookback.spec.ts
+Warning:   1:29  warning  'Candle' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/macd_supertrend_signals.spec.ts
+Warning:    59:58  warning  'idx' is defined but never used                                                                             @typescript-eslint/no-unused-vars
+Error:   258:26  error    Optional chain expressions can return undefined by design - using a non-null assertion is unsafe and wrong  @typescript-eslint/no-non-null-asserted-optional-chain
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/maintenance.service.ts
+Warning:    3:10  warning  'Trade' is defined but never used       @typescript-eslint/no-unused-vars
+Warning:   11:10  warning  'roundEight' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/market_feed.blackout.spec.ts
+Warning:   18:76  warning  'opts' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/market_feed.service.ts
+Warning:      6:8   warning  'WebSocket' is defined but never used               @typescript-eslint/no-unused-vars
+Warning:     19:11  warning  'BinanceKline' is defined but never used            @typescript-eslint/no-unused-vars
+Warning:    138:14  warning  '_' is defined but never used                       @typescript-eslint/no-unused-vars
+Warning:    143:11  warning  'wsBaseMarket' is assigned a value but never used   @typescript-eslint/no-unused-vars
+Warning:    579:11  warning  'isLight' is assigned a value but never used        @typescript-eslint/no-unused-vars
+Warning:    604:13  warning  'isHibernating' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:    799:25  warning  'symbol' is assigned a value but never used         @typescript-eslint/no-unused-vars
+Warning:    859:21  warning  'symbol' is assigned a value but never used         @typescript-eslint/no-unused-vars
+Warning:   1252:58  warning  'requiredWarmup' is defined but never used          @typescript-eslint/no-unused-vars
+Warning:   1253:11  warning  'key' is assigned a value but never used            @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/market_feed_backfill_recovery.spec.ts
+Warning:    2:10  warning  'BinanceRequestQueue' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   48:89  warning  'ms' is defined but never used                   @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/market_feed_caching.spec.ts
+Warning:    6:76  warning  'opts' is defined but never used                  @typescript-eslint/no-unused-vars
+Warning:   79:11  warning  'firstTopics' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/math_performance.spec.ts
+Warning:   4:9   warning  'iterations' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   5:9   warning  'testValue' is assigned a value but never used   @typescript-eslint/no-unused-vars
+Warning:   7:12  warning  'oldRoundTo' is defined but never used           @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/order-filter.service.ts
+Warning:   6:10  warning  'CONFIG_LIMITS' is defined but never used        @typescript-eslint/no-unused-vars
+Warning:   6:25  warning  'ENGINE_CONSTANTS' is defined but never used     @typescript-eslint/no-unused-vars
+Warning:   8:10  warning  'BinanceRequestQueue' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/orderManager.atomicity.spec.ts
+Warning:   15:5  warning  'mockPositionTracker' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/orderManager.service.spec.ts
+Warning:     4:10  warning  'ExecutionStatus' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:    17:28  warning  'symbol' is defined but never used           @typescript-eslint/no-unused-vars
+Warning:    44:51  warning  'symbol' is defined but never used           @typescript-eslint/no-unused-vars
+Warning:   150:13  warning  'result' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   199:16  warning  'e' is defined but never used                @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/orderManager.ts
+Warning:     21:22  warning  'floorStep' is defined but never used                @typescript-eslint/no-unused-vars
+Warning:     21:33  warning  'roundTo' is defined but never used                  @typescript-eslint/no-unused-vars
+Warning:    434:19  warning  'totalQty' is assigned a value but never used        @typescript-eslint/no-unused-vars
+Warning:    754:16  warning  'err' is defined but never used                      @typescript-eslint/no-unused-vars
+Warning:    849:21  warning  'symbol' is defined but never used                   @typescript-eslint/no-unused-vars
+Warning:    849:37  warning  'leverage' is defined but never used                 @typescript-eslint/no-unused-vars
+Warning:   1030:13  warning  'lastError' is assigned a value but never used       @typescript-eslint/no-unused-vars
+Warning:   1042:17  warning  'closeDirection' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   1047:17  warning  'pricePrecision' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   1339:29  warning  'e' is defined but never used                        @typescript-eslint/no-unused-vars
+Warning:   2489:11  warning  'activeCount' is assigned a value but never used     @typescript-eslint/no-unused-vars
+Warning:   2623:52  warning  'options' is assigned a value but never used         @typescript-eslint/no-unused-vars
+Warning:   2777:18  warning  'innerAlgoErr' is defined but never used             @typescript-eslint/no-unused-vars
+Warning:   2878:24  warning  'err' is defined but never used                      @typescript-eslint/no-unused-vars
+Warning:   2925:22  warning  'err' is defined but never used                      @typescript-eslint/no-unused-vars
+Warning:   2933:24  warning  'e' is defined but never used                        @typescript-eslint/no-unused-vars
+Warning:   3664:28  warning  'posErr' is defined but never used                   @typescript-eslint/no-unused-vars
+Warning:   3711:28  warning  'flushErr' is defined but never used                 @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/pnl_balance_sync.spec.ts
+Warning:   27:10  warning  'ENGINE_EVENTS' is defined but never used                     @typescript-eslint/no-unused-vars
+Warning:   32:7   warning  'sessionLifecycleService' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/pnl_sync_audit.spec.ts
+Warning:    8:10  warning  'ENGINE_EVENTS' is defined but never used          @typescript-eslint/no-unused-vars
+Warning:   32:7   warning  'eventEmitter' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/positionTracker.service.spec.ts
+Warning:   143:13  warning  'config' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   350:13  warning  'config' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/positionTracker.ts
+Warning:   884:11  warning  'isInFlight' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   911:13  warning  'existing' is assigned a value but never used    @typescript-eslint/no-unused-vars
+Warning:   996:7   warning  'livePnl' is assigned a value but never used     @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/race_condition.spec.ts
+Warning:   6:10  warning  'ExecutionStatus' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/restart_pnl.spec.ts
+Warning:    66:5  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:    70:5  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:    79:5  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:    97:5  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:    99:5  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:   101:5  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:   105:5  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/riskEngine.ts
+Warning:     6:16  warning  'uuid' is defined but never used                     @typescript-eslint/no-unused-vars
+Warning:    64:11  warning  'isBaseStrategy' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   925:5   warning  'direction' is defined but never used                @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/rr-optimization.service.ts
+Warning:   229:11  warning  'avgDurationCandles' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   320:7   warning  'shapingReasoning' is assigned a value but never used    @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/session-lifecycle.service.ts
+Warning:     95:14  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:    137:20  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:    817:18  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   1020:20  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/session_state.service.spec.ts
+Warning:   3:10  warning  'Trade' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/session_state.service.ts
+Warning:     7:10  warning  'ENGINE_CONSTANTS' is defined but never used         @typescript-eslint/no-unused-vars
+Warning:   324:16  warning  'e' is defined but never used                        @typescript-eslint/no-unused-vars
+Warning:   625:37  warning  'prevAppliedPnL' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   732:16  warning  'e' is defined but never used                        @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/signalEngine.ts
+Warning:    444:5   warning  'signalType' is assigned a value but never used         @typescript-eslint/no-unused-vars
+Warning:    892:11  warning  'isOnSatisfiedSide' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:    958:13  warning  'threshold' is assigned a value but never used          @typescript-eslint/no-unused-vars
+Warning:   1551:5   warning  'metric' is defined but never used                      @typescript-eslint/no-unused-vars
+Warning:   2082:13  warning  'prevPrevHist' is assigned a value but never used       @typescript-eslint/no-unused-vars
+Warning:   2451:5   warning  'purpose' is assigned a value but never used            @typescript-eslint/no-unused-vars
+Warning:   2878:5   warning  'purpose' is assigned a value but never used            @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/sl_integrity.spec.ts
+Warning:    95:7  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+Warning:   112:7  warning  Use "@ts-expect-error" instead of "@ts-ignore", as "@ts-ignore" will do nothing if the following line is error-free  @typescript-eslint/ban-ts-comment
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/engine/sl_ratchet_dirty_retry.spec.ts
+Warning:     4:10  warning  'ENGINE_EVENTS' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   4:10  warning  'TERMINAL_STATUSES' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/monitoring.controller.spec.ts
+Warning:   17:7  warning  'sessionStateService' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/monitoring.controller.ts
+Warning:   215:16  warning  '_' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   458:16  warning  '_' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   625:16  warning  '_' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   672:14  warning  '_' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/pnl-logic.spec.ts
+Warning:   4:10  warning  'TradeEntity' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/presets.controller.spec.ts
+Warning:   13:7  warning  'auditLog' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/presets.controller.ts
+Warning:   22:3  warning  'UpdateStrategyPresetDto' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/session.controller.ts
+Warning:   34:25  warning  'metadata' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   53:25  warning  'metadata' is defined but never used  @typescript-eslint/no-unused-vars
+Warning:   69:25  warning  'metadata' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/session.service.ts
+Warning:   14:26  warning  'Like' is defined but never used  @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/settings.controller.spec.ts
+Warning:     9:10  warning  'encrypt' is defined but never used            @typescript-eslint/no-unused-vars
+Warning:    42:7   warning  'auditLog' is assigned a value but never used  @typescript-eslint/no-unused-vars
+Warning:   167:7   warning  'repo' is assigned a value but never used      @typescript-eslint/no-unused-vars
+
+/home/runner/work/trading-dashboard-app/trading-dashboard-app/backend/node/src/trading/trading.module.ts
+Warning:   1:18  warning  'forwardRef' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 217 problems (1 error, 216 warnings)
+
+ ELIFECYCLE  Command failed with exit code 1.
+Error: Process completed with exit code 1.

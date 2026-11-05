@@ -255,7 +255,7 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG');
       expect(result.details?.macd_pbc?.fired).toBe(true);
 
-      const macdDetail = result.details?.macd_pbc!;
+      const macdDetail = result.details!.macd_pbc;
       // Macro swing low over the 5-bar lookback window is from candle 118 (low = 293)
       expect(macdDetail.slPrice).toBe(293);
 

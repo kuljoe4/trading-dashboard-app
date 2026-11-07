@@ -17,8 +17,11 @@ export interface BacktestTradeDto {
   direction: 'LONG' | 'SHORT';
   entry_price: number;
   exit_price: number;
+  initial_sl?: number;
+  tp_price?: number | null;
   entry_ts: number;
   exit_ts: number;
+  holding_duration_ms?: number;
   qty: number;
   pnl: number;
   pnl_pct: number;
@@ -26,6 +29,7 @@ export interface BacktestTradeDto {
   rr: number;
   exit_reason: string;
   is_knife?: boolean;
+  candles?: Candle[];
 }
 
 export interface EquityCurvePoint {
@@ -210,6 +214,7 @@ export class BacktestService {
       direction: 'LONG' | 'SHORT';
       entry_price: number;
       entry_ts: number;
+      entry_index?: number;
       qty: number;
       initial_sl: number;
       current_sl: number;

@@ -20,5 +20,5 @@
     "ignoreDeprecations": "5.0"
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]
+  "exclude": ["node_modules", "dist", "src/tests/**/*", "**/*.spec.ts", "**/*.test.ts"]
 }

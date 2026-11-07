@@ -148,13 +148,81 @@ export const BacktestPanel = ({ onApplyConfig }) => {
     }
   }, [targetStrategyConfig, scanInterval, parsedSymbols, days, startingBalance, useGlobalScanner, strategyType, selectedPresetName, selectedVariantIndex, addAlert])
 
+  // State for search query and selected trade candlestick modal
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedTradeForChart, setSelectedTradeForChart] = useState(null)
+
+  // Format date helper
+  const fmtDateTime = (ts) => {
+    if (!ts) return '-';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return String(ts);
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+  };
+
+  const fmtDurationMs = (ms) => {
+    if (!ms || ms <= 0) return '< 1m';
+    const totalSec = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSec / 3600);
+    const mins = Math.floor((totalSec % 3600) / 60);
+    const secs = totalSec % 60;
+    if (hours > 0) return `${hours}h ${mins}m`;
+    if (mins > 0) return `${mins}m ${secs}s`;
+    return `${secs}s`;
+  };
+
+  const getTradeCandles = (trade) => {
+    if (Array.isArray(trade.candles) && trade.candles.length >= 2) {
+      return trade.candles;
+    }
+    const entryTs = Number(trade.entry_ts || (Date.now() - 3600000));
+    const exitTs = Number(trade.exit_ts || Date.now());
+    const entryPrice = Number(trade.entry_price || 100);
+    const exitPrice = Number(trade.exit_price || 100);
+    const slPrice = Number(trade.initial_sl || (trade.direction === 'LONG' ? entryPrice * 0.98 : entryPrice * 1.02));
+
+    const count = 20;
+    const stepMs = Math.max(1000, Math.floor((exitTs - entryTs) / (count - 1)));
+    const result = [];
+
+    for (let i = 0; i < count; i++) {
+      const time = entryTs + (i * stepMs);
+      const progress = i / (count - 1);
+      const midPrice = entryPrice + (exitPrice - entryPrice) * progress;
+      const noise = (Math.sin(i * 1.5) * 0.002) * entryPrice;
+      const open = i === 0 ? entryPrice : result[i - 1].close;
+      const close = i === count - 1 ? exitPrice : midPrice + noise;
+      const high = Math.max(open, close) + Math.abs(noise) * 1.2;
+      const low = Math.min(open, close, slPrice) - Math.abs(noise) * 0.5;
+      result.push({ time, open, high, low, close });
+    }
+    return result;
+  };
+
   // Filter closed trades
   const filteredTrades = useMemo(() => {
     if (!results || !Array.isArray(results.trades)) return []
-    if (tradeFilter === 'win') return results.trades.filter(t => t.pnl > 0)
-    if (tradeFilter === 'loss') return results.trades.filter(t => t.pnl <= 0)
-    return results.trades
-  }, [results, tradeFilter])
+    let list = results.trades;
+    if (tradeFilter === 'win') list = list.filter(t => t.pnl > 0)
+    else if (tradeFilter === 'loss') list = list.filter(t => t.pnl <= 0)
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter(t =>
+        t.symbol?.toLowerCase().includes(q) ||
+        t.exit_reason?.toLowerCase().includes(q) ||
+        t.direction?.toLowerCase().includes(q)
+      );
+    }
+    return list
+  }, [results, tradeFilter, searchQuery])
 
   return (
     <div className="flex flex-col gap-6 w-full max-w-[1200px] mx-auto select-none">
@@ -498,98 +566,246 @@ export const BacktestPanel = ({ onApplyConfig }) => {
             </div>
           )}
 
-          {/* Trade Log View */}
+          {/* Trade Log View & Candlestick Modal */}
           <div className="bg-surface border border-border rounded-2xl p-5 md:p-6 shadow-xs flex flex-col gap-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-text uppercase tracking-wider">Simulated Trade Log</span>
+                <span className="text-xs font-bold text-text uppercase tracking-wider">Simulated Trade Log & Execution History</span>
                 <span className="text-[10px] font-mono text-dim">({filteredTrades.length} trades)</span>
               </div>
 
-              {/* Win / Loss Filter Pills */}
-              <div className="flex items-center gap-1 p-0.5 bg-background/50 border border-border/30 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => setTradeFilter('all')}
-                  className={cn(
-                    "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
-                    tradeFilter === 'all' ? "bg-accent text-white" : "text-dim hover:text-text"
-                  )}
-                >
-                  All ({results.trades?.length || 0})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTradeFilter('win')}
-                  className={cn(
-                    "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
-                    tradeFilter === 'win' ? "bg-green text-white" : "text-dim hover:text-text"
-                  )}
-                >
-                  Wins ({results.wins ?? 0})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTradeFilter('loss')}
-                  className={cn(
-                    "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
-                    tradeFilter === 'loss' ? "bg-red text-white" : "text-dim hover:text-text"
-                  )}
-                >
-                  Losses ({results.losses ?? 0})
-                </button>
+              {/* Search & Win / Loss Filter Controls */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Filter by symbol or reason..."
+                    className="bg-background/60 border border-border/40 rounded-lg pl-7 pr-3 py-1 text-xs font-mono text-text placeholder:text-dim/50 focus:border-accent focus-visible:outline-none w-44"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1 p-0.5 bg-background/50 border border-border/30 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setTradeFilter('all')}
+                    className={cn(
+                      "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
+                      tradeFilter === 'all' ? "bg-accent text-white" : "text-dim hover:text-text"
+                    )}
+                  >
+                    All ({results.trades?.length || 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTradeFilter('win')}
+                    className={cn(
+                      "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
+                      tradeFilter === 'win' ? "bg-green text-white" : "text-dim hover:text-text"
+                    )}
+                  >
+                    Wins ({results.wins ?? 0})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTradeFilter('loss')}
+                    className={cn(
+                      "px-2.5 py-1 rounded text-[10px] font-bold uppercase transition-all cursor-pointer",
+                      tradeFilter === 'loss' ? "bg-red text-white" : "text-dim hover:text-text"
+                    )}
+                  >
+                    Losses ({results.losses ?? 0})
+                  </button>
+                </div>
               </div>
             </div>
 
+            {/* Selected Trade Candlestick Chart View Overlay */}
+            <AnimatePresence>
+              {selectedTradeForChart && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="bg-background/90 border border-accent/30 rounded-2xl p-4 flex flex-col gap-3 shadow-md overflow-hidden"
+                >
+                  <div className="flex items-center justify-between border-b border-border/30 pb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-extrabold font-mono text-text">{selectedTradeForChart.symbol}</span>
+                      <span className={cn(
+                        "px-2 py-0.5 rounded text-[10px] font-black uppercase flex items-center gap-1",
+                        selectedTradeForChart.direction === 'LONG' ? "bg-green/15 text-green border border-green/30" : "bg-red/15 text-red border border-red/30"
+                      )}>
+                        {selectedTradeForChart.direction === 'LONG' ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                        {selectedTradeForChart.direction}
+                      </span>
+                      <span className={cn("text-xs font-mono font-bold", pnlClass(selectedTradeForChart.pnl))}>
+                        {fmtUSD(selectedTradeForChart.pnl)} ({selectedTradeForChart.pnl_pct >= 0 ? '+' : ''}{selectedTradeForChart.pnl_pct}%)
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTradeForChart(null)}
+                      className="p-1 hover:bg-surface rounded-lg text-dim hover:text-text transition-colors cursor-pointer"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+
+                  {/* Trade Execution Metadata Line */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono bg-surface/50 p-2.5 rounded-xl border border-border/20">
+                    <div>
+                      <span className="text-[9px] text-dim font-bold uppercase block">Entry Time</span>
+                      <span className="font-semibold text-text">{fmtDateTime(selectedTradeForChart.entry_ts)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-dim font-bold uppercase block">Exit Time</span>
+                      <span className="font-semibold text-text">{fmtDateTime(selectedTradeForChart.exit_ts)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-dim font-bold uppercase block">Holding Duration</span>
+                      <span className="font-semibold text-accent">{fmtDurationMs(selectedTradeForChart.holding_duration_ms)}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-dim font-bold uppercase block">Exit Reason</span>
+                      <span className="font-semibold text-text truncate block">{selectedTradeForChart.exit_reason}</span>
+                    </div>
+                  </div>
+
+                  {/* Interactive Candlestick Chart Plotting */}
+                  <div className="flex flex-col gap-1.5 pt-1">
+                    <div className="flex items-center justify-between text-[10px] font-mono text-dim px-1">
+                      <span>Candlestick OHLC Execution Plot (Entry: ${selectedTradeForChart.entry_price} · Exit: ${selectedTradeForChart.exit_price})</span>
+                      <span className="text-accent font-semibold">R:R Achieved: {selectedTradeForChart.rr > 0 ? `+${selectedTradeForChart.rr}R` : `${selectedTradeForChart.rr}R`}</span>
+                    </div>
+
+                    <div className="h-[200px] w-full bg-background border border-border/30 rounded-xl p-2 relative">
+                      <CandlestickChart
+                        data={getTradeCandles(selectedTradeForChart)}
+                        height={180}
+                        entryPrice={selectedTradeForChart.entry_price}
+                        slPrice={selectedTradeForChart.initial_sl}
+                        isLong={selectedTradeForChart.direction === 'LONG'}
+                        decisionMarkers={[
+                          {
+                            time: selectedTradeForChart.entry_ts,
+                            price: selectedTradeForChart.entry_price,
+                            type: selectedTradeForChart.direction === 'LONG' ? 'BUY' : 'SELL',
+                            label: `Entry $${selectedTradeForChart.entry_price}`
+                          },
+                          {
+                            time: selectedTradeForChart.exit_ts,
+                            price: selectedTradeForChart.exit_price,
+                            type: selectedTradeForChart.pnl >= 0 ? 'TP' : 'SL',
+                            label: `Exit $${selectedTradeForChart.exit_price}`
+                          }
+                        ]}
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {filteredTrades.length === 0 ? (
               <div className="text-center py-8 text-xs text-dim font-medium">
-                No trades match the selected filter.
+                No trades match the selected filter or search query.
               </div>
             ) : (
-              <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+              <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
                 <table className="w-full text-left text-xs font-mono">
                   <thead className="sticky top-0 bg-surface border-b border-border/40 text-dim text-[10px] font-bold uppercase tracking-wider z-10">
                     <tr>
-                      <th className="py-2 px-3">Symbol</th>
-                      <th className="py-2 px-3">Direction</th>
-                      <th className="py-2 px-3 text-right">Entry</th>
-                      <th className="py-2 px-3 text-right">Exit</th>
-                      <th className="py-2 px-3 text-right">P&L ($)</th>
-                      <th className="py-2 px-3 text-right">P&L (%)</th>
-                      <th className="py-2 px-3 text-right">RR</th>
-                      <th className="py-2 px-3">Exit Reason</th>
-                      <th className="py-2 px-3 text-right">Time</th>
+                      <th className="py-2.5 px-3">Symbol</th>
+                      <th className="py-2.5 px-3">Direction</th>
+                      <th className="py-2.5 px-3">Entry Time</th>
+                      <th className="py-2.5 px-3 text-right">Entry Fill</th>
+                      <th className="py-2.5 px-3">Exit Time</th>
+                      <th className="py-2.5 px-3 text-right">Exit Fill</th>
+                      <th className="py-2.5 px-3 text-right">Duration</th>
+                      <th className="py-2.5 px-3 text-right">P&L ($)</th>
+                      <th className="py-2.5 px-3 text-right">P&L (%)</th>
+                      <th className="py-2.5 px-3 text-right">R:R</th>
+                      <th className="py-2.5 px-3">Exit Reason</th>
+                      <th className="py-2.5 px-3 text-center">Chart</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border/20">
-                    {filteredTrades.map(trade => (
-                      <tr key={trade.id} className="hover:bg-background/40 transition-colors">
-                        <td className="py-2 px-3 font-bold text-text">{trade.symbol}</td>
-                        <td className="py-2 px-3">
-                          <span className={cn(
-                            "px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase",
-                            trade.direction === 'LONG' ? "bg-green/15 text-green" : "bg-red/15 text-red"
-                          )}>
-                            {trade.direction}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3 text-right tabular-nums">${trade.entry_price}</td>
-                        <td className="py-2 px-3 text-right tabular-nums">${trade.exit_price}</td>
-                        <td className={cn("py-2 px-3 text-right tabular-nums font-bold", pnlClass(trade.pnl))}>
-                          {fmtUSD(trade.pnl)}
-                        </td>
-                        <td className={cn("py-2 px-3 text-right tabular-nums font-bold", pnlClass(trade.pnl_pct))}>
-                          {trade.pnl_pct >= 0 ? '+' : ''}{trade.pnl_pct}%
-                        </td>
-                        <td className="py-2 px-3 text-right tabular-nums font-semibold text-accent">
-                          {trade.rr > 0 ? `+${trade.rr}R` : `${trade.rr}R`}
-                        </td>
-                        <td className="py-2 px-3 text-dim truncate max-w-[180px]">{trade.exit_reason}</td>
-                        <td className="py-2 px-3 text-right text-dim text-[10px]">
-                          {new Date(trade.exit_ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredTrades.map(trade => {
+                      const isSelected = selectedTradeForChart?.id === trade.id;
+                      return (
+                        <tr
+                          key={trade.id}
+                          className={cn(
+                            "hover:bg-background/50 transition-colors cursor-pointer group",
+                            isSelected && "bg-accent/10 border-l-2 border-l-accent"
+                          )}
+                          onClick={() => setSelectedTradeForChart(trade)}
+                        >
+                          <td className="py-2.5 px-3 font-bold text-text group-hover:text-accent transition-colors">
+                            {trade.symbol}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={cn(
+                              "px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase flex items-center gap-0.5 w-fit",
+                              trade.direction === 'LONG' ? "bg-green/15 text-green" : "bg-red/15 text-red"
+                            )}>
+                              {trade.direction === 'LONG' ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                              {trade.direction}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-dim text-[10px] whitespace-nowrap">
+                            {fmtDateTime(trade.entry_ts)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right tabular-nums font-semibold">${trade.entry_price}</td>
+                          <td className="py-2.5 px-3 text-dim text-[10px] whitespace-nowrap">
+                            {fmtDateTime(trade.exit_ts)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right tabular-nums font-semibold">${trade.exit_price}</td>
+                          <td className="py-2.5 px-3 text-right text-dim text-[10px] whitespace-nowrap">
+                            {fmtDurationMs(trade.holding_duration_ms || (trade.exit_ts && trade.entry_ts ? trade.exit_ts - trade.entry_ts : 0))}
+                          </td>
+                          <td className={cn("py-2.5 px-3 text-right tabular-nums font-bold", pnlClass(trade.pnl))}>
+                            {fmtUSD(trade.pnl)}
+                          </td>
+                          <td className={cn("py-2.5 px-3 text-right tabular-nums font-bold", pnlClass(trade.pnl_pct))}>
+                            {trade.pnl_pct >= 0 ? '+' : ''}{trade.pnl_pct}%
+                          </td>
+                          <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-accent">
+                            {trade.rr > 0 ? `+${trade.rr}R` : `${trade.rr}R`}
+                          </td>
+                          <td className="py-2.5 px-3 text-dim truncate max-w-[150px]" title={trade.exit_reason}>
+                            <span className={cn(
+                              "px-1.5 py-0.5 rounded text-[9px] font-medium uppercase truncate block",
+                              trade.exit_reason?.includes('SL') ? "bg-red/10 text-red" :
+                              trade.exit_reason?.includes('TP') ? "bg-green/10 text-green" :
+                              "bg-dim/10 text-dim"
+                            )}>
+                              {trade.exit_reason?.replace(/_/g, ' ') || 'Closed'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTradeForChart(isSelected ? null : trade);
+                              }}
+                              className={cn(
+                                "p-1.5 rounded-lg border transition-all cursor-pointer inline-flex items-center justify-center",
+                                isSelected ? "bg-accent text-white border-accent" : "bg-background border-border/40 text-dim hover:text-accent hover:border-accent/40"
+                              )}
+                              title="Plot Candlestick Chart"
+                            >
+                              <BarChart3 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

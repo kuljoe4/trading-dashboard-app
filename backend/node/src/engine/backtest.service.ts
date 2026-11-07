@@ -17,8 +17,11 @@ export interface BacktestTradeDto {
   direction: 'LONG' | 'SHORT';
   entry_price: number;
   exit_price: number;
+  initial_sl?: number;
+  tp_price?: number | null;
   entry_ts: number;
   exit_ts: number;
+  holding_duration_ms?: number;
   qty: number;
   pnl: number;
   pnl_pct: number;
@@ -26,6 +29,7 @@ export interface BacktestTradeDto {
   rr: number;
   exit_reason: string;
   is_knife?: boolean;
+  candles?: Candle[];
 }
 
 export interface EquityCurvePoint {
@@ -210,6 +214,7 @@ export class BacktestService {
       direction: 'LONG' | 'SHORT';
       entry_price: number;
       entry_ts: number;
+      entry_index?: number;
       qty: number;
       initial_sl: number;
       current_sl: number;
@@ -403,6 +408,11 @@ export class BacktestService {
               if (activeSwitchHits > 0) activeSwitchHits--;
             }
 
+            const candleSlice = candles.slice(
+              Math.max(0, (pos.entry_index ?? i) - 12),
+              Math.min(candles.length, i + 6)
+            );
+
             closedTrades.push({
               id: pos.id,
               symbol,
@@ -410,8 +420,11 @@ export class BacktestService {
               direction: pos.direction,
               entry_price: pos.entry_price,
               exit_price: exitPrice,
+              initial_sl: pos.initial_sl,
+              tp_price: pos.tp_price,
               entry_ts: pos.entry_ts,
               exit_ts: currentTs,
+              holding_duration_ms: currentTs - pos.entry_ts,
               qty: pos.qty,
               pnl: roundTo(netPnl, 2),
               pnl_pct: roundTo(pnlPct, 2),
@@ -419,6 +432,7 @@ export class BacktestService {
               rr,
               exit_reason: exitReason,
               is_knife: pos.is_knife || false,
+              candles: candleSlice,
             });
 
             activePositions.delete(symbol);
@@ -447,10 +461,13 @@ export class BacktestService {
           }
         }
 
-        // Check global SL guard limit (total_sl_guard_usdt)
-        const cumLoss = startingBalance - balance;
+        // Check global SL guard limit (total_sl_guard_usdt) against active open position risk
+        let activeTotalSlRisk = 0;
+        for (const pos of activePositions.values()) {
+          activeTotalSlRisk += pos.risk_usdt || 0;
+        }
         const totalSlGuardBreached = (config.total_sl_guard_usdt && config.total_sl_guard_usdt > 0)
-          ? cumLoss >= config.total_sl_guard_usdt
+          ? activeTotalSlRisk >= config.total_sl_guard_usdt
           : false;
 
         if (isScannerCandidate && !totalSlGuardBreached && !activePositions.has(symbol) && activePositions.size < (config.max_open_trades || 5)) {
@@ -465,7 +482,7 @@ export class BacktestService {
               // BOLT OPTIMIZATION: Bounded window slice on-demand only when evaluating entry signal
               const longCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'LONG', 'entry', candles, i, requiredWarmup);
               if (longCheck.allFired) {
-                this.openSimulatedPosition('LONG', symbol, currentCandle, currentTs, balance, config, activePositions, activeSwitchHits, longCheck.details);
+                this.openSimulatedPosition('LONG', symbol, currentCandle, currentTs, balance, config, activePositions, activeSwitchHits, longCheck.details, candles, i);
                 continue;
               }
             }
@@ -475,7 +492,7 @@ export class BacktestService {
               // BOLT OPTIMIZATION: Bounded window slice on-demand only when evaluating entry signal
               const shortCheck = this.evaluateSignalOnSlice(symbol, config, scanInterval, 'SHORT', 'entry', candles, i, requiredWarmup);
               if (shortCheck.allFired) {
-                this.openSimulatedPosition('SHORT', symbol, currentCandle, currentTs, balance, config, activePositions, activeSwitchHits, shortCheck.details);
+                this.openSimulatedPosition('SHORT', symbol, currentCandle, currentTs, balance, config, activePositions, activeSwitchHits, shortCheck.details, candles, i);
               }
             }
           }
@@ -523,6 +540,11 @@ export class BacktestService {
       const slDist = Math.abs(pos.entry_price - pos.initial_sl);
       const rr = slDist > 0 ? roundTo(netPnl / pos.risk_usdt, 2) : 0;
 
+      const candleSlice = candles.slice(
+        Math.max(0, (pos.entry_index ?? (candles.length - 1)) - 12),
+        candles.length
+      );
+
       closedTrades.push({
         id: pos.id,
         symbol,
@@ -530,8 +552,11 @@ export class BacktestService {
         direction: pos.direction,
         entry_price: pos.entry_price,
         exit_price: lastCandle.close,
+        initial_sl: pos.initial_sl,
+        tp_price: pos.tp_price,
         entry_ts: pos.entry_ts,
         exit_ts: lastCandle.time,
+        holding_duration_ms: lastCandle.time - pos.entry_ts,
         qty: pos.qty,
         pnl: roundTo(netPnl, 2),
         pnl_pct: roundTo(pnlPct, 2),
@@ -539,6 +564,7 @@ export class BacktestService {
         rr,
         exit_reason: 'BACKTEST_END_FORCE_CLOSE',
         is_knife: pos.is_knife || false,
+        candles: candleSlice,
       });
     }
 
@@ -711,7 +737,9 @@ export class BacktestService {
     config: SessionConfig,
     activePositions: Map<string, any>,
     activeSwitchHits: number,
-    details?: any
+    details?: any,
+    candles?: Candle[],
+    currentIndex?: number
   ) {
     const entryPrice = currentCandle.close;
     let slDistPct = config.sl_distance_pct || 2.0;
@@ -735,8 +763,22 @@ export class BacktestService {
       ? entryPrice * (1 - slDistPct / 100)
       : entryPrice * (1 + slDistPct / 100);
 
-    // Overwrite SL if technical signal provides explicit slPrice or pattern boundary
-    if (config.sl_type === 'engulfing_boundary' || config.sl_type === 'streak_extreme') {
+    // Calculate SL strictly according to selected sl_type
+    if (config.sl_type === 'lookback_low/high' && candles && currentIndex !== undefined) {
+      const lookbackPeriod = Math.min(currentIndex + 1, config.sl_lookback_period || 5);
+      let extreme = currentCandle.close;
+      const startIdx = Math.max(0, currentIndex + 1 - lookbackPeriod);
+      for (let idx = startIdx; idx <= currentIndex; idx++) {
+        if (direction === 'LONG') {
+          if (candles[idx].low < extreme) extreme = candles[idx].low;
+        } else {
+          if (candles[idx].high > extreme) extreme = candles[idx].high;
+        }
+      }
+      if (extreme > 0 && extreme !== Infinity && extreme !== -Infinity) {
+        initialSl = extreme;
+      }
+    } else if (config.sl_type === 'engulfing_boundary' || config.sl_type === 'streak_extreme') {
       const mode = config.engulfing_mode || 'range';
       const useBody = mode === 'body' || mode === 'close_body';
       let boundary: number | undefined;
@@ -755,12 +797,18 @@ export class BacktestService {
       if (boundary && boundary > 0) {
         initialSl = boundary;
       }
-    } else if (details) {
-      for (const sigKey of Object.keys(details)) {
-        if (details[sigKey]?.slPrice && typeof details[sigKey].slPrice === 'number') {
-          initialSl = details[sigKey].slPrice;
-          break;
+    } else if (config.sl_type === 'supertrend') {
+      let supertrendSl: number | undefined;
+      if (details) {
+        for (const sigKey of Object.keys(details)) {
+          if (details[sigKey]?.slPrice && typeof details[sigKey].slPrice === 'number') {
+            supertrendSl = details[sigKey].slPrice;
+            break;
+          }
         }
+      }
+      if (supertrendSl && supertrendSl > 0) {
+        initialSl = supertrendSl;
       }
     }
 
@@ -784,6 +832,7 @@ export class BacktestService {
       direction,
       entry_price: entryPrice,
       entry_ts: entryTs,
+      entry_index: currentIndex,
       qty,
       initial_sl: initialSl,
       current_sl: initialSl,
@@ -804,25 +853,46 @@ export class BacktestService {
     }
 
     try {
-      const limit = Math.min(totalCount, 1000);
-      const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
-      if (!response.ok) return [];
+      let accumulatedCandles: Candle[] = [];
+      let endTimeParam: number | null = null;
+      const maxBatchCount = Math.min(Math.ceil(totalCount / 1000), 100);
 
-      const raw = (await response.json()) as any[][];
-      if (!Array.isArray(raw)) return [];
+      for (let b = 0; b < maxBatchCount; b++) {
+        const needed = totalCount - accumulatedCandles.length;
+        if (needed <= 0) break;
 
-      const candles: Candle[] = raw.map(k => ({
-        time: Number(k[0]),
-        open: parseFloat(String(k[1])),
-        high: parseFloat(String(k[2])),
-        low: parseFloat(String(k[3])),
-        close: parseFloat(String(k[4])),
-        volume: parseFloat(String(k[5])),
-        closeTime: Number(k[6]),
-      }));
+        const limit = Math.min(needed, 1000);
+        let url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+        if (endTimeParam) {
+          url += `&endTime=${endTimeParam}`;
+        }
 
-      if (candles.length > 0) {
+        const response = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!response.ok) break;
+
+        const raw = (await response.json()) as any[][];
+        if (!Array.isArray(raw) || raw.length === 0) break;
+
+        const batchCandles: Candle[] = raw.map(k => ({
+          time: Number(k[0]),
+          open: parseFloat(String(k[1])),
+          high: parseFloat(String(k[2])),
+          low: parseFloat(String(k[3])),
+          close: parseFloat(String(k[4])),
+          volume: parseFloat(String(k[5])),
+          closeTime: Number(k[6]),
+        }));
+
+        accumulatedCandles = batchCandles.concat(accumulatedCandles);
+        const earliestTime = batchCandles[0].time;
+        endTimeParam = earliestTime - 1;
+
+        if (batchCandles.length < limit) {
+          break;
+        }
+      }
+
+      if (accumulatedCandles.length > 0) {
         if (this.candleCacheMap.size > 200) {
           for (const [k, v] of this.candleCacheMap.entries()) {
             if (now - v.fetchedAt > this.CACHE_TTL_MS) {
@@ -834,10 +904,10 @@ export class BacktestService {
             if (firstKey) this.candleCacheMap.delete(firstKey);
           }
         }
-        this.candleCacheMap.set(cacheKey, { candles, fetchedAt: now });
+        this.candleCacheMap.set(cacheKey, { candles: accumulatedCandles, fetchedAt: now });
       }
 
-      return candles;
+      return accumulatedCandles;
     } catch (err) {
       this.logger.warn(`Failed to fetch historical klines for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
       return [];

@@ -62,13 +62,14 @@ const SYMBOLS = [
 
 const prices: Map<string, PriceInfo> = new Map();
 
-// Initialize prices
+// Initialize prices with full 120-candle warmup history (true timestamps at 5m intervals)
 const now = Date.now();
+const candleIntervalMs = 5 * 60 * 1000;
 for (const s of SYMBOLS) {
   const ohlc: PriceInfo['ohlc_history'] = [];
   let cur = s.basePrice;
-  for (let i = 20; i >= 0; i--) {
-    const t = now - i * 5 * 60 * 1000;
+  for (let i = 120; i >= 0; i--) {
+    const t = now - i * candleIntervalMs;
     const change = (Math.random() - 0.49) * 0.008;
     const o = cur;
     const c = cur * (1 + change);
@@ -682,9 +683,25 @@ setInterval(() => {
 
     const lastCandle = info.ohlc_history[info.ohlc_history.length - 1];
     if (lastCandle) {
-      lastCandle.close = newPrice;
-      lastCandle.high = Math.max(lastCandle.high, newPrice);
-      lastCandle.low = Math.min(lastCandle.low, newPrice);
+      if (ts - lastCandle.time >= candleIntervalMs) {
+        const nextCandleTime = Math.floor(ts / candleIntervalMs) * candleIntervalMs;
+        info.ohlc_history.push({
+          time: nextCandleTime,
+          open: lastCandle.close,
+          high: Math.max(lastCandle.close, newPrice),
+          low: Math.min(lastCandle.close, newPrice),
+          close: newPrice,
+          volume: Math.floor(Math.random() * 2000 + 500),
+        });
+        if (info.ohlc_history.length > 250) {
+          info.ohlc_history.shift();
+        }
+      } else {
+        lastCandle.close = newPrice;
+        lastCandle.high = Math.max(lastCandle.high, newPrice);
+        lastCandle.low = Math.min(lastCandle.low, newPrice);
+        lastCandle.volume += Math.floor(Math.random() * 10 + 1);
+      }
     }
 
     const firstCandle = info.ohlc_history[0];
@@ -1787,42 +1804,106 @@ app.patch('/session/trade/:id/config', (req, res) => {
   res.json({ success: true, trade });
 });
 
-app.get('/session/analytics', (req, res) => {
-  const total = state.tradeHistory.length;
-  const wins = state.tradeHistory.filter(t => t.pnl > 0).length;
-  const winRate = total > 0 ? parseFloat(((wins / total) * 100).toFixed(1)) : 0;
-  res.json({
-    winRate,
+function computeSessionAnalytics(trades: any[], startingBal: number = 10000) {
+  const total = trades.length;
+  if (total === 0) {
+    return {
+      winRate: 0,
+      totalTrades: 0,
+      winningTrades: 0,
+      losingTrades: 0,
+      profitFactor: 0,
+      sharpeRatio: 0,
+      sortinoRatio: 0,
+      maxDrawdown: 0,
+      avgTradeDuration: '0m',
+      dailyPnl: state.totalPnl,
+      weeklyPnl: state.totalPnl,
+      totalVolumeUsdt: 0,
+      trades: []
+    };
+  }
+
+  let wins = 0;
+  let grossProfit = 0;
+  let grossLoss = 0;
+  let sumReturnPct = 0;
+  let sumSquaredReturnPct = 0;
+  let downsideSumSquaredReturnPct = 0;
+  let totalDurationMs = 0;
+  let totalVolumeUsdt = 0;
+  let peakBalance = startingBal;
+  let maxDrawdownPct = 0;
+  let rollingBal = startingBal;
+
+  for (const t of trades) {
+    const pnl = Number(t.pnl || 0);
+    const notional = Number(t.notional || (t.entry_price && t.quantity ? t.entry_price * t.quantity : 0));
+    totalVolumeUsdt += notional;
+
+    const entryTs = t.entry_ts_ms || (t.entry_ts ? new Date(t.entry_ts).getTime() : 0);
+    const exitTs = t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+    if (entryTs && exitTs && exitTs > entryTs) {
+      totalDurationMs += (exitTs - entryTs);
+    }
+
+    const retPct = rollingBal > 0 ? (pnl / rollingBal) * 100 : 0;
+    rollingBal += pnl;
+    if (rollingBal > peakBalance) peakBalance = rollingBal;
+    const dd = peakBalance > 0 ? ((peakBalance - rollingBal) / peakBalance) * 100 : 0;
+    if (dd > maxDrawdownPct) maxDrawdownPct = dd;
+
+    sumReturnPct += retPct;
+    sumSquaredReturnPct += retPct * retPct;
+
+    if (pnl > 0) {
+      wins++;
+      grossProfit += pnl;
+    } else if (pnl < 0) {
+      grossLoss += Math.abs(pnl);
+      downsideSumSquaredReturnPct += retPct * retPct;
+    }
+  }
+
+  const meanReturn = sumReturnPct / total;
+  const profitFactor = grossLoss > 0 ? parseFloat((grossProfit / grossLoss).toFixed(2)) : (grossProfit > 0 ? 100 : 0);
+
+  let sharpe = 0;
+  let sortino = 0;
+  if (total > 1) {
+    const variance = Math.max(0, (sumSquaredReturnPct / total) - (meanReturn * meanReturn));
+    const stdDev = Math.sqrt(variance);
+    const downsideStdDev = Math.sqrt(downsideSumSquaredReturnPct / total);
+    if (stdDev > 0) sharpe = parseFloat((meanReturn / stdDev).toFixed(2));
+    if (downsideStdDev > 0) sortino = parseFloat((meanReturn / downsideStdDev).toFixed(2));
+  }
+
+  const avgDurMin = total > 0 && totalDurationMs > 0 ? Math.round(totalDurationMs / (total * 60000)) : 0;
+  const avgTradeDuration = avgDurMin >= 60 ? `${Math.floor(avgDurMin / 60)}h ${avgDurMin % 60}m` : `${avgDurMin}m`;
+
+  return {
+    winRate: parseFloat(((wins / total) * 100).toFixed(1)),
     totalTrades: total,
     winningTrades: wins,
     losingTrades: total - wins,
-    profitFactor: 2.34,
-    sharpeRatio: 1.95,
-    maxDrawdown: 2.1,
-    avgTradeDuration: '24m',
+    profitFactor,
+    sharpeRatio: sharpe,
+    sortinoRatio: sortino,
+    maxDrawdown: parseFloat(maxDrawdownPct.toFixed(1)),
+    avgTradeDuration,
     dailyPnl: state.totalPnl,
     weeklyPnl: state.totalPnl,
-    totalVolumeUsdt: 125000,
-  });
+    totalVolumeUsdt: Math.round(totalVolumeUsdt),
+    trades
+  };
+}
+
+app.get('/session/analytics', (req, res) => {
+  res.json(computeSessionAnalytics(state.tradeHistory, state.balance || 10000));
 });
 
 app.get('/session/lifetime-analytics', (req, res) => {
-  const total = state.tradeHistory.length;
-  const wins = state.tradeHistory.filter(t => t.pnl > 0).length;
-  const winRate = total > 0 ? parseFloat(((wins / total) * 100).toFixed(1)) : 0;
-  res.json({
-    winRate,
-    totalTrades: total,
-    winningTrades: wins,
-    losingTrades: total - wins,
-    profitFactor: 2.34,
-    sharpeRatio: 1.95,
-    maxDrawdown: 2.1,
-    avgTradeDuration: '24m',
-    dailyPnl: state.totalPnl,
-    weeklyPnl: state.totalPnl,
-    totalVolumeUsdt: 125000,
-  });
+  res.json(computeSessionAnalytics(state.tradeHistory, state.balance || 10000));
 });
 
 app.post('/session/reset-paper-balance', (req, res) => {

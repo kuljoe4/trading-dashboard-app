@@ -131,6 +131,7 @@ const TemporalRiskGrid = React.memo(() => {
         onDecrement={() => patchConfig({ trades_jitter_pct: Math.max(0, (config.trades_jitter_pct || 0) - 5) })}
         syncing={configSyncing}
         disabled={config.frequency_shaping_enabled === false}
+        className="col-span-2 md:col-span-1 lg:col-span-1"
       />
     </div>
   );
@@ -2363,8 +2364,8 @@ export function DashboardView({ initialStrategy }) {
         </Suspense>
       ) : (
         <div className={cn(
-          "max-w-[1600px] mx-auto p-4 md:p-10 lg:pb-10 transition-all",
-          healthEnabled ? "pb-48" : "pb-32"
+          "max-w-[1600px] mx-auto p-3 md:p-6 lg:p-8 transition-all",
+          healthEnabled ? "pb-24 sm:pb-20" : "pb-16 sm:pb-12"
         )}>
 
         <ConfirmationModal
@@ -2773,29 +2774,15 @@ export function DashboardView({ initialStrategy }) {
 
 
 
-        {/* Monthly Revenue Bar Chart (Observable Analytics) */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35 }}
-          className="mb-5 lg:mb-6"
-        >
+        {/* Observable Analytics & Recent Execution Feed - Side-by-Side 2-Column Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start mb-5 lg:mb-6">
           <MonthlyRevenueChart tradeHistory={tradeHistory} balance={balance} />
-        </motion.div>
-
-        {/* Recent Transactions List (Matching reference design) */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.38 }}
-          className="mb-5 lg:mb-6"
-        >
           <RecentTransactionsList
             tradeHistory={tradeHistory}
             activeTrades={activeTrades}
             onOpenScanner={handleOpenScanner}
           />
-        </motion.div>
+        </div>
 
         {/* ROI Trends & Insights - Collapsible */}
         <motion.div

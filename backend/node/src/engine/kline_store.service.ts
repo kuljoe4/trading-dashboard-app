@@ -19,7 +19,7 @@ export class KlineStoreService {
   private readonly MAX_CANDLES = this.readMaxCandles();
 
   // BOLT OPTIMIZATION: Stable caches for completed candles to allow O(1) lookbacks
-  private readonly hlStableCache = new Map<string, { time: number; minLow: number; maxHigh: number; count: number }>();
+  private readonly hlStableCache = new Map<string, { time: number; minLow: number; maxHigh: number; count: number; reason?: string }>();
 
   // BOLT OPTIMIZATION: Cache pre-parsed milliseconds values for interval strings
   private readonly intervalMsCache = new Map<string, number>();
@@ -321,7 +321,7 @@ export class KlineStoreService {
     const startIdx = Math.max(0, endIdx - period);
     const targetCandle = candles[endIdx - 1];
 
-    const expectedIntervalMs = this.parseIntervalToMs(interval);
+    const expectedIntervalMs = this.parseIntervalToMs(effectiveInterval);
 
     // BOLT OPTIMIZATION: Try stable cache FIRST before any O(N) loops.
     // Since completed candles are immutable, the gap detection and extremes result remains static.
@@ -330,25 +330,57 @@ export class KlineStoreService {
     const stable = this.hlStableCache.get(stableKey);
 
     if (stable && stable.time === targetCandle.time && stable.count === period) {
+      if (stable.reason) {
+        return { minLow: 0, maxHigh: 0, reason: stable.reason };
+      }
       if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, effectiveInterval)) {
         return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
       }
       return { minLow: stable.minLow, maxHigh: stable.maxHigh };
     }
 
-    if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, interval)) {
+    if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, effectiveInterval)) {
+      this.hlStableCache.set(stableKey, { time: targetCandle.time, minLow: 0, maxHigh: 0, count: period, reason: 'stale_data' });
       return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
     }
 
-    // 2. Gap Detection: Scan consecutive completed candles within the lookback window for any time gaps.
+    // 2. Gap Detection & Auto-Repair: Scan consecutive completed candles within the lookback window for time gaps.
     for (let i = startIdx + 1; i < endIdx; i++) {
       const currentCandle = candles[i];
       const prevCandle = candles[i - 1];
       const delta = currentCandle.time - prevCandle.time;
+
       if (delta > expectedIntervalMs * 1.5) {
+        // Auto-repair small gaps (up to 4 intervals e.g. 1-3 missing candles)
+        if (delta <= expectedIntervalMs * 4) {
+          const missingCount = Math.floor(delta / expectedIntervalMs) - 1;
+          if (missingCount > 0 && missingCount <= 3) {
+            const repairedCandles: Candle[] = [];
+            let lastPrice = prevCandle.close;
+            for (let m = 1; m <= missingCount; m++) {
+              repairedCandles.push({
+                time: prevCandle.time + (m * expectedIntervalMs),
+                open: lastPrice,
+                high: lastPrice,
+                low: lastPrice,
+                close: lastPrice,
+                volume: 0,
+              });
+            }
+            // Splice synthetic candles into in-memory array
+            candles.splice(i, 0, ...repairedCandles);
+            this.logger.log(
+              `[KlineStoreService] Auto-repaired ${missingCount} missing candle(s) for ${symbol} (${effectiveInterval}) around time ${prevCandle.time}.`,
+            );
+            // Re-evaluate since array length changed
+            return this.getLookbackExtremes(symbol, interval, period);
+          }
+        }
+
         this.logger.warn(
-          `[Lookback Validation] TIME_GAP: Detected data gap of ${Math.round(delta / 1000)}s between consecutive candles at times ${prevCandle.time} and ${currentCandle.time} for ${symbol} (${interval}). Expected Interval: ${Math.round(expectedIntervalMs / 1000)}s (Threshold: ${Math.round(expectedIntervalMs * 1.5 / 1000)}s). Lookback period: ${period}. Triggering fallback to Pct SL.`,
+          `[Lookback Validation] TIME_GAP: Detected data gap of ${Math.round(delta / 1000)}s between consecutive candles at times ${prevCandle.time} and ${currentCandle.time} for ${symbol} (${effectiveInterval}). Expected Interval: ${Math.round(expectedIntervalMs / 1000)}s (Threshold: ${Math.round(expectedIntervalMs * 1.5 / 1000)}s). Lookback period: ${period}. Triggering fallback to Pct SL.`,
         );
+        this.hlStableCache.set(stableKey, { time: targetCandle.time, minLow: 0, maxHigh: 0, count: period, reason: 'time_gap' });
         return { minLow: 0, maxHigh: 0, reason: 'time_gap' };
       }
     }

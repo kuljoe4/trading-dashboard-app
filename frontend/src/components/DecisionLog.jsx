@@ -205,7 +205,7 @@ const LogEntry = React.memo(({ log }) => {
             dateTime={timestampInfo.iso}
             title={timestampInfo.fullLocal}
             aria-label={`Time: ${timestampInfo.fullLocal}`}
-            className="text-dim/60 whitespace-nowrap shrink-0 sm:mb-0 mb-0.5 cursor-help"
+            className="text-dim/70 font-mono tabular-nums whitespace-nowrap shrink-0 sm:mb-0 mb-0.5 cursor-help"
           >
             [{timestampInfo.formatted}]
           </time>

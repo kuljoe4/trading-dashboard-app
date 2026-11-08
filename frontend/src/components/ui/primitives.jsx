@@ -77,7 +77,7 @@ export const AlertRipple = React.memo(({ level = "info" }) => {
 AlertRipple.displayName = 'AlertRipple'
 
 // --- Interactive Limit Card ---
-export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip, subValue, usagePct }) => {
+export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onIncrement, onDecrement, min = 0, max = 1000, step = 1, syncing, disabled, indicator, tooltip, subValue, usagePct, className }) => {
   const [isLocked, setIsLocked] = React.useState(true);
   const timerRef = React.useRef(null);
 
@@ -114,7 +114,8 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
         disabled && "opacity-40 grayscale pointer-events-none",
         usagePct >= 90 && "border-red/50 bg-red/[0.03] shadow-[0_0_20px_rgba(244,63,94,0.1)]",
         usagePct >= 70 && usagePct < 90 && "border-amber/50 bg-amber/[0.03] shadow-[0_0_20px_rgba(245,158,11,0.08)]",
-        subValue?.includes('Wait') && "border-amber/40 bg-amber/[0.02]"
+        subValue?.includes('Wait') && "border-amber/40 bg-amber/[0.02]",
+        className
       )}
       onKeyDown={handleKeyDown}
       tabIndex={0}

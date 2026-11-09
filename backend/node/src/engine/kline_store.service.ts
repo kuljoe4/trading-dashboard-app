@@ -296,7 +296,7 @@ export class KlineStoreService {
       const maxAgeMs = expectedIntervalMs * 2.5;
       if (ageMs > maxAgeMs) {
         this.logger.warn(
-          `[Lookback Validation] STALE_DATA: Completed candle for ${symbol} (${interval}) is too old. Age: ${Math.round(ageMs / 1000)}s (Last Candle Time: ${targetCandle.time}), Max Allowed: ${Math.round(maxAgeMs / 1000)}s. Triggering fallback to Pct SL.`,
+          `[Lookback Validation] STALE_DATA: Completed candle for ${symbol} (${interval}) is too old. Age: ${Math.round(ageMs / 1000)}s (Last Candle Time: ${targetCandle.time}), Max Allowed: ${Math.round(maxAgeMs / 1000)}s. Invalidating lookback extremes (delegating to RiskEngine policy).`,
         );
         return true;
       }
@@ -378,7 +378,7 @@ export class KlineStoreService {
         }
 
         this.logger.warn(
-          `[Lookback Validation] TIME_GAP: Detected data gap of ${Math.round(delta / 1000)}s between consecutive candles at times ${prevCandle.time} and ${currentCandle.time} for ${symbol} (${effectiveInterval}). Expected Interval: ${Math.round(expectedIntervalMs / 1000)}s (Threshold: ${Math.round(expectedIntervalMs * 1.5 / 1000)}s). Lookback period: ${period}. Triggering fallback to Pct SL.`,
+          `[Lookback Validation] TIME_GAP: Detected data gap of ${Math.round(delta / 1000)}s between consecutive candles at times ${prevCandle.time} and ${currentCandle.time} for ${symbol} (${effectiveInterval}). Expected Interval: ${Math.round(expectedIntervalMs / 1000)}s (Threshold: ${Math.round(expectedIntervalMs * 1.5 / 1000)}s). Lookback period: ${period}. Invalidating lookback extremes (delegating to RiskEngine policy).`,
         );
         this.hlStableCache.set(stableKey, { time: targetCandle.time, minLow: 0, maxHigh: 0, count: period, reason: 'time_gap' });
         return { minLow: 0, maxHigh: 0, reason: 'time_gap' };

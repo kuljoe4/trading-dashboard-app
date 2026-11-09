@@ -117,16 +117,15 @@ export class TradingSessionService implements OnApplicationShutdown {
       .filter((v: any) => v && v.enabled !== false)
       .map(
         (v, i) => {
-          const hasVariantSymbols = Array.isArray(v.symbols);
-          const hasVariantScannerOverride =
-            v.watchlist_size !== undefined ||
-            v.discovery_mode !== undefined ||
-            v.scan_interval !== undefined ||
-            v.global_scanner_enabled !== undefined;
+          const hasExplicitVariantSymbols = Array.isArray(v.symbols) && v.symbols.length > 0;
+          const isExplicitDiscoveryRequested = Array.isArray(v.symbols) && v.symbols.length === 0;
 
-          const variantSymbols = hasVariantSymbols
+          // If variant explicitly provides symbols, use them.
+          // If variant explicitly set symbols: [], it opted into dynamic discovery.
+          // Otherwise, inherit the baseSymbols (so changing scan_interval or parameters does not wipe out symbols).
+          const variantSymbols = hasExplicitVariantSymbols
             ? v.symbols
-            : (hasVariantScannerOverride ? [] : baseSymbols);
+            : (isExplicitDiscoveryRequested ? [] : baseSymbols);
 
           return ({
             ...this.config,
@@ -1382,6 +1381,13 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.refreshRiskGating().catch((e) =>
         this.logger.error(
           `Failed to refresh gating after config update: ${e.message}`,
+        ),
+      );
+
+      // SRE: Update MarketFeed watchlist and kline stream subscriptions for the new/edited base & variant configurations
+      this.marketFeed.updateWatchlist(config).catch((err) =>
+        this.logger.error(
+          `Failed to refresh market feed watchlist after config update: ${err.message}`,
         ),
       );
     }

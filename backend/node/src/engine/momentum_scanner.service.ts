@@ -279,7 +279,7 @@ export class MomentumScannerService {
     const lookback = Math.max(config.scan_lookback || 1, 1);
     const candles = this.klineStore.getRawCandles(symbol, interval);
     if (candles.length < lookback + 1) {
-      if (isExplicitSymbol) {
+      if (isExplicitSymbol || (Array.isArray(config.symbols) && config.symbols.includes(symbol))) {
         const tickerData = this.tickerCache.getTicker(symbol);
         const displayPrice = tickerData?.price || 0;
         if (displayPrice > 0) {

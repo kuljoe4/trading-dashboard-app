@@ -637,9 +637,14 @@ export class OrderManagerService {
           (clientOrderId && clientOrderId.startsWith(`sl-${tradeIdShort8}`));
 
         if (isSlOrder) {
-          this.logger.warn(`[${tradeIdShort8}] [UDS] Stop Loss order ${status} for ${symbol}. Triggering reactive watchdog audit.`);
-          // RE-01: Emit event for reactive audit. MaintenanceService will handle debouncing and guards.
-          this.eventEmitter.emit('watchdog.reactive_audit', { symbol });
+          const isIntentional = this.isRatcheting(symbol) || this.positionTracker.isClosing(symbol);
+          if (isIntentional) {
+            this.logger.debug(`[${tradeIdShort8}] [UDS] Expected Stop Loss order ${status} for ${symbol} during active ratchet/close.`);
+          } else {
+            this.logger.warn(`[${tradeIdShort8}] [UDS] Stop Loss order ${status} for ${symbol}. Triggering reactive watchdog audit.`);
+            // RE-01: Emit event for reactive audit. MaintenanceService will handle debouncing and guards.
+            this.eventEmitter.emit('watchdog.reactive_audit', { symbol });
+          }
         }
       }
     }
@@ -3563,13 +3568,19 @@ export class OrderManagerService {
             }
 
             // DATA-CONSISTENCY: Fallback for 0 price responses
-            if (absoluteExitPrice === 0 && trade.binance_close_order_id) {
-               try {
-                  const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_close_order_id) });
-                  const queryData = (await queryRes.data()) as BinanceOrderReceipt;
-                  absoluteExitPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
-               } catch (queryErr) {
-                  this.logger.warn(`[${symbol}] [Sync] Failed to fetch authoritative exit price: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+            // Prioritize tickerCache first to preserve REST weight and avoid Binance read-replica propagation lag (-2013)
+            if (absoluteExitPrice === 0) {
+               const tickerPrice = this.tickerCache.getPrice(symbol);
+               if (tickerPrice && tickerPrice > 0) {
+                  absoluteExitPrice = tickerPrice;
+               } else if (trade.binance_close_order_id) {
+                  try {
+                     const queryRes = await this.binanceClient.restAPI.queryOrder({ symbol, orderId: BigInt(trade.binance_close_order_id) });
+                     const queryData = (await queryRes.data()) as BinanceOrderReceipt;
+                     absoluteExitPrice = parseFloat(queryData.avgPrice || queryData.price || '0');
+                  } catch (queryErr) {
+                     this.logger.debug(`[${symbol}] [Sync] queryOrder deferred fallback: ${queryErr instanceof Error ? queryErr.message : String(queryErr)}`);
+                  }
                }
             }
 

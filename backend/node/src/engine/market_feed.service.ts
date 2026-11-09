@@ -91,6 +91,13 @@ export class MarketFeedService {
       sensitivity: config.smart_watchlist_sensitivity,
       excluded: config.excluded_symbols || [],
       active: activeSymbolList.sort(),
+      variants: (config.strategy_variants || []).map((v: any) => ({
+        enabled: v?.enabled,
+        symbols: v?.symbols,
+        scan_interval: v?.scan_interval,
+        discovery_mode: v?.discovery_mode,
+        watchlist_size: v?.watchlist_size,
+      })),
     });
   }
 
@@ -595,6 +602,7 @@ export class MarketFeedService {
 
   private async executeWatchlistUpdate(config: SessionConfig) {
     try {
+      this.currentConfig = config;
       const newWatchlist = new Map<string, Set<string>>();
       const isGated = this.sessionState.isGated();
       const activeTrades = this.sessionState.activeTrades;
@@ -731,7 +739,7 @@ export class MarketFeedService {
               }
             }
           }
-          const globalInterval = sc.scan_interval || '1m';
+          const globalInterval = this.resolveInterval(sc.scan_interval || '1m', sc) || '1m';
           for (const s of scSymbols) {
             if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
             newWatchlist.get(s)!.add(globalInterval);

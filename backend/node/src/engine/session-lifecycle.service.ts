@@ -714,6 +714,9 @@ export class SessionLifecycleService {
                 return;
               }
 
+              // Proactively zero realTimePositions cache to prevent ghost position lag
+              this.sessionState.realTimePositions.set(symbol, { amount: 0, entryPrice: 0 });
+
               // Defer marking udsConfirmedClosedTrades until we are certain it's a zero-fill closure
               if (tEntity) {
                 this.sessionState.udsConfirmedClosedTrades.add(tEntity.id);

@@ -575,23 +575,23 @@ export class ExecutionService {
         if (!price) continue;
 
         // Apply SL distance pct override if switch mode is active and threshold met
-        let effectiveSlDistancePct = symbolConfig.sl_distance_pct;
-        if (symbolConfig.tp_mode === 'exp_rr_seq_switch' && symbolConfig.switched_sl_distance_pct && symbolConfig.peak_rr_switch_threshold) {
-          const stratLabel = symbolConfig.strategy_label || 'Momentum Strategy';
+        let effectiveSlDistancePct = resolvedConfig.sl_distance_pct;
+        if (resolvedConfig.tp_mode === 'exp_rr_seq_switch' && resolvedConfig.switched_sl_distance_pct && resolvedConfig.peak_rr_switch_threshold) {
+          const stratLabel = resolvedConfig.strategy_label || 'Momentum Strategy';
           const hits = this.positionTracker.peakRrSwitchHits.get(stratLabel) || 0;
-          if (hits >= (symbolConfig.peak_rr_switch_count || 1)) {
-            effectiveSlDistancePct = symbolConfig.switched_sl_distance_pct;
+          if (hits >= (resolvedConfig.peak_rr_switch_count || 1)) {
+            effectiveSlDistancePct = resolvedConfig.switched_sl_distance_pct;
           }
         }
 
         // Pass the effective SL distance pct explicitly instead of mutating the config
-        const overriddenConfig = { ...symbolConfig, sl_distance_pct: effectiveSlDistancePct };
+        const overriddenConfig = { ...resolvedConfig, sl_distance_pct: effectiveSlDistancePct };
 
-        const rawSlTimeframe = (!symbolConfig.sl_lookback_timeframe || symbolConfig.sl_lookback_timeframe === 'default')
-          ? (symbolConfig.scan_interval || '1m')
-          : symbolConfig.sl_lookback_timeframe;
-        const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, symbolConfig) || '5m';
-        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
+        const rawSlTimeframe = (!resolvedConfig.sl_lookback_timeframe || resolvedConfig.sl_lookback_timeframe === 'default')
+          ? (resolvedConfig.scan_interval || '1m')
+          : resolvedConfig.sl_lookback_timeframe;
+        const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, resolvedConfig) || '5m';
+        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, resolvedConfig.sl_lookback_period || 20);
 
         // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles
         if (lookback.reason === 'time_gap' || lookback.reason === 'stale_data' || lookback.reason === 'too_few_candles') {
@@ -658,7 +658,7 @@ export class ExecutionService {
 
         slPrice = slFiltered.price;
 
-        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig, opp.symbol, closedTrades);
+        const sizeResult = this.riskEngine.computePositionSize(balance, price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', resolvedConfig, opp.symbol, closedTrades);
 
         if (sizeResult.qty <= 0) {
           if (sizeResult.rejected) {
@@ -691,7 +691,7 @@ export class ExecutionService {
           continue;
         }
         const qty = sizeResult.qty;
-        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', symbolConfig);
+        const tpPrice = this.riskEngine.computeTp(price, slPrice, opp.direction.toUpperCase() as 'LONG' | 'SHORT', resolvedConfig);
 
         if (tpPrice !== null && tpPrice <= 0) {
            this.logger.warn(`${opp.symbol}: Skip entry opportunity - computed TP price ${tpPrice} is non-positive.`);
@@ -720,7 +720,7 @@ export class ExecutionService {
           this.sessionState.closedTrades,
           balance,
           opp.symbol,
-          symbolConfig,
+          resolvedConfig,
           this.positionTracker.totalRisk(),
           enteringCount,
           opp.score,

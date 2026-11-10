@@ -118,6 +118,11 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     return config.strategy_label !== s.strategy_label;
   }, [config, s?.strategy_label]);
 
+  const stratName = s?.strategy_label || 'Momentum Strategy';
+  const stratGate = strategyGateStates[stratName] || {};
+  const effectiveGate = stratGate.gateState || (isVariant ? 'ACTIVE' : gateState);
+  const effectiveReason = stratGate.gateReason || (isVariant ? (stratGate.gateState ? stratGate.gateState : 'OK') : gateReason);
+
   // Resolve variant-aware timeframe and scanner opportunities list
   const strategyScannerResults = useMemo(() => {
     if (!s || !s.strategy_label) return [];
@@ -453,10 +458,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         title: '3. Pre-Trade Risk & Capital Gating',
         subtitle: 'Safety Invariants',
         short: 'Risk Check',
-        status: isStrategyPaused ? 'PAUSED' : (gateState === 'ACTIVE' || gateState === 'OK') ? 'READY' : 'GATED',
+        status: isStrategyPaused ? 'PAUSED' : (effectiveGate === 'ACTIVE' || effectiveGate === 'OK') ? 'READY' : 'GATED',
         isPassed: currentLifecycleStage.stageNumber > 3,
         isActive: currentLifecycleStage.stageNumber === 3,
-        badgeClass: isStrategyPaused ? 'text-amber border-amber/30 bg-amber/10' : (gateState === 'ACTIVE' || gateState === 'OK') ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10',
+        badgeClass: isStrategyPaused ? 'text-amber border-amber/30 bg-amber/10' : (effectiveGate === 'ACTIVE' || effectiveGate === 'OK') ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10',
         desc: 'Anti-whipsaw, sliding frequency limits, trade spacing, and maximum account risk exposure checks.',
         criteria: [
           { label: 'Account Max Risk', value: `${strategyConfig.max_total_risk_pct || 5.0}% Total Portfolio Cap` },
@@ -519,7 +524,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     ];
   }, [
     isStaticWatchlist, staticSymbols, strategyConfig, currentLifecycleStage, entryMet, firedCount, signalsCount,
-    signalLogic, conditionFormula, reqLabels, timeframeDebugItems, isStrategyPaused, gateState, startingBal,
+    signalLogic, conditionFormula, reqLabels, timeframeDebugItems, isStrategyPaused, effectiveGate, startingBal,
     strategyActiveTrades, activeTradeCount, stratPerformance
   ]);
 
@@ -564,7 +569,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Aggregated Strategy Reasons Log
   const strategyReasons = useMemo(() => {
     const list = [];
-    const stratName = s?.strategy_label || 'Momentum Strategy';
 
     // 1. Live Candidate Evaluation reasons
     const opps = strategyScannerResults || [];
@@ -624,9 +628,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     });
 
     // 2. Risk Gating reasons
-    const stratGate = strategyGateStates[stratName] || {};
-    const effectiveGate = stratGate.gateState || gateState;
-    const effectiveReason = stratGate.gateReason || gateReason;
     if (isStrategyPaused) {
       list.push({
         id: `gate-paused-${stratName}`,
@@ -1157,7 +1158,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       {isStrategyPaused ? 'PAUSED' : 'ACTIVE'}
                     </span>
                     <span className="text-[10px] text-dim/60 font-medium">·</span>
-                    <span className="text-[9.5px] text-dim font-medium uppercase truncate">{gateReason || 'OK'}</span>
+                    <span className="text-[9.5px] text-dim font-medium uppercase truncate">{effectiveReason || 'OK'}</span>
                   </div>
                 </div>
               </div>

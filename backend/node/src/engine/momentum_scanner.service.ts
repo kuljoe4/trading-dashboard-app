@@ -442,14 +442,21 @@ export class MomentumScannerService {
     const evalCandles = targetCandles.length > 0 ? targetCandles : candles;
 
     if (slType === 'lookback_low/high' && evalCandles.length > 0) {
-      const lookbackPeriod = Math.min(evalCandles.length, config.sl_lookback_period || 5);
-      let extreme = evalCandles[evalCandles.length - 1].close;
+      const rawPeriod = config.sl_lookback_period ?? 5;
+      let extreme: number;
+      if (rawPeriod === 0) {
+        const currentCandle = evalCandles[evalCandles.length - 1];
+        extreme = direction === 'LONG' ? currentCandle.low : currentCandle.high;
+      } else {
+        const lookbackPeriod = Math.min(evalCandles.length, rawPeriod);
+        extreme = evalCandles[evalCandles.length - 1].close;
 
-      for (let i = evalCandles.length - lookbackPeriod; i < evalCandles.length; i++) {
-        if (direction === 'LONG') {
-          if (evalCandles[i].low < extreme) extreme = evalCandles[i].low;
-        } else {
-          if (evalCandles[i].high > extreme) extreme = evalCandles[i].high;
+        for (let i = evalCandles.length - lookbackPeriod; i < evalCandles.length; i++) {
+          if (direction === 'LONG') {
+            if (evalCandles[i].low < extreme) extreme = evalCandles[i].low;
+          } else {
+            if (evalCandles[i].high > extreme) extreme = evalCandles[i].high;
+          }
         }
       }
 

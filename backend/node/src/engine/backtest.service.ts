@@ -765,14 +765,20 @@ export class BacktestService {
 
     // Calculate SL strictly according to selected sl_type
     if (config.sl_type === 'lookback_low/high' && candles && currentIndex !== undefined) {
-      const lookbackPeriod = Math.min(currentIndex + 1, config.sl_lookback_period || 5);
-      let extreme = currentCandle.close;
-      const startIdx = Math.max(0, currentIndex + 1 - lookbackPeriod);
-      for (let idx = startIdx; idx <= currentIndex; idx++) {
-        if (direction === 'LONG') {
-          if (candles[idx].low < extreme) extreme = candles[idx].low;
-        } else {
-          if (candles[idx].high > extreme) extreme = candles[idx].high;
+      const rawPeriod = config.sl_lookback_period ?? 5;
+      let extreme: number;
+      if (rawPeriod === 0) {
+        extreme = direction === 'LONG' ? currentCandle.low : currentCandle.high;
+      } else {
+        const lookbackPeriod = Math.min(currentIndex + 1, rawPeriod);
+        extreme = currentCandle.close;
+        const startIdx = Math.max(0, currentIndex + 1 - lookbackPeriod);
+        for (let idx = startIdx; idx <= currentIndex; idx++) {
+          if (direction === 'LONG') {
+            if (candles[idx].low < extreme) extreme = candles[idx].low;
+          } else {
+            if (candles[idx].high > extreme) extreme = candles[idx].high;
+          }
         }
       }
       if (extreme > 0 && extreme !== Infinity && extreme !== -Infinity) {

@@ -620,7 +620,12 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     // 2. Stop Loss Dependencies
     if (config.sl_type === "lookback_low/high") {
-      if (!config.sl_lookback_period || config.sl_lookback_period < 1) {
+      if (
+        config.sl_lookback_period === undefined ||
+        config.sl_lookback_period === null ||
+        !Number.isFinite(Number(config.sl_lookback_period)) ||
+        config.sl_lookback_period < 0
+      ) {
         throw new BadRequestException(
           "Valid lookback period is required for Lookback SL type",
         );

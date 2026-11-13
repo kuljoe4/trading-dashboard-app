@@ -92,10 +92,13 @@ describe('SessionService Validation', () => {
       expect(() => (service as any).validateConfig(config)).toThrow('Window duration is required');
     });
 
-    it('throws error for invalid SL lookback dependencies', () => {
+    it('allows sl_lookback_period = 0 and throws error for negative SL lookback period', () => {
       const config = new SessionConfig();
       config.sl_type = 'lookback_low/high';
       config.sl_lookback_period = 0;
+      expect(() => (service as any).validateConfig(config)).not.toThrow();
+
+      config.sl_lookback_period = -1;
       expect(() => (service as any).validateConfig(config)).toThrow('Valid lookback period is required');
     });
 

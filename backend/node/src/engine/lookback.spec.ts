@@ -92,6 +92,35 @@ describe('Lookback SL Logic', () => {
       expect(result.minLow).toBe(0);
       expect(result.maxHigh).toBe(0);
     });
+
+    it('should return current (incomplete) candle high/low when period is 0 and update on new ticks without stale cache', async () => {
+      const symbol = 'BTCUSDT';
+      const interval = '1m';
+
+      await klineStore.upsertCandle(symbol, interval, [1000, 10, 12, 6, 11, 0, 0, 100]);
+      await klineStore.upsertCandle(symbol, interval, [2000, 11, 15, 9, 13, 0, 0, 100]); // Current candle
+
+      const first = klineStore.getLookbackExtremes(symbol, interval, 0);
+      expect(first.minLow).toBe(9);
+      expect(first.maxHigh).toBe(15);
+
+      // Update current forming candle with new low/high
+      await klineStore.upsertCandle(symbol, interval, [2000, 11, 17, 8, 14, 0, 0, 120]);
+
+      const updated = klineStore.getLookbackExtremes(symbol, interval, 0);
+      expect(updated.minLow).toBe(8);
+      expect(updated.maxHigh).toBe(17);
+    });
+
+    it('should work with only 1 candle when period is 0 and return too_few_candles when empty', async () => {
+      const empty = klineStore.getLookbackExtremes('ETHUSDT', '1m', 0);
+      expect(empty.reason).toBe('too_few_candles');
+
+      await klineStore.upsertCandle('ETHUSDT', '1m', [2000, 100, 105, 98, 102, 0, 0, 50]);
+      const single = klineStore.getLookbackExtremes('ETHUSDT', '1m', 0);
+      expect(single.minLow).toBe(98);
+      expect(single.maxHigh).toBe(105);
+    });
   });
 
   describe('RiskEngineService.computeSl', () => {

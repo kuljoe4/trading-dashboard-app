@@ -313,6 +313,19 @@ export class KlineStoreService {
     const key = `${symbol}_${effectiveInterval}`;
     const candles = this.klines.get(key) || [];
 
+    if (period === 0) {
+      if (candles.length === 0) {
+        return { minLow: 0, maxHigh: 0, reason: 'too_few_candles' };
+      }
+      const currentCandle = candles[candles.length - 1];
+      const expectedIntervalMs = this.parseIntervalToMs(effectiveInterval);
+      if (this.isLookbackStale(currentCandle, expectedIntervalMs, symbol, effectiveInterval)) {
+        return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
+      }
+      // Do not store in hlStableCache because the current forming candle mutates on every tick
+      return { minLow: currentCandle.low, maxHigh: currentCandle.high };
+    }
+
     if (candles.length <= 1) {
       return { minLow: 0, maxHigh: 0, reason: 'too_few_candles' };
     }

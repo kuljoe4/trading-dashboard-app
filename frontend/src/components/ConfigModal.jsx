@@ -5816,7 +5816,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
                 ) : (
                   <div className="grid grid-cols-2 gap-4">
-                    {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 1 })}
+                    <Tooltip content="Number of completed candles to look back for High/Low stop loss. Set to 0 to use the current (forming) candle's High/Low.">
+                      {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 0 })}
+                    </Tooltip>
                     {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
                   </div>
                 )}

@@ -591,12 +591,13 @@ export class ExecutionService {
           ? (resolvedConfig.scan_interval || '1m')
           : resolvedConfig.sl_lookback_timeframe;
         const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, resolvedConfig) || '5m';
-        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, resolvedConfig.sl_lookback_period || 20);
+        const lookbackPeriod = resolvedConfig.sl_lookback_period ?? 20;
+        const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod);
 
         // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles
         if (lookback.reason === 'time_gap' || lookback.reason === 'stale_data' || lookback.reason === 'too_few_candles') {
           this.logger.debug(`[Lookback Auto-heal] Requesting backfill for ${opp.symbol} ${slTimeframe} due to ${lookback.reason}`);
-          this.marketFeedService.queueBackfill(opp.symbol, slTimeframe, symbolConfig.sl_lookback_period || 20);
+          this.marketFeedService.queueBackfill(opp.symbol, slTimeframe, lookbackPeriod);
         }
 
         // Extract structural pattern details if available (engulfing, macd_pbc, etc.)

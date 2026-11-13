@@ -362,7 +362,7 @@ export class SessionConfig {
   sl_distance_pct?: number = CONFIG_LIMITS.SL_DISTANCE_DEFAULT;
 
   @IsNumber()
-  @Min(1)
+  @Min(0)
   @IsOptional()
   sl_lookback_period?: number = 5;
 

@@ -393,25 +393,27 @@ export function getStrategyRulesDiagnostics({
     ? `Lookback(${slLookback} on ${slTf}) · Min ${slMinPct}% / Max ${slMaxPct}%`
     : `${slType} · Fallback ${slDistPct}% · Bounds ${slMinPct}%–${slMaxPct}%`;
 
+  const entryRefSl = activeTrade ? (activeTrade.initial_sl ?? activeTrade.sl_price ?? activeTrade.current_sl) : null;
   const candSlDist = hasCandidate && typeof focusedOpp.sl_dist_pct === 'number'
     ? focusedOpp.sl_dist_pct
-    : (activeTrade && activeTrade.entry_price > 0 && (activeTrade.current_sl || activeTrade.sl_price) > 0)
-      ? (Math.abs(activeTrade.entry_price - (activeTrade.current_sl ?? activeTrade.sl_price)) / activeTrade.entry_price) * 100
+    : (activeTrade && activeTrade.entry_price > 0 && entryRefSl > 0)
+      ? (Math.abs(activeTrade.entry_price - entryRefSl) / activeTrade.entry_price) * 100
       : null;
 
   let slStatus = 'allowed';
   let slReason = `Out-of-bounds action: ${slOobAction.toUpperCase()}`;
   if (candSlDist !== null) {
+    const slTag = activeTrade && activeTrade.initial_sl > 0 ? 'Initial SL' : 'Prospective SL';
     if (candSlDist > slMaxPct) {
       slStatus = slOobAction === 'reject' ? 'rejected' : 'clamped';
       slReason = slOobAction === 'reject'
-        ? `Prospective SL ${candSlDist.toFixed(2)}% > Max ${slMaxPct}% (Entry Rejected)`
-        : `Prospective SL ${candSlDist.toFixed(2)}% clamped to Max ${slMaxPct}%`;
+        ? `${slTag} ${candSlDist.toFixed(2)}% > Max ${slMaxPct}% (Entry Rejected)`
+        : `${slTag} ${candSlDist.toFixed(2)}% clamped to Max ${slMaxPct}%`;
     } else if (candSlDist < slMinPct) {
       slStatus = 'clamped';
-      slReason = `Prospective SL ${candSlDist.toFixed(2)}% < Min ${slMinPct}% (Widened to ${slMinPct}%)`;
+      slReason = `${slTag} ${candSlDist.toFixed(2)}% < Min ${slMinPct}% (Widened to ${slMinPct}%)`;
     } else {
-      slReason = `SL ${candSlDist.toFixed(2)}% within [${slMinPct}% – ${slMaxPct}%]`;
+      slReason = `${slTag} ${candSlDist.toFixed(2)}% within [${slMinPct}% – ${slMaxPct}%]`;
     }
   }
 
@@ -451,7 +453,7 @@ export function getStrategyRulesDiagnostics({
   riskChecks.push({
     key: 'risk_cap',
     label: 'Position & Portfolio Risk',
-    configuredText: `${riskPerTradePct}%/trade ($${riskPerTradeUsdt.toFixed(2)}) · Cap ${maxTotalRiskPct}% · ${strategyConfig.leverage ?? 10}x`,
+    configuredText: `${riskPerTradePct}%/trade ($${riskPerTradeUsdt.toFixed(2)}) · Cap ${maxTotalRiskPct}%`,
     liveText: `${Number(totalRiskPct || 0).toFixed(1)}% / ${maxTotalRiskPct}%`,
     status: riskAtCap ? 'rejected' : riskNearCap ? 'warning' : 'allowed',
     reasonText: riskAtCap
@@ -618,3 +620,84 @@ export function buildStrategyNarrative({
     when: lastScanTs ? `Last scan ${formatTimeAgo(lastScanTs)}` : `Live ${streamAgeSec}s`,
   };
 }
+
+const DETAIL_KEY_LABELS = {
+  entryPrice: 'Entry Price',
+  entry_price: 'Entry Price',
+  exitPrice: 'Exit Price',
+  exit_price: 'Exit Price',
+  initialSl: 'Initial SL',
+  initial_sl: 'Initial SL',
+  currentSl: 'Active SL',
+  current_sl: 'Active SL',
+  sl_dist_pct: 'SL Distance',
+  slDistPct: 'SL Distance',
+  tp: 'Take Profit',
+  tp_ratio: 'Target R:R',
+  pnl: 'PnL',
+  pnl_pct: 'PnL %',
+  rr: 'R:R',
+  exit_rr: 'Exit R:R',
+  max_rr_achieved: 'Peak R:R',
+  exit_reason: 'Exit Reason',
+  entry_reason: 'Entry Reason',
+  timeframe: 'Timeframe',
+  tf: 'Timeframe',
+  value: 'Live Value',
+  threshold: 'Threshold',
+  direction: 'Direction',
+  dir: 'Direction',
+  pct: '24h / Window Δ',
+  proximity: 'Proximity',
+  firedSignals: 'Fired Signals',
+  missingSignals: 'Missing Signals',
+  risk_usdt: 'Risk Exposure',
+  initial_risk_usdt: 'Initial Risk',
+  candles: 'Candles',
+  required: 'Required',
+};
+
+const HIDDEN_DETAIL_KEYS = new Set(['id', 'tradeId', 'sessionId', 'ts_ms', '_fingerprint']);
+
+/**
+ * Formats an entry from item.details into clean human-readable label and value.
+ * Returns null if the entry should be omitted (nullish, plain object, or internal ID).
+ */
+export function formatDiagnosticDetailEntry(key, value) {
+  if (HIDDEN_DETAIL_KEYS.has(key)) return null;
+  if (value === undefined || value === null || (typeof value === 'object' && !Array.isArray(value))) return null;
+
+  const label = DETAIL_KEY_LABELS[key] || key
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+
+  if (Array.isArray(value)) {
+    const joined = value.filter(Boolean).map(v => formatSignalLabel(String(v))).join(', ');
+    return joined ? { label, value: joined } : null;
+  }
+
+  if (typeof value === 'boolean') {
+    return { label, value: value ? 'Yes' : 'No' };
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (key === 'pnl' || key === 'risk_usdt' || key === 'initial_risk_usdt') {
+      return { label, value: `${value >= 0 ? '' : '-'}$${Math.abs(value).toFixed(2)}` };
+    }
+    if (key.endsWith('_pct') || key === 'pct' || key === 'proximity' || key === 'slDistPct') {
+      return { label, value: `${value.toFixed(2)}%` };
+    }
+    if (key === 'rr' || key === 'exit_rr' || key === 'max_rr_achieved' || key === 'tp_ratio') {
+      return { label, value: `${value >= 0 ? '+' : ''}${value.toFixed(2)}R` };
+    }
+    if (key.toLowerCase().includes('price') || key.toLowerCase().includes('sl') || key === 'tp') {
+      return { label, value: value >= 1 ? value.toFixed(4).replace(/\.?0+$/, '') : value.toPrecision(5) };
+    }
+    return { label, value: Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/\.?0+$/, '') };
+  }
+
+  const str = String(value).trim();
+  return str ? { label, value: str } : null;
+}
+

@@ -1334,6 +1334,10 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     // 2. Reconciliation: Verify and Process Potential Orphans and Active Trades
     // Reconcile open trades with actual exchange positions
+    let startupOrdersBySymbol: Map<string, any[]> | undefined;
+    let startupPositionsSeed: { symbol: string; amount: number; entryPrice: number }[] = [];
+    let startupOrderSymbols: string[] = [];
+
     if (mode !== "paper" && binanceClient) {
       try {
         // PERF: Optimization - If we have a very small number of session trades, fetch them individually to save weight.
@@ -1407,6 +1411,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           list.push(o);
           ordersBySymbol.set(o.symbol, list);
         }
+        startupOrdersBySymbol = ordersBySymbol;
+        startupOrderSymbols = uniqueSymbols;
 
         // PERF: Use Map for O(1) lookup during cross-reconciliation
         const activeExMap = new Map(
@@ -1415,10 +1421,13 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
         // WebSocket-First Baseline: Seed the real-time position cache with established exchange state
         for (const p of activeExPositions) {
+          const amount = parseFloat(p.positionAmt);
+          const entryPrice = parseFloat(p.entryPrice);
+          startupPositionsSeed.push({ symbol: p.symbol, amount, entryPrice });
           this.tradingSessionService.seedRealTimePosition(
             p.symbol,
-            parseFloat(p.positionAmt),
-            parseFloat(p.entryPrice),
+            amount,
+            entryPrice,
           );
         }
 
@@ -1568,21 +1577,36 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     // Load initial history for TOD and period-based risk context
     // DATA-07: Load history for the current mode across all sessions to ensure risk limits are enforced after restart
     // BOLT: History must be loaded AFTER reconciliation to include newly closed orphans.
-    const rawHistory = await this.tradeRepository.find({
-      where: { status: In(TERMINAL_STATUSES as any) },
-      order: { exit_ts: "DESC" },
-      take: 1000,
-    });
+    let initialHistory: TradeEntity[];
+    if (typeof (this.tradeRepository as any).createQueryBuilder === 'function') {
+      initialHistory = await (this.tradeRepository as any)
+        .createQueryBuilder('trade')
+        .leftJoin('trade.session', 'session')
+        .where('trade.status IN (:...statuses)', { statuses: TERMINAL_STATUSES })
+        .andWhere(
+          "(session.tradingMode = :mode OR (session.tradingMode IS NULL AND session.paperMode = :isPaper))",
+          { mode, isPaper: mode === 'paper' }
+        )
+        .orderBy('trade.exit_ts', 'DESC')
+        .take(500)
+        .getMany();
+    } else {
+      const rawHistory = await this.tradeRepository.find({
+        where: { status: In(TERMINAL_STATUSES as any) },
+        order: { exit_ts: "DESC" },
+        take: 1000,
+      });
 
-    const initialHistory = rawHistory
-      .filter((t) => {
-        const tConfig = t.strategy_config || {};
-        const tMode =
-          tConfig.trading_mode ||
-          (tConfig.paper_mode === false ? "live" : "paper");
-        return tMode === mode;
-      })
-      .slice(0, 500);
+      initialHistory = rawHistory
+        .filter((t) => {
+          const tConfig = t.strategy_config || {};
+          const tMode =
+            tConfig.trading_mode ||
+            (tConfig.paper_mode === false ? "live" : "paper");
+          return tMode === mode;
+        })
+        .slice(0, 500);
+    }
 
     // Paper mode orphan handling (Simplified verification as there is no exchange)
     if (mode === "paper") {
@@ -1629,6 +1653,20 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       currentGlobalBalance,
       filteredOpenTrades as any,
     );
+
+    // Re-seed UDS baseline caches after sessionState.reset() so Protection Watchdog starts zero-weight
+    if (mode !== "paper" && this.tradingSessionService.sessionState) {
+      if (typeof startupPositionsSeed !== "undefined") {
+        for (const p of startupPositionsSeed) {
+          this.tradingSessionService.seedRealTimePosition(p.symbol, p.amount, p.entryPrice);
+        }
+      }
+      if (typeof startupOrderSymbols !== "undefined" && this.tradingSessionService.sessionState.realTimeOrders) {
+        for (const sym of startupOrderSymbols) {
+          this.tradingSessionService.sessionState.realTimeOrders.set(sym, startupOrdersBySymbol?.get(sym) || []);
+        }
+      }
+    }
 
     // CHRONOS: Replay buffered events AFTER engine is fully initialized
     // to ensure any activity during the REST snapshot phase is incorporated.
@@ -3007,6 +3045,10 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         "status",
         "exit_ts",
         "exit_price",
+        "entry_signal_type",
+        "entry_signal_reason",
+        "entry_reason",
+        "initial_risk_usdt",
         "exit_reason",
         "exit_signal_type",
         "exit_signal_reason",
@@ -3152,7 +3194,14 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
   }
 
   async getTrade(idOrSymbol: string) {
-    return this.tradingSessionService.getTrade(idOrSymbol);
+    const inMemoryTrade = this.tradingSessionService.getTrade(idOrSymbol);
+    if (inMemoryTrade) return inMemoryTrade;
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSymbol);
+    return this.tradeRepository.findOne({
+      where: isUuid ? { id: idOrSymbol } : { symbol: idOrSymbol },
+      order: { entry_ts: "DESC" },
+    });
   }
 
   // WebSocket broadcaster

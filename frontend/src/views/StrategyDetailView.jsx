@@ -8,6 +8,7 @@ import {
   formatSignalValue,
   getStrategyRulesDiagnostics,
   buildStrategyNarrative,
+  formatDiagnosticDetailEntry,
 } from '../utils/strategyDiagnostics'
 import {
   StatCard, SectionLabel, StatusBadge,
@@ -59,6 +60,46 @@ const VerdictTag = React.memo(({ status, customLabel }) => {
 });
 VerdictTag.displayName = 'VerdictTag';
 
+const LiveStreamAge = React.memo(({ lastUpdateTs, compact = false }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const ageSec = Math.max(0, ((now - (lastUpdateTs || now)) / 1000)).toFixed(1);
+  const fresh = Number(ageSec) < 5.0;
+  return (
+    <span className="inline-flex items-center gap-1 text-text/80 shrink-0">
+      <Radio size={11} className={fresh ? "text-green animate-pulse" : "text-amber"} />
+      <span className="tabular-nums">{compact ? `${ageSec}s` : (fresh ? `Live ${ageSec}s` : `Sync ${ageSec}s`)}</span>
+    </span>
+  );
+});
+LiveStreamAge.displayName = 'LiveStreamAge';
+
+const formatRelativeAge = (ts, refNow) => {
+  if (!ts) return 'just now';
+  const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
+  if (isNaN(ms) || ms <= 0) return 'just now';
+  const diffSec = Math.max(0, Math.floor((refNow - ms) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  return `${Math.floor(diffHr / 24)}d ago`;
+};
+
+const LiveRelativeTime = React.memo(({ ts }) => {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(timer);
+  }, []);
+  return <>{formatRelativeAge(ts, now)}</>;
+});
+LiveRelativeTime.displayName = 'LiveRelativeTime';
+
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades, tradeHistory } = useTradingStore()
   const [selectedTradeId, setSelectedTradeId] = useState(null)
@@ -103,13 +144,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const lastScanTs = useTradingStore(state => state.lastScanTs);
   const gateState = useTradingStore(state => state.gateState || 'ACTIVE');
   const gateReason = useTradingStore(state => state.gateReason || 'OK');
-
-  // Live timer tick for data stream age calculation
-  const [nowMs, setNowMs] = useState(Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -415,16 +449,18 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     const scanTf = strategyConfig.scan_interval || '1m';
     const items = [];
 
+    const hasCand = bestOpp.symbol && bestOpp.symbol !== '---';
     const ohlcLen = bestOpp.ohlc_history?.length || bestOpp.history?.length || 0;
     const reqScanWarmup = 50;
+    const scannerWarming = ohlcLen > 0 && ohlcLen < reqScanWarmup;
     items.push({
       key: 'scanner',
       label: 'Scanner Velocity',
       tf: scanTf,
-      candles: ohlcLen > 0 ? ohlcLen : 200,
+      candles: ohlcLen > 0 ? ohlcLen : null,
       required: reqScanWarmup,
-      isWarming: ohlcLen > 0 && ohlcLen < reqScanWarmup,
-      statusMsg: ohlcLen >= reqScanWarmup || ohlcLen === 0 ? 'Ready' : `${ohlcLen}/${reqScanWarmup}`
+      isWarming: scannerWarming,
+      statusMsg: scannerWarming ? `${ohlcLen}/${reqScanWarmup}` : (ohlcLen > 0 ? `${ohlcLen} bars` : (hasCand ? 'Engine Synced' : 'Standby'))
     });
 
     for (const sig of enabled) {
@@ -432,13 +468,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
       const sigDetail = signalResult.signals?.[sig] || {};
 
-      const candles = sigDetail.value && typeof sigDetail.value === 'number' && sigDetail.insufficientData
+      const isWarming = sigDetail.insufficientData === true || (typeof sigDetail.value === 'number' && typeof sigDetail.threshold === 'number' && sigDetail.insufficientData);
+      const candles = sigDetail.insufficientData && typeof sigDetail.value === 'number'
         ? sigDetail.value
-        : (ohlcLen > 0 ? ohlcLen : 200);
-      const required = sigDetail.threshold && typeof sigDetail.threshold === 'number' && sigDetail.insufficientData
+        : (ohlcLen > 0 ? ohlcLen : null);
+      const required = sigDetail.insufficientData && typeof sigDetail.threshold === 'number'
         ? sigDetail.threshold
         : 100;
-      const isWarming = sigDetail.insufficientData === true || candles < required;
 
       items.push({
         key: sig,
@@ -446,8 +482,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         tf,
         candles,
         required,
-        isWarming,
-        statusMsg: isWarming ? `${candles}/${required}` : 'Ready'
+        isWarming: Boolean(isWarming),
+        statusMsg: isWarming && candles !== null ? `${candles}/${required}` : (candles !== null ? `${candles} bars` : (hasCand ? 'Engine Synced' : 'Standby'))
       });
     }
 
@@ -512,7 +548,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         desc: 'Places entry order and protective stop-loss simultaneously with precision filters.',
         criteria: [
           { label: 'Initial SL', value: `${strategyConfig.sl_distance_pct || 0.8}% (${strategyConfig.sl_type || 'pct'})` },
-          { label: 'Leverage', value: `${strategyConfig.leverage || 10}x` },
+          { label: 'Order Sizing', value: strategyConfig.auto_scale_min_notional !== false ? `Risk + Min-Notional (≤${strategyConfig.auto_scale_max_overshoot ?? 3}x)` : 'Strict Risk' },
           { label: 'Slippage Abort', value: `${strategyConfig.slippage_abort_threshold ?? 1.5}%` },
           { label: 'Active Positions', value: `${activeTradeCount} Open` }
         ],
@@ -580,20 +616,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, []);
 
   const formatTimeAgo = useCallback((ts) => {
-    if (!ts) return 'just now';
-    const ms = typeof ts === 'number' ? ts : new Date(ts).getTime();
-    if (isNaN(ms) || ms <= 0) return 'just now';
-    const diffSec = Math.max(0, Math.floor((nowMs - ms) / 1000));
-    if (diffSec < 60) return `${diffSec}s ago`;
-    const diffMin = Math.floor(diffSec / 60);
-    if (diffMin < 60) return `${diffMin}m ago`;
-    const diffHr = Math.floor(diffMin / 60);
-    if (diffHr < 24) return `${diffHr}h ago`;
-    return `${Math.floor(diffHr / 24)}d ago`;
-  }, [nowMs]);
+    return formatRelativeAge(ts, lastAuthoritativeUpdateTs || Date.now());
+  }, [lastAuthoritativeUpdateTs]);
 
-  const streamAgeSec = Math.max(0, ((nowMs - lastAuthoritativeUpdateTs) / 1000)).toFixed(1);
-  const streamFresh = Number(streamAgeSec) < 5.0;
+  const streamAgeSec = 'live';
   const regimeInfo = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
 
   const narrative = useMemo(() => buildStrategyNarrative({
@@ -611,14 +637,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     isStaticWatchlist,
     staticSymbols,
     lastScanTs,
-    streamAgeSec,
+    streamAgeSec: '0.0',
     formatTimeAgo,
     formatClockTime,
   }), [
     isStrategyPaused, effectiveGate, effectiveReason, stratGate.updatedAt,
     timeframeDebugItems, strategyActiveTrades, bestOpp, entryMet, firedCount,
     signalsCount, strategyConfig, isStaticWatchlist, staticSymbols, lastScanTs,
-    streamAgeSec, formatTimeAgo, formatClockTime
+    formatTimeAgo, formatClockTime
   ]);
 
   const handleCopyReason = useCallback((item) => {
@@ -1182,10 +1208,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-between sm:justify-end">
           <div className="flex md:hidden items-center gap-1.5 text-[11px] font-mono text-dim min-w-0">
             <StatusBadge status={s.sessionActive} />
-            <span className="inline-flex items-center gap-1 text-text/80 shrink-0">
-              <Radio size={11} className={streamFresh ? "text-green animate-pulse" : "text-amber"} />
-              <span className="tabular-nums">{streamAgeSec}s</span>
-            </span>
+            <LiveStreamAge lastUpdateTs={lastAuthoritativeUpdateTs} compact />
           </div>
 
           <CopyButton value={s.strategyId} className="p-1.5 hidden sm:inline-flex" />
@@ -1199,8 +1222,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 {regimeInfo.regime === 'slow' && <Turtle size={11} className="text-cyan-400" />}
                 {regimeInfo.regime === 'active' && <Flame size={11} className="text-accent" />}
                 {regimeInfo.regime === 'moderate' && <Zap size={11} className="text-amber" />}
-                <Radio size={11} className={streamFresh ? "text-green animate-pulse" : "text-amber"} />
-                <span className="tabular-nums">{streamFresh ? `Live ${streamAgeSec}s` : `Sync ${streamAgeSec}s`}</span>
+                <LiveStreamAge lastUpdateTs={lastAuthoritativeUpdateTs} />
               </span>
             </Tooltip>
           </div>
@@ -1495,7 +1517,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             {(showWarmupDebug || anyWarming) && (
               <div className="px-3 py-2.5 sm:px-3.5 bg-background/40 border-b border-border/30 grid grid-cols-1 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-3 font-mono text-[11px]">
                 {timeframeDebugItems.map(item => {
-                  const pct = item.required > 0 ? Math.min(100, Math.round((item.candles / item.required) * 100)) : 100;
+                  const pct = item.required > 0 && typeof item.candles === 'number' ? Math.min(100, Math.round((item.candles / item.required) * 100)) : null;
                   const isSyncingThis = syncingTfMap[item.tf];
                   return (
                     <div key={item.key} className="flex items-center justify-between sm:justify-start gap-2 sm:pr-3 sm:border-r sm:border-border/30 sm:last:border-r-0">
@@ -1505,7 +1527,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <span className={cn("tabular-nums font-semibold", item.isWarming ? "text-amber" : "text-green")}>
-                          {item.statusMsg} · {pct}%
+                          {item.statusMsg}{pct !== null ? ` · ${pct}%` : ''}
                         </span>
                         <button
                           type="button"
@@ -2114,7 +2136,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
                       <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px] text-dim">
                         <time dateTime={new Date(item.timestamp).toISOString()} title={new Date(item.timestamp).toLocaleString()} className="tabular-nums cursor-help">
-                          <span className="hidden sm:inline">{formatClockTime(item.timestamp)} · </span>{formatTimeAgo(item.timestamp)}
+                          <span className="hidden sm:inline">{formatClockTime(item.timestamp)} · </span><LiveRelativeTime ts={item.timestamp} />
                         </time>
                         <button
                           type="button"
@@ -2149,15 +2171,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           <ChevronDown size={11} className={cn("transition-transform", isExpanded && "rotate-180")} />
                         </button>
                         {isExpanded && (
-                          <div className="mt-1.5 pt-1.5 border-t border-border/20 grid grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-dim">
+                          <div className="mt-1.5 pt-1.5 border-t border-border/20 grid grid-cols-1 xs:grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-dim">
                             {Object.entries(item.details).map(([k, v]) => {
-                              if (v === undefined || v === null || (typeof v === 'object' && !Array.isArray(v))) return null;
-                              const displayVal = Array.isArray(v) ? v.join(', ') : String(v);
-                              if (!displayVal) return null;
+                              const formatted = formatDiagnosticDetailEntry(k, v);
+                              if (!formatted) return null;
                               return (
                                 <span key={k} className="min-w-0 truncate">
-                                  <span className="text-dim/80">{k}:</span>{' '}
-                                  <strong className="text-text tabular-nums">{displayVal}</strong>
+                                  <span className="text-dim/80">{formatted.label}:</span>{' '}
+                                  <strong className="text-text tabular-nums">{formatted.value}</strong>
                                 </span>
                               );
                             })}
@@ -2193,7 +2214,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <VerdictTag status={group.latestOutcome} />
-                      <span className="text-dim tabular-nums">{formatTimeAgo(group.latestTs)}</span>
+                      <span className="text-dim tabular-nums"><LiveRelativeTime ts={group.latestTs} /></span>
                     </div>
                   </div>
                   <div className="divide-y divide-border/20">

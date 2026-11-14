@@ -54,8 +54,20 @@ export class MarketFeedService {
   private backfillQueue: { symbol: string, interval: string }[] = [];
   private backfillProcessing = false;
   private lastBackfillAttemptMap: Map<string, number> = new Map();
+  private failureBackoffMap: Map<string, number> = new Map();
+  private shortHistoryMap: Map<string, { count: number; fetchedAt: number }> = new Map();
   private inFlightBackfills: Map<string, Promise<void>> = new Map();
   private binanceClient: any = null;
+
+  public isBackfillShortHistory(symbol: string, interval: string): boolean {
+    const resolved = this.resolveInterval(interval, this.sessionState.config) || interval;
+    const key = `${symbol}:${resolved}`;
+    const entry = this.shortHistoryMap.get(key);
+    if (!entry) return false;
+    if (Date.now() - entry.fetchedAt < 15 * 60 * 1000) return true;
+    this.shortHistoryMap.delete(key);
+    return false;
+  }
 
   private currentConfig: SessionConfig | null = null;
   private currentRestBase = ENGINE_CONSTANTS.BINANCE_REST_BASE;
@@ -339,6 +351,7 @@ export class MarketFeedService {
                     }
                   }
                 }
+                delete parsed.filters;
                 MarketFeedService.cachedExchangeInfo.set(s.symbol, parsed);
               } else {
                 filteredOtherCount++;
@@ -580,12 +593,21 @@ export class MarketFeedService {
   async updateWatchlist(config: SessionConfig = this.sessionState.config!) {
     if (!this.running || !config) return;
 
-    // BOLT: In light sleep, always allow watchlist updates to ensure scanner has candidates
-    const isHibernating = this.sessionState.hibernating;
-    const hibMode = config.hibernation_mode || 'adaptive';
-    const isLight = isHibernating && hibMode === 'light';
-
     if (this.watchlistUpdatePending) return;
+
+    // Cold-start optimization: build the initial watchlist immediately without a 2s timer delay
+    if (!this.hasSuccessfullyBuiltWatchlist && !this.watchlistUpdateTimeout) {
+      try {
+        this.watchlistUpdatePending = true;
+        await this.executeWatchlistUpdate(config);
+      } catch (err) {
+        this.logger.error(`Watchlist update failed: ${err instanceof Error ? err.message : String(err)}`);
+      } finally {
+        this.watchlistUpdatePending = false;
+      }
+      return;
+    }
+
     if (this.watchlistUpdateTimeout) clearTimeout(this.watchlistUpdateTimeout);
     this.watchlistUpdateTimeout = setTimeout(async () => {
       try {
@@ -598,6 +620,95 @@ export class MarketFeedService {
         this.watchlistUpdateTimeout = null;
       }
     }, 2000);
+    if (this.watchlistUpdateTimeout?.unref) this.watchlistUpdateTimeout.unref();
+  }
+
+  private collectStrategyMtfIntervals(sc: SessionConfig): Set<string> {
+    const tfs = new Set<string>();
+    if (sc.sl_lookback_timeframe) {
+      const resolvedSl = this.resolveInterval(sc.sl_lookback_timeframe, sc);
+      if (resolvedSl) tfs.add(resolvedSl);
+    }
+    if (sc.htf_ema_cross_boost_enabled) {
+      const resolvedHtf = this.resolveInterval(sc.htf_ema_cross_interval || '4h', sc);
+      if (resolvedHtf) tfs.add(resolvedHtf);
+    }
+    const activeSignals = [
+      ...(sc.enabled_signals || []),
+      ...(sc.exit_signals || []),
+    ];
+    if (sc.signal_timeframes) {
+      for (const sig of activeSignals) {
+        const tf = sc.signal_timeframes[sig];
+        const resolvedTf = this.resolveInterval(tf, sc);
+        if (resolvedTf) tfs.add(resolvedTf);
+      }
+    }
+    for (const sig of activeSignals) {
+      if (sig.startsWith('htf_breakout') || sig.startsWith('prev_day_breakout')) {
+        const params = sc.signal_params || {};
+        const refTf = this.signalEngine.resolveSignalParam(params, sig, 'htf_breakout', 'htf_breakout_ref_timeframe', (sc as any).htf_breakout_ref_timeframe || '1d');
+        const resolvedRef = this.resolveInterval(refTf, sc);
+        if (resolvedRef) tfs.add(resolvedRef);
+
+        const trigTf = this.signalEngine.resolveSignalParam(params, sig, 'htf_breakout', 'htf_breakout_trigger_timeframe', (sc as any).htf_breakout_trigger_timeframe || '1h');
+        if (trigTf && trigTf !== 'default') {
+          const resolvedTrig = this.resolveInterval(trigTf, sc);
+          if (resolvedTrig) tfs.add(resolvedTrig);
+        }
+      }
+      if (sig.startsWith('trigger_candle_exit') || sig.startsWith('entry_candle_boundary')) {
+        const params = sc.signal_params || {};
+        const exitTf = this.signalEngine.resolveSignalParam(params, sig, 'trigger_candle_exit', 'trigger_candle_exit_timeframe', (sc as any).trigger_candle_exit_timeframe || 'default');
+        const effectiveExitTf = (exitTf && exitTf !== 'default') ? exitTf : ((sc as any).htf_breakout_trigger_timeframe || '1h');
+        const resolvedExit = this.resolveInterval(effectiveExitTf, sc);
+        if (resolvedExit) tfs.add(resolvedExit);
+      }
+    }
+    if (sc.trigger_candle_exit_enabled) {
+      const effectiveExitTf = (sc.trigger_candle_exit_timeframe && sc.trigger_candle_exit_timeframe !== 'default')
+        ? sc.trigger_candle_exit_timeframe
+        : (sc.htf_breakout_trigger_timeframe || '1h');
+      const resolvedExit = this.resolveInterval(effectiveExitTf, sc);
+      if (resolvedExit) tfs.add(resolvedExit);
+    }
+    return tfs;
+  }
+
+  private getRequiredWarmupForSymbol(config: SessionConfig | null | undefined, symbol?: string): number {
+    if (!config) return 100;
+    let requiredWarmup = this.signalEngine.getRequiredWarmup(config) || 50;
+    if (config.strategy_variants) {
+      for (const variant of config.strategy_variants) {
+        if ((variant as any).enabled !== false) {
+          const variantWarmup = this.signalEngine.getRequiredWarmup({
+            ...config,
+            ...variant,
+            signal_params: {
+              ...(config?.signal_params || {}),
+              ...(variant?.signal_params || {}),
+            },
+          } as SessionConfig);
+          if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
+        }
+      }
+    }
+    if (symbol && this.sessionState?.activeTrades) {
+      for (const trade of this.sessionState.activeTrades) {
+        if (trade.symbol === symbol && trade.strategy_config) {
+          const tradeWarmup = this.signalEngine.getRequiredWarmup({
+            ...config,
+            ...trade.strategy_config,
+            signal_params: {
+              ...(config?.signal_params || {}),
+              ...(trade.strategy_config?.signal_params || {}),
+            },
+          } as SessionConfig);
+          if (tradeWarmup > requiredWarmup) requiredWarmup = tradeWarmup;
+        }
+      }
+    }
+    return requiredWarmup;
   }
 
   private async executeWatchlistUpdate(config: SessionConfig) {
@@ -605,17 +716,79 @@ export class MarketFeedService {
       this.currentConfig = config;
       const newWatchlist = new Map<string, Set<string>>();
       const isGated = this.sessionState.isGated();
-      const activeTrades = this.sessionState.activeTrades;
+      const activeTrades = this.sessionState.activeTrades || [];
+      const activeSymbolList = activeTrades.map(t => t.symbol);
+
+      const strategyConfigs: SessionConfig[] = [config];
+      if (config.strategy_variants) {
+        for (const v of config.strategy_variants) {
+          if ((v as any).enabled !== false) {
+            strategyConfigs.push({
+              ...config,
+              ...v,
+              signal_params: {
+                ...(config?.signal_params || {}),
+                ...(v?.signal_params || {}),
+              },
+              signal_timeframes: {
+                ...(config?.signal_timeframes || {}),
+                ...(v?.signal_timeframes || {}),
+              },
+              strategy_label: v.strategy_label,
+              strategy_variants: [], // prevent infinite recursion
+            });
+          }
+        }
+      }
+
+      const isStrategyPausedFn = (label: string): boolean => {
+        if (this.sessionState.paused) return true;
+        if (typeof (this.sessionState as any).isStrategyPaused === 'function') {
+          return Boolean((this.sessionState as any).isStrategyPaused(label));
+        }
+        return Boolean(this.sessionState.pausedStrategies?.has(label));
+      };
+
+      const GATING_STATES = new Set(['max_trades', 'sl_guard', 'max_trades_period', 'sleeping', 'risk_pct', 'tod_risk', 'risk']);
+      const isStrategyGatedFn = (label: string): boolean => {
+        const stratGateMap = this.sessionState.strategyGateStates;
+        if (stratGateMap && stratGateMap.size > 0) {
+          const st = stratGateMap.get(label);
+          return Boolean(st && GATING_STATES.has(st.gateState || ''));
+        }
+        return GATING_STATES.has(this.sessionState.gateState || '');
+      };
+
+      const canStrategyBypassKnifeFn = (sc: SessionConfig, label: string): boolean => {
+        if (!sc.allow_knife_when_gated) return false;
+        const activeKnifeCount = activeTrades.filter(t => t.is_knife && (t.strategy_label || 'Momentum Strategy') === label).length;
+        return activeKnifeCount === 0;
+      };
 
       // SRE: Optimization. In 'light' hibernation mode, we keep monitoring symbols even when gated
       // to avoid the 250+ weight REST backfill burst on resumption.
+      // When all enabled strategies are gated/paused (and none have active knife-catch bypass),
+      // suppress 50-symbol discovery even if activeTrades.length > 0 so active exits keep headroom.
       const isHibernating = this.sessionState.hibernating;
       const hibMode = config.hibernation_mode || 'adaptive';
-      const suppressScanner = isGated && activeTrades.length === 0 && hibMode !== 'light';
+      const anyStrategyCanEnter = strategyConfigs.some(sc => {
+        const scLabel = sc.strategy_label || 'Momentum Strategy';
+        if (isStrategyPausedFn(scLabel)) return false;
+        if (!isStrategyGatedFn(scLabel)) return true;
+        return canStrategyBypassKnifeFn(sc, scLabel);
+      });
+      const suppressScanner = hibMode !== 'light' && (isGated || !anyStrategyCanEnter) && !strategyConfigs.some(sc => {
+        const scLabel = sc.strategy_label || 'Momentum Strategy';
+        return !isStrategyPausedFn(scLabel) && canStrategyBypassKnifeFn(sc, scLabel);
+      });
+
+      const scMtfMap = new Map<SessionConfig, Set<string>>();
+      for (const sc of strategyConfigs) {
+        scMtfMap.set(sc, this.collectStrategyMtfIntervals(sc));
+      }
 
       if (config.global_scanner_enabled !== false && !suppressScanner) {
         let symbols: string[];
-        const activeSymbolList = activeTrades.map(t => t.symbol);
         const activeExcludedSet = new Set<string>(activeSymbolList);
         if (config.excluded_symbols && Array.isArray(config.excluded_symbols)) {
           config.excluded_symbols.forEach(s => activeExcludedSet.add(s));
@@ -695,25 +868,13 @@ export class MarketFeedService {
             };
           }
         }
-        const strategyConfigs: SessionConfig[] = [config];
-        if (config.strategy_variants) {
-          for (const v of config.strategy_variants) {
-            if ((v as any).enabled !== false) {
-              strategyConfigs.push({
-                ...config,
-                ...v,
-                signal_params: {
-                  ...(config?.signal_params || {}),
-                  ...(v?.signal_params || {}),
-                },
-                strategy_label: v.strategy_label,
-                strategy_variants: [], // prevent infinite recursion
-              });
-            }
-          }
-        }
 
+        // 1. Add discovery & static symbols ONLY for unpaused & non-gated (unless light hibernation or knife bypass) strategies
         for (const sc of strategyConfigs) {
+          const scLabel = sc.strategy_label || 'Momentum Strategy';
+          if (isStrategyPausedFn(scLabel)) continue;
+          if (hibMode !== 'light' && isStrategyGatedFn(scLabel) && !canStrategyBypassKnifeFn(sc, scLabel)) continue;
+
           let scSymbols = symbols;
           if (sc !== config) {
             if (sc.symbols && sc.symbols.length > 0) {
@@ -740,135 +901,103 @@ export class MarketFeedService {
             }
           }
           const globalInterval = this.resolveInterval(sc.scan_interval || '1m', sc) || '1m';
+          const scMtf = scMtfMap.get(sc);
           for (const s of scSymbols) {
             if (!newWatchlist.has(s)) newWatchlist.set(s, new Set());
-            newWatchlist.get(s)!.add(globalInterval);
-          }
-        }
-      }
-
-      const strategyConfigs: SessionConfig[] = [config];
-      if (config.strategy_variants) {
-        for (const v of config.strategy_variants) {
-          if ((v as any).enabled !== false) {
-            strategyConfigs.push({
-              ...config,
-              ...v,
-              signal_params: {
-                ...(config?.signal_params || {}),
-                ...(v?.signal_params || {}),
-              },
-              strategy_label: v.strategy_label,
-              strategy_variants: [],
-            });
-          }
-        }
-      }
-
-      for (const sc of strategyConfigs) {
-        if (sc.single_symbol_configs) {
-          for (const ssc of sc.single_symbol_configs) {
-            if (!ssc.enabled) continue;
-            // COMPLIANCE: Extend non-crypto filtering to manual monitors
-            if (this.getSymbolFilters(ssc.symbol) === undefined) {
-               this.logger.warn(`Filtering out non-crypto symbol from manual monitor: ${ssc.symbol}`);
-               continue;
-            }
-            if (!newWatchlist.has(ssc.symbol)) newWatchlist.set(ssc.symbol, new Set());
-            const interval = ssc.use_custom_config && ssc.custom_config?.scan_interval ? ssc.custom_config.scan_interval : sc.scan_interval || '1m';
-            newWatchlist.get(ssc.symbol)!.add(interval);
-
-            if (ssc.use_custom_config && ssc.custom_config?.sl_lookback_timeframe) {
-              const customSlInterval = this.resolveInterval(ssc.custom_config.sl_lookback_timeframe, sc);
-              if (customSlInterval) newWatchlist.get(ssc.symbol)!.add(customSlInterval);
+            const symSet = newWatchlist.get(s)!;
+            symSet.add(globalInterval);
+            if (scMtf) {
+              for (const mtfTf of scMtf) symSet.add(mtfTf);
             }
           }
         }
-      }
 
-      for (const trade of activeTrades) {
-        const t = trade;
-        if (!newWatchlist.has(t.symbol)) newWatchlist.set(t.symbol, new Set());
-        newWatchlist.get(t.symbol)!.add('1m');
+        // 2. Add explicit single-symbol monitors ONLY for unpaused & non-gated strategies
         for (const sc of strategyConfigs) {
-          const resolvedScanInterval = this.resolveInterval(sc.scan_interval || '5m', sc);
-          if (resolvedScanInterval) newWatchlist.get(t.symbol)!.add(resolvedScanInterval);
-        }
-        const resolvedTradeScan = this.resolveInterval(t.strategy_config?.scan_interval || 'default', config);
-        if (resolvedTradeScan) newWatchlist.get(t.symbol)!.add(resolvedTradeScan);
-        const resolvedTradeSl = this.resolveInterval(t.strategy_config?.sl_lookback_timeframe || 'default', config);
-        if (resolvedTradeSl) newWatchlist.get(t.symbol)!.add(resolvedTradeSl);
-      }
+          const scLabel = sc.strategy_label || 'Momentum Strategy';
+          if (isStrategyPausedFn(scLabel)) continue;
+          if (hibMode !== 'light' && isStrategyGatedFn(scLabel) && !canStrategyBypassKnifeFn(sc, scLabel)) continue;
+          const scMtf = scMtfMap.get(sc);
+          if (sc.single_symbol_configs) {
+            for (const ssc of sc.single_symbol_configs) {
+              if (!ssc.enabled) continue;
+              // COMPLIANCE: Extend non-crypto filtering to manual monitors
+              if (this.getSymbolFilters(ssc.symbol) === undefined) {
+                this.logger.warn(`Filtering out non-crypto symbol from manual monitor: ${ssc.symbol}`);
+                continue;
+              }
+              if (!newWatchlist.has(ssc.symbol)) newWatchlist.set(ssc.symbol, new Set());
+              const symSet = newWatchlist.get(ssc.symbol)!;
+              const interval = ssc.use_custom_config && ssc.custom_config?.scan_interval ? ssc.custom_config.scan_interval : sc.scan_interval || '1m';
+              const resolvedInt = this.resolveInterval(interval, sc) || interval;
+              symSet.add(resolvedInt);
 
-      for (const sc of strategyConfigs) {
-        if (sc.sl_lookback_timeframe) {
-          const resolvedGlobalSl = this.resolveInterval(sc.sl_lookback_timeframe, sc);
-          if (resolvedGlobalSl) {
-            for (const [symbol, intervals] of newWatchlist) intervals.add(resolvedGlobalSl);
-          }
-        }
-      }
-
-      // MULTI-TIMEFRAME SIGNALS: Extract all unique timeframes from enabled entry & exit signals across all strategy configurations
-      const mtfIntervals = new Set<string>();
-      for (const sc of strategyConfigs) {
-        if (sc.htf_ema_cross_boost_enabled) {
-          const resolvedHtf = this.resolveInterval(sc.htf_ema_cross_interval || '4h', sc);
-          if (resolvedHtf) mtfIntervals.add(resolvedHtf);
-        }
-        if (sc.signal_timeframes) {
-          const activeSignals = [
-            ...(sc.enabled_signals || []),
-            ...(sc.exit_signals || [])
-          ];
-          for (const sig of activeSignals) {
-            const tf = sc.signal_timeframes[sig];
-            const resolvedTf = this.resolveInterval(tf, sc);
-            if (resolvedTf) mtfIntervals.add(resolvedTf);
-          }
-        }
-
-        // HTF / Prev-Day Breakout: Automatically extract and subscribe both reference and trigger timeframes
-        const allActive = [
-          ...(sc.enabled_signals || []),
-          ...(sc.exit_signals || [])
-        ];
-        for (const sig of allActive) {
-          if (sig.startsWith('htf_breakout') || sig.startsWith('prev_day_breakout')) {
-            const params = sc.signal_params || {};
-            const refTf = this.signalEngine.resolveSignalParam(params, sig, 'htf_breakout', 'htf_breakout_ref_timeframe', (sc as any).htf_breakout_ref_timeframe || '1d');
-            const resolvedRef = this.resolveInterval(refTf, sc);
-            if (resolvedRef) mtfIntervals.add(resolvedRef);
-
-            const trigTf = this.signalEngine.resolveSignalParam(params, sig, 'htf_breakout', 'htf_breakout_trigger_timeframe', (sc as any).htf_breakout_trigger_timeframe || '1h');
-            if (trigTf && trigTf !== 'default') {
-              const resolvedTrig = this.resolveInterval(trigTf, sc);
-              if (resolvedTrig) mtfIntervals.add(resolvedTrig);
+              if (ssc.use_custom_config && ssc.custom_config?.sl_lookback_timeframe) {
+                const customSlInterval = this.resolveInterval(ssc.custom_config.sl_lookback_timeframe, sc);
+                if (customSlInterval) symSet.add(customSlInterval);
+              }
+              if (scMtf) {
+                for (const mtfTf of scMtf) symSet.add(mtfTf);
+              }
             }
           }
-          if (sig.startsWith('trigger_candle_exit') || sig.startsWith('entry_candle_boundary')) {
-            const params = sc.signal_params || {};
-            const exitTf = this.signalEngine.resolveSignalParam(params, sig, 'trigger_candle_exit', 'trigger_candle_exit_timeframe', (sc as any).trigger_candle_exit_timeframe || 'default');
-            const effectiveExitTf = (exitTf && exitTf !== 'default') ? exitTf : ((sc as any).htf_breakout_trigger_timeframe || '1h');
-            const resolvedExit = this.resolveInterval(effectiveExitTf, sc);
-            if (resolvedExit) mtfIntervals.add(resolvedExit);
-          }
-        }
-
-        if (sc.trigger_candle_exit_enabled) {
-          const effectiveExitTf = (sc.trigger_candle_exit_timeframe && sc.trigger_candle_exit_timeframe !== 'default')
-            ? sc.trigger_candle_exit_timeframe
-            : (sc.htf_breakout_trigger_timeframe || '1h');
-          const resolvedExit = this.resolveInterval(effectiveExitTf, sc);
-          if (resolvedExit) mtfIntervals.add(resolvedExit);
         }
       }
-      if (mtfIntervals.size > 0) {
-        for (const [symbol, intervals] of newWatchlist) {
-          for (const mtfTf of mtfIntervals) {
-            intervals.add(mtfTf);
+
+      // Include explicit single-symbol monitors when global_scanner_enabled === false
+      if (!config.global_scanner_enabled && !suppressScanner) {
+        for (const sc of strategyConfigs) {
+          const scLabel = sc.strategy_label || 'Momentum Strategy';
+          if (isStrategyPausedFn(scLabel)) continue;
+          if (hibMode !== 'light' && isStrategyGatedFn(scLabel) && !canStrategyBypassKnifeFn(sc, scLabel)) continue;
+          const scMtf = scMtfMap.get(sc);
+          if (sc.single_symbol_configs) {
+            for (const ssc of sc.single_symbol_configs) {
+              if (!ssc.enabled) continue;
+              if (this.getSymbolFilters(ssc.symbol) === undefined) continue;
+              if (!newWatchlist.has(ssc.symbol)) newWatchlist.set(ssc.symbol, new Set());
+              const symSet = newWatchlist.get(ssc.symbol)!;
+              const interval = ssc.use_custom_config && ssc.custom_config?.scan_interval ? ssc.custom_config.scan_interval : sc.scan_interval || '1m';
+              symSet.add(this.resolveInterval(interval, sc) || interval);
+              if (ssc.use_custom_config && ssc.custom_config?.sl_lookback_timeframe) {
+                const customSlInterval = this.resolveInterval(ssc.custom_config.sl_lookback_timeframe, sc);
+                if (customSlInterval) symSet.add(customSlInterval);
+              }
+              if (scMtf) {
+                for (const mtfTf of scMtf) symSet.add(mtfTf);
+              }
+            }
           }
         }
+      }
+
+      // 3. ALWAYS monitor open trades (capital safety), scoped to each trade's strategy & stored strategy_config,
+      // regardless of global_scanner_enabled, scanner suppression, gating, or strategy pause state.
+      for (const trade of activeTrades) {
+        if (!newWatchlist.has(trade.symbol)) newWatchlist.set(trade.symbol, new Set());
+        const symSet = newWatchlist.get(trade.symbol)!;
+        symSet.add('1m');
+        const tLabel = trade.strategy_label || config.strategy_label || 'Momentum Strategy';
+        const matchingSc = strategyConfigs.find(sc => (sc.strategy_label || 'Momentum Strategy') === tLabel) || config;
+        const effectiveTradeSc: SessionConfig = trade.strategy_config
+          ? {
+              ...matchingSc,
+              ...trade.strategy_config,
+              signal_params: {
+                ...(matchingSc?.signal_params || {}),
+                ...(trade.strategy_config?.signal_params || {}),
+              },
+              signal_timeframes: {
+                ...(matchingSc?.signal_timeframes || {}),
+                ...(trade.strategy_config?.signal_timeframes || {}),
+              },
+            } as SessionConfig
+          : matchingSc;
+
+        const resolvedScanInterval = this.resolveInterval(effectiveTradeSc.scan_interval || '5m', effectiveTradeSc);
+        if (resolvedScanInterval) symSet.add(resolvedScanInterval);
+        const tradeMtf = this.collectStrategyMtfIntervals(effectiveTradeSc);
+        for (const mtfTf of tradeMtf) symSet.add(mtfTf);
       }
 
       let changed = newWatchlist.size !== this.activeWatchlist.size;
@@ -890,14 +1019,43 @@ export class MarketFeedService {
         if (newWatchlist.size > 0) this.hasSuccessfullyBuiltWatchlist = true;
         const prevWatchlist = this.activeWatchlist;
         this.activeWatchlist = newWatchlist;
+
+        // Prune stale symbol/interval klines and backfill cooldowns when watchlist shrinks/rotates
+        const activeKeys = new Set<string>();
+        const activeCacheKeys = new Set<string>();
+        for (const [symbol, intervals] of newWatchlist) {
+          for (const interval of intervals) {
+            activeKeys.add(`${symbol}_${interval}`);
+            activeCacheKeys.add(`${symbol}:${interval}`);
+          }
+        }
+        if (typeof (this.klineStore as any).pruneExcept === 'function') {
+          (this.klineStore as any).pruneExcept(activeKeys);
+        }
+        for (const cacheKey of Array.from(this.lastBackfillAttemptMap.keys())) {
+          if (!activeCacheKeys.has(cacheKey)) {
+            this.lastBackfillAttemptMap.delete(cacheKey);
+          }
+        }
+        for (const cacheKey of Array.from(this.failureBackoffMap.keys())) {
+          if (!activeCacheKeys.has(cacheKey)) {
+            this.failureBackoffMap.delete(cacheKey);
+          }
+        }
+        for (const cacheKey of Array.from(this.shortHistoryMap.keys())) {
+          if (!activeCacheKeys.has(cacheKey)) {
+            this.shortHistoryMap.delete(cacheKey);
+          }
+        }
+
         await this.rebuildCombinedKlineStream();
         for (const [symbol, intervals] of newWatchlist) {
+          const requiredWarmup = this.getRequiredWarmupForSymbol(config, symbol);
           for (const interval of intervals) {
             const oldIntervals = prevWatchlist.get(symbol);
             const rawCandles = this.klineStore.getRawCandles(symbol, interval);
-            const requiredWarmup = this.signalEngine.getRequiredWarmup(config) || 50;
             const needsWarmup = !rawCandles || rawCandles.length < requiredWarmup;
-            if (!oldIntervals || !oldIntervals.has(interval) || needsWarmup) {
+            if ((!oldIntervals || !oldIntervals.has(interval) || needsWarmup) && !this.isBackfillShortHistory(symbol, interval)) {
               const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
               if (!alreadyQueued) {
                 this.backfillQueue.push({ symbol, interval });
@@ -905,9 +1063,11 @@ export class MarketFeedService {
             }
           }
         }
-        this.processBackfillQueue().catch(err => {
-          this.logger.error(`[MarketFeed] Backfill queue execution failed: ${err instanceof Error ? err.message : String(err)}`);
-        });
+        if (!this.sessionState.isBanned()) {
+          this.processBackfillQueue().catch(err => {
+            this.logger.error(`[MarketFeed] Backfill queue execution failed: ${err instanceof Error ? err.message : String(err)}`);
+          });
+        }
       }
 
       // BOLT: Throttled logging for watchlist updates to reduce noise during rapid config changes or trade entries
@@ -1157,21 +1317,34 @@ export class MarketFeedService {
     }
 
 
-    // Rather than dropping the socket every time the watchlist changes, we dynamically subscribe/unsubscribe.
+    const sortedStreams = [...allStreams].sort();
+    const streamSignature = sortedStreams.join('/');
+
+    // Testnet supports dynamic SUBSCRIBE/UNSUBSCRIBE on /stream without dropping the socket.
+    // Live uses /market/stream?streams=<...> (SUBSCRIBE method is NOT served on /market/stream per AGENTS.md §9).
     if (this.klineManagers.length > 0) {
-      // Just use the first manager and subscribe/unsubscribe dynamically
       const manager = this.klineManagers[0];
-      const currentActive = (manager as any).activeSubscriptions || new Set();
-      const newSet = new Set(allStreams);
+      if (!isTestnet) {
+        if ((manager as any)._streamsSignature === streamSignature) {
+          return;
+        }
+        // Stream set changed on LIVE: rebuild single manager with ?streams= URL param
+        for (const m of this.klineManagers) {
+          await m.stop();
+        }
+        this.klineManagers = [];
+      } else {
+        const currentActive = (manager as any).activeSubscriptions || new Set();
+        const newSet = new Set(allStreams);
 
-      const toSubscribe = allStreams.filter(s => !currentActive.has(s));
-      const toUnsubscribe = Array.from(currentActive).filter(s => !newSet.has(s as string)) as string[];
+        const toSubscribe = allStreams.filter(s => !currentActive.has(s));
+        const toUnsubscribe = Array.from(currentActive).filter(s => !newSet.has(s as string)) as string[];
 
-      if (toSubscribe.length > 0) await manager.subscribe(toSubscribe);
-      if (toUnsubscribe.length > 0 && typeof manager.unsubscribe === 'function') await manager.unsubscribe(toUnsubscribe);
-      return;
+        if (toSubscribe.length > 0) await manager.subscribe(toSubscribe);
+        if (toUnsubscribe.length > 0 && typeof manager.unsubscribe === 'function') await manager.unsubscribe(toUnsubscribe);
+        return;
+      }
     }
-
 
     // Stop all existing kline managers just in case we are resetting from empty
     for (const manager of this.klineManagers) {
@@ -1179,9 +1352,13 @@ export class MarketFeedService {
     }
     this.klineManagers = [];
 
+    const wsUrl = isTestnet
+      ? wsBaseMarket
+      : `${wsBaseMarket}?streams=${sortedStreams.join('/')}`;
+
     // Initialize one single manager
     const manager = new BinanceSubscriptionManager(
-        wsBaseMarket,
+        wsUrl,
         {
             isTestnet,
             proxyUrl: this.currentProxyUrl,
@@ -1199,6 +1376,7 @@ export class MarketFeedService {
             }
         }
     );
+    (manager as any)._streamsSignature = streamSignature;
     this.klineManagers.push(manager);
     try {
       await manager.connect();
@@ -1258,7 +1436,9 @@ export class MarketFeedService {
   }
 
   public queueBackfill(symbol: string, interval: string, requiredWarmup?: number) {
-    const key = `${symbol}_${interval}`;
+    if (this.sessionState.isBanned() || this.isBackfillShortHistory(symbol, interval)) {
+      return;
+    }
     const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
     if (!alreadyQueued) {
       this.backfillQueue.push({ symbol, interval });
@@ -1272,30 +1452,26 @@ export class MarketFeedService {
     if (this.backfillProcessing || this.backfillQueue.length === 0) return;
     this.backfillProcessing = true;
 
-    // SRE: Prioritize symbols with active positions in the backfill queue
-    const activeSymbols = new Set(this.sessionState.activeTrades.map(t => t.symbol));
-    this.backfillQueue.sort((a, b) => {
-      const aActive = activeSymbols.has(a.symbol) ? 1 : 0;
-      const bActive = activeSymbols.has(b.symbol) ? 1 : 0;
-      return bActive - aActive; // Active positions first
-    });
-
     const initialDepth = this.backfillQueue.length;
-    const startWeight = this.sessionState.binanceRateLimit.used_1m;
+    const startWeight = this.sessionState.binanceRateLimit?.used_1m ?? 0;
     const startTime = Date.now();
     this.logger.log(`Starting prioritized sequential kline backfill queue. Depth: ${initialDepth} | Current Weight: ${startWeight}`);
 
-    // STRATEGY: Sequential backfill to avoid rate-limit bursts
+    // STRATEGY: Dynamically prioritized sequential backfill (active positions ALWAYS run first on every tick)
     while (this.backfillQueue.length > 0 && this.running) {
       // P0 FIX: Fail-fast ban guard - do not dispatch REST calls while IP is banned
       if (this.sessionState.isBanned()) {
-        this.logger.warn(`Backfill queue paused: IP is currently banned. Waiting for cooldown...`);
-        await new Promise(resolve => setTimeout(resolve, 30000));
-        continue;
+        this.logger.warn(`Backfill queue paused: IP is currently banned. Clearing non-critical pending tasks.`);
+        this.backfillQueue = [];
+        break;
       }
 
-      // SRE: Highly aggressive rate limit for background tasks (50% of limit threshold)
-      // This preserves weight for critical entry/exit operations.
+      // Dynamically pick the highest-priority task: active position symbols always go ahead of scanner discovery
+      const activeSymbols = new Set((this.sessionState.activeTrades || []).map(t => t.symbol));
+      const activeIdx = this.backfillQueue.findIndex(t => activeSymbols.has(t.symbol));
+      const nextIdx = activeIdx !== -1 ? activeIdx : 0;
+      const isNextActive = activeIdx !== -1;
+
       const rateLimit = this.sessionState.getBinanceRateLimit();
       const usedWeight = Number(rateLimit.used_weight_1m || 0);
       const limit = Number(rateLimit.weight_limit || ENGINE_CONSTANTS.BINANCE_RATE_LIMIT_DEFAULT);
@@ -1304,25 +1480,25 @@ export class MarketFeedService {
       const usageRatio = (limit > 0) ? (usedWeight / limit) : 0;
       const safeUsageRatio = Number.isFinite(usageRatio) ? usageRatio : 0;
 
-      const pauseThreshold = Math.floor(limit * 0.5);
+      // Reserve headroom: discovery klines pause >40%, active trade exit-indicator warmup klines allowed up to 65%
+      const pauseRatio = isNextActive ? 0.65 : 0.40;
+      const pauseThreshold = Math.floor(limit * pauseRatio);
 
       if (usedWeight > pauseThreshold) {
-        // SRE: Window Awareness Fallback. If we are > 50% and near the end of the minute,
-        // wait for the rollover instead of a long fixed 10s sleep.
         const secondsInMinute = new Date().getSeconds();
         if (secondsInMinute > 45) {
            const waitMs = (60 - secondsInMinute + 1) * 1000;
-           this.logger.warn(`Backfill pausing: High weight (${usedWeight}/${limit}) near window end. Waiting ${waitMs}ms for rollover...`);
+           this.logger.warn(`Backfill pausing: High weight (${usedWeight}/${limit}, limit ${(pauseRatio * 100).toFixed(0)}%) near window end. Waiting ${waitMs}ms for rollover...`);
            await new Promise(resolve => setTimeout(resolve, waitMs));
            continue;
         }
 
-        this.logger.warn(`Backfill queue pausing to preserve IP reputation (Weight: ${usedWeight}/${limit})...`);
+        this.logger.warn(`Backfill queue pausing to preserve IP reputation (Weight: ${usedWeight}/${limit}, ceiling ${(pauseRatio * 100).toFixed(0)}%)...`);
         await new Promise(resolve => setTimeout(resolve, 10000)); // Normal backoff
         continue;
       }
 
-      const task = this.backfillQueue.shift();
+      const [task] = this.backfillQueue.splice(nextIdx, 1);
       if (task) {
         try {
           await this.backfillKlines(task.symbol, task.interval);
@@ -1341,9 +1517,7 @@ export class MarketFeedService {
         }
 
         // SRE: Adaptive gap between sequential requests to smooth out weight consumption.
-        // Scaled by current usage ratio to proactively slow down background load.
-        // BOLT: Increased base delay to 500ms and max scale to +3s for safer IP reputation.
-        const baseDelay = 500;
+        const baseDelay = isNextActive ? 350 : 500;
         const adaptiveDelay = baseDelay + (safeUsageRatio * 3000);
         const finalDelay = Number.isFinite(adaptiveDelay) ? adaptiveDelay : baseDelay;
 
@@ -1351,9 +1525,8 @@ export class MarketFeedService {
       }
     }
     this.backfillProcessing = false;
-    const endWeight = this.sessionState.binanceRateLimit.used_1m;
+    const endWeight = this.sessionState.binanceRateLimit?.used_1m ?? 0;
     const duration = (Date.now() - startTime) / 1000;
-    // SRE: Weight Used is an approximation. If duration > 60s, the used_1m window has rolled over.
     const weightUsed = duration > 60 ? 'Window Rolled' : (endWeight - startWeight);
     this.logger.log(`Sequential kline backfill complete. Duration: ${duration.toFixed(1)}s | Weight Used: ${weightUsed} (Total: ${endWeight})`);
   }
@@ -1373,24 +1546,12 @@ export class MarketFeedService {
       throw new Error(`Candle sync on cooldown for ${symbol} ${resolvedInterval}. Please wait ${waitSec}s.`);
     }
 
-    this.lastBackfillAttemptMap.set(cacheKey, now);
-
-    let requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
-    if (this.sessionState.config?.strategy_variants) {
-      for (const variant of this.sessionState.config.strategy_variants) {
-        if ((variant as any).enabled !== false) {
-          const variantWarmup = this.signalEngine.getRequiredWarmup({
-            ...this.sessionState.config,
-            ...variant,
-            signal_params: {
-              ...(this.sessionState.config?.signal_params || {}),
-              ...(variant?.signal_params || {}),
-            },
-          } as SessionConfig);
-          if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
-        }
-      }
-    }
+    const requiredWarmup = this.getRequiredWarmupForSymbol(this.sessionState.config, symbol);
+    const requestLimit = Math.min(
+      this.klineStore.getMaxCandles(),
+      requiredWarmup <= 89 ? 99 : Math.max(requiredWarmup + 10, 100),
+    );
+    const isActiveTrade = (this.sessionState.activeTrades || []).some(t => t.symbol === symbol);
 
     this.logger.log(`[Manual Sync] Force backfilling klines for ${symbol} ${resolvedInterval}...`);
 
@@ -1399,23 +1560,35 @@ export class MarketFeedService {
       const response = await this.binanceClient.restAPI.klineCandlestickData({
         symbol,
         interval: resolvedInterval as any,
-        limit: this.klineStore.getMaxCandles()
-      });
+        limit: requestLimit,
+        ...(isActiveTrade ? { __queuePriority: 'active_warmup' } : {}),
+      } as any);
       this.updateWeight(response.headers);
       klines = (await response.data()) as any[][];
     } else {
-      const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
+      const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${requestLimit}`;
       const response = await this.binanceClientFactory.genericRequest(
         () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
-        'klineCandlestickData'
+        'klineCandlestickData',
+        false,
+        { priority: isActiveTrade ? 'active_warmup' : undefined, estimatedWeight: requestLimit < 100 ? 1 : 2 }
       );
       if (response.ok) {
         klines = (await response.json()) as any[][];
       }
     }
 
-    if (Array.isArray(klines) && klines.length > 0) {
-      await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
+    this.lastBackfillAttemptMap.set(cacheKey, Date.now());
+    this.failureBackoffMap.delete(cacheKey);
+    if (Array.isArray(klines)) {
+      if (klines.length < requestLimit) {
+        this.shortHistoryMap.set(cacheKey, { count: klines.length, fetchedAt: Date.now() });
+      } else {
+        this.shortHistoryMap.delete(cacheKey);
+      }
+      if (klines.length > 0) {
+        await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
+      }
     }
 
     const candles = this.klineStore.getRawCandles(symbol, resolvedInterval);
@@ -1441,28 +1614,16 @@ export class MarketFeedService {
       this.logger.error(`[MarketFeed] Skipping backfill for ${symbol} ${interval}: Invalid interval that cannot be resolved.`);
       return;
     }
-    
-    let requiredWarmup = this.sessionState.config ? this.signalEngine.getRequiredWarmup(this.sessionState.config) : 100;
-    if (this.sessionState.config?.strategy_variants) {
-      for (const variant of this.sessionState.config.strategy_variants) {
-        if ((variant as any).enabled !== false) {
-          const variantWarmup = this.signalEngine.getRequiredWarmup({
-            ...this.sessionState.config,
-            ...variant,
-            signal_params: {
-              ...(this.sessionState.config?.signal_params || {}),
-              ...(variant?.signal_params || {}),
-            },
-          } as SessionConfig);
-          if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
-        }
-      }
-    }
 
-    // DOWNSAMPLING OPTIMIZATION: If requested interval is higher than 1m and 1m candles are available, synthesize directly in-memory!
+    const requiredWarmup = this.getRequiredWarmupForSymbol(this.sessionState.config, symbol);
+    const isActiveTrade = (this.sessionState.activeTrades || []).some(t => t.symbol === symbol);
+
+    // DOWNSAMPLING OPTIMIZATION: Only synthesize from 1m cache when 1m buffer mathematically covers requiredWarmup HTF buckets
     if (resolvedInterval !== '1m') {
       const source1m = this.klineStore.getRawCandles(symbol, '1m');
-      if (source1m && source1m.length >= Math.min(50, requiredWarmup)) {
+      const targetMs = this.parseIntervalToMs(resolvedInterval);
+      const maxPossibleFrom1m = source1m && targetMs > 0 ? Math.floor((source1m.length * 60 * 1000) / targetMs) : 0;
+      if (source1m && source1m.length >= Math.min(50, requiredWarmup) && maxPossibleFrom1m >= requiredWarmup) {
         const synthesized = this.klineStore.synthesizeHigherInterval(symbol, resolvedInterval, '1m');
         if (synthesized && synthesized.length >= requiredWarmup) {
           this.logger.debug(`[MarketFeed] Synthesized ${synthesized.length} ${resolvedInterval} candles for ${symbol} from 1m cache (0 REST calls).`);
@@ -1493,6 +1654,17 @@ export class MarketFeedService {
       }
 
       const cacheKey = `${symbol}:${resolvedInterval}`;
+      if (this.isBackfillShortHistory(symbol, resolvedInterval)) {
+        this.logger.debug(`[MarketFeed] Skipping kline backfill for ${cacheKey}: Exchange short-history ceiling cached.`);
+        return;
+      }
+
+      const failRetryAt = this.failureBackoffMap.get(cacheKey) || 0;
+      if (Date.now() < failRetryAt) {
+        this.logger.debug(`[MarketFeed] Skipping kline backfill for ${cacheKey}: Transient failure backoff active.`);
+        return;
+      }
+
       const lastAttempt = this.lastBackfillAttemptMap.get(cacheKey) || 0;
       if (Date.now() - lastAttempt < 5 * 60 * 1000) {
         this.logger.debug(`[MarketFeed] Skipping recent kline backfill attempt for ${cacheKey} (Cooldown active).`);
@@ -1512,8 +1684,12 @@ export class MarketFeedService {
         }
       }
 
-      this.lastBackfillAttemptMap.set(cacheKey, Date.now());
-      this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} for warmup.`);
+      const maxCandles = this.klineStore.getMaxCandles();
+      const requestLimit = Math.min(
+        maxCandles,
+        requiredWarmup <= 89 ? 99 : Math.max(requiredWarmup + 10, 100),
+      );
+      this.logger.log(`Backfilling klines for ${symbol} ${resolvedInterval}: Have ${existingCandles.length}, need ${requiredWarmup} (limit=${requestLimit}).`);
 
       await new Promise(resolve => setTimeout(resolve, Math.random() * ENGINE_CONSTANTS.BACKFILL_MAX_JITTER_MS));
       try {
@@ -1523,24 +1699,43 @@ export class MarketFeedService {
           const response = await this.binanceClient.restAPI.klineCandlestickData({
             symbol,
             interval: resolvedInterval as any,
-            limit: this.klineStore.getMaxCandles()
-          });
+            limit: requestLimit,
+            ...(isActiveTrade ? { __queuePriority: 'active_warmup' } : {}),
+          } as any);
           this.updateWeight(response.headers);
           klines = (await response.data()) as any[][];
         } else {
-          const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${this.klineStore.getMaxCandles()}`;
+          const url = `${this.currentRestBase}/fapi/v1/klines?symbol=${symbol}&interval=${resolvedInterval}&limit=${requestLimit}`;
           const response = await this.binanceClientFactory.genericRequest(
             () => this.binanceClientFactory.proxyFetch(url, { signal: AbortSignal.timeout(10000) }, this.currentProxyUrl),
-            'klineCandlestickData'
+            'klineCandlestickData',
+            false,
+            { priority: isActiveTrade ? 'active_warmup' : undefined, estimatedWeight: requestLimit < 100 ? 1 : 2 }
           );
-          if (!response.ok) return;
+          if (!response.ok) {
+            this.failureBackoffMap.set(cacheKey, Date.now() + (isActiveTrade ? 15000 : 30000));
+            return;
+          }
           klines = (await response.json()) as any[][];
         }
 
         if (Array.isArray(klines)) {
-          await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
+          this.lastBackfillAttemptMap.set(cacheKey, Date.now());
+          this.failureBackoffMap.delete(cacheKey);
+          if (klines.length < requestLimit) {
+            this.shortHistoryMap.set(cacheKey, { count: klines.length, fetchedAt: Date.now() });
+          } else {
+            this.shortHistoryMap.delete(cacheKey);
+          }
+          if (klines.length > 0) {
+            await this.klineStore.seedFromRest(symbol, resolvedInterval, klines);
+          }
+        } else {
+          this.failureBackoffMap.set(cacheKey, Date.now() + (isActiveTrade ? 15000 : 30000));
         }
       } catch (err) {
+        // Record only short backoff on error/load-shed so 5m cooldown never locks out active-trade warmup
+        this.failureBackoffMap.set(cacheKey, Date.now() + (isActiveTrade ? 15000 : 30000));
         this.logger.error(`Kline backfill failed for ${symbol}: ${err instanceof Error ? err.message : String(err)}`);
       }
     })();

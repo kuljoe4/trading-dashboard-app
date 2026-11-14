@@ -18,6 +18,8 @@ export class MaintenanceService {
   private isProcessingWatchdog = false;
   private isProcessingFullReconciliation = false;
   private reactiveAuditTimeouts: Map<string, NodeJS.Timeout> = new Map();
+  private forceFreshCooldownMap: Map<string, number> = new Map();
+  private static readonly FORCE_FRESH_COOLDOWN_MS = 2 * 60 * 1000;
 
   constructor(
     private readonly positionTracker: PositionTrackerService,
@@ -82,10 +84,11 @@ export class MaintenanceService {
 
       if (tradesToAudit.length === 0) return;
 
-      this.logger.debug(`[Watchdog] Audit weights: used=${this.orderManager.getBinanceRateLimit().used_weight_1m}/${this.orderManager.getBinanceRateLimit().limit}`);
+      const rateLimit = this.orderManager.getBinanceRateLimit();
+      this.logger.debug(`[Watchdog] Audit weights: used=${rateLimit.used_weight_1m}/${rateLimit.limit}`);
 
-      if (this.orderManager.getBinanceRateLimit().used_weight_1m > this.orderManager.getBinanceRateLimit().limit * 0.85) {
-        this.logger.warn(`[Watchdog] High API weight detected. Skipping batch audit to preserve IP status.`);
+      if (rateLimit.limit > 0 && rateLimit.used_weight_1m > rateLimit.limit * 0.60) {
+        this.logger.warn(`[Watchdog] Elevated API weight detected (${rateLimit.used_weight_1m}/${rateLimit.limit}). Skipping batch audit to preserve IP status.`);
         return;
       }
 
@@ -106,7 +109,7 @@ export class MaintenanceService {
 
       // SRE: Zero-Weight WebSocket-First Audit. Check if real-time UDS cache contains entries for all symbols.
       // If cached, perform targeted zero-weight audit (0 REST calls). Revert to bulk REST audit only if cache missing or targetSymbol specified.
-      const hasAllCached = uniqueSymbols.every(s => this.sessionState.realTimePositions.has(s) && this.sessionState.realTimeOrders.has(s));
+      const hasAllCached = uniqueSymbols.every(s => this.sessionState?.realTimePositions?.has(s) && this.sessionState?.realTimeOrders?.has(s));
       const useBulkAudit = !hasAllCached && !targetSymbol;
 
       if (hasAllCached) {
@@ -136,7 +139,7 @@ export class MaintenanceService {
             });
           }
 
-          const cachedOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+          const cachedOrders = this.sessionState.realTimeOrders?.get(symbol) || [];
           slOrdersBySymbol.set(symbol, cachedOrders.filter(isSlOrder));
         }
       } else if (useBulkAudit) {
@@ -152,11 +155,23 @@ export class MaintenanceService {
         await new Promise(resolve => setTimeout(resolve, 2000));
 
         const allOrders = await this.orderManager.fetchAllOpenOrders();
-        allOrders.filter(isSlOrder).forEach(o => {
-          const list = slOrdersBySymbol.get(o.symbol) || [];
-          list.push(o);
-          slOrdersBySymbol.set(o.symbol, list);
+        const rawOrdersBySymbol = new Map<string, (BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]>();
+        allOrders.forEach(o => {
+          const rawList = rawOrdersBySymbol.get(o.symbol) || [];
+          rawList.push(o);
+          rawOrdersBySymbol.set(o.symbol, rawList);
+          if (isSlOrder(o)) {
+            const list = slOrdersBySymbol.get(o.symbol) || [];
+            list.push(o);
+            slOrdersBySymbol.set(o.symbol, list);
+          }
         });
+        // Seed realTimeOrders for ALL audited symbols (including empty lists) so subsequent ticks stay zero-weight
+        if (this.sessionState?.realTimeOrders) {
+          for (const symbol of uniqueSymbols) {
+            this.sessionState.realTimeOrders.set(symbol, rawOrdersBySymbol.get(symbol) || []);
+          }
+        }
       } else {
         this.monitoringService?.recordCacheMiss('uds_positions');
         this.monitoringService?.recordCacheMiss('uds_orders');
@@ -169,6 +184,9 @@ export class MaintenanceService {
            }
 
            const orders = await this.orderManager.fetchOpenOrders(symbol, { forceFresh: false });
+           if (this.sessionState?.realTimeOrders && !this.sessionState.realTimeOrders.has(symbol)) {
+             this.sessionState.realTimeOrders.set(symbol, orders || []);
+           }
            slOrdersBySymbol.set(symbol, orders.filter(isSlOrder));
         }
       }
@@ -214,9 +232,16 @@ export class MaintenanceService {
             if (cachedPos && Math.abs(parseFloat(cachedPos.positionAmt)) > 0) {
                pos = cachedPos;
             } else {
-               const freshPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
-               if (freshPos && Math.abs(parseFloat(freshPos.positionAmt)) > 0) {
-                  pos = freshPos;
+               const rlNow = this.orderManager.getBinanceRateLimit();
+               const weightTooHigh = rlNow.limit > 0 && rlNow.used_weight_1m > rlNow.limit * 0.65;
+               const posCooldownKey = `pos:${trade.symbol}`;
+               const lastFresh = this.forceFreshCooldownMap.get(posCooldownKey) || 0;
+               if (!weightTooHigh && (Date.now() - lastFresh >= MaintenanceService.FORCE_FRESH_COOLDOWN_MS || targetSymbol === trade.symbol)) {
+                 this.forceFreshCooldownMap.set(posCooldownKey, Date.now());
+                 const freshPos = await this.orderManager.fetchPosition(trade.symbol, { forceFresh: true });
+                 if (freshPos && Math.abs(parseFloat(freshPos.positionAmt)) > 0) {
+                    pos = freshPos;
+                 }
                }
             }
           }
@@ -253,12 +278,20 @@ export class MaintenanceService {
           });
 
           if (!matchingOrder) {
-            const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });
-            slOrders = freshOrders.filter(isSlOrder);
-            matchingOrder = slOrders.find(o =>
-              this.getOrderId(o) === trade.binance_stop_order_id ||
-              o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
-            );
+            const rlNow = this.orderManager.getBinanceRateLimit();
+            const weightTooHigh = rlNow.limit > 0 && rlNow.used_weight_1m > rlNow.limit * 0.65;
+            const ordCooldownKey = `ord:${trade.symbol}`;
+            const lastFreshOrd = this.forceFreshCooldownMap.get(ordCooldownKey) || 0;
+            const canQueryFresh = !weightTooHigh && (Date.now() - lastFreshOrd >= MaintenanceService.FORCE_FRESH_COOLDOWN_MS || targetSymbol === trade.symbol);
+            if (canQueryFresh) {
+              this.forceFreshCooldownMap.set(ordCooldownKey, Date.now());
+              const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });
+              slOrders = freshOrders.filter(isSlOrder);
+              matchingOrder = slOrders.find(o =>
+                this.getOrderId(o) === trade.binance_stop_order_id ||
+                o.clientOrderId === `sl-${(trade.id || '').substring(0, 8)}`
+              );
+            }
 
             if (!matchingOrder && slOrders.length > 0) {
               const closeDirection = trade.direction === 'LONG' ? 'SELL' : 'BUY';
@@ -488,6 +521,12 @@ export class MaintenanceService {
 
     // SRE: Immunity check for ban status
     if (this.orderManager.isBanned()) return;
+
+    const rateLimit = this.orderManager.getBinanceRateLimit?.();
+    if (rateLimit && rateLimit.limit > 0 && rateLimit.used_weight_1m > rateLimit.limit * 0.60) {
+      this.logger.warn(`[Reconciliation] Elevated API weight (${rateLimit.used_weight_1m}/${rateLimit.limit}). Skipping full reconciliation to protect IP reputation.`);
+      return;
+    }
 
     this.isProcessingFullReconciliation = true;
     try {

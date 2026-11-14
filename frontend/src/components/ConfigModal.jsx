@@ -2102,20 +2102,42 @@ BacktestWorkbenchPanel.displayName = 'BacktestWorkbenchPanel';
 const computePresetDiff = (current, saved) => {
   const diffs = [];
 
+  if ((current.scan_interval || '1m') !== (saved.scan_interval || '1m')) {
+    diffs.push({ label: 'Timeframe', old: saved.scan_interval || '1m', new: current.scan_interval || '1m' });
+  }
+
+  if ((current.entry_side || 'both') !== (saved.entry_side || 'both')) {
+    diffs.push({ label: 'Side', old: (saved.entry_side || 'both').toUpperCase(), new: (current.entry_side || 'both').toUpperCase() });
+  }
+
   // Risk per trade
   const rCurr = current.risk_pct_per_trade;
   const rSaved = saved.risk_pct_per_trade;
   if (rCurr !== rSaved) diffs.push({ label: 'Risk per trade', old: `${rSaved}%`, new: `${rCurr}%` });
 
   // Stop loss
+  if ((current.sl_type || 'pct') !== (saved.sl_type || 'pct')) {
+    diffs.push({ label: 'SL model', old: saved.sl_type || 'pct', new: current.sl_type || 'pct' });
+  }
   const slCurr = current.sl_distance_pct;
   const slSaved = saved.sl_distance_pct;
   if (slCurr !== slSaved) diffs.push({ label: 'Stop loss', old: `${slSaved}%`, new: `${slCurr}%` });
 
-  // Trailing stop
-  const tCurr = current.trailing_stop_mode && current.trailing_stop_mode !== 'none' ? 'on' : 'off';
-  const tSaved = saved.trailing_stop_mode && saved.trailing_stop_mode !== 'none' ? 'on' : 'off';
+  // Trailing stop (matches canonical SessionConfig fields)
+  const formatTrail = (c) => {
+    const enabled = c.trailing_stop_enabled === true || c.sl_type === 'trailing';
+    if (!enabled) return 'off';
+    return c.trailing_stop_type === 'rr'
+      ? `${c.trailing_stop_rr ?? 1.0}R`
+      : `${c.trailing_stop_distance_pct ?? 1.0}%`;
+  };
+  const tCurr = formatTrail(current);
+  const tSaved = formatTrail(saved);
   if (tCurr !== tSaved) diffs.push({ label: 'Trailing stop', old: tSaved, new: tCurr });
+
+  if ((current.tp_mode || 'exp_rr_seq') !== (saved.tp_mode || 'exp_rr_seq')) {
+    diffs.push({ label: 'TP mode', old: saved.tp_mode || 'exp_rr_seq', new: current.tp_mode || 'exp_rr_seq' });
+  }
 
   return diffs;
 };
@@ -3636,7 +3658,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } finally {
       setIsSaving(false);
     }
-  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert]);
+  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert, editingVariantIdx, recordRecentlyUsed, setField]);
 
   const loadPreset = React.useCallback((p) => {
     // Exit any variant editing mode when loading a preset as base
@@ -4029,19 +4051,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const parsed = JSON.parse(event.target.result);
         if (Array.isArray(parsed)) {
-          let importedCount = 0;
-          parsed.forEach(item => {
-            if (item && item.name && item.config) {
-              presetsAPI.save(item.name, item.config).catch(() => {});
-              importedCount++;
-            }
-          });
-          fetchPresets();
-          addAlert({ level: 'success', title: 'Presets Imported', message: `Successfully imported ${importedCount} presets into preset library.` });
+          const validItems = parsed.filter(item => item && item.name && item.config);
+          const results = await Promise.allSettled(
+            validItems.map(item => presetsAPI.save(item.name, coerceAndSanitizeConfig(item.config, true)))
+          );
+          const importedCount = results.filter(r => r.status === 'fulfilled').length;
+          const failedCount = validItems.length - importedCount;
+          await fetchPresets();
+          if (importedCount > 0) {
+            addAlert({
+              level: failedCount > 0 ? 'warning' : 'success',
+              title: 'Presets Imported',
+              message: failedCount > 0
+                ? `Imported ${importedCount} preset(s); ${failedCount} failed validation.`
+                : `Successfully imported ${importedCount} presets into preset library.`
+            });
+          } else {
+            addAlert({ level: 'error', title: 'Import Failed', message: 'No valid presets could be imported from file.' });
+          }
         } else {
           const flattened = flattenConfig(parsed);
           setCfg(flattened);

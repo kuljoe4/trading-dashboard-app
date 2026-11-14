@@ -26,6 +26,7 @@ export class KlineStoreService {
 
   // DOWNSAMPLING OPTIMIZATION: Metadata cache to make downsampling lazy & O(1) during the same tick
   private readonly synthMeta = new Map<string, { last1mTime: number; last1mClose: number }>();
+  private lastPersistErrLogTs = 0;
 
   constructor(
     @InjectRepository(KlineEntity)
@@ -165,10 +166,24 @@ export class KlineStoreService {
 
     const synthesized = Array.from(buckets.values()).sort((a, b) => a.time - b.time);
     const targetKey = `${symbol}_${targetInterval}`;
+    const existingNative = this.klines.get(targetKey);
+    const last1m = sourceCandles[sourceCandles.length - 1];
+
+    // Do not clobber richer native REST/DB candles with fewer synthesized buckets (e.g., 200 1m = 4 1h candles vs 25 native 1h)
+    if (existingNative && existingNative.length > synthesized.length) {
+      if (last1m) {
+        this.updateHTFTailFrom1m(existingNative, targetInterval, last1m);
+        this.synthMeta.set(targetKey, {
+          last1mTime: last1m.time,
+          last1mClose: last1m.close,
+        });
+      }
+      return existingNative;
+    }
+
     this.klines.set(targetKey, synthesized);
 
     // Track metadata for lazy freshness validation
-    const last1m = sourceCandles[sourceCandles.length - 1];
     if (last1m) {
       this.synthMeta.set(targetKey, {
         last1mTime: last1m.time,
@@ -427,6 +442,17 @@ export class KlineStoreService {
     return { minLow, maxHigh };
   }
 
+  private invalidateSymbolIntervalCaches(symbol: string, interval: string) {
+    const key = `${symbol}_${interval}`;
+    this.synthMeta.delete(key);
+    const prefix = `${symbol}:${interval}:`;
+    for (const stableKey of Array.from(this.hlStableCache.keys())) {
+      if (stableKey.startsWith(prefix)) {
+        this.hlStableCache.delete(stableKey);
+      }
+    }
+  }
+
   async seedFromRest(symbol: string, interval: string, klines: any[]) {
     const key = `${symbol}_${interval}`;
     const candles: Candle[] = klines.map((k: any) => ({
@@ -441,6 +467,7 @@ export class KlineStoreService {
     // Keep only the last N candles
     const trimmed = candles.slice(-this.MAX_CANDLES);
     this.klines.set(key, trimmed);
+    this.invalidateSymbolIntervalCaches(symbol, interval);
     this.logger.verbose(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
 
     // Persist to DB for future boots
@@ -466,12 +493,21 @@ export class KlineStoreService {
         }));
 
         this.klines.set(`${symbol}_${interval}`, candles);
+        this.invalidateSymbolIntervalCaches(symbol, interval);
         return candles.length;
       }
     } catch (err: any) {
       this.logger.error(`Failed to load klines from DB: ${err.message}`);
     }
     return 0;
+  }
+
+  private logPersistError(action: string, symbol: string, interval: string, err: any) {
+    const now = Date.now();
+    if (now - this.lastPersistErrLogTs >= 60000) {
+      this.lastPersistErrLogTs = now;
+      this.logger.warn(`[KlineStore] Failed to ${action} for ${symbol}/${interval}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   private async persistCandle(symbol: string, interval: string, candle: Candle) {
@@ -488,7 +524,9 @@ export class KlineStoreService {
         close: candle.close,
         volume: candle.volume,
       }, ['id']);
-    } catch (err) {}
+    } catch (err) {
+      this.logPersistError('persist candle', symbol, interval, err);
+    }
   }
 
   private async bulkPersist(symbol: string, interval: string, candles: Candle[]) {
@@ -509,7 +547,9 @@ export class KlineStoreService {
       for (let i = 0; i < entities.length; i += 100) {
         await this.klineRepository.upsert(entities.slice(i, i + 100), ['id']);
       }
-    } catch (err) {}
+    } catch (err) {
+      this.logPersistError('bulk persist candles', symbol, interval, err);
+    }
   }
 
   getStats(): { keys: string[]; counts: Record<string, number> } {
@@ -521,6 +561,40 @@ export class KlineStoreService {
       keys: Array.from(this.klines.keys()),
       counts,
     };
+  }
+
+  /**
+   * Prune symbol/interval keys that are no longer monitored in the active watchlist
+   * to keep heap memory bounded during long multi-strategy runs.
+   */
+  pruneExcept(activeKeys: Set<string>): number {
+    let pruned = 0;
+    for (const key of Array.from(this.klines.keys())) {
+      if (!activeKeys.has(key)) {
+        this.klines.delete(key);
+        this.synthMeta.delete(key);
+        pruned++;
+      }
+    }
+    for (const key of Array.from(this.synthMeta.keys())) {
+      if (!activeKeys.has(key)) {
+        this.synthMeta.delete(key);
+      }
+    }
+    for (const stableKey of Array.from(this.hlStableCache.keys())) {
+      const firstSep = stableKey.indexOf(':');
+      const secondSep = firstSep !== -1 ? stableKey.indexOf(':', firstSep + 1) : -1;
+      if (firstSep > 0 && secondSep > firstSep) {
+        const pairKey = `${stableKey.slice(0, firstSep)}_${stableKey.slice(firstSep + 1, secondSep)}`;
+        if (!activeKeys.has(pairKey)) {
+          this.hlStableCache.delete(stableKey);
+        }
+      }
+    }
+    if (pruned > 0) {
+      this.logger.verbose(`KlineStore pruned ${pruned} stale symbol/interval buffer(s)`);
+    }
+    return pruned;
   }
 
   /**

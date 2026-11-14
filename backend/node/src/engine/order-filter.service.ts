@@ -147,13 +147,15 @@ export class OrderFilterService {
     paperMode: boolean,
     binanceClient: any,
     updateWeight: (headers: any) => void,
-    fetchPosition: (symbol: string, options?: { forceFresh?: boolean }) => Promise<BinancePositionV3 | null>
+    fetchPosition: (symbol: string, options?: { forceFresh?: boolean }) => Promise<BinancePositionV3 | null>,
+    shouldSkipRest?: () => boolean
   ): Promise<{ isAllowed: boolean; maxNotional?: number }> {
     if (paperMode || !binanceClient) return { isAllowed: true };
 
     try {
       const now = Date.now();
-      if (this.leverageBrackets.size === 0 || (now - this.lastBracketFetch > 3600000)) {
+      const skipRest = Boolean(shouldSkipRest?.());
+      if (!skipRest && (this.leverageBrackets.size === 0 || (now - this.lastBracketFetch > 3600000))) {
          this.logger.debug(`[OrderFilter] Fetching fresh leverage brackets...`);
          const response = await (binanceClient.restAPI as any).notionalAndLeverageBrackets();
          updateWeight(response.headers);
@@ -173,10 +175,12 @@ export class OrderFilterService {
       let pos = await fetchPosition(symbol, { forceFresh: false });
       let currentLeverage = (pos && parseInt(pos.leverage || '0') > 0) ? parseInt(pos.leverage) : 0;
 
-      if (currentLeverage <= 0) {
+      if (currentLeverage <= 0 && !skipRest) {
          const freshPos = await fetchPosition(symbol, { forceFresh: true });
          currentLeverage = (freshPos && parseInt(freshPos.leverage || '0') > 0) ? parseInt(freshPos.leverage) : 20;
          pos = freshPos;
+      } else if (currentLeverage <= 0) {
+         currentLeverage = 20;
       }
 
       const currentNotional = pos ? Math.abs(parseFloat(pos.notional || '0')) : 0;

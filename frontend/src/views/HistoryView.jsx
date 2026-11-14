@@ -7,8 +7,11 @@ import { useTradingStore } from '../store/trading'
 import { SectionLabel, StatCard, cn, PaperBadge, Tooltip, CopyButton, ViewHeader, Btn } from '../components/ui/primitives'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { formatDuration } from '../lib/formatters'
+import { lazyWithRetry } from '../lib/lazy'
 import { motion, AnimatePresence } from 'framer-motion'
 import { History as HistoryIcon, ArrowLeftRight, TrendingUp, TrendingDown, Clock, ShieldCheck, LayoutDashboard, Settings as SettingsIcon, ChevronRight, ChevronDown, ChevronUp, Zap, BarChart3, LineChart, Target, Trash2, Search, XCircle, Info, AlertTriangle, Layers, Eye, EyeOff, Copy, CheckCircle2, X, Loader2, SlidersHorizontal, RotateCcw } from 'lucide-react'
+
+const TradeDetailModal = lazyWithRetry(() => import('../components/TradeDetailModal').then(m => ({ default: m.TradeDetailModal })))
 
 // Shimmer Skeleton Loader for individual charts to prevent layout shift and blank-out bubbling
 export const ChartSkeleton = ({ height = 180 }) => (
@@ -380,7 +383,7 @@ const buildCurve = (trades = []) => {
 }
 
 // Modern TradeItem Component with outcome vertical strip and interactive hover effects
-const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
+const TradeItem = React.memo(({ trade, session = {}, showStrategy = true, onInspectTrade }) => {
   const pnl = safeNum(trade.pnl)
   const durationMs = trade.exit_ts_ms !== undefined && trade.entry_ts_ms !== undefined
     ? trade.exit_ts_ms - trade.entry_ts_ms
@@ -396,7 +399,23 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
       : "bg-dim/30"
 
   return (
-    <div className="flex gap-3 sm:gap-4 p-3 sm:p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/20 hover:bg-white/[0.01] hover:translate-x-1 transition-all group/trade shadow-sm relative overflow-hidden">
+    <div
+      role={onInspectTrade ? "button" : undefined}
+      tabIndex={onInspectTrade ? 0 : undefined}
+      aria-label={onInspectTrade ? `Inspect trade details for ${trade.symbol} ${trade.direction}` : undefined}
+      onClick={() => onInspectTrade?.(trade)}
+      onKeyDown={(e) => {
+        if (!onInspectTrade) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onInspectTrade(trade);
+        }
+      }}
+      className={cn(
+        "flex gap-3 sm:gap-4 p-3 sm:p-4 bg-surface border border-border/40 rounded-xl hover:border-accent/30 hover:bg-white/[0.02] hover:translate-x-1 transition-all group/trade shadow-sm relative overflow-hidden",
+        onInspectTrade && "cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+      )}
+    >
       {/* Visual left outcome strip */}
       <div className={cn("w-1 self-stretch rounded-full shrink-0", outcomeClass)} />
 
@@ -405,7 +424,9 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
           <div className="flex flex-col gap-1 min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm font-bold font-mono tracking-tight shrink-0">{trade.symbol}</span>
-              <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
+              <span onClick={(e) => e.stopPropagation()}>
+                <CopyButton value={trade.symbol} tooltip="Copy Symbol" className="opacity-0 group-hover/trade:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 -ml-1 scale-75" />
+              </span>
               <span className={cn("text-[8.5px] font-bold font-mono uppercase tracking-wider shrink-0", isLong ? "text-green" : "text-red")}>
                 {trade.direction}
               </span>
@@ -436,7 +457,7 @@ const TradeItem = React.memo(({ trade, session = {}, showStrategy = true }) => {
               {showStrategy && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-dim/40 text-[8.5px]">·</span>
-                  <a href={`#/history?session=${trade.sessionId || session?.id}`} className="text-[8.5px] font-bold font-mono text-dim hover:text-accent transition-colors uppercase truncate max-w-[120px]">
+                  <a href={`#/history?session=${trade.sessionId || session?.id}`} onClick={(e) => e.stopPropagation()} className="text-[8.5px] font-bold font-mono text-dim hover:text-accent transition-colors uppercase truncate max-w-[120px]">
                     {strategyLabel(trade)}
                   </a>
                   {(strategyLabel(trade) === 'Momentum Strategy' || strategyLabel(trade) === (session?.config?.strategy_label || 'Momentum Strategy')) ? (
@@ -1231,7 +1252,7 @@ export const RrWinRateCalculator = React.memo(({ trades, startingBalance: initia
 RrWinRateCalculator.displayName = 'RrWinRateCalculator';
 
 // Premium Glassmorphic SessionGroup with Controlled Toggle, glows, and stacked win/loss distribution sparkline
-const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
+const SessionGroup = React.memo(({ session, trades, expanded, onToggle, onInspectTrade }) => {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [showAllTrades, setShowAllTrades] = useState(false);
   const [sessionStrategyFilter, setSessionStrategyFilter] = useState('ALL');
@@ -1883,7 +1904,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                   <div className="col-span-full py-12 text-center text-[10px] text-dim font-black uppercase tracking-[0.2em] opacity-40">No trades recorded for this strategy selection</div>
                 ) : (
                   (showAllTrades ? filteredTrades : filteredTrades.slice(0, 20)).map((trade) => (
-                    <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} />
+                    <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} session={session} showStrategy={true} onInspectTrade={onInspectTrade} />
                   ))
                 )}
               </div>
@@ -1967,6 +1988,26 @@ export const HistoryView = () => {
   const [visibleSessions, setVisibleSessions] = useState(PAGE_SIZE)
   const [search, setSearch] = useState('')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [selectedTrade, setSelectedTrade] = useState(null)
+  const selectedTradeIdRef = React.useRef(null)
+
+  const handleInspectTrade = React.useCallback((trade) => {
+    if (!trade) return;
+    selectedTradeIdRef.current = trade.id || trade.symbol || null;
+    setSelectedTrade(trade);
+    if (trade.id) {
+      sessionAPI.getTrade(trade.id).then(res => {
+        if (res?.data && selectedTradeIdRef.current === trade.id) {
+          setSelectedTrade(prev => prev && prev.id === res.data.id ? { ...prev, ...res.data, _is_full: true } : res.data);
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleCloseInspectTrade = React.useCallback(() => {
+    selectedTradeIdRef.current = null;
+    setSelectedTrade(null);
+  }, []);
 
   // Handlers for persisting history settings
   const handleTimeRangeChange = (val) => {
@@ -2783,7 +2824,15 @@ export const HistoryView = () => {
                         <div className="p-4 bg-background/20 rounded-xl text-center text-[9px] text-dim font-black uppercase tracking-wider">No winning trades recorded</div>
                       ) : (
                         topWins.map((t, idx) => (
-                          <div key={t.id || `win-${idx}`} className="p-3 bg-surface/50 border border-green/20 rounded-xl flex items-center justify-between gap-3 hover:border-green/40 transition-all">
+                          <div
+                            key={t.id || `win-${idx}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleInspectTrade(t)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleInspectTrade(t); } }}
+                            aria-label={`Inspect winning trade ${t.symbol}`}
+                            className="p-3 bg-surface/50 border border-green/20 rounded-xl flex items-center justify-between gap-3 hover:border-green/40 hover:bg-surface/70 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <span className="w-5 h-5 rounded-full bg-green/10 text-green text-[9px] font-black font-mono flex items-center justify-center shrink-0">#{idx + 1}</span>
                               <div className="flex flex-col min-w-0">
@@ -2811,7 +2860,15 @@ export const HistoryView = () => {
                         <div className="p-4 bg-background/20 rounded-xl text-center text-[9px] text-dim font-black uppercase tracking-wider">No losing trades recorded</div>
                       ) : (
                         topLosses.map((t, idx) => (
-                          <div key={t.id || `loss-${idx}`} className="p-3 bg-surface/50 border border-red/20 rounded-xl flex items-center justify-between gap-3 hover:border-red/40 transition-all">
+                          <div
+                            key={t.id || `loss-${idx}`}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => handleInspectTrade(t)}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleInspectTrade(t); } }}
+                            aria-label={`Inspect losing trade ${t.symbol}`}
+                            className="p-3 bg-surface/50 border border-red/20 rounded-xl flex items-center justify-between gap-3 hover:border-red/40 hover:bg-surface/70 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <span className="w-5 h-5 rounded-full bg-red/10 text-red text-[9px] font-black font-mono flex items-center justify-center shrink-0">#{idx + 1}</span>
                               <div className="flex flex-col min-w-0">
@@ -3069,6 +3126,7 @@ export const HistoryView = () => {
                         trades={s.trades}
                         expanded={expandedSessionIds.has(s.id)}
                         onToggle={handleToggleSession}
+                        onInspectTrade={handleInspectTrade}
                       />
                     </motion.div>
                   ))
@@ -3143,7 +3201,7 @@ export const HistoryView = () => {
                         >
                           <div className="p-4 flex flex-col gap-3 bg-background/30">
                             {orphans.map((trade) => (
-                              <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} />
+                              <TradeItem key={trade.id || `trade-${trade.entry_ts}-${trade.symbol || 'unknown'}`} trade={trade} onInspectTrade={handleInspectTrade} />
                             ))}
                           </div>
                         </motion.div>
@@ -3159,6 +3217,14 @@ export const HistoryView = () => {
         )}
         <BottomNav />
       </div>
+      {selectedTrade && (
+        <TradeDetailModal
+          trade={selectedTrade}
+          isOpen={!!selectedTrade}
+          onClose={handleCloseInspectTrade}
+          onTradeClose={async () => {}}
+        />
+      )}
       </React.Suspense>
     </div>
   )

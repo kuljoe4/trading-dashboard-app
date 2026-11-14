@@ -8,6 +8,7 @@ import {
   getSignalParamsSummary,
   getStrategyRulesDiagnostics,
   buildStrategyNarrative,
+  formatDiagnosticDetailEntry,
 } from '../utils/strategyDiagnostics.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -150,6 +151,52 @@ describe('Strategy Diagnostics & UX Clarity', () => {
     const slCheck = diag.riskChecks.find(c => c.key === 'sl_bounds');
     assert.strictEqual(slCheck.status, 'rejected');
     assert.ok(slCheck.reasonText.includes('2.80% > Max 2%'));
+
+    const riskCapCheck = diag.riskChecks.find(c => c.key === 'risk_cap');
+    assert.ok(!riskCapCheck.configuredText.includes('10x'), 'Deprecated leverage multiplier must not be shown');
+  });
+
+  test('getStrategyRulesDiagnostics uses initial_sl for active trade SL bounds even after ratcheting', () => {
+    const diag = getStrategyRulesDiagnostics({
+      strategyConfig: {
+        sl_type: 'pct',
+        sl_min_pct: 0.5,
+        sl_max_pct: 2.0,
+        sl_out_of_bounds_action: 'reject',
+        leverage: 20,
+      },
+      focusedOpp: null,
+      activeTrade: {
+        symbol: 'BTCUSDT',
+        entry_price: 100,
+        initial_sl: 99,   // 1.00% -> within bounds
+        current_sl: 103,  // Ratcheted to lock +3R -> would falsely trip 2% max if used
+      },
+      activeTradeCount: 1,
+      totalRiskPct: 1.0,
+      startingBal: 10000,
+      effectiveGate: 'ACTIVE',
+      effectiveReason: 'OK',
+      isStrategyPaused: false,
+    });
+
+    const slCheck = diag.riskChecks.find(c => c.key === 'sl_bounds');
+    assert.strictEqual(slCheck.status, 'allowed');
+    assert.strictEqual(slCheck.liveText, '1.00%');
+    assert.ok(slCheck.reasonText.includes('Initial SL 1.00% within'));
+  });
+
+  test('formatDiagnosticDetailEntry formats readable keys/values and omits internal metadata', () => {
+    assert.strictEqual(formatDiagnosticDetailEntry('ts_ms', 1700000000000), null);
+    assert.strictEqual(formatDiagnosticDetailEntry('id', 'abc-123'), null);
+    assert.deepStrictEqual(
+      formatDiagnosticDetailEntry('sl_dist_pct', 1.256),
+      { label: 'SL Distance', value: '1.26%' }
+    );
+    assert.deepStrictEqual(
+      formatDiagnosticDetailEntry('pnl', -42.5),
+      { label: 'PnL', value: '-$42.50' }
+    );
   });
 
   test('buildStrategyNarrative summarizes paused, gated, warming, and active states cleanly', () => {

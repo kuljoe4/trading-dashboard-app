@@ -202,5 +202,25 @@ describe('KlineStoreService', () => {
       expect(raw5m.length).toBeGreaterThanOrEqual(100);
       expect(raw5m[0].time).toBe(startTime);
     });
+
+    it('synthesizeHigherInterval preserves richer native 1h buffer (25 candles) when 200 1m candles only cover 4 buckets', async () => {
+      const baseTime = 1700000000000;
+      const h1Candles = [];
+      for (let i = 0; i < 25; i++) {
+        h1Candles.push([baseTime + i * 3600000, '10', '12', '8', '11', '5000']);
+      }
+      await service.seedFromRest('WLDUSDT', '1h', h1Candles);
+
+      const m1Start = baseTime + 21 * 3600000;
+      const m1Candles = [];
+      for (let i = 0; i < 200; i++) {
+        m1Candles.push([m1Start + i * 60000, '10', '12', '8', '11', '100']);
+      }
+      await service.seedFromRest('WLDUSDT', '1m', m1Candles);
+
+      const result = service.synthesizeHigherInterval('WLDUSDT', '1h', '1m');
+      expect(result.length).toBeGreaterThanOrEqual(25);
+      expect(service.getRawCandles('WLDUSDT', '1h').length).toBeGreaterThanOrEqual(25);
+    });
   });
 });

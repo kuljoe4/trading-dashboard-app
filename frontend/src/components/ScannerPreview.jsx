@@ -11,7 +11,7 @@ const preloadScannerOverlay = () => {
   import('./ScannerOverlay');
 };
 
-export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) => {
+export const ScannerPreview = React.memo(({ scannerResults, config, onOpen, embedded = false }) => {
   const { activeTrades, scannerPaused, hibernating } = useTradingStore(state => ({
     activeTrades: state.activeTrades || [],
     scannerPaused: state.scannerPaused,
@@ -33,8 +33,13 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
   const getOppProximity = (opp) => calculateOpportunityProximity(opp, config);
 
   return (
-    <div className="bg-surface border border-border rounded-2xl overflow-hidden mb-8 shadow-sm h-[395px] flex flex-col text-left">
-      <div className="p-4 sm:p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0 gap-3">
+    <div className={cn(
+      "overflow-hidden flex flex-col text-left",
+      embedded
+        ? "bg-transparent min-h-[300px] sm:h-[395px]"
+        : "bg-surface border border-border rounded-2xl mb-8 shadow-sm min-h-[340px] sm:h-[395px]"
+    )}>
+      <div className="p-3 sm:p-5 border-b border-border flex justify-between items-center bg-surface/30 shrink-0 gap-2 sm:gap-3">
         <div className="flex flex-col min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <SectionLabel className="mb-0">
@@ -72,7 +77,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
         </div>
 
         <button
-          className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded shrink-0"
+          className="text-[11px] font-bold text-accent hover:text-accent/80 transition-colors uppercase tracking-widest cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded shrink-0 py-1 px-1.5"
           aria-label="View all scanner results"
           onClick={onOpen}
           onMouseEnter={preloadScannerOverlay}
@@ -83,7 +88,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
 
       <div className="flex-1 flex flex-col min-h-0">
         {top.length === 0 && placeholders.length === 5 ? (
-          <div className="h-full p-6 flex flex-col items-center justify-center text-center bg-surface/10 gap-3">
+          <div className="h-full p-5 sm:p-6 flex flex-col items-center justify-center text-center bg-surface/10 gap-3">
             <div className="w-12 h-12 rounded-full bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
               <Turtle size={24} className="animate-bounce" />
             </div>
@@ -94,8 +99,8 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
               </p>
             </div>
             <div className="flex items-center gap-2 px-3 py-1 bg-background/50 border border-border/40 rounded-lg text-[9px] font-mono text-dim font-bold uppercase tracking-wider mt-1">
-              <RefreshCw size={11} className="animate-spin text-accent" />
-              Monitoring {config?.scan_interval || '1m'} klines for momentum expansion
+              <RefreshCw size={11} className="animate-spin text-accent shrink-0" />
+              <span>Monitoring {config?.scan_interval || '1m'} klines for momentum expansion</span>
             </div>
           </div>
         ) : (
@@ -106,7 +111,7 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                 tabIndex={0}
                 role="region"
                 aria-label={`Fast Market Expansion. ${regimeInfo.passingCount} of ${regimeInfo.totalCount} candidates passing threshold ${threshold}%, average momentum ${regimeInfo.avgMomentum.toFixed(2)}%`}
-                className="bg-accent/10 border-b border-accent/30 px-4 py-2 flex items-center justify-between gap-3 text-xs font-mono shrink-0"
+                className="bg-accent/10 border-b border-accent/30 px-3 sm:px-4 py-2 flex items-center justify-between gap-2 sm:gap-3 text-xs font-mono shrink-0"
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <Flame size={14} className="text-accent animate-pulse shrink-0" />
@@ -133,36 +138,36 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     className={cn(
-                      "flex items-center gap-4 px-4 py-3 transition-colors hover:bg-white/5 h-[56px] group",
+                      "flex items-center gap-2 sm:gap-4 px-3 sm:px-4 py-2.5 sm:py-3 transition-colors hover:bg-white/5 min-h-[52px] sm:h-[56px] group",
                       !isLast && "border-b border-border/40",
                       !passing && "opacity-60"
                     )}
                   >
-                    <span className="text-[10px] text-dim font-mono w-4">#{i + 1}</span>
-                    <strong className="text-xs font-mono w-16">{opp.symbol.replace('USDT', '')}</strong>
-                    <CopyButton value={opp.symbol} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-2" />
-                    <div className="flex-1 flex justify-center h-8">
-                      <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={48} height={20} />
+                    <span className="text-[10px] text-dim font-mono w-4 shrink-0">#{i + 1}</span>
+                    <strong className="text-xs font-mono w-14 sm:w-16 truncate shrink-0">{opp.symbol.replace('USDT', '')}</strong>
+                    <CopyButton value={opp.symbol} className="hidden sm:inline-flex opacity-0 group-hover:opacity-100 focus-visible:opacity-100 -ml-2" />
+                    <div className="flex-1 flex justify-center h-8 min-w-[36px] overflow-hidden">
+                      <Sparkline data={opp.history} color={isLong ? "green" : "red"} width={44} height={20} />
                     </div>
-                    <div className="flex flex-col items-end w-16 h-[26px] justify-center">
-                      <em className={cn("text-xs font-bold font-mono text-right leading-none", colorClass)}>
+                    <div className="flex flex-col items-end w-14 sm:w-16 h-[26px] justify-center shrink-0">
+                      <em className={cn("text-xs font-bold font-mono text-right leading-none tabular-nums", colorClass)}>
                         {opp.pct >= 0 ? '+' : ''}{Number(opp.pct || 0).toFixed(2)}%
                       </em>
                       {(activeTrades || []).some(t => t.symbol === opp.symbol) && (
                         <InPosBadge className="opacity-60 scale-90 origin-right mt-0.5" />
                       )}
                     </div>
-                    <div className="w-16 flex flex-col items-end justify-center gap-0.5">
+                    <div className="w-14 sm:w-16 flex flex-col items-end justify-center gap-0.5 shrink-0">
                       {passing ? (
                         opp.signalResult?.allFired ? (
-                          <b className="text-[10px] font-black text-green uppercase tracking-wider">TRIGGERED</b>
+                          <b className="text-[9px] sm:text-[10px] font-black text-green uppercase tracking-wider">TRIGGERED</b>
                         ) : (
-                          <b className="text-[10px] font-black text-amber uppercase tracking-wider">PENDING</b>
+                          <b className="text-[9px] sm:text-[10px] font-black text-amber uppercase tracking-wider">PENDING</b>
                         )
                       ) : (
-                        <b className="text-[10px] font-bold text-dim uppercase tracking-wider">WAITING</b>
+                        <b className="text-[9px] sm:text-[10px] font-bold text-dim uppercase tracking-wider">WAITING</b>
                       )}
-                      <div className="w-12 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5 mt-0.5" title={`Proximity: ${getOppProximity(opp)}%`}>
+                      <div className="w-11 sm:w-12 h-1 bg-background/80 rounded-full overflow-hidden border border-white/5 mt-0.5" title={`Proximity: ${getOppProximity(opp)}%`}>
                         <div
                           className={cn(
                             "h-full rounded-full transition-all duration-500",
@@ -178,13 +183,13 @@ export const ScannerPreview = React.memo(({ scannerResults, config, onOpen }) =>
             </AnimatePresence>
             {placeholders.map((_, i) => (
               <div key={`placeholder-${i}`} className={cn(
-                "h-[56px] flex items-center px-4 opacity-10 grayscale",
+                "h-[52px] sm:h-[56px] flex items-center px-3 sm:px-4 opacity-10 grayscale",
                 i !== placeholders.length - 1 && "border-b border-border/40"
               )}>
-                <div className="w-4 h-2 bg-dim rounded-full mr-4" />
-                <div className="w-16 h-3 bg-dim rounded-full mr-4" />
+                <div className="w-4 h-2 bg-dim rounded-full mr-2 sm:mr-4" />
+                <div className="w-14 sm:w-16 h-3 bg-dim rounded-full mr-2 sm:mr-4" />
                 <div className="flex-1" />
-                <div className="w-16 h-3 bg-dim rounded-full mr-4" />
+                <div className="w-14 sm:w-16 h-3 bg-dim rounded-full mr-2 sm:mr-4" />
                 <div className="w-12 h-2 bg-dim rounded-full" />
               </div>
             ))}

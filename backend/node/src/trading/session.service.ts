@@ -925,6 +925,36 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private sanitizeSavedConfigForResume(rawConfig: any, mode: string, paperMode: boolean) {
+    const clean = rawConfig && typeof rawConfig === "object" ? { ...rawConfig } : {};
+    clean.trading_mode = clean.trading_mode || mode;
+    clean.paper_mode = paperMode;
+    clean.scan_interval = clean.scan_interval || "5m";
+    clean.strategy_label = clean.strategy_label || "Momentum Strategy";
+
+    for (const mapKey of ["signal_timeframes", "exit_signal_delays", "exit_signal_actions", "scanner_weights"] as const) {
+      if (clean[mapKey] && typeof clean[mapKey] === "object" && !Array.isArray(clean[mapKey])) {
+        const filtered: Record<string, any> = {};
+        for (const [k, v] of Object.entries(clean[mapKey])) {
+          if (v !== null && v !== undefined && v !== "") {
+            filtered[k] = v;
+          }
+        }
+        clean[mapKey] = filtered;
+      }
+    }
+
+    if (typeof clean.signal_params === "string") {
+      try {
+        clean.signal_params = JSON.parse(clean.signal_params || "{}");
+      } catch {
+        clean.signal_params = {};
+      }
+    }
+
+    return clean;
+  }
+
   async startSession(
     config: SessionConfig,
     paperMode: boolean,
@@ -932,47 +962,39 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     ip?: string,
     userAgent?: string,
   ) {
-    let mode = config.trading_mode || (paperMode ? "paper" : "live");
-    if (mode !== "paper" && !process.env.ENCRYPTION_KEY) {
-      throw new ConfigValidationException(
-        "ENCRYPTION_KEY must be set to start a session in live or testnet mode.",
-      );
-    }
-
     if (this.sessionRunning) {
       throw new ConflictException("Session already running");
     }
 
-    // Force mode consistency: testnet/live must have paper_mode disabled
-    if (mode === "testnet" || mode === "live") {
-      config.paper_mode = false;
-      paperMode = false;
-    } else {
-      config.paper_mode = true;
-      paperMode = true;
-    }
+    let mode = config.trading_mode || (paperMode ? "paper" : "live");
+    let session: any;
 
-    // Deep validation of dependent fields
-    this.validateConfig(config);
-
-    let session;
     if (sessionId) {
       session = await this.sessionRepository.findOne({
         where: { id: sessionId },
       });
       if (!session) throw new NotFoundException("Session not found");
 
+      mode = session.tradingMode || session.config?.trading_mode || (session.paperMode ? "paper" : "live");
+      paperMode = mode === "paper";
+
+      if (mode !== "paper" && !process.env.ENCRYPTION_KEY) {
+        throw new ConfigValidationException(
+          "ENCRYPTION_KEY must be set to start a session in live or testnet mode.",
+        );
+      }
+
+      const normalizedSavedConfig = this.sanitizeSavedConfigForResume(session.config, mode, paperMode);
       // CODE-03: Validate config on restart
-      this.validateConfig(session.config);
+      this.validateConfig(normalizedSavedConfig);
 
       // Update session to running
       session.running = true;
+      session.config = normalizedSavedConfig;
       await this.sessionRepository.save(session);
 
       // Use existing config and balance
-      config = session.config;
-      paperMode = session.paperMode;
-      mode = session.tradingMode || (paperMode ? "paper" : "live");
+      config = normalizedSavedConfig as SessionConfig;
 
       // Preserving starting balance if it exists in the config to maintain correct PnL calculation across restarts
       if (mode === "paper") {
@@ -989,6 +1011,24 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           roundEight(Number(session.balance) - Number(session.totalPnl));
       }
     } else {
+      if (mode !== "paper" && !process.env.ENCRYPTION_KEY) {
+        throw new ConfigValidationException(
+          "ENCRYPTION_KEY must be set to start a session in live or testnet mode.",
+        );
+      }
+
+      // Force mode consistency: testnet/live must have paper_mode disabled
+      if (mode === "testnet" || mode === "live") {
+        config.paper_mode = false;
+        paperMode = false;
+      } else {
+        config.paper_mode = true;
+        paperMode = true;
+      }
+
+      // Deep validation of dependent fields
+      this.validateConfig(config);
+
       // Ensure starting balance is explicitly in the config for new sessions
       if (mode === "paper") {
         // Inherit from settings if not explicitly provided
@@ -1048,6 +1088,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     this.currentSessionId = session.id;
     this.sessionRunning = true;
+
+    try {
 
     // Load potentially orphaned open trades for reconciliation
     // For the active session, we'll resume these trades in the engine
@@ -1582,7 +1624,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     await this.tradingSessionService.start(
       config,
       binanceClient,
-      this.currentSessionId,
+      this.currentSessionId ?? undefined,
       initialHistory as any,
       currentGlobalBalance,
       filteredOpenTrades as any,
@@ -1611,7 +1653,24 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       details: { mode, paperMode },
     });
 
-    return { strategyId: this.currentSessionId, status: "started" };
+      return { strategyId: this.currentSessionId, status: "started" };
+    } catch (startupError) {
+      this.sessionRunning = false;
+      this.currentSessionId = null;
+      if (session?.id) {
+        try {
+          await this.sessionRepository.update(session.id, { running: false });
+        } catch (dbErr: any) {
+          this.logger.warn(
+            `Failed to rollback session.running in DB for ${session.id}: ${dbErr?.message || dbErr}`,
+          );
+        }
+      }
+      if (typeof (this.tradingSessionService as any)?.rollbackStartup === "function") {
+        await (this.tradingSessionService as any).rollbackStartup().catch(() => {});
+      }
+      throw startupError;
+    }
   }
 
   async getUntrackedPositions() {
@@ -2728,14 +2787,14 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     });
 
     return sessions.map(session => {
-      if (session.config) {
-        session.config = {
-          scan_interval: session.config.scan_interval,
-          trading_mode: session.config.trading_mode,
-          strategy_label: session.config.strategy_label,
-          paper_mode: session.config.paper_mode
-        };
-      }
+      const fallbackMode = session.tradingMode || (session.paperMode === false ? "live" : "paper");
+      const fallbackPaper = fallbackMode === "paper";
+      session.config = {
+        scan_interval: session.config?.scan_interval || "5m",
+        trading_mode: session.config?.trading_mode || fallbackMode,
+        strategy_label: session.config?.strategy_label || session.strategyLabel || "Momentum Strategy",
+        paper_mode: session.config?.paper_mode ?? fallbackPaper
+      };
       return session;
     });
   }

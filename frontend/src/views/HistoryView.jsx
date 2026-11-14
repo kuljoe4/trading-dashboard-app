@@ -27,10 +27,11 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
   // BOLT OPTIMIZATION: Loop-fused single-pass useMemo aggregates variant PnLs, active strategy labels,
   // knife trade count, and knife trade accumulated PnL in a single O(N) traversal over trades,
   // eliminating multiple array allocations (.map(), .filter(), Array.from(new Set())) and GC pressure.
-  const { variantPnls, variantFees, variantFunding, activeLabels, knifeCount, knifeAccPnl, winCount, lossCount, totalTrades, winRate, profitFactor, sessionFees, sessionFunding } = useMemo(() => {
+  const { variantPnls, variantFees, variantFunding, variantDurations, activeLabels, knifeCount, knifeAccPnl, winCount, lossCount, totalTrades, winRate, profitFactor, sessionFees, sessionFunding } = useMemo(() => {
     const map = new Map();
     const feesMap = new Map();
     const fundingMap = new Map();
+    const durationsMap = new Map();
     const labelsSet = new Set();
     let knifeCount = 0;
     let knifeAccPnl = 0;
@@ -52,6 +53,26 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
         feesMap.set(label, (feesMap.get(label) || 0) + fee);
         fundingMap.set(label, (fundingMap.get(label) || 0) + funding);
         labelsSet.add(label);
+
+        let durEntry = durationsMap.get(label);
+        if (durEntry === undefined) {
+          durEntry = { tradeCount: 0, totalMs: 0, count: 0, minEntryMs: 0, maxExitMs: 0 };
+          durationsMap.set(label, durEntry);
+        }
+        durEntry.tradeCount += 1;
+
+        const entryMs = t.entry_ts_ms !== undefined ? t.entry_ts_ms : (t.entry_ts || t.createdAt ? new Date(t.entry_ts || t.createdAt).getTime() : 0);
+        const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+        if (entryMs > 0 && (durEntry.minEntryMs === 0 || entryMs < durEntry.minEntryMs)) {
+          durEntry.minEntryMs = entryMs;
+        }
+        if (exitMs > 0 && exitMs > durEntry.maxExitMs) {
+          durEntry.maxExitMs = exitMs;
+        }
+        if (entryMs > 0 && exitMs > entryMs) {
+          durEntry.totalMs += (exitMs - entryMs);
+          durEntry.count += 1;
+        }
 
         totalFees += fee;
         totalFunding += funding;
@@ -78,6 +99,7 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
       variantPnls: map,
       variantFees: feesMap,
       variantFunding: fundingMap,
+      variantDurations: durationsMap,
       activeLabels: Array.from(labelsSet),
       knifeCount,
       knifeAccPnl,
@@ -252,11 +274,23 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                         const pnlVal = variantPnls.get(l) || 0;
                         const feeVal = variantFees.get(l) || 0;
                         const fundingVal = variantFunding.get(l) || 0;
+                        const durStats = variantDurations.get(l);
+                        const tradeCount = durStats?.tradeCount || 0;
+                        const avgDurMs = durStats && durStats.count > 0 ? durStats.totalMs / durStats.count : null;
+                        const totalDurMs = durStats && durStats.count > 0 ? durStats.totalMs : null;
+                        const spanDurMs = durStats && durStats.minEntryMs > 0 && durStats.maxExitMs > durStats.minEntryMs
+                          ? (durStats.maxExitMs - durStats.minEntryMs)
+                          : null;
                         return (
-                          <div key={l} className="flex items-center justify-between p-2.5 bg-surface/50 border border-border/20 rounded-lg hover:border-accent/15 transition-all">
-                            <div className="flex flex-col gap-0.5 min-w-0">
-                              <span className="text-[10.5px] font-black text-text uppercase truncate max-w-[200px] sm:max-w-xs">{l}</span>
-                              <div className="flex items-center gap-1.5">
+                          <div key={l} className="flex items-center justify-between gap-3 p-2.5 bg-surface/50 border border-border/20 rounded-lg hover:border-accent/15 transition-all">
+                            <div className="flex flex-col gap-1 min-w-0">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="text-[10.5px] font-black text-text uppercase truncate max-w-[200px] sm:max-w-xs">{l}</span>
+                                <span className="text-[8px] font-mono font-bold text-dim/70 shrink-0">
+                                  ({tradeCount} {tradeCount === 1 ? 'trade' : 'trades'})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className={cn(
                                   "text-[7.5px] font-black px-1.5 py-0.5 rounded border uppercase leading-none tracking-wider",
                                   isBase ? "text-blue-400 border-blue-500/20 bg-blue-500/5" : "text-purple border-purple/20 bg-purple/5"
@@ -266,6 +300,18 @@ export const SessionDetailsModal = ({ isOpen, onClose, session, trades }) => {
                                 <span className="text-[8px] font-mono text-dim/70">
                                   Fees: {fmtUSD(-feeVal)} | Funding: {fmtUSD(-fundingVal)}
                                 </span>
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap text-[8.5px] font-mono text-accent/90 mt-0.5">
+                                <Tooltip content="Active span (first entry to last exit), average trade hold duration, and cumulative trade duration for this strategy">
+                                  <span className="inline-flex items-center gap-1.5 cursor-help">
+                                    <Clock size={9.5} className="shrink-0" />
+                                    <span>Span: <strong className="font-black text-text">{spanDurMs !== null ? formatDuration(spanDurMs) : '---'}</strong></span>
+                                    <span className="text-dim/40">·</span>
+                                    <span>Avg: <strong className="font-black text-text">{avgDurMs !== null ? formatDuration(avgDurMs) : '---'}</strong></span>
+                                    <span className="text-dim/40">·</span>
+                                    <span>Total: <strong className="font-black text-text">{totalDurMs !== null ? formatDuration(totalDurMs) : '---'}</strong></span>
+                                  </span>
+                                </Tooltip>
                               </div>
                             </div>
                             <span className={cn("text-xs font-black font-mono tracking-tight shrink-0", pnlClass(pnlVal))}>
@@ -1230,11 +1276,13 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       const pnlVal = safeNum(t.pnl);
       const feeVal = safeNum(t.realized_fee || t.commission || 0);
       const fundingVal = safeNum(t.funding_fee || 0);
+      const entryMs = t.entry_ts_ms !== undefined ? t.entry_ts_ms : (t.entry_ts || t.createdAt ? new Date(t.entry_ts || t.createdAt).getTime() : 0);
+      const exitMs = t.exit_ts_ms !== undefined ? t.exit_ts_ms : (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
 
       // Strategy aggregation
       let sItem = stratMap.get(lbl);
       if (sItem === undefined) {
-        sItem = { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0 };
+        sItem = { label: lbl, count: 0, pnl: 0, fees: 0, funding: 0, totalDurationMs: 0, durationCount: 0, minEntryMs: 0, maxExitMs: 0, avgDurationMs: 0, spanMs: 0 };
         stratMap.set(lbl, sItem);
         stratList.push(sItem);
       }
@@ -1242,6 +1290,16 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       sItem.pnl += pnlVal;
       sItem.fees += feeVal;
       sItem.funding += fundingVal;
+      if (entryMs > 0 && (sItem.minEntryMs === 0 || entryMs < sItem.minEntryMs)) {
+        sItem.minEntryMs = entryMs;
+      }
+      if (exitMs > 0 && exitMs > sItem.maxExitMs) {
+        sItem.maxExitMs = exitMs;
+      }
+      if (entryMs > 0 && exitMs > entryMs) {
+        sItem.totalDurationMs += (exitMs - entryMs);
+        sItem.durationCount += 1;
+      }
 
       // Symbol aggregation
       let symItem = symMap.get(sym);
@@ -1266,6 +1324,12 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
       comboItem.pnl += pnlVal;
       comboItem.fees += feeVal;
       comboItem.funding += fundingVal;
+    }
+
+    for (let i = 0; i < stratList.length; i++) {
+      const sItem = stratList[i];
+      sItem.avgDurationMs = sItem.durationCount > 0 ? Math.round(sItem.totalDurationMs / sItem.durationCount) : 0;
+      sItem.spanMs = (sItem.minEntryMs > 0 && sItem.maxExitMs > sItem.minEntryMs) ? (sItem.maxExitMs - sItem.minEntryMs) : 0;
     }
 
     stratList.sort((a, b) => b.count - a.count);
@@ -1598,7 +1662,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                           {sessionStrategyFilter !== 'ALL' && <span>{sessionStrategyFilter}</span>}
                           {sessionStrategyFilter !== 'ALL' && sessionSymbolFilter !== 'ALL' && <span>+</span>}
                           {sessionSymbolFilter !== 'ALL' && <span>{sessionSymbolFilter}</span>}
-                          <span className="text-text/70">({filteredTrades.length} trades)</span>
+                          <span className="text-text/70">({filteredTrades.length} trades{avgDuration > 0 ? ` · Avg ${formatDuration(avgDuration)}` : ''})</span>
                         </span>
                         <button
                           type="button"
@@ -1647,6 +1711,7 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                         }}
                         aria-pressed={sessionStrategyFilter === st.label && sessionSymbolFilter === 'ALL'}
                         aria-label={`Filter session trades to strategy ${st.label}`}
+                        title={st.durationCount > 0 ? `Span: ${formatDuration(st.spanMs)} · Avg: ${formatDuration(st.avgDurationMs)} · Total: ${formatDuration(st.totalDurationMs)}` : undefined}
                         className={cn(
                           "px-2.5 py-1 rounded-lg text-[8.5px] font-black uppercase tracking-wider transition-all whitespace-nowrap shrink-0 border flex items-center gap-1.5 cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
                           sessionStrategyFilter === st.label && sessionSymbolFilter === 'ALL'
@@ -1658,6 +1723,12 @@ const SessionGroup = React.memo(({ session, trades, expanded, onToggle }) => {
                         <span className="text-[7.5px] px-1 py-0.2 rounded bg-background/60 border border-border/30 font-mono font-bold text-text/80">
                           {st.count}
                         </span>
+                        {st.durationCount > 0 && (
+                          <span className="text-[7.5px] font-mono font-bold text-dim/90 flex items-center gap-0.5">
+                            <Clock size={8.5} className="text-accent/80 shrink-0" />
+                            {formatDuration(st.avgDurationMs)}
+                          </span>
+                        )}
                         <span className={cn("text-[7.5px] font-mono font-black", pnlClass(st.pnl))}>
                           {fmtUSD(st.pnl)}
                         </span>

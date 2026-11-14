@@ -459,6 +459,42 @@ export class TradingSessionService implements OnApplicationShutdown {
     );
   }
 
+  /**
+   * Startup Rollback: Cleans up any partially-initialized intervals or streams
+   * if SessionService.startSession throws before startup completes, without closing active positions.
+   */
+  async rollbackStartup() {
+    this.running = false;
+    this.mainLoopProcessing = false;
+    this.hotLoopProcessing = false;
+
+    if (this.mainLoopInterval) {
+      clearInterval(this.mainLoopInterval);
+      this.mainLoopInterval = null as any;
+    }
+    if (this.hotLoopInterval) {
+      clearInterval(this.hotLoopInterval);
+      this.hotLoopInterval = null as any;
+    }
+
+    try {
+      await this.sessionLifecycle.stop(
+        this.binanceClient,
+        this.sessionId || undefined,
+        this.config || undefined,
+      );
+    } catch (e: any) {
+      this.logger.debug(
+        `Startup rollback lifecycle cleanup warning: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+
+    this.sessionState.setActiveTrades([]);
+    this.positionTracker.clear();
+    this.appliedPnL.clear();
+    this.sessionId = null;
+  }
+
   private async hotLoop() {
     if (!this.running || !this.config || this.hotLoopProcessing) return;
     if (

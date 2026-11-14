@@ -27,3 +27,12 @@ test('HistoryView UX - General Overview Card structure updated', () => {
     assert.ok(historyViewContent.includes('F: {fmtUSD(-sessionFees)}'), 'Fees abbreviation structure missing');
     assert.ok(historyViewContent.includes('FD: {fmtUSD(-sessionFunding)}'), 'Funding abbreviation structure missing');
 });
+
+test('HistoryView UX - Per-strategy duration metrics in SessionDetailsModal and SessionGroup', () => {
+    assert.ok(historyViewContent.includes('variantDurations: durationsMap'), 'SessionDetailsModal must compute variantDurations in single-pass memo');
+    assert.ok(historyViewContent.includes('<span>Span: <strong'), 'SessionDetailsModal must display per-strategy active span duration');
+    assert.ok(historyViewContent.includes('<span>Avg: <strong'), 'SessionDetailsModal must display per-strategy average trade duration');
+    assert.ok(historyViewContent.includes('<span>Total: <strong'), 'SessionDetailsModal must display per-strategy total trade duration');
+    assert.ok(historyViewContent.includes('sItem.avgDurationMs = sItem.durationCount > 0'), 'SessionGroup strategy chips must compute avgDurationMs');
+});
+

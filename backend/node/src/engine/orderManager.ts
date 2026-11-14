@@ -2247,15 +2247,22 @@ export class OrderManagerService {
       const upperMsg = errMsg.toUpperCase();
       const isAlreadyClosed =
         upperMsg.includes('ORDER HAS BEEN FILLED') ||
+        upperMsg.includes('ORDER HAS BEEN CANCELED') ||
+        upperMsg.includes('ORDER HAS BEEN CANCELLED') ||
+        upperMsg.includes('ORDER HAS BEEN EXPIRED') ||
+        upperMsg.includes('ORDER HAS BEEN TRIGGERED') ||
         upperMsg.includes('UNKNOWN_ORDER') ||
         upperMsg.includes('UNKNOWN ORDER') ||
         upperMsg.includes('ORDER DOES NOT EXIST') ||
         upperMsg.includes('ALGO_ORDER_NOT_FOUND') ||
         upperMsg.includes('ALGO_NOT_EXIST') ||
+        upperMsg.includes('ALGO ORDER NOT FOUND') ||
+        upperMsg.includes('ALGO ORDER DOES NOT EXIST') ||
         upperMsg.includes('CANCEL_REJECTED') ||
         upperMsg.includes('-2011') ||
         upperMsg.includes('-2013') ||
-        upperMsg.includes('-2022');
+        upperMsg.includes('-2022') ||
+        upperMsg.includes('-4121');
 
       if (isAlreadyClosed) {
         this.logger.debug(`Order ${orderId} already closed or not found on exchange: ${errMsg}`);
@@ -2280,13 +2287,14 @@ export class OrderManagerService {
                          errMsg.includes('-2015');
       if (isSystemic) this.recordFailure(true);
 
-      // Verification query loop if cancel returned false (skip if banned/systemic rate-limited)
+      // Verification & Symbol-Scoped Algo Flush Fallback if cancel returned false (skip if banned/systemic rate-limited)
       if (!isSystemic && !this.isBanned() && !this.sessionState.isRateLimited(0.85)) {
         try {
             this.logger.debug(`[cancelBinanceOrder] Querying active exchange orders to confirm if ${orderId} still exists...`);
             const openStatus = await this.queryOrderStatus(symbol, orderId, effectiveOrderType === 'algo' ? 'algo' : 'standard');
-            if (!openStatus || ['CANCELED', 'FILLED', 'REJECTED', 'EXPIRED', 'TRIGGERED'].includes(String(openStatus.status || '').toUpperCase())) {
-                this.logger.debug(`[cancelBinanceOrder] Order ${orderId} is no longer active despite cancel error. Returning true.`);
+            const statusUpper = String(openStatus?.status || '').toUpperCase();
+            if (!openStatus || ['CANCELED', 'CANCELLED', 'FILLED', 'REJECTED', 'EXPIRED', 'TRIGGERED', 'FINISHED'].includes(statusUpper)) {
+                this.logger.debug(`[cancelBinanceOrder] Order ${orderId} is no longer active (status=${statusUpper || 'NONE'}) despite cancel error. Returning true.`);
                 let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
                 const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId);
                 this.sessionState.realTimeOrders.set(symbol, updatedOrders);
@@ -2295,6 +2303,23 @@ export class OrderManagerService {
             }
         } catch (queryErr) {
             this.logger.warn(`[cancelBinanceOrder] Validation query for ${orderId} failed: ${queryErr}`);
+        }
+
+        // If individual cancelAlgoOrder failed on an algo SL and the order is still reported open (or query failed),
+        // fall back to symbol-scoped cancelAllAlgoOpenOrders({ symbol }) (1 weight) to guarantee the stale SL is cleared before placing the new SL.
+        if (effectiveOrderType === 'algo' && typeof (this.binanceClient.restAPI as any).cancelAllAlgoOpenOrders === 'function') {
+          try {
+            this.logger.log(`[cancelBinanceOrder] Falling back to cancelAllAlgoOpenOrders for ${symbol} to clear ${orderId}...`);
+            const flushRes = await (this.binanceClient.restAPI as any).cancelAllAlgoOpenOrders({ symbol });
+            this.updateWeight(flushRes?.headers);
+            let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+            const updatedOrders = currentOrders.filter(o => !o.algoId && String(o.orderId) !== orderId);
+            this.sessionState.realTimeOrders.set(symbol, updatedOrders);
+            this.markAsExecuted(symbol, orderId, 'CANCELED');
+            return true;
+          } catch (flushErr: any) {
+            this.logger.warn(`[cancelBinanceOrder] cancelAllAlgoOpenOrders fallback for ${symbol} failed: ${flushErr?.message || flushErr}`);
+          }
         }
       }
 

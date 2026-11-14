@@ -2,9 +2,6 @@ import { MigrationInterface, QueryRunner } from "typeorm";
 
 export class ShrinkPostgresMemoryAndUnloggedKlines2026111400000 implements MigrationInterface {
   name = "ShrinkPostgresMemoryAndUnloggedKlines2026111400000";
-  // Run outside a transaction block so ALTER SYSTEM, VACUUM FULL, and CHECKPOINT can execute
-  // and immediately unlink bloated heap/WAL files from the container's OS page cache.
-  transaction = false;
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 1. Cap per-session memory during maintenance

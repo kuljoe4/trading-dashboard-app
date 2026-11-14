@@ -159,8 +159,16 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         `Failed to execute onModuleInit setup: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
-    // SEC-02: Cleanup old data on startup and periodically (every 1 hour)
-    await this.cleanupOldData();
+    // SEC-02: Defer initial cleanup by 30s so startup boot + warmup does not spike DB memory/IO, then run every 1 hour
+    const initialCleanupTimer = setTimeout(
+      () =>
+        this.cleanupOldData().catch((e) =>
+          this.logger.error(`Initial cleanup failed: ${e.message}`),
+        ),
+      30 * 1000,
+    );
+    if (initialCleanupTimer?.unref) initialCleanupTimer.unref();
+
     const cleanupInterval = setInterval(
       () =>
         this.cleanupOldData().catch((e) =>
@@ -2935,21 +2943,25 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     if (!session) return { running: false };
 
     const engineStatus: any = this.tradingSessionService.getStatus();
-    const activeTrades = (
-      await this.tradeRepository.find({
-        where: { status: "OPEN", sessionId: session.id },
-      })
-    ).filter(
-      (trade) =>
-        trade.entry_price != null &&
-        !isNaN(Number(trade.entry_price)) &&
-        trade.qty != null &&
-        !isNaN(Number(trade.qty)),
-    ).map((t) => ({
-      ...t,
-      max_rr: Number(t.max_rr_achieved || 0),
-      max_rr_achieved: Number(t.max_rr_achieved || 0),
-    }));
+    const activeTrades = engineStatus.activeTrades?.length
+      ? engineStatus.activeTrades
+      : (
+          await this.tradeRepository.find({
+            where: { status: "OPEN", sessionId: session.id },
+          })
+        )
+          .filter(
+            (trade) =>
+              trade.entry_price != null &&
+              !isNaN(Number(trade.entry_price)) &&
+              trade.qty != null &&
+              !isNaN(Number(trade.qty)),
+          )
+          .map((t) => ({
+            ...t,
+            max_rr: Number(t.max_rr_achieved || 0),
+            max_rr_achieved: Number(t.max_rr_achieved || 0),
+          }));
 
     const logs = includeLogs
       ? await this.logRepository.find({
@@ -3295,7 +3307,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         .execute();
 
       const balanceCutoff = new Date(
-        Date.now() - 1 * 24 * 60 * 60 * 1000,
+        Date.now() - 3 * 24 * 60 * 60 * 1000,
       );
       const deletedBalanceHistory = await this.balanceHistoryRepository
         .createQueryBuilder()
@@ -3323,7 +3335,8 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         .delete()
         .from("klines")
         .where(
-          "(interval IN ('1m', '3m', '5m') AND time < :cutoffShort) OR " +
+          "interval = '1m' OR " +
+          "(interval IN ('3m', '5m') AND time < :cutoffShort) OR " +
           "(interval IN ('15m', '30m') AND time < :cutoffMed) OR " +
           "(interval IN ('1h', '2h') AND time < :cutoffHourly) OR " +
           "(interval IN ('4h', '6h', '8h', '12h') AND time < :cutoff4h) OR " +
@@ -3367,23 +3380,52 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Reclaim dead MVCC tuples and refresh PostgreSQL query planner statistics via non-blocking VACUUM (ANALYZE)
-      // so Postgres shared_buffers and OS page cache stay well below 400MB on Railway.
-      const totalDeleted = (deletedLogs.affected || 0) + (deletedTrades.affected || 0) + (deletedBalanceHistory.affected || 0) + (deletedKlines.affected || 0) + (deletedAudit || 0);
-      if (totalDeleted > 0) {
-        const tablesToVacuum = ["klines", "trade_entity", "balance_history", "log", "audit_logs"];
-        for (const table of tablesToVacuum) {
-          try {
-            await this.sessionRepository.query(`VACUUM (ANALYZE) ${table};`);
-          } catch {
+      // Reclaim PostgreSQL OS page cache & WAL files if klines or log heap exceeds 25MB on disk.
+      // Avoids running routine VACUUM (ANALYZE) on every hourly tick, which scans & dirties pages into OS cache.
+      if (typeof (this.sessionRepository as any).query === "function") {
+        try {
+          await (this.sessionRepository as any).query(`SET work_mem = '4MB'; SET maintenance_work_mem = '16MB';`);
+          const sizeRows = await (this.sessionRepository as any).query(
+            `SELECT pg_total_relation_size('klines') AS klines_bytes, pg_total_relation_size('log') AS log_bytes`,
+          );
+          const klinesBytes = Number(sizeRows?.[0]?.klines_bytes || 0);
+          const logBytes = Number(sizeRows?.[0]?.log_bytes || 0);
+
+          if (klinesBytes > 25 * 1024 * 1024) {
+            await (this.sessionRepository as any).query(`DROP TABLE IF EXISTS "_klines_compact_keep"`);
+            await (this.sessionRepository as any).query(`
+              CREATE TEMP TABLE "_klines_compact_keep" AS
+              SELECT "id", "symbol", "interval", "time", "open", "high", "low", "close", "volume"
+              FROM (
+                SELECT
+                  "id", "symbol", "interval", "time", "open", "high", "low", "close", "volume",
+                  ROW_NUMBER() OVER (PARTITION BY "symbol", "interval" ORDER BY "time" DESC) AS rn
+                FROM "klines"
+                WHERE "interval" <> '1m'
+              ) ranked
+              WHERE ranked.rn <= 150
+            `);
+            await (this.sessionRepository as any).query(`TRUNCATE TABLE "klines"`);
             try {
-              await this.sessionRepository.query(`ANALYZE ${table};`);
-            } catch (analyzeErr: any) {
-              this.logger.debug(
-                `Periodic VACUUM/ANALYZE skipped for ${table}: ${analyzeErr?.message || analyzeErr}`
-              );
-            }
+              await (this.sessionRepository as any).query(`ALTER TABLE "klines" SET UNLOGGED`);
+            } catch {}
+            await (this.sessionRepository as any).query(`
+              INSERT INTO "klines" ("id", "symbol", "interval", "time", "open", "high", "low", "close", "volume")
+              SELECT "id", "symbol", "interval", "time", "open", "high", "low", "close", "volume"
+              FROM "_klines_compact_keep"
+              ON CONFLICT ("id") DO NOTHING
+            `);
+            await (this.sessionRepository as any).query(`DROP TABLE IF EXISTS "_klines_compact_keep"`);
+            await (this.sessionRepository as any).query(`CHECKPOINT`);
+            this.logger.log(`[DB Memory] Compacted bloated klines relation (${Math.round(klinesBytes / 1048576)}MB -> <3MB) and freed OS page cache.`);
+          } else if (logBytes > 25 * 1024 * 1024) {
+            await (this.sessionRepository as any).query(`VACUUM FULL ANALYZE "log"`);
+            await (this.sessionRepository as any).query(`CHECKPOINT`);
           }
+        } catch (compactErr: any) {
+          this.logger.debug(
+            `Periodic DB size check/compaction skipped: ${compactErr?.message || compactErr}`,
+          );
         }
       }
 

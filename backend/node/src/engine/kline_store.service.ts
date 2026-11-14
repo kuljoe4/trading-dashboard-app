@@ -210,12 +210,16 @@ export class KlineStoreService {
   getRawCandles(symbol: string, interval: string): Candle[] {
     const key = `${symbol}_${interval}`;
     let candles = this.klines.get(key);
+    if (candles && candles.length > 0) {
+      this.lastUpdatedMap.set(key, Date.now());
+    }
 
     if (interval !== '1m') {
       const source1mKey = `${symbol}_1m`;
       const source1m = this.klines.get(source1mKey);
 
       if (source1m && source1m.length > 0) {
+        this.lastUpdatedMap.set(source1mKey, Date.now());
         const last1m = source1m[source1m.length - 1];
         const meta = this.synthMeta.get(key);
 
@@ -231,6 +235,7 @@ export class KlineStoreService {
           const synthesized = this.synthesizeHigherInterval(symbol, interval, '1m');
           if (!candles || synthesized.length >= candles.length) {
             candles = synthesized;
+            this.lastUpdatedMap.set(key, Date.now());
           } else {
             // Keep native candles and update tail
             this.updateHTFTailFrom1m(candles, interval, last1m);
@@ -330,6 +335,9 @@ export class KlineStoreService {
     const effectiveInterval = (!interval || interval === 'default') ? '1m' : interval;
     const key = `${symbol}_${effectiveInterval}`;
     const candles = this.klines.get(key) || [];
+    if (candles.length > 0) {
+      this.lastUpdatedMap.set(key, Date.now());
+    }
 
     if (period === 0) {
       if (candles.length === 0) {

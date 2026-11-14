@@ -1764,6 +1764,12 @@ export class MarketFeedService {
   }
 
   public getActiveWatchlistSymbols(): Set<string> {
-    return new Set<string>(this.activeWatchlist.keys());
+    const symbols = new Set<string>(this.activeWatchlist.keys());
+    if (!this.sessionState?.hibernating && this.discoveredSymbolsCache?.symbols) {
+      for (const s of this.discoveredSymbolsCache.symbols) {
+        symbols.add(s);
+      }
+    }
+    return symbols;
   }
 }

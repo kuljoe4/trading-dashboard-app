@@ -1351,6 +1351,18 @@ export class TradingSessionService implements OnApplicationShutdown {
         typeof (this.marketFeed as any)?.getActiveWatchlistKeys === "function"
           ? (this.marketFeed as any).getActiveWatchlistKeys()
           : new Set<string>();
+      const klineStats =
+        typeof (this.klineStore as any)?.getStats === "function"
+          ? (this.klineStore as any).getStats()
+          : null;
+      if (klineStats && Array.isArray(klineStats.keys)) {
+        for (const k of klineStats.keys) {
+          const sepIdx = k.lastIndexOf("_");
+          if (sepIdx > 0 && activeSymbols.has(k.slice(0, sepIdx))) {
+            protectedKlineKeys.add(k);
+          }
+        }
+      }
       for (const t of activeTrades) {
         protectedKlineKeys.add(`${t.symbol}_1m`);
       }

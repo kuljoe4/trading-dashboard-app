@@ -1023,7 +1023,9 @@ export class MarketFeedService {
         // Prune stale symbol/interval klines and backfill cooldowns when watchlist shrinks/rotates
         const activeKeys = new Set<string>();
         const activeCacheKeys = new Set<string>();
+        const activeSymbolSet = new Set<string>(activeSymbolList);
         for (const [symbol, intervals] of newWatchlist) {
+          activeSymbolSet.add(symbol);
           for (const interval of intervals) {
             activeKeys.add(`${symbol}_${interval}`);
             activeCacheKeys.add(`${symbol}:${interval}`);
@@ -1031,6 +1033,9 @@ export class MarketFeedService {
         }
         if (typeof (this.klineStore as any).pruneExcept === 'function') {
           (this.klineStore as any).pruneExcept(activeKeys);
+        }
+        if (typeof (this.signalEngine as any).pruneCaches === 'function') {
+          (this.signalEngine as any).pruneCaches(activeSymbolSet);
         }
         for (const cacheKey of Array.from(this.lastBackfillAttemptMap.keys())) {
           if (!activeCacheKeys.has(cacheKey)) {
@@ -1746,5 +1751,19 @@ export class MarketFeedService {
     } finally {
       this.inFlightBackfills.delete(inFlightKey);
     }
+  }
+
+  public getActiveWatchlistKeys(): Set<string> {
+    const keys = new Set<string>();
+    for (const [symbol, intervals] of this.activeWatchlist.entries()) {
+      for (const interval of intervals) {
+        keys.add(`${symbol}_${interval}`);
+      }
+    }
+    return keys;
+  }
+
+  public getActiveWatchlistSymbols(): Set<string> {
+    return new Set<string>(this.activeWatchlist.keys());
   }
 }

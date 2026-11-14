@@ -3303,20 +3303,39 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         .where("timestamp < :cutoff", { cutoff: balanceCutoff })
         .execute();
 
-      // SEC-02: Interval-aware kline cleanup to protect HTF EMA Cross Ranking (4h) & warmup while pruning high-volume 1m rows
-      // 1m klines: 3 days retention (~210K rows saved)
-      // HTF klines (4h, 1h, 1d, etc.): 60 days retention (ensures ~180-200 HTF candles for 4h EMA 9/21 cross ranking accuracy)
-      const klineCutoff1m = Date.now() - klineRetentionDays * 24 * 60 * 60 * 1000;
-      const klineCutoffHtf = Date.now() - 60 * 24 * 60 * 60 * 1000;
+      // SEC-02: Tiered interval-aware kline cleanup aligned with the 200-candle warmup horizon
+      // Prevents multi-million row table/index bloat in PostgreSQL shared_buffers & OS page cache:
+      // - 1m, 3m, 5m: klineRetentionDays (default 1 day; 200 * 5m = 16.6h)
+      // - 15m, 30m: 4 days (200 * 30m = 4.1d)
+      // - 1h, 2h: 10 days (200 * 1h = 8.3d)
+      // - 4h, 6h, 8h, 12h: 35 days (200 * 4h = 33.3d, preserves HTF EMA Cross Ranking)
+      // - 1d+: 60 days
+      const dayMs = 24 * 60 * 60 * 1000;
+      const nowMs = Date.now();
+      const cutoffShort = nowMs - Math.min(Math.max(klineRetentionDays, 1), 3) * dayMs;
+      const cutoffMed = nowMs - 4 * dayMs;
+      const cutoffHourly = nowMs - 10 * dayMs;
+      const cutoff4h = nowMs - 35 * dayMs;
+      const cutoffDaily = nowMs - 60 * dayMs;
 
       const deletedKlines = await this.sessionRepository.manager
         .createQueryBuilder()
         .delete()
         .from("klines")
-        .where("(interval = '1m' AND time < :cutoff1m) OR (interval != '1m' AND time < :cutoffHtf)", {
-          cutoff1m: klineCutoff1m,
-          cutoffHtf: klineCutoffHtf,
-        })
+        .where(
+          "(interval IN ('1m', '3m', '5m') AND time < :cutoffShort) OR " +
+          "(interval IN ('15m', '30m') AND time < :cutoffMed) OR " +
+          "(interval IN ('1h', '2h') AND time < :cutoffHourly) OR " +
+          "(interval IN ('4h', '6h', '8h', '12h') AND time < :cutoff4h) OR " +
+          "(interval NOT IN ('1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h') AND time < :cutoffDaily)",
+          {
+            cutoffShort,
+            cutoffMed,
+            cutoffHourly,
+            cutoff4h,
+            cutoffDaily,
+          },
+        )
         .execute();
 
       // SENTINEL: Also cleanup audit logs periodically
@@ -3348,17 +3367,23 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         }
       }
 
-      // Refresh PostgreSQL query planner statistics via lightweight ANALYZE without CPU spikes (autovacuum handles dead tuple vacuuming in background)
+      // Reclaim dead MVCC tuples and refresh PostgreSQL query planner statistics via non-blocking VACUUM (ANALYZE)
+      // so Postgres shared_buffers and OS page cache stay well below 400MB on Railway.
       const totalDeleted = (deletedLogs.affected || 0) + (deletedTrades.affected || 0) + (deletedBalanceHistory.affected || 0) + (deletedKlines.affected || 0) + (deletedAudit || 0);
       if (totalDeleted > 0) {
-        try {
-          await this.sessionRepository.query(
-            "ANALYZE klines; ANALYZE trade_entity; ANALYZE balance_history; ANALYZE log; ANALYZE audit_logs;"
-          );
-        } catch (analyzeErr: any) {
-          this.logger.debug(
-            `Periodic ANALYZE skipped or non-Postgres driver: ${analyzeErr?.message || analyzeErr}`
-          );
+        const tablesToVacuum = ["klines", "trade_entity", "balance_history", "log", "audit_logs"];
+        for (const table of tablesToVacuum) {
+          try {
+            await this.sessionRepository.query(`VACUUM (ANALYZE) ${table};`);
+          } catch {
+            try {
+              await this.sessionRepository.query(`ANALYZE ${table};`);
+            } catch (analyzeErr: any) {
+              this.logger.debug(
+                `Periodic VACUUM/ANALYZE skipped for ${table}: ${analyzeErr?.message || analyzeErr}`
+              );
+            }
+          }
         }
       }
 

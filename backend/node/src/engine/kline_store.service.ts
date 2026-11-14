@@ -26,7 +26,9 @@ export class KlineStoreService {
 
   // DOWNSAMPLING OPTIMIZATION: Metadata cache to make downsampling lazy & O(1) during the same tick
   private readonly synthMeta = new Map<string, { last1mTime: number; last1mClose: number }>();
+  private readonly lastUpdatedMap = new Map<string, number>();
   private lastPersistErrLogTs = 0;
+  private static readonly DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes TTL for unmonitored candle buffers
 
   constructor(
     @InjectRepository(KlineEntity)
@@ -45,6 +47,7 @@ export class KlineStoreService {
 
   async upsertCandle(symbol: string, interval: string, kline: any) {
     const key = `${symbol}_${interval}`;
+    this.lastUpdatedMap.set(key, Date.now());
     let existing = this.klines.get(key);
     if (!existing) {
       existing = [];
@@ -467,6 +470,7 @@ export class KlineStoreService {
     // Keep only the last N candles
     const trimmed = candles.slice(-this.MAX_CANDLES);
     this.klines.set(key, trimmed);
+    this.lastUpdatedMap.set(key, Date.now());
     this.invalidateSymbolIntervalCaches(symbol, interval);
     this.logger.verbose(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
 
@@ -492,7 +496,9 @@ export class KlineStoreService {
           volume: Number(e.volume),
         }));
 
-        this.klines.set(`${symbol}_${interval}`, candles);
+        const key = `${symbol}_${interval}`;
+        this.klines.set(key, candles);
+        this.lastUpdatedMap.set(key, Date.now());
         this.invalidateSymbolIntervalCaches(symbol, interval);
         return candles.length;
       }
@@ -573,12 +579,18 @@ export class KlineStoreService {
       if (!activeKeys.has(key)) {
         this.klines.delete(key);
         this.synthMeta.delete(key);
+        this.lastUpdatedMap.delete(key);
         pruned++;
       }
     }
     for (const key of Array.from(this.synthMeta.keys())) {
       if (!activeKeys.has(key)) {
         this.synthMeta.delete(key);
+      }
+    }
+    for (const key of Array.from(this.lastUpdatedMap.keys())) {
+      if (!activeKeys.has(key)) {
+        this.lastUpdatedMap.delete(key);
       }
     }
     for (const stableKey of Array.from(this.hlStableCache.keys())) {
@@ -598,12 +610,51 @@ export class KlineStoreService {
   }
 
   /**
+   * TTL-based eviction for unmonitored or stale candle buffers.
+   * Evicts any symbol_interval buffer not updated within ttlMs unless protected by activeKeys.
+   */
+  pruneStale(ttlMs: number = KlineStoreService.DEFAULT_TTL_MS, protectedKeys?: Set<string>): number {
+    const now = Date.now();
+    let pruned = 0;
+    const evictedPairKeys = new Set<string>();
+
+    for (const [key, candles] of Array.from(this.klines.entries())) {
+      if (protectedKeys && protectedKeys.has(key)) continue;
+      const lastUpdated = this.lastUpdatedMap.get(key) ?? (candles.length > 0 ? candles[candles.length - 1].time : 0);
+      if (now - lastUpdated > ttlMs) {
+        this.klines.delete(key);
+        this.synthMeta.delete(key);
+        this.lastUpdatedMap.delete(key);
+        evictedPairKeys.add(key);
+        pruned++;
+      }
+    }
+
+    if (evictedPairKeys.size > 0) {
+      for (const stableKey of Array.from(this.hlStableCache.keys())) {
+        const firstSep = stableKey.indexOf(':');
+        const secondSep = firstSep !== -1 ? stableKey.indexOf(':', firstSep + 1) : -1;
+        if (firstSep > 0 && secondSep > firstSep) {
+          const pairKey = `${stableKey.slice(0, firstSep)}_${stableKey.slice(firstSep + 1, secondSep)}`;
+          if (evictedPairKeys.has(pairKey)) {
+            this.hlStableCache.delete(stableKey);
+          }
+        }
+      }
+      this.logger.verbose(`KlineStore TTL cleanup evicted ${pruned} stale candle buffer(s)`);
+    }
+
+    return pruned;
+  }
+
+  /**
    * Clear all stored klines to free up memory (Deep Sleep)
    */
   clear() {
     this.klines.clear();
     this.hlStableCache.clear();
     this.synthMeta.clear();
+    this.lastUpdatedMap.clear();
     this.logger.verbose('KlineStore cleared');
   }
 }

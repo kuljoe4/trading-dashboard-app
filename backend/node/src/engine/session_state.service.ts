@@ -130,7 +130,7 @@ export class SessionStateService {
     this.assetBalances.clear();
 
     this.statsVersion = 0;
-    this.closedTrades = initialHistory;
+    this.closedTrades = initialHistory.slice(0, 500);
     this.activeTrades = initialOpen;
     this.gateState = null;
     this.gateReason = null;
@@ -227,6 +227,8 @@ export class SessionStateService {
         processTrade(initialOpen[i]);
       }
     }
+
+    this.compactStaleClosedTrades(50);
 
     // Finalize session stats
     this.stats = {
@@ -373,6 +375,7 @@ export class SessionStateService {
       banUntil: null,
       lastErrorMessage: null
     };
+    BinanceRequestQueue.setCooldownUntil(0);
     this.logger.log(`API Status restored: Recovery event received from Gateway.`);
   }
 
@@ -457,13 +460,9 @@ export class SessionStateService {
       // Auto-clear expired ban bit
       this.apiStatus.isBanned = false;
     }
-    // Also check active rate-limit cooldown or process-wide BinanceRequestQueue cooldown
-    // so SessionStateService and BinanceRequestQueue can never desync across restarts
-    if (this.apiStatus.isRateLimited && this.apiStatus.banUntil && now < this.apiStatus.banUntil) {
-      return true;
-    }
+    // Sync with process-wide BinanceRequestQueue cooldown if an IP ban cooldown is active in the gateway
     const queueCooldown = BinanceRequestQueue.getEffectiveCooldownUntil(now);
-    if (now < queueCooldown) {
+    if (!this.apiStatus.isRateLimited && now < queueCooldown) {
       this.apiStatus.banUntil = queueCooldown;
       return true;
     }
@@ -641,7 +640,37 @@ export class SessionStateService {
         this.closedTrades = this.closedTrades.slice(0, 500);
         this.pruneIdempotencyCaches();
       }
+      if (this.closedTrades.length > 50) {
+        this.compactStaleClosedTrades(50);
+      }
     }
+  }
+
+  /**
+   * Strips heavy nested diagnostic payloads from closed trades beyond the 50 most recent
+   * in-memory entries (which are the only ones returned by getStatus()).
+   * Full historical records remain persisted in PostgreSQL for UI inspection.
+   */
+  compactStaleClosedTrades(retainFullCount: number = 50): number {
+    let compacted = 0;
+    for (let i = 0; i < this.closedTrades.length; i++) {
+      const t = this.closedTrades[i] as any;
+      if (!t) continue;
+      // Always strip internal serialization memoization cache on closed trades
+      if (t._sig_json !== undefined) {
+        delete t._sig_json;
+      }
+      if (i >= retainFullCount && !t._compacted) {
+        delete t.strategy_config;
+        delete t.active_trade_events;
+        delete t.sl_adjustments;
+        delete t.exit_signals_status;
+        delete t.exit_estimation;
+        t._compacted = true;
+        compacted++;
+      }
+    }
+    return compacted;
   }
 
   rollbackClosedTrade(trade: Trade, prevAppliedPnL: number = 0) {
@@ -729,6 +758,19 @@ export class SessionStateService {
 
     for (const tradeId of this.appliedStatsPnL.keys()) {
       if (!validIds.has(tradeId)) this.appliedStatsPnL.delete(tradeId);
+    }
+    for (const tradeId of this.udsConfirmedClosedTrades) {
+      if (!validIds.has(tradeId)) this.udsConfirmedClosedTrades.delete(tradeId);
+    }
+    for (const tradeId of this.localTradePnLAdjustments.keys()) {
+      if (!validIds.has(tradeId)) this.localTradePnLAdjustments.delete(tradeId);
+    }
+
+    const activeSymbols = new Set(this.activeTrades.map(t => t.symbol));
+    for (const sym of this.realTimeOrders.keys()) {
+      if (!activeSymbols.has(sym)) {
+        this.realTimeOrders.delete(sym);
+      }
     }
 
     this.logger.debug(`Idempotency caches pruned. Valid trades: ${validIds.size}`);

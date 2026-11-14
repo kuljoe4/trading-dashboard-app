@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback, Suspense } from 'react'
+import { shallow } from 'zustand/shallow'
 import { pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
@@ -101,7 +102,34 @@ const LiveRelativeTime = React.memo(({ ts }) => {
 LiveRelativeTime.displayName = 'LiveRelativeTime';
 
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
-  const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades, tradeHistory } = useTradingStore()
+  const {
+    config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing,
+    isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused,
+    activeTrades, tradeHistory, logs, strategyGateStates, lastAuthoritativeUpdateTs,
+    lastScanTs, gateState, gateReason, storeBalance, totalSessionPnl
+  } = useTradingStore(state => ({
+    config: state.config,
+    scannerResults: state.scannerResults,
+    variantScannerResults: state.variantScannerResults,
+    analytics: state.analytics,
+    wsStatus: state.wsStatus,
+    isSyncing: state.isSyncing,
+    isThrottled: state.isThrottled,
+    isSyncingOnResume: state.isSyncingOnResume,
+    sessionActive: state.sessionActive,
+    pausedStrategies: state.pausedStrategies || [],
+    sessionPaused: state.sessionPaused,
+    activeTrades: state.activeTrades,
+    tradeHistory: state.tradeHistory,
+    logs: state.logs || [],
+    strategyGateStates: state.strategyGateStates || {},
+    lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs || Date.now(),
+    lastScanTs: state.lastScanTs,
+    gateState: state.gateState || 'ACTIVE',
+    gateReason: state.gateReason || 'OK',
+    storeBalance: state.balance,
+    totalSessionPnl: state.totalPnl || 0,
+  }), shallow)
   const [selectedTradeId, setSelectedTradeId] = useState(null)
   const [selectedFocusSymbol, setSelectedFocusSymbol] = useState(null)
   const [showPnl, setShowPnl] = useState(true)
@@ -135,15 +163,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [reasonsViewMode, setReasonsViewMode] = useState('timeline') // 'timeline' | 'story'
   const [reasonsSearch, setReasonsSearch] = useState('')
   const [copiedReasonId, setCopiedReasonId] = useState(null)
-
-  const logs = useTradingStore(state => state.logs || [])
-  const strategyGateStates = useTradingStore(state => state.strategyGateStates || {})
-
-  // Real-time telemetry & store timestamps
-  const lastAuthoritativeUpdateTs = useTradingStore(state => state.lastAuthoritativeUpdateTs || Date.now());
-  const lastScanTs = useTradingStore(state => state.lastScanTs);
-  const gateState = useTradingStore(state => state.gateState || 'ACTIVE');
-  const gateReason = useTradingStore(state => state.gateReason || 'OK');
 
   // BOLT OPTIMIZATION: Resolve variant-specific configuration if viewing a strategy variant
   const strategyConfig = useMemo(() => {
@@ -207,9 +226,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Lifecycle-scoped subscription contract
   useResourceFocus('strategy', s.strategy_label);
 
-  const storeBalance = useTradingStore(state => state.balance);
-  const totalSessionPnl = useTradingStore(state => state.totalPnl || 0);
-
   const startingBal = useMemo(() => {
     const mode = strategyConfig?.trading_mode || (strategyConfig?.paper_mode ? 'paper' : 'live');
     return mode === 'paper'
@@ -223,12 +239,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               : (storeBalance ? Math.max(1, storeBalance - totalSessionPnl) : 10000)));
   }, [strategyConfig, storeBalance, totalSessionPnl]);
 
+  const strategyTrades = useMemo(() => {
+    const trades = Array.isArray(tradeHistory) ? tradeHistory : [];
+    return trades.filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label);
+  }, [tradeHistory, s.strategy_label]);
+
   // Per-strategy performance metrics calculation
   const stratPerformance = useMemo(() => {
-    const trades = tradeHistory || analytics?.trades || [];
-    const filtered = trades.filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label);
-    const metrics = calculatePerformanceMetrics(filtered, startingBal);
-    const total = filtered.length;
+    const metrics = calculatePerformanceMetrics(strategyTrades, startingBal);
+    const total = strategyTrades.length;
 
     const rawHitRate = total > 0 ? (metrics.wins / total) * 100 : 0;
     const hitRate = Math.min(100, Math.max(0, rawHitRate));
@@ -253,7 +272,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       breakevenWr,
       recommendedWr
     };
-  }, [tradeHistory, analytics, s.strategy_label, strategyConfig, startingBal]);
+  }, [strategyTrades, analytics, strategyConfig, startingBal]);
 
   const hitRateRatioText = stratPerformance.hitRateRatio >= 1.15
     ? `${stratPerformance.hitRateRatio.toFixed(2)}x (Expanding)`
@@ -903,8 +922,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     });
 
     // 4. Closed Trades exit resolutions
-    const stratTrades = (tradeHistory || []).filter(t => (t.strategy_label || 'Momentum Strategy') === stratName);
-    stratTrades.slice(0, 30).forEach((trade, idx) => {
+    strategyTrades.slice(0, 30).forEach((trade, idx) => {
       const isWin = Number(trade.pnl || 0) >= 0;
       const exitTs = trade.exit_ts_ms || (trade.exit_ts ? new Date(trade.exit_ts).getTime() : (trade.closed_at ? new Date(trade.closed_at).getTime() : stableFallbackTs - idx * 60000));
       list.push({
@@ -1016,7 +1034,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     return list.sort((a, b) => b.timestamp - a.timestamp);
   }, [
     stratName, stratGate.updatedAt, proximityLeaderboard, strategyScannerResults, strategyConfig,
-    isStrategyPaused, effectiveGate, effectiveReason, strategyActiveTrades, tradeHistory, logs,
+    isStrategyPaused, effectiveGate, effectiveReason, strategyActiveTrades, strategyTrades, logs,
     staticSymbols, stableFallbackTs, conditionFormula
   ]);
 
@@ -1063,6 +1081,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, [strategyReasons, hideRoutineMisses, reasonsOutcome, reasonsStage, reasonsSymbol, reasonsSearch]);
 
   const groupedStories = useMemo(() => {
+    if (reasonsViewMode !== 'story') return [];
     const map = new Map();
     for (const item of filteredReasons) {
       const key = item.symbol || 'STRATEGY';
@@ -1082,7 +1101,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       }
     }
     return Array.from(map.values()).sort((a, b) => b.latestTs - a.latestTs);
-  }, [filteredReasons]);
+  }, [filteredReasons, reasonsViewMode]);
 
   const selectedTrade = useMemo(() => {
     return (strategyActiveTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId);
@@ -2362,7 +2381,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 </div>
               }>
                 <LazyStrategyPerformanceOverlayChart
-                  trades={(tradeHistory || analytics?.trades || []).filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label)}
+                  trades={strategyTrades}
                   height={220}
                   showPnl={showPnl}
                   showHitRate={showHitRate}
@@ -2400,7 +2419,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       <Loader2 size={16} className="animate-spin text-accent" />
                     </div>
                   }>
-                    <LazyStrategyCalendarPnL trades={tradeHistory || analytics?.trades || []} strategyFilter={s.strategy_label} />
+                    <LazyStrategyCalendarPnL trades={strategyTrades} strategyFilter="ALL" />
                   </Suspense>
                 </div>
               )}

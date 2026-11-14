@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useMemo } from 'react'
+import { shallow } from 'zustand/shallow'
 import { useTradingStore } from '../store/trading'
 import { ActiveTradeCard } from '../components/ActiveTradeCard'
 import { SectionLabel, StatCard, cn, ViewHeader, Btn, Tooltip } from '../components/ui/primitives'
@@ -18,7 +19,20 @@ const preloadTradeDetailModal = () => {
 import { Filter, SlidersHorizontal, ChevronDown, RotateCcw } from 'lucide-react'
 
 const TradesView = () => {
-  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore()
+  const { activeTrades, totalPnl, totalRiskPct, totalSlUsed, config, sidebarCollapsed, healthEnabled, isThrottled, wsStatus, isSyncingOnResume, sessionActive, totalEstPnlToRealize } = useTradingStore(state => ({
+    activeTrades: state.activeTrades,
+    totalPnl: state.totalPnl,
+    totalRiskPct: state.totalRiskPct,
+    totalSlUsed: state.totalSlUsed,
+    config: state.config,
+    sidebarCollapsed: state.sidebarCollapsed,
+    healthEnabled: state.healthEnabled,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus,
+    isSyncingOnResume: state.isSyncingOnResume,
+    sessionActive: state.sessionActive,
+    totalEstPnlToRealize: state.totalEstPnlToRealize,
+  }), shallow)
   const [selectedTradeId, setSelectedTradeId] = useState(null)
 
   // Persisted filter settings

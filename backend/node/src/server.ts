@@ -396,15 +396,28 @@ async function bootstrap() {
           return rest;
         };
 
+        const focusedStrategy = client.focusStrategyLabel;
+        const focusedVariant = (basePayload.variant_opportunities || []).find(
+          (variant: any) => variant?.strategy_label === focusedStrategy,
+        );
+        const focusedOpportunities = focusedStrategy
+          ? focusedVariant?.opportunities || payload.opportunities || []
+          : payload.opportunities || [];
+
         const pruned = {
           ...payload,
-          opportunities: (payload.opportunities || []).map(pruneOpp),
-          variant_opportunities: (
-            basePayload.variant_opportunities || []
-          ).map((v: any) => ({
-            ...v,
-            opportunities: (v.opportunities || []).map(pruneOpp),
-          })),
+          opportunities: focusedOpportunities.map(pruneOpp),
+          variant_opportunities: focusedStrategy
+            ? focusedVariant
+              ? [{
+                  ...focusedVariant,
+                  opportunities: (focusedVariant.opportunities || []).map(pruneOpp),
+                }]
+              : []
+            : (basePayload.variant_opportunities || []).map((v: any) => ({
+                ...v,
+                opportunities: (v.opportunities || []).map(pruneOpp),
+              })),
         };
         client.send(JSON.stringify(pruned));
         return;

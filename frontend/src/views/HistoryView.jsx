@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { shallow } from 'zustand/shallow'
 import * as Dialog from '@radix-ui/react-dialog'
 import { fmtUSD, pnlColor, pnlClass, safeNum } from '../lib/theme'
 import { getExpectancyStatus, getSharpeStatus, getSortinoStatus, getRrRecommendationStatus, calculatePerformanceMetrics } from '../lib/analytics'
@@ -1932,7 +1933,26 @@ SessionGroup.displayName = 'SessionGroup'
 const PAGE_SIZE = 10
 
 export const HistoryView = () => {
-  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus, config, updateConfig, sessionActive, strategyId, addAlert } = useTradingStore()
+  const { tradeHistory, updateStats, sidebarCollapsed, sessionList, fetchSessions, analytics, lifetimeAnalytics, fetchLifetimeAnalytics, healthEnabled, isSyncing, fetchTradeHistory, isThrottled, wsStatus, config, updateConfig, sessionActive, strategyId, addAlert } = useTradingStore(state => ({
+    tradeHistory: state.tradeHistory,
+    updateStats: state.updateStats,
+    sidebarCollapsed: state.sidebarCollapsed,
+    sessionList: state.sessionList,
+    fetchSessions: state.fetchSessions,
+    analytics: state.analytics,
+    lifetimeAnalytics: state.lifetimeAnalytics,
+    fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
+    healthEnabled: state.healthEnabled,
+    isSyncing: state.isSyncing,
+    fetchTradeHistory: state.fetchTradeHistory,
+    isThrottled: state.isThrottled,
+    wsStatus: state.wsStatus,
+    config: state.config,
+    updateConfig: state.updateConfig,
+    sessionActive: state.sessionActive,
+    strategyId: state.strategyId,
+    addAlert: state.addAlert,
+  }), shallow)
 
   const [activeViewTab, setActiveViewTab] = useState(() => {
     if (typeof window !== 'undefined') {

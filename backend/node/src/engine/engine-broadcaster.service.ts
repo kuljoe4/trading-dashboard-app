@@ -379,6 +379,15 @@ export class EngineBroadcasterService {
     const tick = { ...payload };
 
     if (tick.trades && Array.isArray(tick.trades)) {
+      // Strategy detail clients only need the active trades owned by the focused
+      // strategy. Keeping unrelated variants in the payload defeats the purpose
+      // of focus mode as the number of strategies grows.
+      if (client.focusStrategyLabel && !client.focusTradeId) {
+        tick.trades = tick.trades.filter(
+          (trade: any) => trade.strategy_label === client.focusStrategyLabel,
+        );
+      }
+
       tick.trades = tick.trades.map((trade: any) => {
         // BOLT: If trade is already thin (from a tick delta), we can skip most stripping
         // unless focused fidelity is requested.

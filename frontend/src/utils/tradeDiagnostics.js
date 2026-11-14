@@ -57,10 +57,18 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
 
   const evalIdx = expectedMilestoneIdx;
 
+  // Backend PositionTrackerService.checkRrSequenceAdjustments applies a 0.1% round-trip taker fee buffer (FEE_OFFSET_PCT = 0.001)
+  const FEE_OFFSET_PCT = 0.001;
+  const feeOffset = entry * FEE_OFFSET_PCT;
+
   let expectedSl = initialSl > 0 ? initialSl : sl;
+  let expectedSlWithFee = expectedSl;
   if (evalIdx >= 0 && exits[evalIdx] !== undefined) {
-    const exitR = exits[evalIdx];
+    const exitR = Number(exits[evalIdx]);
     expectedSl = isLong ? entry + riskUnit * exitR : entry - riskUnit * exitR;
+    expectedSlWithFee = isLong
+      ? entry + feeOffset + riskUnit * exitR
+      : entry - feeOffset - riskUnit * exitR;
   }
 
   const formatPrice = (val) => {
@@ -81,7 +89,10 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     });
   }
 
-  if (sl > 0 && expectedSl > 0 && Math.abs(sl - expectedSl) > entry * 0.0001) {
+  // Tolerance accounts for exchange tick-size rounding and 0.1% taker fee offset
+  const slTolerance = Math.max(entry * 0.0015, 0.00000001);
+  const matchesExpected = Math.abs(sl - expectedSl) <= entry * 0.0001 || Math.abs(sl - expectedSlWithFee) <= slTolerance;
+  if (sl > 0 && expectedSl > 0 && !matchesExpected) {
     const isSlBetterThanExpected = isLong ? sl > expectedSl + entry * 0.0001 : sl < expectedSl - entry * 0.0001;
     if (!isSlBetterThanExpected) {
       issues.push({
@@ -158,7 +169,7 @@ export function analyzeTradeDiagnostics(trade, config = {}) {
     `- **Current SL:** $${formatPrice(sl)} (Initial SL: $${formatPrice(initialSl)})`,
     `- **Exchange Order ID:** ${trade.binance_stop_order_id || 'None'} (${trade.binance_stop_order_type || 'standard'})`,
     `- **Active Risk USDT:** $${trade.risk_usdt ?? '0.00'} (Initial Risk: $${trade.initial_risk_usdt ?? '0.00'})`,
-    `- **Milestone Index:** ${expectedMilestoneIdx} (Target Milestone SL: $${formatPrice(expectedSl)})`,
+    `- **Milestone Index:** ${storedMilestoneIdx}${storedMilestoneIdx !== expectedMilestoneIdx ? ` (Expected: ${expectedMilestoneIdx})` : ''} (Target Milestone SL: $${formatPrice(expectedSl)})`,
     ``,
     `#### Guard Ladder Configuration:`,
     `- **Triggers (R):** [${triggers.join(', ')}]`,

@@ -1454,6 +1454,14 @@ export class SignalEngineService {
           value: ema,
           count: len,
         });
+        if (this.emaStableCache.size > 1000) {
+          const iter = this.emaStableCache.keys();
+          for (let i = 0; i < 100; i++) {
+            const next = iter.next();
+            if (next.done) break;
+            this.emaStableCache.delete(next.value);
+          }
+        }
       }
     }
 
@@ -1616,6 +1624,14 @@ export class SignalEngineService {
           value: ema,
           count: len,
         });
+        if (this.emaStableCache.size > 1000) {
+          const iter = this.emaStableCache.keys();
+          for (let i = 0; i < 100; i++) {
+            const next = iter.next();
+            if (next.done) break;
+            this.emaStableCache.delete(next.value);
+          }
+        }
       }
     }
 
@@ -3031,5 +3047,48 @@ export class SignalEngineService {
         target_tf: targetTf,
       }
     };
+  }
+
+  /**
+   * Prunes indicator caches for symbols that are no longer in the active watchlist or open trades.
+   * Also enforces bounds on warningCache and array-heavy MACD/Supertrend caches.
+   */
+  public pruneCaches(activeSymbols?: Set<string>) {
+    if (this.warningCache.size > 500) {
+      this.warningCache.clear();
+    }
+    if (!activeSymbols || activeSymbols.size === 0) return;
+
+    const pruneMapBySymbolPrefix = (map: Map<string, any>) => {
+      for (const key of Array.from(map.keys())) {
+        const sepIdx = key.indexOf(':');
+        if (sepIdx > 0) {
+          const sym = key.slice(0, sepIdx);
+          if (!activeSymbols.has(sym)) {
+            map.delete(key);
+          }
+        }
+      }
+    };
+
+    pruneMapBySymbolPrefix(this.emaCache);
+    pruneMapBySymbolPrefix(this.emaDualCache);
+    pruneMapBySymbolPrefix(this.emaStableCache);
+    pruneMapBySymbolPrefix(this.smaStableCache);
+    pruneMapBySymbolPrefix(this.macdCache);
+    pruneMapBySymbolPrefix(this.supertrendCache);
+  }
+
+  /**
+   * Clears all transient indicator calculation caches (used during Deep Sleep or session stop).
+   */
+  public clearCaches() {
+    this.warningCache.clear();
+    this.emaCache.clear();
+    this.emaDualCache.clear();
+    this.emaStableCache.clear();
+    this.smaStableCache.clear();
+    this.macdCache.clear();
+    this.supertrendCache.clear();
   }
 }

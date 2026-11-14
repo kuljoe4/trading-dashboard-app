@@ -78,6 +78,7 @@ export class TradingSessionService implements OnApplicationShutdown {
   private inFlightExchangeCloses: Set<string> = new Set();
   private lastFullReconciliationTs = 0;
   private lastWatchdogTs = 0;
+  private lastMemoryMaintenanceTs = 0;
   private loggedKnifeBypassMap: Map<string, number> = new Map();
   private _lastGateTransitionKey = '';
   private _lastGateStateLogTs = 0;
@@ -825,6 +826,12 @@ export class TradingSessionService implements OnApplicationShutdown {
         });
       }
 
+      // PERF: Periodic TTL-based memory & cache maintenance every 5 minutes
+      if (!this.lastMemoryMaintenanceTs || now - this.lastMemoryMaintenanceTs >= fiveMinutes) {
+        this.lastMemoryMaintenanceTs = now;
+        this.performPeriodicMemoryCleanup();
+      }
+
       // PERF: Adaptive Scanning Frequency.
       // When gated (Light Sleep), we throttle scanning to 3x the normal interval.
       // This balances UI "freshness" with CPU/API resource conservation.
@@ -1319,9 +1326,77 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.cachedScanSignatures.clear();
     this.monitoringService.clearAppMetrics();
     this.engineBroadcaster.minimize();
+    if (typeof (this.signalEngine as any)?.clearCaches === "function") {
+      (this.signalEngine as any).clearCaches();
+    }
     this.logger.verbose(
       "TradingSessionService: Transient memory caches cleared",
     );
+  }
+
+  /**
+   * Periodic TTL-based cache eviction and closed-trade compaction to keep heap usage bounded during active runs.
+   */
+  public performPeriodicMemoryCleanup() {
+    try {
+      const activeTrades = this.positionTracker.activeList();
+      const activeSymbols = new Set<string>(activeTrades.map((t) => t.symbol));
+      const watchlistSymbols =
+        typeof (this.marketFeed as any)?.getActiveWatchlistSymbols === "function"
+          ? (this.marketFeed as any).getActiveWatchlistSymbols()
+          : new Set<string>();
+      for (const s of watchlistSymbols) activeSymbols.add(s);
+
+      const protectedKlineKeys =
+        typeof (this.marketFeed as any)?.getActiveWatchlistKeys === "function"
+          ? (this.marketFeed as any).getActiveWatchlistKeys()
+          : new Set<string>();
+      const klineStats =
+        typeof (this.klineStore as any)?.getStats === "function"
+          ? (this.klineStore as any).getStats()
+          : null;
+      if (klineStats && Array.isArray(klineStats.keys)) {
+        for (const k of klineStats.keys) {
+          const sepIdx = k.lastIndexOf("_");
+          if (sepIdx > 0 && activeSymbols.has(k.slice(0, sepIdx))) {
+            protectedKlineKeys.add(k);
+          }
+        }
+      }
+      for (const t of activeTrades) {
+        protectedKlineKeys.add(`${t.symbol}_1m`);
+      }
+
+      if (typeof (this.klineStore as any)?.pruneStale === "function") {
+        (this.klineStore as any).pruneStale(30 * 60 * 1000, protectedKlineKeys);
+      }
+      if (typeof (this.tickerCache as any)?.prune === "function") {
+        (this.tickerCache as any).prune(Array.from(activeSymbols));
+      }
+      if (typeof (this.signalEngine as any)?.pruneCaches === "function") {
+        (this.signalEngine as any).pruneCaches(activeSymbols);
+      }
+      if (typeof (this.sessionState as any)?.compactStaleClosedTrades === "function") {
+        (this.sessionState as any).compactStaleClosedTrades(50);
+      }
+      if (typeof (this.sessionState as any)?.pruneIdempotencyCaches === "function") {
+        (this.sessionState as any).pruneIdempotencyCaches();
+      }
+
+      const validTradeIds = new Set<string>([
+        ...activeTrades.map((t) => t.id),
+        ...(this.sessionState.closedTrades || []).map((t) => t.id),
+      ]);
+      for (const tradeId of this.appliedPnL.keys()) {
+        if (!validTradeIds.has(tradeId)) {
+          this.appliedPnL.delete(tradeId);
+        }
+      }
+    } catch (err: any) {
+      this.logger.debug(
+        `Periodic memory cleanup warning: ${err?.message || err}`,
+      );
+    }
   }
 
   getStatus() {

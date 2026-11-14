@@ -107,5 +107,38 @@ describe('SessionStateService PnL Restart Consistency', () => {
       expect(service.apiStatus.lastErrorMessage).toBeNull();
       expect(service.isBanned()).toBe(false);
     });
+
+    it('should compact heavy diagnostic fields on stale closedTrades (>50) while preserving recent 50 and risk metrics', () => {
+      const config = new SessionConfig();
+      config.strategy_label = 'Momentum Strategy';
+      const history: any[] = [];
+      for (let i = 0; i < 65; i++) {
+        history.push({
+          id: `trade-${i}`,
+          symbol: 'BTCUSDT',
+          status: 'CLOSED',
+          pnl: 1.5,
+          strategy_label: 'Momentum Strategy',
+          strategy_config: { enabled_signals: ['ema_dual_cross'] },
+          active_trade_events: [{ type: 'SL_RATCHET', ts: Date.now() }],
+          sl_adjustments: [{ from: 100, to: 101 }],
+          exit_signals_status: { ema_dual_cross: { fired: false } },
+          _sig_json: '{"cached":true}',
+        });
+      }
+
+      service.reset(config, history, 10000, 's-1', []);
+      expect(service.closedTrades.length).toBe(65);
+      // Recent 50 keep full diagnostic fields (except _sig_json memo)
+      expect((service.closedTrades[0] as any).strategy_config).toBeDefined();
+      expect((service.closedTrades[0] as any)._sig_json).toBeUndefined();
+      // Entries at index >= 50 have heavy diagnostic blobs stripped in RAM
+      expect((service.closedTrades[55] as any).strategy_config).toBeUndefined();
+      expect((service.closedTrades[55] as any).active_trade_events).toBeUndefined();
+      expect((service.closedTrades[55] as any).sl_adjustments).toBeUndefined();
+      expect((service.closedTrades[55] as any).exit_signals_status).toBeUndefined();
+      expect(service.closedTrades[55].pnl).toBe(1.5);
+    });
   });
 });
+

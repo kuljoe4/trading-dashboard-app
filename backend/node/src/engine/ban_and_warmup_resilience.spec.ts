@@ -310,4 +310,83 @@ describe('IP Ban & Warmup Resilience', () => {
     const callsAfterSecond = orderManager.fetchOpenOrders.mock.calls.filter((c: any[]) => c[1]?.forceFresh === true).length;
     expect(callsAfterSecond).toBe(1);
   });
+
+  it('PositionTrackerService suppresses SL ratchets when banned and applies exponential backoff + log deduplication on CANCEL_FAILED', async () => {
+    const logEvents: any[] = [];
+    const tradeUpdatedEvents: any[] = [];
+    const emitter = new EventEmitter2();
+    emitter.on('engine.log', (e) => logEvents.push(e));
+    emitter.on('trade.updated', (e) => tradeUpdatedEvents.push(e));
+
+    const sessionState: any = {
+      config: { paper_mode: false, trading_mode: 'live', live_rr_sequence: [1.0], exit_rr_sequence: [0.5] },
+      apiStatus: { isBanned: false, isRateLimited: false, banUntil: null },
+      isBanned: jest.fn().mockReturnValue(false),
+      isGeoBlocked: jest.fn().mockReturnValue(false),
+      setActiveTrades: jest.fn(),
+    };
+
+    const orderManager: any = {
+      isRatcheting: jest.fn().mockReturnValue(false),
+      applyFilters: jest.fn((_sym: string, price: number, qty: number) => ({ price: Math.round(price), qty })),
+      updateStopLoss: jest.fn().mockResolvedValue({
+        success: false,
+        errorCode: 'CANCEL_FAILED',
+        error: 'Failed to cancel old SL 3000002374769411 for ZECUSDT. Aborting ratchet to prevent duplicate orders.',
+      }),
+    };
+
+    const tracker = new PositionTrackerService(
+      {} as any,
+      {} as any,
+      orderManager,
+      { getPrice: jest.fn().mockReturnValue(850) } as any,
+      {} as any,
+      sessionState,
+      emitter,
+    );
+
+    const zecTrade: any = {
+      id: 'zec-1',
+      symbol: 'ZECUSDT',
+      direction: 'SHORT',
+      status: 'OPEN',
+      entry_price: 927.395,
+      initial_sl: 960,
+      current_sl: 918.58,
+      qty: 1,
+      max_rr_achieved: 2.0,
+      rr_sequence_index: 0,
+      live_rr_sequence: [1.0],
+      exit_rr_sequence: [1.2],
+      binance_stop_order_id: '3000002374769411',
+      binance_stop_order_type: 'standard',
+      active_trade_events: [],
+    };
+
+    tracker.addTrade(zecTrade);
+    logEvents.length = 0;
+    tradeUpdatedEvents.length = 0;
+
+    // 1. When banned, onTickerUpdate must NOT call updateStopLoss or emit failure logs
+    sessionState.isBanned.mockReturnValue(true);
+    await tracker.onTickerUpdate('ZECUSDT', 850);
+    expect(orderManager.updateStopLoss).not.toHaveBeenCalled();
+    expect(logEvents.length).toBe(0);
+
+    // 2. When unbanned, first failed ratchet calls updateStopLoss once and sets 15s backoff;
+    // subsequent ticks within backoff window do NOT hammer updateStopLoss or spam DB/logs
+    sessionState.isBanned.mockReturnValue(false);
+    await tracker.onTickerUpdate('ZECUSDT', 850);
+    expect(orderManager.updateStopLoss).toHaveBeenCalledTimes(1);
+    expect(logEvents.length).toBe(1);
+    expect(logEvents[0].msg).toContain('Retry backoff: 15s');
+
+    // Simulate 5-second ticks during the 15s backoff window -> suppressed!
+    await tracker.onTickerUpdate('ZECUSDT', 849);
+    await tracker.onTickerUpdate('ZECUSDT', 848);
+    expect(orderManager.updateStopLoss).toHaveBeenCalledTimes(1);
+    expect(logEvents.length).toBe(1);
+  });
 });
+

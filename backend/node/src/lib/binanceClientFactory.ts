@@ -505,10 +505,14 @@ export class BinanceRequestQueue {
     return Math.floor(now / 60000) > Math.floor(BinanceRequestQueue.windowStartTs / 60000);
   }
 
-  private static getEffectiveCooldownUntil(now = Date.now()): number {
+  public static getEffectiveCooldownUntil(now = Date.now()): number {
     // Support legacy test mutations that write directly to lastRequestTs > now
     const legacyFutureTs = BinanceRequestQueue.lastRequestTs > now ? BinanceRequestQueue.lastRequestTs : 0;
     return Math.max(BinanceRequestQueue.banCooldownUntil, legacyFutureTs);
+  }
+
+  public static isCurrentlyBanned(now = Date.now()): boolean {
+    return now < BinanceRequestQueue.getEffectiveCooldownUntil(now);
   }
 
   public static getCurrentWeight(): number {

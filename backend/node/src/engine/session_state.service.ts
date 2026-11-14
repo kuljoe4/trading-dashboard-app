@@ -5,6 +5,7 @@ import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
 import { roundEight } from '../lib/math';
 import { ENGINE_CONSTANTS } from '../models/constants';
+import { BinanceRequestQueue } from '../lib/binanceClientFactory';
 
 @Injectable()
 export class SessionStateService {
@@ -139,10 +140,14 @@ export class SessionStateService {
     this.agreementRequired = false;
     this.isAdaptiveTightened = false;
     this.paused = !!config?.paused;
-    // SRE: Preserve the existing weight limit during reset to ensure persistent dynamic limits (Issue 5)
+    // SRE: Preserve the existing weight limit and any active IP ban/cooldown during reset (AGENTS.md §8)
     const currentLimit = this.binanceRateLimit.limit || 2400;
     this.binanceRateLimit = { used_1m: 0, limit: currentLimit };
-    this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
+    const now = Date.now();
+    const hasActiveBan = (this.apiStatus.isBanned || this.apiStatus.isRateLimited) && this.apiStatus.banUntil && now < this.apiStatus.banUntil;
+    if (!hasActiveBan) {
+      this.apiStatus = { isBanned: false, isRateLimited: false, banUntil: null, lastErrorMessage: null };
+    }
     this.cachedClosedTradesStats = {};
     this.appliedStatsPnL.clear();
     this.realTimePositions.clear();
@@ -432,18 +437,35 @@ export class SessionStateService {
 
   isRateLimited(threshold = 0.8): boolean {
     if (this.isBanned() || this.isGeoBlocked()) return true;
+    const now = Date.now();
+    if (this.apiStatus.isRateLimited && this.apiStatus.banUntil && now < this.apiStatus.banUntil) {
+      return true;
+    }
     const used = this.binanceRateLimit.used_1m;
     const limit = this.binanceRateLimit.limit;
     return (used / limit) > threshold;
   }
 
   isBanned(): boolean {
+    const now = Date.now();
     // SRE: Proactive ban expiration. If the ban time has passed, treat it as cleared
     // regardless of the isBanned status bit.
     if (this.apiStatus.isBanned) {
-      if (!this.apiStatus.banUntil || Date.now() < this.apiStatus.banUntil) {
+      if (!this.apiStatus.banUntil || now < this.apiStatus.banUntil) {
         return true;
       }
+      // Auto-clear expired ban bit
+      this.apiStatus.isBanned = false;
+    }
+    // Also check active rate-limit cooldown or process-wide BinanceRequestQueue cooldown
+    // so SessionStateService and BinanceRequestQueue can never desync across restarts
+    if (this.apiStatus.isRateLimited && this.apiStatus.banUntil && now < this.apiStatus.banUntil) {
+      return true;
+    }
+    const queueCooldown = BinanceRequestQueue.getEffectiveCooldownUntil(now);
+    if (now < queueCooldown) {
+      this.apiStatus.banUntil = queueCooldown;
+      return true;
     }
     return false;
   }

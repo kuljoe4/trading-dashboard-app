@@ -2092,15 +2092,17 @@ export class OrderManagerService {
       // it with REDUCE_ONLY errors if the combined quantity exceeds the open position size.
       if (oldStopOrderId) {
          this.logger.debug(`[SL Ratchet] Canceling old SL ${oldStopOrderId} before replacement.`);
-         const canceled = await this.cancelBinanceOrder(trade.symbol, oldStopOrderId, oldStopOrderType || 'standard');
+         const inferredOrderType = (oldStopOrderType === 'algo' || /^300000\d{10,}$/.test(String(oldStopOrderId)))
+           ? 'algo'
+           : (oldStopOrderType || 'standard');
+         const canceled = await this.cancelBinanceOrder(trade.symbol, oldStopOrderId, inferredOrderType);
          if (!canceled) {
+            if (this.sessionState.isBanned() || this.isBanned()) {
+              this.positionTracker.markDirty(trade.symbol, (trade.strategy_config || this.sessionState.config) as any, 'IP_BANNED');
+              return { success: false, errorCode: 'IP_BANNED', error: 'Ratchet blocked: IP is currently rate-limit banned.' };
+            }
             const cancelErrorMsg = `Failed to cancel old SL ${oldStopOrderId} for ${trade.symbol}. Aborting ratchet to prevent duplicate orders.`;
             this.logger.warn(`[SL Ratchet] ${cancelErrorMsg}`);
-            await this.auditLog.log({
-              action: 'LIVE_SL_RATCHET_FAILED',
-              resourceId: trade.id,
-              details: { symbol: trade.symbol, attemptedSl: filteredNewSl.price, prevSl: oldSlPrice, errorCode: 'CANCEL_FAILED', error: cancelErrorMsg }
-            });
             return { success: false, errorCode: 'CANCEL_FAILED', error: cancelErrorMsg };
          }
       }
@@ -2212,24 +2214,24 @@ export class OrderManagerService {
     return this.ratchetLocks.get(symbol) === true;
   }
 
-
-  /**
-   * Cancel an order on Binance
-   */
   /**
    * Cancel an order on Binance
    */
   async cancelBinanceOrder(symbol: string, orderId: string, orderType: 'standard' | 'algo' | 'native_trailing' = 'standard'): Promise<boolean> {
     if (this.paperMode || !this.binanceClient) return true;
 
+    // Auto-detect Binance USDS-M Futures Algo Order IDs (16-digit IDs starting with 300000...)
+    const effectiveOrderType: 'standard' | 'algo' | 'native_trailing' =
+      (orderType === 'algo' || /^300000\d{10,}$/.test(String(orderId))) ? 'algo' : orderType;
+
     try {
-      const response = orderType === 'algo'
+      const response = effectiveOrderType === 'algo'
         ? await this.binanceClient.restAPI.cancelAlgoOrder({ symbol, algoId: orderId } as any)
         : await this.binanceClient.restAPI.cancelOrder({ symbol, orderId: BigInt(orderId) });
 
       this.updateWeight(response?.headers);
       const data = typeof response.data === 'function' ? await response.data() : response.data;
-      this.logger.log(`Binance ${orderType} order canceled: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(data)}`);
+      this.logger.log(`Binance ${effectiveOrderType} order canceled: ${symbol} order_id=${orderId}. Response: ${JSON.stringify(data)}`);
 
       // SRE: Proactively remove from real-time cache and mark as executed to prevent
       // the Watchdog from seeing it as an "orphan" during the UDS propagation delay.
@@ -2272,6 +2274,7 @@ export class OrderManagerService {
       const isSystemic = errMsg.includes('Invalid API-key') ||
                          errMsg.includes('Too many requests') ||
                          errMsg.includes('IP banned') ||
+                         errMsg.includes('Load shedding active') ||
                          errMsg.includes('-1015') ||
                          errMsg.includes('-1003') ||
                          errMsg.includes('-2015');
@@ -2281,9 +2284,13 @@ export class OrderManagerService {
       if (!isSystemic && !this.isBanned() && !this.sessionState.isRateLimited(0.85)) {
         try {
             this.logger.debug(`[cancelBinanceOrder] Querying active exchange orders to confirm if ${orderId} still exists...`);
-            const openStatus = await this.queryOrderStatus(symbol, orderId, orderType === 'algo' ? 'algo' : 'standard');
-            if (!openStatus || ['CANCELED', 'FILLED', 'REJECTED'].includes(openStatus.status)) {
+            const openStatus = await this.queryOrderStatus(symbol, orderId, effectiveOrderType === 'algo' ? 'algo' : 'standard');
+            if (!openStatus || ['CANCELED', 'FILLED', 'REJECTED', 'EXPIRED', 'TRIGGERED'].includes(String(openStatus.status || '').toUpperCase())) {
                 this.logger.debug(`[cancelBinanceOrder] Order ${orderId} is no longer active despite cancel error. Returning true.`);
+                let currentOrders = this.sessionState.realTimeOrders.get(symbol) || [];
+                const updatedOrders = currentOrders.filter(o => String(o.orderId) !== orderId && String(o.algoId || '') !== orderId);
+                this.sessionState.realTimeOrders.set(symbol, updatedOrders);
+                this.markAsExecuted(symbol, orderId, 'CANCELED');
                 return true;
             }
         } catch (queryErr) {

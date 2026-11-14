@@ -27,6 +27,7 @@ export class PositionTrackerService {
   public peakRrSwitchHits: Map<string, number> = new Map(); // strategy_label -> hits
   public tradePeakRrSwitchHandled: Set<string> = new Set(); // trade.id -> whether this trade has contributed to the switch count
   private dirtyTrailingSymbols: Map<string, { config: SessionConfig; lastReason: string }> = new Map();
+  private ratchetBackoffMap: Map<string, { until: number; count: number; lastErrorCode: string; lastLoggedTs: number; lastTargetSl: number }> = new Map();
   private _totalRisk: number = 0;
   private _pendingRiskTotal: number = 0; // BOLT: Track total pending risk in O(1)
   private _activeListCache: Trade[] | null = null;
@@ -64,11 +65,73 @@ export class PositionTrackerService {
     this.closingSymbols.clear();
     this.rrSequenceIndex.clear();
     this.dirtyTrailingSymbols.clear();
+    this.ratchetBackoffMap.clear();
     this._totalRisk = 0;
     this._pendingRiskTotal = 0;
     this.sessionState.setActiveTrades([]);
     this._activeListCache = null;
     this.logger.log('[PositionTracker] Internal state cleared.');
+  }
+
+  private isRatchetInBackoff(symbol: string): boolean {
+    const entry = this.ratchetBackoffMap.get(symbol);
+    if (!entry) return false;
+    if (Date.now() < entry.until) return true;
+    return false;
+  }
+
+  private recordRatchetFailureBackoff(
+    trade: Trade,
+    prevSl: number,
+    attemptedSl: number,
+    updateRes: { errorCode?: number | string; error?: string },
+    contextType: 'SL_RATCHET_FAILED' | 'SL_TRAILING_FAILED' | 'SL_LOCK_FAILED',
+    logPrefix: string,
+    extraDetails?: Record<string, any>,
+  ): void {
+    const symbol = trade.symbol;
+    const now = Date.now();
+    const prevEntry = this.ratchetBackoffMap.get(symbol);
+    const errCode = String(updateRes.errorCode || 'ERR');
+    const count = (prevEntry && prevEntry.lastErrorCode === errCode) ? prevEntry.count + 1 : 1;
+
+    // Exponential backoff: 15s -> 30s -> 60s -> 120s cap (or banUntil if banned/rate-limited)
+    let backoffMs = Math.min(120000, 15000 * Math.pow(2, Math.min(count - 1, 3)));
+    if (errCode === 'IP_BANNED' || errCode === 'WEIGHT_LIMIT_EXCEEDED' || errCode === 'ORDER_SLOTS_EXCEEDED') {
+      const banUntil = this.sessionState?.apiStatus?.banUntil || 0;
+      if (banUntil > now) {
+        backoffMs = Math.max(backoffMs, banUntil - now);
+      } else {
+        backoffMs = Math.max(backoffMs, 30000);
+      }
+    }
+
+    const lastLoggedTs = prevEntry?.lastLoggedTs || 0;
+    const isSameFailure = prevEntry && prevEntry.lastErrorCode === errCode && Math.abs(prevEntry.lastTargetSl - attemptedSl) < 0.00000001;
+    const shouldEmitLogAndPersist = !isSameFailure || (now - lastLoggedTs >= 120000);
+
+    this.ratchetBackoffMap.set(symbol, {
+      until: now + backoffMs,
+      count,
+      lastErrorCode: errCode,
+      lastLoggedTs: shouldEmitLogAndPersist ? now : lastLoggedTs,
+      lastTargetSl: attemptedSl,
+    });
+
+    if (shouldEmitLogAndPersist) {
+      const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
+      const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
+      const logMsg = `${logPrefix}${errCodeStr}${errDetail}. Local SL remains ${Number(trade.current_sl)}. (Retry backoff: ${Math.ceil(backoffMs / 1000)}s)`;
+      this.logger.warn(logMsg);
+      this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
+      this.recordActiveTradeEvent(
+        trade,
+        contextType,
+        `SL move ${prevSl} → ${attemptedSl} failed on Binance${errCodeStr}${errDetail}. Local SL remains ${Number(trade.current_sl)}.`,
+        'warn',
+        { prevSl, attemptedSl, errorCode: updateRes.errorCode, error: updateRes.error, backoffSec: Math.ceil(backoffMs / 1000), ...extraDetails },
+      );
+    }
   }
 
   markDirty(symbol: string, config: SessionConfig, reason: string): void {
@@ -94,6 +157,12 @@ export class PositionTrackerService {
   async onRatchetComplete(symbol: string): Promise<void> {
     const dirtyInfo = this.dirtyTrailingSymbols.get(symbol);
     if (!dirtyInfo) return;
+
+    // Do not immediately self-retrigger if symbol is in failure/ban backoff or session is banned
+    if (this.isRatchetInBackoff(symbol) || (!dirtyInfo.config?.paper_mode && (this.sessionState?.isBanned?.() || this.sessionState?.isGeoBlocked?.()))) {
+      this.dirtyTrailingSymbols.delete(symbol);
+      return;
+    }
 
     const currentPrice = (this.tickerCache?.getPrice ? this.tickerCache.getPrice(symbol) : null) || 0;
     if (!currentPrice || currentPrice <= 0) return;
@@ -122,6 +191,12 @@ export class PositionTrackerService {
     const baseSessionConfig = this.sessionState?.config || {};
     const activeConfig = { ...baseSessionConfig, ...(config || {}), ...(trade.strategy_config || {}) } as SessionConfig;
     if (!activeConfig) return;
+
+    // SRE: Suppress live SL ratcheting during active IP ban / rate-limit cooldown or per-symbol failure backoff
+    const isPaper = activeConfig.paper_mode ?? (this.sessionState?.config?.paper_mode ?? false);
+    if (!isPaper && (this.sessionState?.isBanned?.() || this.sessionState?.isGeoBlocked?.())) {
+      return;
+    }
 
     const slAdjusted: boolean = await this.checkRrSequenceAdjustments(symbol, currentPrice, activeConfig);
     if (!slAdjusted) {
@@ -549,21 +624,30 @@ export class PositionTrackerService {
         }
 
         if (shouldUpdate) {
+          const isPaper = config.paper_mode ?? (this.sessionState?.config?.paper_mode ?? false);
+          if (!isPaper && (this.isRatchetInBackoff(symbol) || this.sessionState?.isBanned?.() || this.sessionState?.isGeoBlocked?.())) {
+            return false;
+          }
+
           const prevSl = Number(trade.current_sl);
 
-          this.logger.log(`[SL Ratchet] Initiating ratchet for ${symbol}: ${prevSl} → ${newSl} (Milestone ${currentIndex}, Target RR: ${exitRr})`);
-          this.recordActiveTradeEvent(
-            trade,
-            'SL_RATCHET_ATTEMPT',
-            `Attempting SL move ${prevSl} → ${newSl} at milestone ${currentIndex} (${exitRr}R).`,
-            'info',
-            { prevSl, targetSl, newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved }
-          );
+          if (!this.ratchetBackoffMap.has(symbol)) {
+            this.logger.log(`[SL Ratchet] Initiating ratchet for ${symbol}: ${prevSl} → ${newSl} (Milestone ${currentIndex}, Target RR: ${exitRr})`);
+            this.recordActiveTradeEvent(
+              trade,
+              'SL_RATCHET_ATTEMPT',
+              `Attempting SL move ${prevSl} → ${newSl} at milestone ${currentIndex} (${exitRr}R).`,
+              'info',
+              { prevSl, targetSl, newSl, currentIndex, exitRr, currentPrice, maxRr: trade.max_rr_achieved },
+              false
+            );
+          }
 
           // Acknowledge-then-Update: Update exchange first in live mode
           const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
 
           if (updateRes.success) {
+             this.ratchetBackoffMap.delete(symbol);
              const finalSl = updateRes.price || newSl;
 
              // Acknowledge-then-Commit: Only update local state after exchange confirmation
@@ -582,17 +666,14 @@ export class PositionTrackerService {
              this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
              return true;
           } else {
-             const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
-             const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
-             const logMsg = `[SL Ratchet] Local state for ${symbol} SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}. Local SL remains ${Number(trade.current_sl)}.`;
-             this.logger.warn(logMsg);
-             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
-             this.recordActiveTradeEvent(
+             this.recordRatchetFailureBackoff(
                trade,
+               prevSl,
+               newSl,
+               updateRes,
                'SL_RATCHET_FAILED',
-               `SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}. Local SL remains ${Number(trade.current_sl)}.`,
-               'warn',
-               { prevSl, targetSl, attemptedSl: newSl, currentIndex, exitRr, currentPrice, errorCode: updateRes.errorCode, error: updateRes.error, updateRes }
+               `[SL Ratchet] Local state for ${symbol} SL move ${prevSl} → ${newSl} failed on Binance`,
+               { targetSl, currentIndex, exitRr, currentPrice }
              );
           }
         } else {
@@ -630,11 +711,18 @@ export class PositionTrackerService {
     message: string,
     level: 'info' | 'warn' | 'error' = 'info',
     details?: Record<string, any>,
+    emitUpdate: boolean = true,
   ): void {
     const events = Array.isArray(trade.active_trade_events) ? trade.active_trade_events : [];
+    const lastEvt = events.length > 0 ? events[events.length - 1] : null;
+    if (lastEvt && lastEvt.type === type && lastEvt.message === message) {
+      return;
+    }
     events.push({ timestamp: new Date().toISOString(), level, type, message, details });
     trade.active_trade_events = events.slice(-50);
-    this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+    if (emitUpdate) {
+      this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+    }
   }
 
   private logSlAdjustment(
@@ -1317,6 +1405,10 @@ export class PositionTrackerService {
         return;
       }
 
+      if (this.isRatchetInBackoff(symbol) || this.sessionState?.isBanned?.() || this.sessionState?.isGeoBlocked?.()) {
+        return;
+      }
+
       if (this.orderManager.isRatcheting(symbol)) {
         this.markDirty(symbol, activeConfig, 'MUTEX_LOCKED');
         this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
@@ -1326,6 +1418,7 @@ export class PositionTrackerService {
 
       const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
       if (updateRes.success) {
+        this.ratchetBackoffMap.delete(symbol);
         const finalSl = updateRes.price || newSl;
         trade.current_sl = finalSl;
         trade.updated_at = new Date();
@@ -1333,17 +1426,14 @@ export class PositionTrackerService {
         this.logSlAdjustment(trade, prevSl, finalSl, -4, !!updateRes.price && updateRes.price !== newSl);
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       } else {
-        const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
-        const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
-        const logMsg = `[Knife Engine] Knife trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`;
-        this.logger.warn(logMsg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
-        this.recordActiveTradeEvent(
+        this.recordRatchetFailureBackoff(
           trade,
+          prevSl,
+          newSl,
+          updateRes,
           'SL_TRAILING_FAILED',
-          `Knife trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`,
-          'warn',
-          { prevSl, attemptedSl: newSl, type: 'knife_trailing', errorCode: updateRes.errorCode, error: updateRes.error }
+          `[Knife Engine] Knife trailing SL move ${prevSl} → ${newSl} failed on Binance`,
+          { type: 'knife_trailing' }
         );
       }
     }
@@ -1522,6 +1612,10 @@ export class PositionTrackerService {
         return;
       }
 
+      if (this.isRatchetInBackoff(symbol) || this.sessionState?.isBanned?.() || this.sessionState?.isGeoBlocked?.()) {
+        return;
+      }
+
       if (this.orderManager.isRatcheting(symbol)) {
         this.markDirty(symbol, activeConfig, 'MUTEX_LOCKED');
         this.recordRatchetDeferral(trade, 'MUTEX_LOCKED');
@@ -1532,6 +1626,7 @@ export class PositionTrackerService {
       const updateRes = await this.orderManager.updateStopLoss(trade, newSl, prevSl);
 
       if (updateRes.success) {
+        this.ratchetBackoffMap.delete(symbol);
         const finalSl = updateRes.price || newSl;
         trade.current_sl = finalSl;
         trade.updated_at = new Date();
@@ -1539,17 +1634,14 @@ export class PositionTrackerService {
         this.logSlAdjustment(trade, prevSl, finalSl, -2, !!updateRes.price && updateRes.price !== newSl);
         this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
       } else {
-        const errCodeStr = updateRes.errorCode ? ` [Code: ${updateRes.errorCode}]` : '';
-        const errDetail = updateRes.error ? `: ${updateRes.error}` : '';
-        const logMsg = `[TrailingStop] Trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`;
-        this.logger.warn(logMsg);
-        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: logMsg, level: 'warn' });
-        this.recordActiveTradeEvent(
+        this.recordRatchetFailureBackoff(
           trade,
+          prevSl,
+          newSl,
+          updateRes,
           'SL_TRAILING_FAILED',
-          `Trailing SL move ${prevSl} → ${newSl} failed on Binance${errCodeStr}${errDetail}.`,
-          'warn',
-          { prevSl, attemptedSl: newSl, type: 'trailing_stop', errorCode: updateRes.errorCode, error: updateRes.error }
+          `[TrailingStop] Trailing SL move ${prevSl} → ${newSl} failed on Binance`,
+          { type: 'trailing_stop' }
         );
       }
     }

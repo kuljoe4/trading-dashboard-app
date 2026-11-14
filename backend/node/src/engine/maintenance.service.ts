@@ -53,7 +53,8 @@ export class MaintenanceService {
   }
 
   private isAlgoType(o: BinanceOrderReceipt | BinanceAlgoOrderReceipt): boolean {
-    return !!((o as any).algoId || (o as any).algoType);
+    const idStr = this.getOrderId(o);
+    return !!((o as any).algoId || (o as any).algoType || /^300000\d{10,}$/.test(idStr));
   }
 
   async protectionWatchdog(running: boolean, config: SessionConfig | null, targetSymbol?: string) {

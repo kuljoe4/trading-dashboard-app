@@ -376,7 +376,9 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
     // 0. OPEN TRADE DEBOUNCE / SKIP UNNECESSARY DB WRITES
     // If trade is OPEN, check if critical persistence fields (current_sl, tp, rr_sequence_index, qty, status, pnl) changed.
-    // Routine mark_price / max_rr_achieved updates on open trades are throttled to at most once per 15s.
+    // Routine mark_price / max_rr_achieved updates on open trades are throttled to at most once per 60s
+    // and use a lightweight column-targeted UPDATE (avoiding 8KB+ JSONB TOAST dead-tuple bloat in Postgres shared_buffers).
+    let isRoutineTickOnly = false;
     if (isTradeOpen && trade.id) {
       const lastState = this.openTradeLastSavedState.get(trade.id);
       if (lastState) {
@@ -389,9 +391,12 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           Number(trade.pnl || 0) !== lastState.pnl;
 
         const timeElapsed = Date.now() - lastState.lastSavedTs;
-        if (!criticalChanged && timeElapsed < 15000) {
-          // Skip database write for routine tick update
-          return;
+        if (!criticalChanged) {
+          if (timeElapsed < 60000) {
+            // Skip database write for routine tick update
+            return;
+          }
+          isRoutineTickOnly = true;
         }
       }
     } else if (!isTradeOpen && trade.id) {
@@ -402,28 +407,38 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
     // Bypasses FOR UPDATE pessimistic session locks and redundant SUM(trade.pnl), Session, Settings, & BalanceHistory updates
     if (isTradeOpen) {
       try {
-        const persistenceTrade = { ...trade };
-        persistenceTrade.pnl = Number(trade.pnl || 0);
-        persistenceTrade.pnl_pct = 0;
+        if (isRoutineTickOnly && trade.id && typeof this.tradeRepository.update === 'function') {
+          await this.tradeRepository.update(trade.id, {
+            mark_price: trade.mark_price,
+            last_price: trade.last_price,
+            max_rr_achieved: Number(trade.max_rr_achieved || 0),
+            min_rr_achieved: Number(trade.min_rr_achieved || 0),
+            updated_at: new Date(),
+          });
+        } else {
+          const persistenceTrade = { ...trade };
+          persistenceTrade.pnl = Number(trade.pnl || 0);
+          persistenceTrade.pnl_pct = 0;
 
-        const tradeEntity = this.tradeRepository.create({
-          ...persistenceTrade,
-          exit_signal_type: trade.exit_signal_type,
-          exit_signal_reason: trade.exit_signal_reason,
-          exit_signals_status: trade.exit_signals_status,
-          entry_signal_type: trade.entry_signal_type,
-          entry_signal_confidence: trade.entry_signal_confidence,
-          mark_price: trade.mark_price,
-          last_price: trade.last_price,
-          close_attempts: trade.close_attempts || 0,
-          last_close_attempt_ts: trade.last_close_attempt_ts,
-          close_blocked: !!trade.close_blocked,
-          illiquid_blocked: !!trade.illiquid_blocked,
-          _sig_json: trade._sig_json,
-          sessionId,
-        });
+          const tradeEntity = this.tradeRepository.create({
+            ...persistenceTrade,
+            exit_signal_type: trade.exit_signal_type,
+            exit_signal_reason: trade.exit_signal_reason,
+            exit_signals_status: trade.exit_signals_status,
+            entry_signal_type: trade.entry_signal_type,
+            entry_signal_confidence: trade.entry_signal_confidence,
+            mark_price: trade.mark_price,
+            last_price: trade.last_price,
+            close_attempts: trade.close_attempts || 0,
+            last_close_attempt_ts: trade.last_close_attempt_ts,
+            close_blocked: !!trade.close_blocked,
+            illiquid_blocked: !!trade.illiquid_blocked,
+            _sig_json: trade._sig_json,
+            sessionId,
+          });
 
-        await this.tradeRepository.save(tradeEntity);
+          await this.tradeRepository.save(tradeEntity);
+        }
 
         if (trade.id) {
           this.openTradeLastSavedState.set(trade.id, {
@@ -2201,7 +2216,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
               slOrder.stopPrice || slOrder.triggerPrice || "0",
             );
             slId = String(slOrder.algoId || slOrder.orderId);
-            slType = slOrder.algoId || slOrder.algoType ? "algo" : "standard";
+            slType = slOrder.algoId || slOrder.algoType || /^300000\d{10,}$/.test(slId) ? "algo" : "standard";
             this.logger.log(
               `[Reconciliation] Found existing SL for ${exPos.symbol}: ${slId} @ ${slPrice}`,
             );

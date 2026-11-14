@@ -189,4 +189,17 @@ describe('Strategy Diagnostics & UX Clarity', () => {
     assert.ok(src.includes("reasonsViewMode === 'story'"), 'Must support By Symbol Story grouping');
     assert.ok(!src.includes('nowMs - 15000'), 'Must not use drifting nowMs fallback timestamps');
   });
+
+  test('StrategyDetailView optimizes very small mobile viewports cleanly', () => {
+    const viewPath = path.join(__dirname, '../views/StrategyDetailView.jsx');
+    const src = fs.readFileSync(viewPath, 'utf-8');
+
+    assert.ok(src.includes('sticky={false}'), 'Must disable sticky header on StrategyDetailView to preserve mobile viewport space');
+    assert.ok(src.includes('hideMetrics'), 'Must hide duplicate global metrics strip in detail ViewHeader');
+    assert.ok(src.includes('pb-36'), 'Must clear fixed mobile bottom navigation bar');
+    assert.ok(src.includes('grid grid-cols-3'), 'Primary navigation tabs must fit 320px viewports without horizontal scroll');
+    assert.ok(src.includes('rulesMobileSection'), 'Must provide mobile section focus filter for Entry/Exit/Risk rules');
+    assert.ok(src.includes('visibleReasonsLimit'), 'Must paginate Decision Log items on mobile to avoid double-scroll traps');
+    assert.ok(src.includes('sm:max-h-[540px] sm:overflow-y-auto'), 'Decision Log nested scroll must apply only at sm+ breakpoints');
+  });
 });

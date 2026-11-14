@@ -73,12 +73,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [syncingTfMap, setSyncingTfMap] = useState({})
   const [isBatchSyncing, setIsBatchSyncing] = useState(false)
   const [activeTab, setActiveTab] = useState('pipeline') // 'pipeline' | 'decisions' | 'performance'
+  const [rulesMobileSection, setRulesMobileSection] = useState('all') // 'all' | 'entry' | 'exit' | 'risk'
   const [showAllStaticSymbols, setShowAllStaticSymbols] = useState(false)
   const [showWarmupDebug, setShowWarmupDebug] = useState(false)
   const [showLiveGauges, setShowLiveGauges] = useState(false)
   const [showScannerPreview, setShowScannerPreview] = useState(false)
   const [showComplianceNotes, setShowComplianceNotes] = useState(false)
   const [expandedReasonIds, setExpandedReasonIds] = useState({})
+  const [visibleReasonsLimit, setVisibleReasonsLimit] = useState(25)
   const toggleReasonDetails = useCallback((id) => {
     setExpandedReasonIds(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
@@ -1163,18 +1165,32 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const riskPerTradePct = Number(strategyConfig.risk_pct_per_trade ?? 1.0);
   const riskPerTradeUsdt = (startingBal * riskPerTradePct) / 100;
 
+  const displayedTimelineReasons = useMemo(() => {
+    return filteredReasons.slice(0, visibleReasonsLimit);
+  }, [filteredReasons, visibleReasonsLimit]);
+
   return (
-    <div className="max-w-[1300px] mx-auto p-3 md:p-5 lg:p-6 animate-in fade-in duration-300 pb-16 lg:pb-8">
+    <div className="max-w-[1300px] mx-auto px-2.5 py-2.5 sm:p-4 md:p-5 lg:p-6 animate-in fade-in duration-300 pb-36 lg:pb-16">
       <ViewHeader
         icon={Activity}
         title={s.strategy_label}
-        subTitle={`${isVariant ? 'Variant' : 'Base'} Strategy · ${strategyConfig.scan_interval || '5m'} · ${(strategyConfig.entry_side || 'both').toUpperCase()} · ${regimeInfo.label}`}
+        subTitle={`${isVariant ? 'Variant' : 'Base'} · ${strategyConfig.scan_interval || '5m'} · ${(strategyConfig.entry_side || 'both').toUpperCase()} · ${regimeInfo.label}`}
         backAction={onBack}
+        sticky={false}
+        hideMetrics
       >
-        <div className="flex items-center gap-2 flex-wrap py-0.5 justify-end">
+        <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-between sm:justify-end">
+          <div className="flex md:hidden items-center gap-1.5 text-[11px] font-mono text-dim min-w-0">
+            <StatusBadge status={s.sessionActive} />
+            <span className="inline-flex items-center gap-1 text-text/80 shrink-0">
+              <Radio size={11} className={streamFresh ? "text-green animate-pulse" : "text-amber"} />
+              <span className="tabular-nums">{streamAgeSec}s</span>
+            </span>
+          </div>
+
           <CopyButton value={s.strategyId} className="p-1.5 hidden sm:inline-flex" />
 
-          {/* Unboxed live telemetry metadata */}
+          {/* Unboxed live telemetry metadata (Desktop) */}
           <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-dim px-2">
             <StatusBadge status={s.sessionActive} />
             <span className="text-dim/40" aria-hidden="true">·</span>
@@ -1189,7 +1205,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </Tooltip>
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
             {sessionActive && (
               <Tooltip content={isStrategyPaused ? "Resume Strategy Automation" : "Pause Strategy Automation"}>
                 <button
@@ -1206,7 +1222,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                     }
                   }}
                   className={cn(
-                    "px-3 py-1.5 min-h-[34px] rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap",
+                    "px-2.5 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap",
                     isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
                       isStrategyPaused
                         ? "bg-green/10 text-green border-green/25 hover:bg-green/20"
@@ -1225,19 +1241,20 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               <button
                 type="button"
                 onClick={onEdit}
-                className="px-3 py-1.5 min-h-[34px] bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
+                className="px-2.5 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
                 aria-label={isVariant ? "Edit strategy variant configuration" : "Edit base strategy configuration"}
               >
                 <Edit3 size={12} />
-                <span>{isVariant ? 'Edit Variant' : 'Edit Config'}</span>
+                <span className="sm:hidden">Edit</span>
+                <span className="hidden sm:inline">{isVariant ? 'Edit Variant' : 'Edit Config'}</span>
               </button>
             </Tooltip>
           </div>
         </div>
       </ViewHeader>
 
-      {/* Compact 4-Card KPI Strip (Reduced vertical height) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-3">
+      {/* Compact 4-Card KPI Strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5 mb-2.5 sm:mb-3">
         <StatCard
           compact
           label="Active P&L"
@@ -1252,7 +1269,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           label="Exposure & Slots"
           value={`${Number(s.totalRiskPct || 0).toFixed(1)}% / ${strategyConfig.max_total_risk_pct || 5}%`}
           color={s.totalRiskPct > (strategyConfig.max_total_risk_pct || 5) * 0.8 ? "text-amber" : "text-text"}
-          subValue={`${activeTradeCount}/${strategyConfig.max_open_trades || 3} Open · ${riskPerTradePct}% ($${riskPerTradeUsdt.toFixed(0)}/tr)`}
+          subValue={`${activeTradeCount}/${strategyConfig.max_open_trades || 3} Open · $${riskPerTradeUsdt.toFixed(0)}/tr`}
           tooltipText="Total active risk exposure against portfolio cap, open trade slots, and configured risk per trade."
         />
         <StatCard
@@ -1260,7 +1277,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           label="Win Rate"
           value={`${stratPerformance.hitRate.toFixed(1)}%`}
           color={stratPerformance.hitRate >= stratPerformance.recommendedWr ? "text-green" : "text-amber"}
-          subValue={`${stratPerformance.wins}W / ${stratPerformance.losses}L · Target ≥ ${stratPerformance.recommendedWr}%`}
+          subValue={`${stratPerformance.wins}W/${stratPerformance.losses}L · Target ≥${stratPerformance.recommendedWr}%`}
           tooltipText={`Strategy Win Rate (${stratPerformance.total} trades). Breakeven >= ${stratPerformance.breakevenWr}% at ${stratPerformance.targetRr}R, Recommended >= ${stratPerformance.recommendedWr}%.`}
         />
         <StatCard
@@ -1273,38 +1290,43 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         />
       </div>
 
-      {/* 1-Line Live Diagnostic Narrative Strip ("What, Why & When") */}
+      {/* Live Diagnostic Narrative Strip ("What, Why & When") */}
       <div
         role="status"
         className={cn(
-          "mb-4 px-3.5 py-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-left transition-colors",
+          "mb-3 px-3 py-2 sm:px-3.5 sm:py-2.5 rounded-xl border text-left transition-colors",
           narrative.tone === 'danger' ? "bg-red/5 border-red/30" :
           narrative.tone === 'warning' ? "bg-amber/5 border-amber/30" :
           narrative.tone === 'positive' ? "bg-green/5 border-green/30" :
           "bg-surface/60 border-border/50"
         )}
       >
-        <div className="flex items-start sm:items-center gap-2 min-w-0">
-          {narrative.tone === 'danger' && <Ban size={14} className="text-red shrink-0 mt-0.5 sm:mt-0" />}
-          {narrative.tone === 'warning' && <AlertTriangle size={14} className="text-amber shrink-0 mt-0.5 sm:mt-0" />}
-          {narrative.tone === 'positive' && <CheckCircle2 size={14} className="text-green shrink-0 mt-0.5 sm:mt-0" />}
-          {narrative.tone === 'neutral' && <Activity size={14} className="text-accent shrink-0 mt-0.5 sm:mt-0" />}
-          <div className="text-xs leading-snug min-w-0">
-            <span className="font-semibold text-text">{narrative.headline}</span>
-            <span className="text-dim mx-1.5 hidden sm:inline" aria-hidden="true">—</span>
-            <span className="text-dim block sm:inline">{narrative.detail}</span>
+        <div className="flex items-start sm:items-center justify-between gap-2">
+          <div className="flex items-start sm:items-center gap-2 min-w-0 flex-1">
+            {narrative.tone === 'danger' && <Ban size={14} className="text-red shrink-0 mt-0.5 sm:mt-0" />}
+            {narrative.tone === 'warning' && <AlertTriangle size={14} className="text-amber shrink-0 mt-0.5 sm:mt-0" />}
+            {narrative.tone === 'positive' && <CheckCircle2 size={14} className="text-green shrink-0 mt-0.5 sm:mt-0" />}
+            {narrative.tone === 'neutral' && <Activity size={14} className="text-accent shrink-0 mt-0.5 sm:mt-0" />}
+            <div className="text-xs leading-snug min-w-0">
+              <span className="font-semibold text-text">{narrative.headline}</span>
+              <span className="text-dim mx-1.5 hidden sm:inline" aria-hidden="true">—</span>
+              <span className="text-dim hidden sm:inline">{narrative.detail}</span>
+            </div>
           </div>
+          <span className="text-[11px] font-mono text-dim tabular-nums whitespace-nowrap shrink-0">
+            {narrative.when}
+          </span>
         </div>
-        <span className="text-[11px] font-mono text-dim tabular-nums whitespace-nowrap shrink-0">
-          {narrative.when}
-        </span>
+        <p className="text-[11px] text-dim leading-snug mt-1 pl-[22px] sm:hidden">
+          {narrative.detail}
+        </p>
       </div>
 
       {/* Promoted Active Positions Section (Always visible when in position) */}
       {activeTradeCount > 0 && (
-        <div className="mb-4 animate-in fade-in duration-300 text-left">
+        <div className="mb-3 sm:mb-4 animate-in fade-in duration-300 text-left">
           <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
             {strategyActiveTrades.map(trade => (
               <ActiveTradeCard
                 key={trade.id || trade.symbol}
@@ -1320,22 +1342,23 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </div>
       )}
 
-      {/* Segmented Navigation Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-surface/50 border border-border/50 rounded-xl mb-4 text-left overflow-x-auto no-scrollbar" role="tablist" aria-label="Strategy Navigation">
+      {/* Segmented Navigation Tabs (Zero horizontal overflow even on 320px screens) */}
+      <div className="grid grid-cols-3 gap-1 p-1 bg-surface/50 border border-border/50 rounded-xl mb-3 sm:mb-4 text-left" role="tablist" aria-label="Strategy Navigation">
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === 'pipeline'}
           onClick={() => setActiveTab('pipeline')}
           className={cn(
-            "flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'pipeline'
               ? "bg-background text-text border border-border/60 shadow-xs"
               : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
-          <ShieldCheck size={14} className={cn("shrink-0", activeTab === 'pipeline' ? "text-accent" : "text-dim")} />
-          <span>Rules &amp; Diagnostics</span>
+          <ShieldCheck size={13} className={cn("shrink-0", activeTab === 'pipeline' ? "text-accent" : "text-dim")} />
+          <span className="sm:hidden truncate">Rules</span>
+          <span className="hidden sm:inline">Rules &amp; Diagnostics</span>
         </button>
 
         <button
@@ -1344,15 +1367,16 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           aria-selected={activeTab === 'decisions'}
           onClick={() => setActiveTab('decisions')}
           className={cn(
-            "flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'decisions'
               ? "bg-background text-text border border-border/60 shadow-xs"
               : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
-          <FileText size={14} className={cn("shrink-0", activeTab === 'decisions' ? "text-accent" : "text-dim")} />
-          <span>Decision Log</span>
-          <span className="text-[11px] font-mono text-dim tabular-nums">({strategyReasons.length})</span>
+          <FileText size={13} className={cn("shrink-0", activeTab === 'decisions' ? "text-accent" : "text-dim")} />
+          <span className="sm:hidden truncate">Log</span>
+          <span className="hidden sm:inline">Decision Log</span>
+          <span className="text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">({strategyReasons.length})</span>
         </button>
 
         <button
@@ -1361,30 +1385,42 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           aria-selected={activeTab === 'performance'}
           onClick={() => setActiveTab('performance')}
           className={cn(
-            "flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "min-h-[42px] sm:min-h-[38px] py-1.5 px-1.5 sm:px-3 rounded-lg text-[11px] sm:text-xs font-semibold flex items-center justify-center gap-1 sm:gap-2 transition-all cursor-pointer whitespace-nowrap min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'performance'
               ? "bg-background text-text border border-border/60 shadow-xs"
               : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
-          <BarChart3 size={14} className={cn("shrink-0", activeTab === 'performance' ? "text-accent" : "text-dim")} />
-          <span>Performance &amp; Charts</span>
-          <span className="text-[11px] font-mono text-dim tabular-nums">({stratPerformance.total})</span>
+          <BarChart3 size={13} className={cn("shrink-0", activeTab === 'performance' ? "text-accent" : "text-dim")} />
+          <span className="sm:hidden truncate">Perf</span>
+          <span className="hidden sm:inline">Performance &amp; Charts</span>
+          <span className="text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">({stratPerformance.total})</span>
         </button>
       </div>
 
       {/* TAB 1: Rules & Diagnostics */}
       {activeTab === 'pipeline' && (
-        <div className="space-y-4 animate-in fade-in duration-200 text-left">
+        <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-200 text-left">
           {/* Single-elevation Diagnostic Surface */}
           <div className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden">
 
-            {/* Row 1: Compact Candidate Switcher + Scope + Buffer Warmup Status */}
-            <div className="px-3.5 py-2.5 bg-surface/50 border-b border-border/30 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
-              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                <span className="text-[11px] font-semibold text-dim whitespace-nowrap shrink-0">Inspect Candidate:</span>
+            {/* Row 1: Compact Candidate Switcher + Buffer Warmup Status */}
+            <div className="px-3 py-2.5 sm:px-3.5 bg-surface/50 border-b border-border/30 flex flex-col lg:flex-row lg:items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-2 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-dim whitespace-nowrap shrink-0">Inspect Candidate:</span>
+                  {isStaticWatchlist && staticSymbols.length > 8 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllStaticSymbols(!showAllStaticSymbols)}
+                      className="sm:hidden text-[11px] font-mono text-accent hover:underline cursor-pointer"
+                    >
+                      {showAllStaticSymbols ? 'Less' : `+${staticSymbols.length - 8} more`}
+                    </button>
+                  )}
+                </div>
                 {candidateChips.length > 0 ? (
-                  <div className="flex items-center gap-1 flex-wrap">
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap pb-0.5 sm:pb-0">
                     {candidateChips.map(c => {
                       const isSelected = bestOpp.symbol === c.symbol;
                       return (
@@ -1393,13 +1429,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           type="button"
                           onClick={() => setSelectedFocusSymbol(c.symbol)}
                           className={cn(
-                            "px-2 py-1 rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border",
+                            "min-h-[34px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded-lg sm:rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
                             isSelected
                               ? "bg-accent/15 border-accent/50 text-accent font-semibold"
                               : "bg-background/40 border-border/40 text-text/80 hover:border-border hover:text-text"
                           )}
                         >
-                          <span>{c.symbol}</span>
+                          <span>{c.symbol.replace('USDT', '')}<span className="hidden sm:inline text-dim/70">USDT</span></span>
                           <span className={cn("text-[10px] tabular-nums", isSelected ? "text-accent" : c.tone)}>{c.tag}</span>
                         </button>
                       );
@@ -1408,7 +1444,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       <button
                         type="button"
                         onClick={() => setShowAllStaticSymbols(!showAllStaticSymbols)}
-                        className="px-2 py-1 text-[11px] font-mono text-accent hover:underline cursor-pointer"
+                        className="hidden sm:inline-flex px-2 py-1 text-[11px] font-mono text-accent hover:underline cursor-pointer shrink-0"
                       >
                         {showAllStaticSymbols ? 'Less' : `+${staticSymbols.length - 8} more`}
                       </button>
@@ -1422,12 +1458,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               </div>
 
               {/* Right: Warmup Summary & Sync */}
-              <div className="flex items-center gap-3 text-[11px] font-mono text-dim shrink-0">
+              <div className="flex items-center justify-between lg:justify-end gap-3 text-[11px] font-mono text-dim shrink-0 pt-1.5 lg:pt-0 border-t border-border/20 lg:border-t-0">
                 <button
                   type="button"
                   onClick={() => setShowWarmupDebug(!showWarmupDebug)}
                   className={cn(
-                    "flex items-center gap-1.5 cursor-pointer hover:text-text transition-colors whitespace-nowrap",
+                    "min-h-[34px] sm:min-h-0 flex items-center gap-1.5 cursor-pointer hover:text-text transition-colors whitespace-nowrap",
                     anyWarming ? "text-amber font-semibold" : "text-dim"
                   )}
                   aria-expanded={showWarmupDebug}
@@ -1438,13 +1474,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   </span>
                   <ChevronDown size={12} className={cn("transition-transform duration-150", showWarmupDebug && "rotate-180")} />
                 </button>
-                <span className="text-border" aria-hidden="true">|</span>
+                <span className="text-border hidden lg:inline" aria-hidden="true">|</span>
                 <button
                   type="button"
                   disabled={isBatchSyncing || bestOpp.symbol === '---'}
                   onClick={handleBatchSyncTimeframes}
                   className={cn(
-                    "text-accent hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap",
+                    "min-h-[34px] sm:min-h-0 text-accent hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap",
                     isBatchSyncing && "opacity-60 cursor-wait"
                   )}
                   aria-label="Batch sync all evaluation timeframes"
@@ -1457,34 +1493,38 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
             {/* Expandable Warmup Strip (Auto-highlighted when warming, collapsed cleanly when ready) */}
             {(showWarmupDebug || anyWarming) && (
-              <div className="px-3.5 py-2.5 bg-background/40 border-b border-border/30 flex flex-wrap items-center gap-3 font-mono text-[11px]">
+              <div className="px-3 py-2.5 sm:px-3.5 bg-background/40 border-b border-border/30 grid grid-cols-1 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-3 font-mono text-[11px]">
                 {timeframeDebugItems.map(item => {
                   const pct = item.required > 0 ? Math.min(100, Math.round((item.candles / item.required) * 100)) : 100;
                   const isSyncingThis = syncingTfMap[item.tf];
                   return (
-                    <div key={item.key} className="flex items-center gap-2 pr-3 border-r border-border/30 last:border-r-0">
-                      <span className="text-text font-medium">{item.label}</span>
-                      <span className="text-dim">({item.tf})</span>
-                      <span className={cn("tabular-nums font-semibold", item.isWarming ? "text-amber" : "text-green")}>
-                        {item.statusMsg} · {pct}%
-                      </span>
-                      <button
-                        type="button"
-                        disabled={isSyncingThis || bestOpp.symbol === '---'}
-                        onClick={() => handleSyncTimeframe(item.tf, bestOpp.symbol)}
-                        className="text-accent hover:underline cursor-pointer disabled:opacity-40 text-[10px]"
-                        aria-label={`Sync ${item.tf} candles for ${bestOpp.symbol}`}
-                      >
-                        {isSyncingThis ? 'Syncing' : 'Sync'}
-                      </button>
+                    <div key={item.key} className="flex items-center justify-between sm:justify-start gap-2 sm:pr-3 sm:border-r sm:border-border/30 sm:last:border-r-0">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-text font-medium truncate">{item.label}</span>
+                        <span className="text-dim shrink-0">({item.tf})</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={cn("tabular-nums font-semibold", item.isWarming ? "text-amber" : "text-green")}>
+                          {item.statusMsg} · {pct}%
+                        </span>
+                        <button
+                          type="button"
+                          disabled={isSyncingThis || bestOpp.symbol === '---'}
+                          onClick={() => handleSyncTimeframe(item.tf, bestOpp.symbol)}
+                          className="text-accent hover:underline cursor-pointer disabled:opacity-40 text-[11px] px-1.5 py-0.5"
+                          aria-label={`Sync ${item.tf} candles for ${bestOpp.symbol}`}
+                        >
+                          {isSyncingThis ? 'Syncing' : 'Sync'}
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
               </div>
             )}
 
-            {/* Row 2: Compact 1-Row Interactive 6-Stage Lifecycle Stepper */}
-            <div className="px-3.5 py-2.5 bg-background/25 border-b border-border/30">
+            {/* Row 2: Compact Interactive 6-Stage Lifecycle Stepper */}
+            <div className="px-3 py-2.5 sm:px-3.5 bg-background/25 border-b border-border/30">
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                 {journeyMilestones.map(m => {
                   const isSelected = activeJourneyMilestone === m.num;
@@ -1498,7 +1538,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       aria-expanded={isSelected}
                       aria-label={`Milestone ${m.num}: ${m.title} (${m.status})`}
                       className={cn(
-                        "px-2.5 py-1.5 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-1.5 min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        "px-2 py-1.5 sm:px-2.5 min-h-[44px] sm:min-h-[34px] rounded-lg border text-left transition-all cursor-pointer flex flex-col items-start justify-center sm:flex-row sm:items-center sm:justify-between gap-0.5 sm:gap-1.5 min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         isSelected
                           ? "bg-accent/15 border-accent text-accent"
                           : isCurrent
@@ -1508,8 +1548,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           : "bg-surface/40 border-border/40 text-dim hover:text-text hover:border-border"
                       )}
                     >
-                      <span className="text-[11px] font-semibold truncate">{m.num}. {m.short}</span>
-                      <span className="text-[10px] font-mono tabular-nums opacity-85 truncate shrink-0">{m.status}</span>
+                      <span className="text-[11px] font-semibold truncate w-full sm:w-auto leading-tight">{m.num}. {m.short}</span>
+                      <span className="text-[10px] font-mono tabular-nums opacity-85 truncate w-full sm:w-auto shrink-0 leading-tight">{m.status}</span>
                     </button>
                   );
                 })}
@@ -1521,25 +1561,25 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 if (!milestone) return null;
                 return (
                   <div className="mt-2.5 pt-2.5 border-t border-border/30 flex flex-col gap-2 animate-in fade-in duration-150">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-xs leading-snug">
                         <span className="font-semibold text-text">{milestone.title}</span>
-                        <span className="text-dim mx-1.5" aria-hidden="true">·</span>
-                        <span className="text-dim">{milestone.desc}</span>
+                        <span className="text-dim mx-1.5 hidden sm:inline" aria-hidden="true">·</span>
+                        <span className="text-dim block sm:inline mt-0.5 sm:mt-0">{milestone.desc}</span>
                       </div>
                       <button
                         type="button"
                         onClick={() => setActiveJourneyMilestone(null)}
-                        className="p-1 text-dim hover:text-text cursor-pointer rounded"
+                        className="p-1.5 text-dim hover:text-text cursor-pointer rounded shrink-0"
                         aria-label="Close milestone inspection"
                       >
-                        <X size={13} />
+                        <X size={14} />
                       </button>
                     </div>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono pt-1">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 text-xs font-mono pt-1">
                       {milestone.criteria.map((crit, idx) => (
                         <div key={idx} className="min-w-0">
-                          <div className="text-[10px] text-dim">{crit.label}</div>
+                          <div className="text-[10px] text-dim truncate">{crit.label}</div>
                           <div className="font-semibold text-text truncate" title={crit.value}>{crit.value}</div>
                         </div>
                       ))}
@@ -1549,7 +1589,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                         <button
                           type="button"
                           onClick={() => setShowComplianceNotes(!showComplianceNotes)}
-                          className="text-[11px] text-dim hover:text-accent cursor-pointer flex items-center gap-1"
+                          className="text-[11px] text-dim hover:text-accent cursor-pointer flex items-center gap-1 py-1"
                         >
                           <span>{showComplianceNotes ? 'Hide Execution Protocol Note' : 'Show Execution Protocol Note'}</span>
                           <ChevronDown size={11} className={cn("transition-transform", showComplianceNotes && "rotate-180")} />
@@ -1564,17 +1604,46 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               })()}
             </div>
 
+            {/* Mobile-only Section Focus Bar (All / Entry / Exit / Risk) */}
+            <div className="xl:hidden px-3 py-2 bg-surface/35 border-b border-border/30">
+              <div className="grid grid-cols-4 gap-1 p-0.5 bg-background/60 border border-border/40 rounded-lg">
+                {[
+                  { id: 'all', label: 'All Rules' },
+                  { id: 'entry', label: `Entry (${rulesDiagnostics.entryRules.length})` },
+                  { id: 'exit', label: `Exit (${rulesDiagnostics.exitRules.length})` },
+                  { id: 'risk', label: `Risk (${rulesDiagnostics.riskChecks.length})` },
+                ].map(sec => (
+                  <button
+                    key={sec.id}
+                    type="button"
+                    onClick={() => setRulesMobileSection(sec.id)}
+                    className={cn(
+                      "min-h-[34px] px-1 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer truncate",
+                      rulesMobileSection === sec.id
+                        ? "bg-surface text-text border border-border/60 shadow-xs"
+                        : "text-dim hover:text-text"
+                    )}
+                  >
+                    {sec.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Row 3: 2-Column Diagnostic Rules Matrix (Entry/Exit Values, Params, TFs | Risk, SL & Gates) */}
             <div className="grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-border/30">
 
-              {/* LEFT COLUMN: Entry & Exit Rules (Values, Params, Timeframes, Allowed/Rejected) */}
-              <div className="p-3.5 sm:p-4 flex flex-col gap-3 min-w-0">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div>
+              {/* LEFT COLUMN: Entry & Exit Rules */}
+              <div className={cn(
+                "p-3 sm:p-4 flex flex-col gap-3 min-w-0",
+                rulesMobileSection === 'risk' && "hidden xl:flex"
+              )}>
+                <div className="flex items-start sm:items-center justify-between gap-2">
+                  <div className="min-w-0">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-text">
                       Entry &amp; Exit Rules
                     </h3>
-                    <div className="text-[11px] font-mono text-dim mt-0.5 flex items-center gap-1.5 flex-wrap">
+                    <div className="text-[11px] font-mono text-dim mt-0.5 flex items-center gap-x-1.5 gap-y-0.5 flex-wrap">
                       <span>Target: <strong className="text-text">{bestOpp.symbol}</strong> {bestOpp.dir && bestOpp.dir !== '---' ? bestOpp.dir.toUpperCase() : ''}</span>
                       <span aria-hidden="true">·</span>
                       <span>Entry: <strong className="text-text">{conditionFormula}</strong></span>
@@ -1585,34 +1654,50 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   <button
                     type="button"
                     onClick={() => setShowLiveGauges(!showLiveGauges)}
-                    className="text-[11px] font-mono text-accent hover:underline cursor-pointer shrink-0"
+                    className="text-[11px] font-mono text-accent hover:underline cursor-pointer shrink-0 py-1 px-1.5"
                   >
-                    {showLiveGauges ? 'Hide Live Gauges' : 'Show Live Gauges'}
+                    {showLiveGauges ? 'Hide Gauges' : 'Gauges'}
                   </button>
                 </div>
 
-                {/* Entry Rules Table */}
-                <div>
+                {/* Entry Rules List */}
+                <div className={cn(rulesMobileSection === 'exit' && "hidden xl:block")}>
                   <div className="text-[11px] font-semibold text-dim pb-1.5 border-b border-border/30 flex items-center justify-between">
                     <span>Entry Conditions ({rulesDiagnostics.entryRules.length})</span>
-                    <span className="font-mono text-[10px]">Value / Target · Status</span>
+                    <span className="font-mono text-[10px] hidden sm:inline">Value / Target · Status</span>
                   </div>
                   <div className="divide-y divide-border/20">
                     {rulesDiagnostics.entryRules.map(rule => (
-                      <div key={rule.key} className="py-2 flex items-start justify-between gap-3 text-xs min-w-0">
+                      <div key={rule.key} className="py-2.5 sm:py-2 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-3 text-xs min-w-0">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-semibold text-text">{rule.label}</span>
-                            <span className="text-[11px] font-mono text-dim">
-                              · {rule.timeframe} · {rule.role}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                              <span className="font-semibold text-text truncate">{rule.label}</span>
+                              <span className="hidden sm:inline text-[11px] font-mono text-dim">
+                                · {rule.timeframe} · {rule.role}
+                              </span>
+                            </div>
+                            <div className="sm:hidden shrink-0">
+                              <VerdictTag status={rule.status} customLabel={rule.status === 'allowed' ? 'PASS' : undefined} />
+                            </div>
+                          </div>
+
+                          <div className="sm:hidden flex items-center justify-between gap-2 text-[11px] font-mono mt-0.5">
+                            <span className="text-dim truncate">{rule.timeframe} · {rule.role}</span>
+                            <span className="text-text tabular-nums shrink-0">
+                              {rule.liveText}
+                              {rule.thresholdText && rule.thresholdText !== '---' && (
+                                <span className="text-dim"> / {rule.thresholdText}</span>
+                              )}
                             </span>
                           </div>
+
                           <div className="text-[11px] font-mono text-dim mt-0.5 break-words">
                             {rule.paramsText}
                           </div>
                           {rule.reasonText && (
                             <div className={cn(
-                              "text-[11px] mt-0.5 break-words",
+                              "text-[11px] mt-0.5 break-words leading-snug",
                               rule.status === 'rejected' ? "text-red" : rule.status === 'warming' ? "text-amber" : "text-dim/90"
                             )}>
                               {rule.reasonText}
@@ -1620,7 +1705,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           )}
                         </div>
 
-                        <div className="flex flex-col items-end shrink-0 text-right font-mono">
+                        <div className="hidden sm:flex flex-col items-end shrink-0 text-right font-mono">
                           <div className="text-[11px] text-text tabular-nums">
                             {rule.liveText}
                             {rule.thresholdText && rule.thresholdText !== '---' && (
@@ -1637,27 +1722,46 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 </div>
 
                 {/* Exit Rules & TP Ladder */}
-                <div className="pt-1">
+                <div className={cn("pt-1", rulesMobileSection === 'entry' && "hidden xl:block")}>
                   <div className="text-[11px] font-semibold text-dim pb-1.5 border-b border-border/30 flex items-center justify-between">
                     <span>Exit Signals &amp; Targets ({rulesDiagnostics.exitRules.length})</span>
-                    <span className="font-mono text-[10px]">Live / Target · State</span>
+                    <span className="font-mono text-[10px] hidden sm:inline">Live / Target · State</span>
                   </div>
                   <div className="divide-y divide-border/20">
                     {rulesDiagnostics.exitRules.map(rule => (
-                      <div key={rule.key} className="py-2 flex items-start justify-between gap-3 text-xs min-w-0">
+                      <div key={rule.key} className="py-2.5 sm:py-2 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-3 text-xs min-w-0">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-semibold text-text">{rule.label}</span>
-                            <span className="text-[11px] font-mono text-dim">
-                              · {rule.timeframe} · {rule.role}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                              <span className="font-semibold text-text truncate">{rule.label}</span>
+                              <span className="hidden sm:inline text-[11px] font-mono text-dim">
+                                · {rule.timeframe} · {rule.role}
+                              </span>
+                            </div>
+                            <div className="sm:hidden shrink-0">
+                              <VerdictTag
+                                status={rule.status}
+                                customLabel={rule.status === 'allowed' ? 'TRIGGERED' : rule.status === 'waiting' ? 'MONITORING' : undefined}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="sm:hidden flex items-center justify-between gap-2 text-[11px] font-mono mt-0.5">
+                            <span className="text-dim truncate">{rule.timeframe} · {rule.role}</span>
+                            <span className="text-text tabular-nums shrink-0">
+                              {rule.liveText}
+                              {rule.thresholdText && rule.thresholdText !== '---' && (
+                                <span className="text-dim"> / {rule.thresholdText}</span>
+                              )}
                             </span>
                           </div>
+
                           <div className="text-[11px] font-mono text-dim mt-0.5 break-words">
                             {rule.paramsText}
                           </div>
                           {rule.reasonText && (
                             <div className={cn(
-                              "text-[11px] mt-0.5 break-words",
+                              "text-[11px] mt-0.5 break-words leading-snug",
                               rule.status === 'rejected' ? "text-red" : rule.status === 'warning' ? "text-amber" : "text-dim/90"
                             )}>
                               {rule.reasonText}
@@ -1665,7 +1769,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           )}
                         </div>
 
-                        <div className="flex flex-col items-end shrink-0 text-right font-mono">
+                        <div className="hidden sm:flex flex-col items-end shrink-0 text-right font-mono">
                           <div className="text-[11px] text-text tabular-nums">
                             {rule.liveText}
                             {rule.thresholdText && rule.thresholdText !== '---' && (
@@ -1721,32 +1825,46 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 )}
               </div>
 
-              {/* RIGHT COLUMN: Risk, Stop-Loss Bounds & Pre-Trade Gates (Allowed vs Rejected) */}
-              <div className="p-3.5 sm:p-4 flex flex-col gap-3 min-w-0">
+              {/* RIGHT COLUMN: Risk, Stop-Loss Bounds & Pre-Trade Gates */}
+              <div className={cn(
+                "p-3 sm:p-4 flex flex-col gap-3 min-w-0",
+                (rulesMobileSection === 'entry' || rulesMobileSection === 'exit') && "hidden xl:flex"
+              )}>
                 <div>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-text">
                     Risk, Stop-Loss &amp; Gating Limits
                   </h3>
                   <div className="text-[11px] font-mono text-dim mt-0.5">
-                    Configured thresholds vs. live / prospective state ({bestOpp.symbol !== '---' ? bestOpp.symbol : 'Portfolio'})
+                    Thresholds vs. live state ({bestOpp.symbol !== '---' ? bestOpp.symbol : 'Portfolio'})
                   </div>
                 </div>
 
                 <div>
                   <div className="text-[11px] font-semibold text-dim pb-1.5 border-b border-border/30 flex items-center justify-between">
                     <span>Risk &amp; SL Invariants</span>
-                    <span className="font-mono text-[10px]">Live / Status</span>
+                    <span className="font-mono text-[10px] hidden sm:inline">Live / Status</span>
                   </div>
                   <div className="divide-y divide-border/20">
                     {rulesDiagnostics.riskChecks.map(check => (
-                      <div key={check.key} className="py-2.5 flex items-start justify-between gap-3 text-xs min-w-0">
+                      <div key={check.key} className="py-2.5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-1 sm:gap-3 text-xs min-w-0">
                         <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-text">{check.label}</div>
-                          <div className="text-[11px] font-mono text-dim mt-0.5 break-words">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-text truncate">{check.label}</span>
+                            <div className="sm:hidden shrink-0">
+                              <VerdictTag status={check.status} />
+                            </div>
+                          </div>
+
+                          <div className="sm:hidden flex items-center justify-between gap-2 text-[11px] font-mono mt-0.5">
+                            <span className="text-dim truncate">{check.configuredText}</span>
+                            <span className="font-semibold text-text tabular-nums shrink-0">{check.liveText}</span>
+                          </div>
+
+                          <div className="hidden sm:block text-[11px] font-mono text-dim mt-0.5 break-words">
                             {check.configuredText}
                           </div>
                           <div className={cn(
-                            "text-[11px] mt-0.5 break-words",
+                            "text-[11px] mt-0.5 break-words leading-snug",
                             check.status === 'rejected' ? "text-red font-medium" :
                             (check.status === 'clamped' || check.status === 'warning') ? "text-amber" :
                             "text-dim/90"
@@ -1755,7 +1873,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           </div>
                         </div>
 
-                        <div className="flex flex-col items-end shrink-0 text-right font-mono">
+                        <div className="hidden sm:flex flex-col items-end shrink-0 text-right font-mono">
                           <div className="text-[11px] font-semibold text-text tabular-nums">
                             {check.liveText}
                           </div>
@@ -1776,15 +1894,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             <button
               type="button"
               onClick={() => setShowScannerPreview(!showScannerPreview)}
-              className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface/50 transition-colors text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              className="w-full px-3 py-3 sm:px-4 min-h-[44px] flex items-center justify-between hover:bg-surface/50 transition-colors text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none gap-2"
               aria-expanded={showScannerPreview}
             >
-              <div className="flex items-center gap-2 text-xs font-mono">
-                <Zap size={14} className="text-accent" />
-                <span className="font-semibold text-text">Live Scanner Stream</span>
-                <span className="text-dim">· {strategyScannerResults.length} pairs monitored</span>
+              <div className="flex items-center gap-2 text-xs font-mono min-w-0">
+                <Zap size={14} className="text-accent shrink-0" />
+                <span className="font-semibold text-text truncate">Live Scanner</span>
+                <span className="text-dim shrink-0">· {strategyScannerResults.length} pairs</span>
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-semibold text-accent">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-accent shrink-0">
                 <span>{showScannerPreview ? 'Collapse' : 'Expand'}</span>
                 <ChevronDown size={13} className={cn("transition-transform duration-150", showScannerPreview && "rotate-180")} />
               </div>
@@ -1792,6 +1910,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             {showScannerPreview && (
               <div className="border-t border-border/30 animate-in fade-in duration-150">
                 <ScannerPreview
+                  embedded
                   scannerResults={strategyScannerResults}
                   config={strategyConfig}
                   onOpen={() => onOpenScanner(s.strategy_label)}
@@ -1804,59 +1923,63 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
       {/* TAB 2: Decision Log (Causal Filtering & Trade Story) */}
       {activeTab === 'decisions' && (
-        <div className="space-y-3 animate-in fade-in duration-200 text-left">
+        <div className="space-y-2.5 sm:space-y-3 animate-in fade-in duration-200 text-left">
           {/* Faceted Filter Bar */}
-          <div className="p-3 bg-surface/40 border border-border/50 rounded-xl flex flex-col gap-2.5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="p-2.5 sm:p-3 bg-surface/40 border border-border/50 rounded-xl flex flex-col gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               {/* Outcome Segmented Filter */}
-              <div className="flex items-center gap-1 p-0.5 bg-background/60 border border-border/40 rounded-lg overflow-x-auto">
+              <div className="grid grid-cols-4 sm:inline-flex items-center gap-0.5 sm:gap-1 p-0.5 bg-background/60 border border-border/40 rounded-lg w-full sm:w-auto">
                 {[
-                  { id: 'all', label: 'All', count: reasonOutcomeCounts.all },
-                  { id: 'allowed', label: 'Allowed / Fired', count: reasonOutcomeCounts.allowed },
-                  { id: 'rejected', label: 'Rejected / Blocked', count: reasonOutcomeCounts.rejected },
-                  { id: 'waiting', label: 'Waiting / Miss', count: reasonOutcomeCounts.waiting },
+                  { id: 'all', short: 'All', label: 'All', count: reasonOutcomeCounts.all },
+                  { id: 'allowed', short: 'Allow', label: 'Allowed / Fired', count: reasonOutcomeCounts.allowed },
+                  { id: 'rejected', short: 'Reject', label: 'Rejected / Blocked', count: reasonOutcomeCounts.rejected },
+                  { id: 'waiting', short: 'Wait', label: 'Waiting / Miss', count: reasonOutcomeCounts.waiting },
                 ].map(tab => (
                   <button
                     key={tab.id}
                     type="button"
-                    onClick={() => setReasonsOutcome(tab.id)}
+                    onClick={() => {
+                      setReasonsOutcome(tab.id);
+                      setVisibleReasonsLimit(25);
+                    }}
                     className={cn(
-                      "px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5",
+                      "min-h-[38px] sm:min-h-0 px-1.5 sm:px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap flex items-center justify-center gap-1 min-w-0",
                       reasonsOutcome === tab.id
                         ? "bg-surface text-text border border-border/60 shadow-xs"
                         : "text-dim hover:text-text"
                     )}
                   >
-                    <span>{tab.label}</span>
-                    <span className="text-[11px] font-mono text-dim tabular-nums">{tab.count}</span>
+                    <span className="sm:hidden truncate">{tab.short}</span>
+                    <span className="hidden sm:inline">{tab.label}</span>
+                    <span className="text-[10px] sm:text-[11px] font-mono text-dim tabular-nums">{tab.count}</span>
                   </button>
                 ))}
               </div>
 
               {/* View Mode & Noise Filter */}
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center justify-between sm:justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setHideRoutineMisses(!hideRoutineMisses)}
                   aria-pressed={hideRoutineMisses}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors whitespace-nowrap",
+                    "min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg border text-[11px] sm:text-xs font-medium cursor-pointer transition-colors whitespace-nowrap",
                     hideRoutineMisses
                       ? "bg-accent/10 border-accent/40 text-accent"
                       : "bg-background/50 border-border/40 text-dim hover:text-text"
                   )}
                 >
                   {hideRoutineMisses
-                    ? `Routine Misses Hidden (${reasonOutcomeCounts.routineHidden})`
-                    : 'Show Routine Misses'}
+                    ? `Misses Hidden (${reasonOutcomeCounts.routineHidden})`
+                    : 'Show Misses'}
                 </button>
 
-                <div className="flex items-center gap-0.5 p-0.5 bg-background/60 border border-border/40 rounded-lg">
+                <div className="inline-flex items-center gap-0.5 p-0.5 bg-background/60 border border-border/40 rounded-lg shrink-0">
                   <button
                     type="button"
                     onClick={() => setReasonsViewMode('timeline')}
                     className={cn(
-                      "px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer transition-colors",
+                      "min-h-[34px] sm:min-h-0 px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-md cursor-pointer transition-colors",
                       reasonsViewMode === 'timeline' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
                     )}
                   >
@@ -1866,7 +1989,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                     type="button"
                     onClick={() => setReasonsViewMode('story')}
                     className={cn(
-                      "px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer transition-colors",
+                      "min-h-[34px] sm:min-h-0 px-2.5 py-1 text-[11px] sm:text-xs font-medium rounded-md cursor-pointer transition-colors",
                       reasonsViewMode === 'story' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
                     )}
                   >
@@ -1877,15 +2000,18 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             </div>
 
             {/* Secondary Facets: Stage, Symbol & Search */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-              <div className="sm:col-span-3">
+            <div className="grid grid-cols-2 sm:grid-cols-12 gap-2 items-center">
+              <div className="col-span-1 sm:col-span-3">
                 <select
                   aria-label="Filter by lifecycle stage"
                   value={reasonsStage}
-                  onChange={(e) => setReasonsStage(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
+                  onChange={(e) => {
+                    setReasonsStage(e.target.value);
+                    setVisibleReasonsLimit(25);
+                  }}
+                  className="w-full min-h-[38px] sm:min-h-0 px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
                 >
-                  <option value="all">All Lifecycle Stages</option>
+                  <option value="all">All Stages</option>
                   <option value="1">1. Discovery</option>
                   <option value="2">2. Entry Signals</option>
                   <option value="3">3. Risk &amp; SL</option>
@@ -1895,42 +2021,45 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 </select>
               </div>
 
-              <div className="sm:col-span-3">
+              <div className="col-span-1 sm:col-span-3">
                 <select
                   aria-label="Filter by symbol"
                   value={reasonsSymbol}
-                  onChange={(e) => setReasonsSymbol(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
+                  onChange={(e) => {
+                    setReasonsSymbol(e.target.value);
+                    setVisibleReasonsLimit(25);
+                  }}
+                  className="w-full min-h-[38px] sm:min-h-0 px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
                 >
-                  <option value="all">All Symbols ({availableReasonSymbols.length})</option>
+                  <option value="all">All Pairs ({availableReasonSymbols.length})</option>
                   {availableReasonSymbols.map(sym => (
                     <option key={sym} value={sym}>{sym}</option>
                   ))}
                 </select>
               </div>
 
-              <div className="sm:col-span-4 relative">
+              <div className="col-span-2 sm:col-span-4 relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
                 <input
                   type="text"
                   value={reasonsSearch}
                   onChange={(e) => setReasonsSearch(e.target.value)}
-                  placeholder="Filter keyword (e.g. SL, MACD, ETH)..."
-                  className="w-full pl-8 pr-7 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent"
+                  placeholder="Filter keyword (SL, MACD, ETH)..."
+                  className="w-full min-h-[38px] sm:min-h-0 pl-8 pr-8 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent"
                 />
                 {reasonsSearch && (
                   <button
                     type="button"
                     onClick={() => setReasonsSearch('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text cursor-pointer p-0.5"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text cursor-pointer p-1"
                     aria-label="Clear search"
                   >
-                    <X size={12} />
+                    <X size={13} />
                   </button>
                 )}
               </div>
 
-              <div className="sm:col-span-2 flex items-center justify-between sm:justify-end gap-2 text-[11px] font-mono text-dim">
+              <div className="col-span-2 sm:col-span-2 flex items-center justify-between sm:justify-end gap-2 text-[11px] font-mono text-dim px-0.5">
                 <span className="tabular-nums">{filteredReasons.length} shown</span>
                 {(reasonsOutcome !== 'all' || reasonsStage !== 'all' || reasonsSymbol !== 'all' || reasonsSearch) && (
                   <button
@@ -1940,8 +2069,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       setReasonsStage('all');
                       setReasonsSymbol('all');
                       setReasonsSearch('');
+                      setVisibleReasonsLimit(25);
                     }}
-                    className="text-accent hover:underline cursor-pointer"
+                    className="text-accent hover:underline cursor-pointer py-0.5"
                   >
                     Reset
                   </button>
@@ -1952,45 +2082,44 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
           {/* Decision Results */}
           {filteredReasons.length === 0 ? (
-            <div className="p-8 text-center bg-surface/30 border border-border/40 rounded-xl">
+            <div className="p-6 sm:p-8 text-center bg-surface/30 border border-border/40 rounded-xl">
               <FileText size={22} className="mx-auto text-dim/40 mb-2" />
               <div className="text-xs font-semibold text-text mb-1">No matching decision events</div>
               <p className="text-xs text-dim max-w-md mx-auto">
-                Try toggling &ldquo;Show Routine Misses&rdquo; or resetting the stage/symbol filters.
+                Try toggling &ldquo;Show Misses&rdquo; or resetting the stage/pair filters.
               </p>
             </div>
           ) : reasonsViewMode === 'timeline' ? (
-            <div className="border border-border/50 bg-surface/20 rounded-xl divide-y divide-border/25 max-h-[540px] overflow-y-auto">
-              {filteredReasons.map(item => {
+            <div className="border border-border/50 bg-surface/20 rounded-xl divide-y divide-border/25 sm:max-h-[540px] sm:overflow-y-auto">
+              {displayedTimelineReasons.map(item => {
                 const isCopied = copiedReasonId === item.id;
                 const isExpanded = !!expandedReasonIds[item.id];
                 return (
-                  <div key={item.id} className="px-3.5 py-2.5 hover:bg-surface/40 transition-colors group">
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <div className="flex items-center gap-2 flex-wrap min-w-0 font-mono">
+                  <div key={item.id} className="px-3 py-2.5 sm:px-3.5 hover:bg-surface/40 transition-colors group">
+                    {/* Mobile-clean top row: Outcome + Symbol + Direction on left, Age + Copy on right */}
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-1.5 min-w-0 font-mono truncate">
                         <VerdictTag status={item.outcome} />
                         {item.symbol && item.symbol !== '---' && (
-                          <span className="font-semibold text-text">{item.symbol}</span>
+                          <span className="font-semibold text-text truncate">{item.symbol}</span>
                         )}
                         {item.direction && (
-                          <span className={cn("font-semibold", item.direction === 'LONG' || item.direction === 'long' ? "text-green" : "text-red")}>
+                          <span className={cn("font-semibold shrink-0", item.direction === 'LONG' || item.direction === 'long' ? "text-green" : "text-red")}>
                             {item.direction.toUpperCase()}
                           </span>
                         )}
-                        <span className="text-dim" aria-hidden="true">·</span>
-                        <span className="text-dim">{item.stage}</span>
-                        <span className="text-dim" aria-hidden="true">·</span>
-                        <span className="font-sans font-semibold text-text">{item.title}</span>
+                        <span className="text-dim hidden sm:inline" aria-hidden="true">·</span>
+                        <span className="text-dim hidden sm:inline shrink-0">{item.stage}</span>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0 ml-auto font-mono text-[11px] text-dim">
+                      <div className="flex items-center gap-1.5 shrink-0 font-mono text-[11px] text-dim">
                         <time dateTime={new Date(item.timestamp).toISOString()} title={new Date(item.timestamp).toLocaleString()} className="tabular-nums cursor-help">
-                          {formatClockTime(item.timestamp)} · {formatTimeAgo(item.timestamp)}
+                          <span className="hidden sm:inline">{formatClockTime(item.timestamp)} · </span>{formatTimeAgo(item.timestamp)}
                         </time>
                         <button
                           type="button"
                           onClick={() => handleCopyReason(item)}
-                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-dim hover:text-text cursor-pointer"
+                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1.5 sm:p-1 text-dim hover:text-text cursor-pointer"
                           title="Copy decision details"
                           aria-label="Copy decision details"
                         >
@@ -1999,7 +2128,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       </div>
                     </div>
 
-                    <p className="text-xs text-text/80 leading-relaxed mt-1">
+                    {/* Title + Stage on compact mobile row */}
+                    <div className="mt-1 flex items-baseline gap-1.5 flex-wrap">
+                      <span className="text-xs font-semibold text-text leading-snug">{item.title}</span>
+                      <span className="sm:hidden text-[10px] font-mono text-dim">{item.stage}</span>
+                    </div>
+
+                    <p className="text-xs text-text/80 leading-relaxed mt-0.5 break-words">
                       {item.reason}
                     </p>
 
@@ -2008,19 +2143,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                         <button
                           type="button"
                           onClick={() => toggleReasonDetails(item.id)}
-                          className="text-[11px] font-mono text-dim hover:text-accent flex items-center gap-1 cursor-pointer"
+                          className="text-[11px] font-mono text-dim hover:text-accent flex items-center gap-1 cursor-pointer py-0.5"
                         >
                           <span>{isExpanded ? 'Hide parameters' : 'Parameters & values'}</span>
                           <ChevronDown size={11} className={cn("transition-transform", isExpanded && "rotate-180")} />
                         </button>
                         {isExpanded && (
-                          <div className="mt-1.5 pt-1.5 border-t border-border/20 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-dim">
+                          <div className="mt-1.5 pt-1.5 border-t border-border/20 grid grid-cols-2 sm:flex sm:flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-dim">
                             {Object.entries(item.details).map(([k, v]) => {
-                              if (v === undefined || v === null || typeof v === 'object' && !Array.isArray(v)) return null;
+                              if (v === undefined || v === null || (typeof v === 'object' && !Array.isArray(v))) return null;
                               const displayVal = Array.isArray(v) ? v.join(', ') : String(v);
                               if (!displayVal) return null;
                               return (
-                                <span key={k}>
+                                <span key={k} className="min-w-0 truncate">
                                   <span className="text-dim/80">{k}:</span>{' '}
                                   <strong className="text-text tabular-nums">{displayVal}</strong>
                                 </span>
@@ -2033,34 +2168,51 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   </div>
                 );
               })}
+
+              {filteredReasons.length > displayedTimelineReasons.length && (
+                <div className="p-2.5 text-center bg-surface/30">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleReasonsLimit(prev => prev + 25)}
+                    className="min-h-[38px] px-4 py-1.5 rounded-lg text-xs font-semibold text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+                  >
+                    Show more ({filteredReasons.length - displayedTimelineReasons.length} remaining)
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             /* Grouped By Symbol Story Mode */
-            <div className="space-y-3 max-h-[540px] overflow-y-auto pr-0.5">
+            <div className="space-y-2.5 sm:space-y-3 sm:max-h-[540px] sm:overflow-y-auto sm:pr-0.5">
               {groupedStories.map(group => (
                 <div key={group.symbol} className="border border-border/50 bg-surface/25 rounded-xl overflow-hidden">
-                  <div className="px-3.5 py-2 bg-surface/50 border-b border-border/30 flex items-center justify-between gap-2 text-xs font-mono">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-text">{group.symbol}</span>
-                      <span className="text-dim">· {group.events.length} event{group.events.length === 1 ? '' : 's'}</span>
+                  <div className="px-3 py-2 sm:px-3.5 bg-surface/50 border-b border-border/30 flex items-center justify-between gap-2 text-xs font-mono">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-bold text-text truncate">{group.symbol}</span>
+                      <span className="text-dim shrink-0">· {group.events.length}</span>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       <VerdictTag status={group.latestOutcome} />
                       <span className="text-dim tabular-nums">{formatTimeAgo(group.latestTs)}</span>
                     </div>
                   </div>
                   <div className="divide-y divide-border/20">
                     {group.events.map(item => (
-                      <div key={item.id} className="px-3.5 py-2 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                      <div key={item.id} className="px-3 py-2 sm:px-3.5 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <VerdictTag status={item.outcome} />
-                            <span className="font-mono text-dim">{item.stage}</span>
-                            <span className="font-semibold text-text">{item.title}</span>
+                          <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <VerdictTag status={item.outcome} />
+                              <span className="font-mono text-dim shrink-0">{item.stage}</span>
+                            </div>
+                            <time className="sm:hidden text-[10px] font-mono text-dim tabular-nums shrink-0">
+                              {formatClockTime(item.timestamp)}
+                            </time>
                           </div>
-                          <p className="text-text/80 mt-0.5">{item.reason}</p>
+                          <div className="font-semibold text-text mt-0.5 leading-snug">{item.title}</div>
+                          <p className="text-text/80 mt-0.5 leading-snug break-words">{item.reason}</p>
                         </div>
-                        <time className="text-[11px] font-mono text-dim tabular-nums shrink-0">
+                        <time className="hidden sm:block text-[11px] font-mono text-dim tabular-nums shrink-0">
                           {formatClockTime(item.timestamp)}
                         </time>
                       </div>
@@ -2075,15 +2227,15 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
       {/* TAB 3: Performance & Charts */}
       {activeTab === 'performance' && (
-        <div className="space-y-4 animate-in fade-in duration-200">
-          {/* Quant Metrics Strip (Moved here to keep primary diagnostic view clutter-free) */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-200">
+          {/* Quant Metrics Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
             <StatCard
               compact
               label="Hit Rate Ratio"
               value={hitRateRatioText}
               color={stratPerformance.hitRateRatio >= 1.15 ? "text-green" : stratPerformance.hitRateRatio <= 0.85 ? "text-amber" : "text-text"}
-              subValue={`Baseline: ${(typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50).toFixed(0)}% · BE: ${stratPerformance.breakevenWr}%`}
+              subValue={`Base: ${(typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50).toFixed(0)}% · BE: ${stratPerformance.breakevenWr}%`}
               tooltipText="Hit rate ratio relative to overall performance baseline. Thresholds: >= 1.15 Expansion, <= 0.85 Contraction."
             />
             <StatCard
@@ -2107,13 +2259,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               label="Closed Trades"
               value={`${stratPerformance.total}`}
               color="text-text"
-              subValue={`${stratPerformance.wins} Wins · ${stratPerformance.losses} Losses`}
+              subValue={`${stratPerformance.wins}W · ${stratPerformance.losses}L`}
               tooltipText="Total closed historical executions attributed to this strategy."
             />
           </div>
 
-          <div className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden flex flex-col gap-3 p-3.5 sm:p-4">
-            <div className="flex items-center justify-between flex-wrap gap-3 pb-2.5 border-b border-border/20">
+          <div className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden flex flex-col gap-3 p-3 sm:p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-border/20">
               <div className="flex items-center gap-2 text-left">
                 <BarChart3 size={15} className="text-accent shrink-0" />
                 <div>
@@ -2122,13 +2274,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 </div>
               </div>
 
-              <div className="flex items-center p-0.5 bg-surface/60 rounded-xl border border-border/40 text-dim flex-wrap gap-1">
+              <div className="grid grid-cols-5 sm:inline-flex items-center p-0.5 bg-surface/60 rounded-xl border border-border/40 text-dim gap-0.5 sm:gap-1 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => setShowPnl(!showPnl)}
                   aria-pressed={showPnl}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    "min-h-[36px] sm:min-h-0 px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     showPnl ? "bg-background border border-border/60 text-green" : "text-dim hover:text-text"
                   )}
                 >
@@ -2139,18 +2291,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowHitRate(!showHitRate)}
                   aria-pressed={showHitRate}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    "min-h-[36px] sm:min-h-0 px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     showHitRate ? "bg-background border border-border/60 text-accent" : "text-dim hover:text-text"
                   )}
                 >
-                  Hit Rate
+                  <span className="sm:hidden">WR%</span>
+                  <span className="hidden sm:inline">Hit Rate</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowPf(!showPf)}
                   aria-pressed={showPf}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    "min-h-[36px] sm:min-h-0 px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     showPf ? "bg-background border border-border/60 text-purple" : "text-dim hover:text-text"
                   )}
                 >
@@ -2161,7 +2314,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowSharpe(!showSharpe)}
                   aria-pressed={showSharpe}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    "min-h-[36px] sm:min-h-0 px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     showSharpe ? "bg-background border border-border/60 text-amber" : "text-dim hover:text-text"
                   )}
                 >
@@ -2172,7 +2325,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowSortino(!showSortino)}
                   aria-pressed={showSortino}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    "min-h-[36px] sm:min-h-0 px-1.5 sm:px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center justify-center whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                     showSortino ? "bg-background border border-border/60 text-cyan-400" : "text-dim hover:text-text"
                   )}
                 >
@@ -2183,13 +2336,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
             {(showPnl || showHitRate || showPf || showSharpe || showSortino) ? (
               <Suspense fallback={
-                <div className="h-[220px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
+                <div className="h-[210px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
                   <Loader2 size={18} className="animate-spin text-accent" />
                 </div>
               }>
                 <LazyStrategyPerformanceOverlayChart
                   trades={(tradeHistory || analytics?.trades || []).filter(t => (t.strategy_label || 'Momentum Strategy') === s.strategy_label)}
-                  height={240}
+                  height={220}
                   showPnl={showPnl}
                   showHitRate={showHitRate}
                   showPf={showPf}
@@ -2211,7 +2364,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 onClick={() => setIsCalendarOpen(!isCalendarOpen)}
                 aria-expanded={isCalendarOpen}
                 aria-controls="calendar-content"
-                className="w-full py-2 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                className="w-full min-h-[42px] py-2 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
               >
                 <div className="flex items-center gap-2">
                   <CalendarIcon size={13} className="text-accent" />
@@ -2220,7 +2373,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 <ChevronDown size={14} className={cn("text-dim transition-transform duration-150", isCalendarOpen && "rotate-180")} />
               </button>
               {isCalendarOpen && (
-                <div id="calendar-content" className="pt-2 animate-in fade-in duration-150">
+                <div id="calendar-content" className="pt-2 overflow-x-auto animate-in fade-in duration-150">
                   <Suspense fallback={
                     <div className="h-[120px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
                       <Loader2 size={16} className="animate-spin text-accent" />

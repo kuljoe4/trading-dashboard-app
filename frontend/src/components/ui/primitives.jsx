@@ -658,10 +658,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
       tabIndex={0}
       className={cn(
-        "z-40 transition-all duration-300 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset mb-3 lg:mb-4 py-2 px-2.5 sm:px-3.5 rounded-2xl",
-        sticky && "sticky top-0 backdrop-blur-xl border-b transition-colors",
+        "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset mb-3 lg:mb-4 py-2 px-2.5 sm:px-3.5 rounded-2xl transition-colors transition-shadow duration-200",
+        sticky && "sticky top-0 backdrop-blur-xl border-b",
         sticky && isScrolled
-          ? "bg-background/90 border-border/40 shadow-md shadow-black/30 py-1.5"
+          ? "bg-background/95 border-border/40 shadow-md shadow-black/30"
           : "bg-background/60 border-border/20 shadow-none"
       )}
     >

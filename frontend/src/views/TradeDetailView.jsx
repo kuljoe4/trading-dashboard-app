@@ -12,29 +12,36 @@ import { useNow } from '../hooks/useNow'
 
 const TradeDetailView = ({ tradeId }) => {
   const { activeTrades, wsStatus, updateStats, addAlert, config } = useTradingStore()
-  const trade = (activeTrades || []).find(t => t.id === tradeId || t.symbol === tradeId)
+  const [historicalTrade, setHistoricalTrade] = useState(null)
+  const activeTrade = (activeTrades || []).find(t => t.id === tradeId || t.symbol === tradeId)
+  const trade = activeTrade || historicalTrade
   const now = useNow()
 
   const duration = useMemo(() => {
     if (!trade?.entry_ts) return '---'
     const start = new Date(trade.entry_ts).getTime()
-    return formatDuration(now - start)
-  }, [trade?.entry_ts, now])
+    const end = trade.exit_ts ? new Date(trade.exit_ts).getTime() : now
+    return formatDuration(Math.max(0, end - start))
+  }, [trade?.entry_ts, trade?.exit_ts, now])
 
   // Lifecycle-scoped subscription contract
   useResourceFocus('trade', tradeId);
 
   useEffect(() => {
     if (tradeId) {
-      // REST Hydration: Fetch immediate state to avoid waiting for tick
+      // REST Hydration: Fetch immediate state (active OR persisted historical trade)
       sessionAPI.getTrade(tradeId).then(res => {
          if (res.data) {
+           if (res.data.status && res.data.status !== 'OPEN') {
+             setHistoricalTrade({ ...res.data, _is_full: true });
+             return;
+           }
            const currentState = useTradingStore.getState();
            // Map current active trades, replacing the hydrated one if it matches
            const nextTrades = currentState.activeTrades.map(t =>
              (t.id === res.data.id || t.symbol === res.data.symbol) ? { ...t, ...res.data, _is_full: true } : t
            );
-           // If it wasn't in activeTrades yet, add it
+           // If it wasn't in activeTrades yet and is OPEN, add it
            if (!nextTrades.some(t => t.id === res.data.id || t.symbol === res.data.symbol)) {
              nextTrades.push({ ...res.data, _is_full: true });
            }

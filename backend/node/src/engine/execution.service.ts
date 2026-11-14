@@ -132,7 +132,11 @@ export class ExecutionService {
             const warmupMsg = `⚠️ [Prerequisite Notice] Trade ${trade.symbol}: Exit indicator warmup in progress (${candles.length}/${requiredWarmup} candles for ${exitInterval}). Exit signals (${exitSig}) will NOT fire until candle buffer converges.`;
             this.logger.log(warmupMsg);
             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: warmupMsg, level: 'info' });
-            this.marketFeedService.queueBackfill(trade.symbol, exitInterval, requiredWarmup);
+            const isShortHistory = typeof (this.marketFeedService as any).isBackfillShortHistory === 'function'
+              && (this.marketFeedService as any).isBackfillShortHistory(trade.symbol, exitInterval);
+            if (!isBanned && !isShortHistory) {
+              this.marketFeedService.queueBackfill(trade.symbol, exitInterval, requiredWarmup);
+            }
           }
         }
       }
@@ -595,7 +599,7 @@ export class ExecutionService {
         const lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod);
 
         // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles
-        if (lookback.reason === 'time_gap' || lookback.reason === 'stale_data' || lookback.reason === 'too_few_candles') {
+        if ((lookback.reason === 'time_gap' || lookback.reason === 'stale_data' || lookback.reason === 'too_few_candles') && !(this.sessionState.isBanned() || this.sessionState.isGeoBlocked())) {
           this.logger.debug(`[Lookback Auto-heal] Requesting backfill for ${opp.symbol} ${slTimeframe} due to ${lookback.reason}`);
           this.marketFeedService.queueBackfill(opp.symbol, slTimeframe, lookbackPeriod);
         }

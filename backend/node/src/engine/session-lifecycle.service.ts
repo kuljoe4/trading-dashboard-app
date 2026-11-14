@@ -27,6 +27,7 @@ import { ENGINE_CONSTANTS, EXIT_REASONS } from "../models/constants";
 
 import { LifecycleDiagnosticService } from './lifecycle-diagnostic.service';
 import { MaintenanceService } from './maintenance.service';
+import { BinanceRequestQueue } from '../lib/binanceClientFactory';
 
 @Injectable()
 export class SessionLifecycleService {
@@ -99,8 +100,8 @@ export class SessionLifecycleService {
     await this.orderManager.setBinanceClient(bc, mode === "paper");
 
     if (mode !== "paper" && bc) {
-      // PROACTIVE RATE LIMIT: Reset weights at session start to ensure clean slate
-      this.sessionState.updateRateLimit(0);
+      // Preserve known minute weight across rapid session restarts so throttling stays accurate
+      this.sessionState.updateRateLimit(BinanceRequestQueue.getCurrentWeight());
 
       await this.progress(
         `Configuring Binance ${mode.toUpperCase()} account...`,
@@ -283,6 +284,9 @@ export class SessionLifecycleService {
       }
     }
     this.sessionState.setActiveTrades(this.positionTracker.activeList());
+    if (open.length > 0) {
+      this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, config);
+    }
 
     await this.progress("Session ready. Trading logic engaged.");
 

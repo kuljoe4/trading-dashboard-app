@@ -868,7 +868,8 @@ export class OrderManagerService {
       this.paperMode,
       this.binanceClient,
       (headers) => this.updateWeight(headers),
-      (s, o) => this.fetchPosition(s, o)
+      (s, o) => this.fetchPosition(s, o),
+      () => this.isBanned() || this.sessionState.isRateLimited(0.70)
     );
   }
 
@@ -2270,21 +2271,24 @@ export class OrderManagerService {
 
       const isSystemic = errMsg.includes('Invalid API-key') ||
                          errMsg.includes('Too many requests') ||
+                         errMsg.includes('IP banned') ||
                          errMsg.includes('-1015') ||
                          errMsg.includes('-1003') ||
                          errMsg.includes('-2015');
       if (isSystemic) this.recordFailure(true);
 
-      // Verification query loop if cancel returned false
-      try {
-          this.logger.debug(`[cancelBinanceOrder] Querying active exchange orders to confirm if ${orderId} still exists...`);
-          const openStatus = await this.queryOrderStatus(symbol, orderId, orderType === 'algo' ? 'algo' : 'standard');
-          if (!openStatus || ['CANCELED', 'FILLED', 'REJECTED'].includes(openStatus.status)) {
-              this.logger.debug(`[cancelBinanceOrder] Order ${orderId} is no longer active despite cancel error. Returning true.`);
-              return true;
-          }
-      } catch (queryErr) {
-          this.logger.warn(`[cancelBinanceOrder] Validation query for ${orderId} failed: ${queryErr}`);
+      // Verification query loop if cancel returned false (skip if banned/systemic rate-limited)
+      if (!isSystemic && !this.isBanned() && !this.sessionState.isRateLimited(0.85)) {
+        try {
+            this.logger.debug(`[cancelBinanceOrder] Querying active exchange orders to confirm if ${orderId} still exists...`);
+            const openStatus = await this.queryOrderStatus(symbol, orderId, orderType === 'algo' ? 'algo' : 'standard');
+            if (!openStatus || ['CANCELED', 'FILLED', 'REJECTED'].includes(openStatus.status)) {
+                this.logger.debug(`[cancelBinanceOrder] Order ${orderId} is no longer active despite cancel error. Returning true.`);
+                return true;
+            }
+        } catch (queryErr) {
+            this.logger.warn(`[cancelBinanceOrder] Validation query for ${orderId} failed: ${queryErr}`);
+        }
       }
 
       return false;
@@ -2293,6 +2297,7 @@ export class OrderManagerService {
 
   public async fetchAllOpenOrders(): Promise<(BinanceOrderReceipt | BinanceAlgoOrderReceipt)[]> {
     if (!this.binanceClient) return [];
+    if (!this.paperMode && (this.isBanned() || this.sessionState.isRateLimited(0.80))) return [];
     try {
       // Use standard endpoint
       const response = await this.binanceClient.restAPI.currentAllOpenOrders();
@@ -2330,6 +2335,7 @@ export class OrderManagerService {
 
   public async fetchAllOpenAlgoOrders(): Promise<BinanceAlgoOrderReceipt[]> {
     if (!this.binanceClient) return [];
+    if (!this.paperMode && (this.isBanned() || this.sessionState.isRateLimited(0.80))) return [];
     try {
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders();
       this.updateWeight(response?.headers);
@@ -2606,7 +2612,7 @@ export class OrderManagerService {
     }
 
     if (!this.binanceClient) return [];
-    if (!this.paperMode && this.sessionState.isRateLimited(0.95)) return [];
+    if (!this.paperMode && (this.isBanned() || this.sessionState.isRateLimited(0.85))) return [];
     try {
       // 1. Fetch standard orders
       const res = await this.binanceClient.restAPI.currentAllOpenOrders({ symbol });
@@ -2627,6 +2633,7 @@ export class OrderManagerService {
 
   public async fetchOpenAlgoOrders(symbol: string, options: { forceFresh?: boolean } = {}): Promise<BinanceAlgoOrderReceipt[]> {
     if (!this.binanceClient) return [];
+    if (!this.paperMode && (this.isBanned() || this.sessionState.isRateLimited(0.85))) return [];
     try {
       const response = await this.binanceClient.restAPI.currentAllAlgoOpenOrders({ symbol });
       this.updateWeight(response?.headers);
@@ -2670,7 +2677,7 @@ export class OrderManagerService {
    * Cancels BOTH standard and algorithmic orders for a symbol to resolve ReduceOnly capacity conflicts.
    */
   public async exhaustiveSymbolFlush(symbol: string) {
-    if (this.paperMode || !this.binanceClient) return;
+    if (this.paperMode || !this.binanceClient || this.isBanned()) return;
 
     if (this.flushLocks.get(symbol)) {
        this.logger.debug(`[${symbol}] Flush already in progress. skipping.`);
@@ -2698,22 +2705,24 @@ export class OrderManagerService {
         this.logger.log(`[${symbol}] [Flush] Algo orders cleared.`);
       } catch (e: any) {
         this.logger.debug(`[${symbol}] [Flush] Failed to clear all algo orders via bulk API: ${e.message}. Falling back to manual loop.`);
-        try {
-          const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
-          if (algoOrders.length > 0) {
-             this.logger.log(`[${symbol}] [Flush] Found ${algoOrders.length} ghost algo orders. Clearing manually...`);
-             for (const o of algoOrders) {
-                const algoId = String(o.algoId || o.orderId);
-                await this.cancelBinanceOrder(symbol, algoId, 'algo');
-             }
+        if (!this.isBanned() && !this.sessionState.isRateLimited(0.85)) {
+          try {
+            const algoOrders = await this.fetchOpenAlgoOrders(symbol, { forceFresh: true });
+            if (algoOrders.length > 0) {
+               this.logger.log(`[${symbol}] [Flush] Found ${algoOrders.length} ghost algo orders. Clearing manually...`);
+               for (const o of algoOrders) {
+                  const algoId = String(o.algoId || o.orderId);
+                  await this.cancelBinanceOrder(symbol, algoId, 'algo');
+               }
+            }
+          } catch (innerE: any) {
+             this.logger.debug(`[${symbol}] [Flush] Manual algo clear failed: ${innerE.message}`);
           }
-        } catch (innerE: any) {
-           this.logger.debug(`[${symbol}] [Flush] Manual algo clear failed: ${innerE.message}`);
         }
       }
 
-      // 3. Purge real-time caches
-      this.sessionState.realTimeOrders.delete(symbol);
+      // 3. Preserve empty UDS order cache entry so Watchdog stays zero-weight instead of falling back to 65w bulk REST
+      this.sessionState.realTimeOrders.set(symbol, []);
       this.markAsExecuted(symbol, 'ALL', 'FLUSHED');
 
       this.logger.log(`[${symbol}] [Flush] Exhaustive flush complete.`);
@@ -2813,9 +2822,9 @@ export class OrderManagerService {
     }
 
     if (!this.binanceClient) return null;
-    // BOLT: Proactive Rate Limit - Skip position fetching if near limits
-    if (this.sessionState.isRateLimited(0.9)) {
-       this.logger.debug(`Skipping fetchPosition for ${symbol} due to high rate limit usage`);
+    // BOLT: Proactive Rate Limit - Skip position fetching if banned or near limits
+    if (!this.paperMode && (this.isBanned() || this.sessionState.isRateLimited(0.85))) {
+       this.logger.debug(`Skipping fetchPosition for ${symbol} due to ban/high rate limit usage`);
        return null;
     }
     try {

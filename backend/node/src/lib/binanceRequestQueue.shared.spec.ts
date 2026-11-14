@@ -33,7 +33,9 @@ describe('BinanceRequestQueue Shared State', () => {
         }
     } as any;
 
-    // Reset static members via any cast if necessary or just rely on the fact they are shared
+    // Reset static members cleanly between tests
+    BinanceRequestQueue.setCooldownUntil(0);
+    BinanceRequestQueue.setWeightLimit(2400);
     (BinanceRequestQueue as any).lastRequestTs = 0;
     (BinanceRequestQueue as any).currentWeight1m = 0;
     (BinanceRequestQueue as any).adaptiveDelayMs = 0;
@@ -134,5 +136,82 @@ describe('BinanceRequestQueue Shared State', () => {
     // 4. Verify recovery event
     expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_cleared');
     expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('Terminal Lock lifted'));
+  });
+
+  it('should preserve active banCooldownUntil across emergency calls while rejecting non-emergency requests', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
+    const futureBan = Date.now() + 60 * 60 * 1000; // 1h ban
+    BinanceRequestQueue.setCooldownUntil(futureBan);
+    (BinanceRequestQueue as any).currentWeight1m = 9999;
+
+    const emergencyFn = jest.fn().mockResolvedValue('uds-ok');
+    const normalFn = jest.fn().mockResolvedValue('should-not-run');
+
+    await expect(queue.add(emergencyFn, 'keepaliveUserDataStream', true)).resolves.toBe('uds-ok');
+    expect(emergencyFn).toHaveBeenCalledTimes(1);
+
+    // Ban cooldown must still be intact after emergency call completed
+    await expect(queue.add(normalFn, 'klineCandlestickData')).rejects.toThrow('IP banned');
+    expect(normalFn).not.toHaveBeenCalled();
+  });
+
+  it('should enforce tiered ceilings for bulk audits (65%), active warmup klines (65%), background klines (50%), and operational queries (80%)', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
+
+    // Weight at 55% (1320/2400) -> background kline shed (>50%), active_warmup allowed (<65%)
+    (BinanceRequestQueue as any).currentWeight1m = 1320;
+    await expect(queue.add(jest.fn().mockResolvedValue('bg'), 'klineCandlestickData', false, { estimatedWeight: 2 })).rejects.toThrow('Load shedding active');
+    await expect(queue.add(jest.fn().mockResolvedValue('warmup'), 'klineCandlestickData', false, { priority: 'active_warmup', estimatedWeight: 1 })).resolves.toBe('warmup');
+
+    // Weight at 68% (1632/2400) -> bulk audit (40w) & active_warmup shed (>65%), operational query allowed (<80%)
+    (BinanceRequestQueue as any).currentWeight1m = 1632;
+    await expect(queue.add(jest.fn().mockResolvedValue([]), 'currentAllOpenOrders', false, { isBulk: true, estimatedWeight: 40 })).rejects.toThrow('Load shedding active');
+    await expect(queue.add(jest.fn().mockResolvedValue('wu'), 'klineCandlestickData', false, { priority: 'active_warmup', estimatedWeight: 1 })).rejects.toThrow('Load shedding active');
+    await expect(queue.add(jest.fn().mockResolvedValue([]), 'queryOrder', false, { estimatedWeight: 1 })).resolves.toEqual([]);
+
+    // Weight at 82% (1968/2400) -> operational queries shed (>80%), critical entries still allowed (<95%)
+    (BinanceRequestQueue as any).currentWeight1m = 1968;
+    await expect(queue.add(jest.fn().mockResolvedValue([]), 'queryOrder', false, { estimatedWeight: 1 })).rejects.toThrow('Load shedding active');
+    await expect(queue.add(jest.fn().mockResolvedValue({ orderId: 1 }), 'newOrder')).resolves.toEqual({ orderId: 1 });
+  });
+
+  it('should detect Axios-wrapped 418 / -1003 ban errors with retry-after headers', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
+    const axiosBanError: any = new Error('Request failed');
+    axiosBanError.response = {
+      status: 418,
+      data: { code: -1003, msg: 'Way too many requests; IP banned until ' + (Date.now() + 120000) },
+      headers: { 'retry-after': '120' },
+    };
+
+    await expect(queue.add(() => Promise.reject(axiosBanError), 'klineCandlestickData')).rejects.toThrow('Request failed');
+    expect(eventEmitter.emit).toHaveBeenCalledWith('binance.api_limit_reached', expect.objectContaining({ type: 'BAN' }));
+    expect((BinanceRequestQueue as any).currentWeight1m).toBe(9999);
+  });
+
+  it('should classify -1003 "Too many requests; current limit ... is 2400 requests per minute" (429) as a 60s RATE_LIMIT instead of a 24h BAN', async () => {
+    const queue = new BinanceRequestQueue(logger, eventEmitter, settingsRepository, sessionState);
+    const rateLimitError: any = new Error('Too many requests; current limit of IP(152.55.188.46) is 2400 requests per minute. Please use the websocket for live updates to avoid polling the API.');
+    rateLimitError.response = {
+      status: 429,
+      data: {
+        code: -1003,
+        msg: 'Too many requests; current limit of IP(152.55.188.46) is 2400 requests per minute. Please use the websocket for live updates to avoid polling the API.',
+      },
+    };
+
+    const before = Date.now();
+    await expect(queue.add(() => Promise.reject(rateLimitError), 'klineCandlestickData')).rejects.toThrow('Too many requests');
+
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'binance.api_limit_reached',
+      expect.objectContaining({
+        type: 'RATE_LIMIT',
+      })
+    );
+    const until = BinanceRequestQueue.getEffectiveCooldownUntil();
+    // Should be ~60s (1-minute window reset), never 24h
+    expect(until).toBeGreaterThanOrEqual(before + 55000);
+    expect(until).toBeLessThanOrEqual(before + 70000);
   });
 });

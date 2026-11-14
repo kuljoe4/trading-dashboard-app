@@ -117,15 +117,19 @@ export class TradingSessionService implements OnApplicationShutdown {
       .filter((v: any) => v && v.enabled !== false)
       .map(
         (v, i) => {
-          const hasExplicitVariantSymbols = Array.isArray(v.symbols) && v.symbols.length > 0;
-          const isExplicitDiscoveryRequested = Array.isArray(v.symbols) && v.symbols.length === 0;
+          const hasVariantSymbols = Array.isArray(v.symbols);
+          const hasVariantScannerOverride =
+            v.watchlist_size !== undefined ||
+            v.discovery_mode !== undefined ||
+            v.scan_interval !== undefined ||
+            v.global_scanner_enabled !== undefined;
 
-          // If variant explicitly provides symbols, use them.
-          // If variant explicitly set symbols: [], it opted into dynamic discovery.
-          // Otherwise, inherit the baseSymbols (so changing scan_interval or parameters does not wipe out symbols).
-          const variantSymbols = hasExplicitVariantSymbols
+          // If variant explicitly provides symbols (including [] for discovery), use them.
+          // If variant overrides scanner config without specifying symbols, avoid leaking base static symbols.
+          // Otherwise, inherit baseSymbols.
+          const variantSymbols = hasVariantSymbols
             ? v.symbols
-            : (isExplicitDiscoveryRequested ? [] : baseSymbols);
+            : (hasVariantScannerOverride ? [] : baseSymbols);
 
           return ({
             ...this.config,
@@ -297,6 +301,11 @@ export class TradingSessionService implements OnApplicationShutdown {
     // DATA-07: Recalculate total risk on start to ensure O(1) tracker is in sync with loaded state
     this.positionTracker.recalculateTotalRisk();
 
+    // AGENTS.md §8: Startup reconciliation already established baseline; prevent redundant T+15s bulk REST burst
+    const startTs = Date.now();
+    this.lastFullReconciliationTs = startTs;
+    this.lastWatchdogTs = startTs;
+
     // DATA-07: Immediate risk evaluation on start to detect gating/hibernation state
     // BOLT: Await this before starting loops so we don't start market feed only to stop it immediately
     try {
@@ -305,10 +314,16 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.logger.error(`Initial risk gating check failed: ${e.message}`);
     }
 
-    const hot = config.hot_loop_interval_ms || 5000;
+    const hasTrades = this.positionTracker.activeCount() > 0;
+    const isEco = this.sessionState.listenerCount === 0;
+    const hot = isEco
+      ? Math.max(hasTrades ? 5000 : 10000, config.hot_loop_interval_ms || 5000)
+      : (config.hot_loop_interval_ms || 5000);
     this.hotLoopInterval = setInterval(() => this.hotLoop(), hot);
     if (this.hotLoopInterval?.unref) this.hotLoopInterval.unref();
-    const main = config.main_loop_interval_ms || 15000;
+    const main = isEco
+      ? Math.max(hasTrades ? 15000 : 30000, config.main_loop_interval_ms || 15000)
+      : (config.main_loop_interval_ms || 15000);
     this.mainLoopInterval = setInterval(() => this.mainLoop(), main);
     if (this.mainLoopInterval?.unref) this.mainLoopInterval.unref();
 
@@ -790,18 +805,20 @@ export class TradingSessionService implements OnApplicationShutdown {
       await this.refreshRiskGating();
       const now = Date.now();
 
-      // SRE: Run periodic macro full state reconciliation every 5 minutes (300,000ms)
+      // AGENTS.md §8: Periodic REST polling for account state is FORBIDDEN when UDS is healthy.
+      // Only run fallback reconciliation if the User Data Stream is disconnected/unhealthy.
+      const udsHealthy = this.sessionLifecycle?.isUdsConnected === true;
       const fiveMinutes = 300000;
-      if (!this.lastFullReconciliationTs || now - this.lastFullReconciliationTs >= fiveMinutes) {
+      if (!udsHealthy && (!this.lastFullReconciliationTs || now - this.lastFullReconciliationTs >= fiveMinutes)) {
         this.lastFullReconciliationTs = now;
         this.reconcileLiveState().catch(err => {
-          this.logger.error(`[Reconciliation] Periodic macro reconciliation failed: ${err.message || err}`);
+          this.logger.error(`[Reconciliation] Periodic fallback reconciliation (UDS down) failed: ${err.message || err}`);
         });
       }
 
-      // SRE: Run periodic micro protection watchdog audit every 2 minutes (120,000ms)
+      // SRE: Run periodic micro protection watchdog audit every 2 minutes (120,000ms) when not hibernating flat
       const twoMinutes = 120000;
-      if (!this.lastWatchdogTs || now - this.lastWatchdogTs >= twoMinutes) {
+      if ((!this.sessionState.hibernating || this.positionTracker.activeCount() > 0) && (!this.lastWatchdogTs || now - this.lastWatchdogTs >= twoMinutes)) {
         this.lastWatchdogTs = now;
         this.maintenanceService.protectionWatchdog(this.running, this.config, undefined).catch(err => {
           this.logger.error(`[Watchdog] Periodic micro protection watchdog failed: ${err.message || err}`);
@@ -864,13 +881,36 @@ export class TradingSessionService implements OnApplicationShutdown {
         return;
       }
 
+      // Skip all scanning and entry evaluation when globally paused
+      if (this.sessionState.paused) {
+        this.refreshActiveWindows([]);
+        this.monitoringService.setLoopStage("IDLE");
+        this.mainLoopProcessing = false;
+        return;
+      }
+
       const start = performance.now();
       const strategyConfigs = this.getStrategyConfigs();
       const activePositionSymbols = this.positionTracker.getPositionSymbols();
       const opportunitiesBySignature = new Map<string, any[]>();
       let primaryOpportunities: any[] = [];
+      const isPausedLabel = (label: string) =>
+        this.sessionState.isStrategyPaused
+          ? this.sessionState.isStrategyPaused(label)
+          : Boolean(this.sessionState.pausedStrategies?.has(label));
+
+      // Prune stale knife-bypass log timestamps for removed strategy labels
+      if (this.loggedKnifeBypassMap.size > strategyConfigs.length + 5) {
+        const validLabels = new Set(strategyConfigs.map(c => c.strategy_label || "Momentum Strategy"));
+        for (const key of Array.from(this.loggedKnifeBypassMap.keys())) {
+          if (!validLabels.has(key)) this.loggedKnifeBypassMap.delete(key);
+        }
+      }
+
       this.monitoringService.setLoopStage("SCANNING");
       for (const sc of strategyConfigs) {
+        const label = sc.strategy_label || "Momentum Strategy";
+        if (isPausedLabel(label)) continue;
         const sig = this.scanSignature(sc);
         if (!opportunitiesBySignature.has(sig))
           opportunitiesBySignature.set(sig, this.momentumScanner.scan(sc, activePositionSymbols));
@@ -878,6 +918,13 @@ export class TradingSessionService implements OnApplicationShutdown {
           primaryOpportunities = opportunitiesBySignature.get(sig) || [];
       }
       const scannerData = strategyConfigs.map((c) => {
+        const label = c.strategy_label || "Momentum Strategy";
+        if (isPausedLabel(label)) {
+          return {
+            strategy_label: c.strategy_label,
+            opportunities: [],
+          };
+        }
         const rawOpps = opportunitiesBySignature.get(this.scanSignature(c)) || [];
         const opportunitiesWithSignals = rawOpps
           .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)

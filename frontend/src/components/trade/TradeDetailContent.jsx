@@ -2423,6 +2423,37 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
             </div>
           </CollapsibleSection>
         )}
+
+        {/* Strategy Rules & Execution Config Snapshot (persists in DB across restarts) */}
+        {trade.strategy_config && typeof trade.strategy_config === 'object' && Object.keys(trade.strategy_config).length > 0 && (
+          <CollapsibleSection
+            title="Strategy Rules & Config Snapshot"
+            icon={<Sliders size={14} className="text-accent" />}
+            badge={trade.strategy_label || trade.strategy_config.strategy_label || 'Saved Snapshot'}
+            defaultOpen={trade.status !== 'OPEN'}
+          >
+            {(() => {
+              const sc = trade.strategy_config;
+              const entrySigs = Array.isArray(sc.enabled_signals) && sc.enabled_signals.length > 0 ? sc.enabled_signals.join(', ') : 'None';
+              const exitSigs = Array.isArray(sc.exit_signals) && sc.exit_signals.length > 0 ? sc.exit_signals.join(', ') : 'None';
+              const ladderStr = Array.isArray(sc.live_rr_sequence) && sc.live_rr_sequence.length > 0
+                ? sc.live_rr_sequence.map((t, idx) => `${t}R→${(sc.exit_rr_sequence || [])[idx] ?? 0}R`).join(', ')
+                : 'Default';
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+                  <Metric label="Strategy Label" value={trade.strategy_label || sc.strategy_label || 'Momentum Strategy'} tooltip="Strategy or variant name active when this trade opened" />
+                  <Metric label="Mode" value={(sc.trading_mode || (sc.paper_mode === false ? 'live' : 'paper')).toUpperCase()} tooltip="Execution environment recorded at entry" />
+                  <Metric label="Scan Interval & Side" value={`${sc.scan_interval || '1m'} · ${(sc.entry_side || 'both').toUpperCase()}`} tooltip="Scanner timeframe and allowed trade direction" />
+                  <Metric label="Entry Signals" value={`${entrySigs} (${(sc.signal_logic || 'all').toUpperCase()})`} tooltip="Configured entry signal triggers and combination logic" />
+                  <Metric label="Exit Signals" value={`${exitSigs} (${(sc.exit_signal_logic || 'any').toUpperCase()})`} tooltip="Configured exit signals and trigger logic" />
+                  <Metric label="SL Model & Bounds" value={`${sc.sl_type || 'pct'} · ${sc.sl_min_pct ?? 0.3}%–${sc.sl_max_pct ?? 3.0}% (${(sc.sl_out_of_bounds_action || 'clamp').toUpperCase()})`} tooltip="Stop-loss computation method and bounds enforcement" />
+                  <Metric label="TP Mode & Ladder" value={sc.tp_mode === 'fixed' ? `Fixed ${sc.tp_ratio ?? 2.0}R` : `${sc.tp_mode || 'exp_rr_seq'} (${ladderStr})`} tooltip="Take-profit / R:R ratchet schedule snapshotted at entry" />
+                  <Metric label="Risk & Portfolio Cap" value={`${sc.risk_pct_per_trade ?? 1.0}%/tr · Cap ${sc.max_total_risk_pct ?? 5.0}% (${sc.max_open_trades ?? 3} slots)`} tooltip="Position sizing risk % and maximum concurrent risk limits" />
+                </div>
+              );
+            })()}
+          </CollapsibleSection>
+        )}
       </div>
 
       {/* Active Trade Stop Loss & Exit Monitors Configuration Workspace */}
@@ -2900,64 +2931,68 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
         );
       })()}
 
-      <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
-        <SectionLabel className="mb-2.5 text-red">Danger Zone</SectionLabel>
-        <div className="bg-red/5 border border-red/10 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 transition-all hover:bg-red/10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
-              <ShieldAlert size={20} />
-            </div>
-            <div className="flex flex-col">
-              <h3 className="text-xs font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
-              <p className="text-[9px] text-dim font-medium uppercase mt-0.5">Immediately close this position at current market price. This ignores all strategy logic.</p>
+      {trade.status === 'OPEN' && (
+        <>
+          <div className="mt-3 md:mt-5 pt-4 border-t border-border/40">
+            <SectionLabel className="mb-2.5 text-red">Danger Zone</SectionLabel>
+            <div className="bg-red/5 border border-red/10 rounded-2xl p-4 md:p-5 flex flex-col md:flex-row items-center justify-between gap-4 transition-all hover:bg-red/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red/10 flex items-center justify-center text-red shrink-0">
+                  <ShieldAlert size={20} />
+                </div>
+                <div className="flex flex-col">
+                  <h3 className="text-xs font-bold uppercase tracking-tight text-red">Force Liquidation</h3>
+                  <p className="text-[9px] text-dim font-medium uppercase mt-0.5">Immediately close this position at current market price. This ignores all strategy logic.</p>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5 w-full md:w-auto min-w-[180px]">
+                {trade.close_blocked && (
+                   <div className="bg-red/10 border border-red/20 rounded-xl p-2.5 flex flex-col gap-0.5 items-center text-center animate-pulse mb-1.5">
+                      <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
+                         <ShieldAlert size={10} /> Liquidation Blocked
+                      </span>
+                      <span className="text-[7.5px] text-red/60 font-bold uppercase leading-tight">
+                         Max retries exceeded. Manual intervention on Binance is required.
+                      </span>
+                   </div>
+                )}
+                {!trade.close_blocked && trade.close_attempts > 0 && (
+                   <div className="bg-amber/10 border border-amber/20 rounded-xl p-1.5 flex items-center justify-center gap-1.5 mb-1.5">
+                      <Loader2 className="animate-spin text-amber" size={9} />
+                      <span className="text-[7.5px] font-black text-amber uppercase tracking-widest">
+                         Closure Retry {trade.close_attempts}/5
+                      </span>
+                   </div>
+                )}
+                <Btn
+                  variant="danger"
+                  onClick={() => setConfirmClose(true)}
+                  disabled={isClosing}
+                  loading={isClosing}
+                  className="w-full h-10 py-1 text-[11px] uppercase tracking-widest font-black"
+                >
+                  <Trash2 size={14} /> Force Close
+                </Btn>
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-col gap-1.5 w-full md:w-auto min-w-[180px]">
-            {trade.close_blocked && (
-               <div className="bg-red/10 border border-red/20 rounded-xl p-2.5 flex flex-col gap-0.5 items-center text-center animate-pulse mb-1.5">
-                  <span className="text-[9px] font-black text-red uppercase tracking-widest flex items-center gap-1">
-                     <ShieldAlert size={10} /> Liquidation Blocked
-                  </span>
-                  <span className="text-[7.5px] text-red/60 font-bold uppercase leading-tight">
-                     Max retries exceeded. Manual intervention on Binance is required.
-                  </span>
-               </div>
-            )}
-            {!trade.close_blocked && trade.close_attempts > 0 && (
-               <div className="bg-amber/10 border border-amber/20 rounded-xl p-1.5 flex items-center justify-center gap-1.5 mb-1.5">
-                  <Loader2 className="animate-spin text-amber" size={9} />
-                  <span className="text-[7.5px] font-black text-amber uppercase tracking-widest">
-                     Closure Retry {trade.close_attempts}/5
-                  </span>
-               </div>
-            )}
-            <Btn
-              variant="danger"
-              onClick={() => setConfirmClose(true)}
-              disabled={isClosing}
-              loading={isClosing}
-              className="w-full h-10 py-1 text-[11px] uppercase tracking-widest font-black"
-            >
-              <Trash2 size={14} /> Force Close
-            </Btn>
-          </div>
-        </div>
-      </div>
-
-      <ConfirmationModal
-        isOpen={confirmClose}
-        onClose={() => setConfirmClose(false)}
-        onConfirm={() => {
-          setConfirmClose(false);
-          onTradeClose(trade.symbol);
-        }}
-        title="Force Liquidation?"
-        message={`Are you sure you want to immediately close your ${trade.symbol} ${trade.direction} position at market price? This bypasses all exit signals and risk guards.`}
-        confirmText="Confirm Liquidation"
-        variant="danger"
-        loading={isClosing}
-      />
+          <ConfirmationModal
+            isOpen={confirmClose}
+            onClose={() => setConfirmClose(false)}
+            onConfirm={() => {
+              setConfirmClose(false);
+              onTradeClose(trade.symbol);
+            }}
+            title="Force Liquidation?"
+            message={`Are you sure you want to immediately close your ${trade.symbol} ${trade.direction} position at market price? This bypasses all exit signals and risk guards.`}
+            confirmText="Confirm Liquidation"
+            variant="danger"
+            loading={isClosing}
+          />
+        </>
+      )}
     </div>
   )
 })

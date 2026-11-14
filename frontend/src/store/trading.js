@@ -721,7 +721,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   fetchTradeHistory: async (sid = 'all', limit = 100) => {
     set({ isSyncing: true });
     try {
-      const parsedLimit = limit === 'ALL' || limit === 'all' ? 500 : Math.min(Number(limit) || 100, 500);
+      const parsedLimit = limit === 'ALL' || limit === 'all' ? 5000 : Math.min(Number(limit) || 100, 5000);
       const r = await sessionAPI.history(sid, parsedLimit);
       const incoming = (r.data.trades || []).map(t => normalizeTrade(t, null, false)).filter(Boolean);
       set(st => {
@@ -734,7 +734,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           const ts = t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
           return now - ts < 30000;
         });
-        return { tradeHistory: [...unpropagated, ...incoming].slice(0, 1000) };
+        return { tradeHistory: [...unpropagated, ...incoming].slice(0, 5000) };
       });
     } catch (e) {} finally {
       set({ isSyncing: false });
@@ -836,7 +836,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
        if (Array.isArray(updates.scannerResults)) {
          if (updates.scannerResults.length > 0 || currentScannerResults.length === 0) {
-           merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+           const prevScannerMap = new Map(currentScannerResults.map(r => [r.symbol, r]));
+           merged.scannerResults = updates.scannerResults.map(o => {
+             const sym = String(o?.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
+             return normalizeOpportunity(o, prevScannerMap.get(sym));
+           }).filter(Boolean);
          } else {
            merged.scannerResults = currentScannerResults;
          }
@@ -848,14 +852,20 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
          // Merge incoming tradeHistory with local real-time closed trade updates to avoid losing WebSocket tradeHistory prepends
          const incomingMap = new Map(updates.tradeHistory.map(t => [t.id, t]));
          const localUnmatched = currentTradeHistory.filter(lt => !incomingMap.has(lt.id));
-         merged.tradeHistory = [...updates.tradeHistory.map(t => normalizeTrade(t, null, isResuming)).filter(Boolean), ...localUnmatched].slice(0, 1000);
+         merged.tradeHistory = [...updates.tradeHistory.map(t => normalizeTrade(t, null, isResuming)).filter(Boolean), ...localUnmatched].slice(0, 5000);
        } else if (currentTradeHistory.length > 0) {
          merged.tradeHistory = currentTradeHistory;
        }
     } else {
        // Normal merge with normalization when NOT in resumption window
        if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), false)).filter(Boolean);
-       if (Array.isArray(updates.scannerResults)) merged.scannerResults = updates.scannerResults.map(o => normalizeOpportunity(o)).filter(Boolean);
+       if (Array.isArray(updates.scannerResults)) {
+         const prevScannerMap = new Map(currentScannerResults.map(r => [r.symbol, r]));
+         merged.scannerResults = updates.scannerResults.map(o => {
+           const sym = String(o?.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
+           return normalizeOpportunity(o, prevScannerMap.get(sym));
+         }).filter(Boolean);
+       }
        if (Array.isArray(updates.tradeHistory)) merged.tradeHistory = updates.tradeHistory.map(t => normalizeTrade(t, null, false)).filter(Boolean);
     }
 
@@ -1331,7 +1341,13 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
             hitCount: d.stats?.hitCount ?? st.hitCount,
             activeTrades: nt,
             logs: nextLogs,
-            scannerResults: (Array.isArray(d.scannerResults) ? d.scannerResults.map(normalizeOpportunity) : st.scannerResults || []).filter(Boolean),
+            scannerResults: Array.isArray(d.scannerResults) ? (() => {
+              const prevOppMap = new Map((st.scannerResults || []).map(r => [r.symbol, r]));
+              return d.scannerResults.map(o => {
+                const sym = String(o?.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
+                return normalizeOpportunity(o, prevOppMap.get(sym));
+              }).filter(Boolean);
+            })() : (st.scannerResults || []),
             variantScannerResults: Array.isArray(d.variant_opportunities) ? d.variant_opportunities.reduce((acc, v) => {
               if (!v || !v.strategy_label || !Array.isArray(v.opportunities)) return acc;
               const prevOppMap = new Map(((st.variantScannerResults && st.variantScannerResults[v.strategy_label]) || []).map(r => [r.symbol, r]));

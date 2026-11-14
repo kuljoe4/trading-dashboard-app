@@ -395,8 +395,18 @@ export class EngineBroadcasterService {
           return trade;
         }
 
-        if (isThin && !isMidFidelity) {
-          const { _sig_json, ...cleanThinTrade } = trade;
+        if (isThin) {
+          if (isMidFidelity) {
+            const { _sig_json, active_trade_events, ...midThinTrade } = trade;
+            return midThinTrade;
+          }
+          const {
+            _sig_json,
+            active_trade_events,
+            live_rr_sequence,
+            exit_rr_sequence,
+            ...cleanThinTrade
+          } = trade;
           return cleanThinTrade;
         }
 

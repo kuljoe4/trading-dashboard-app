@@ -197,13 +197,25 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
   });
 
   describe('getFidelityTick', () => {
-    it('should strip _sig_json from thin trades for low-fidelity clients', () => {
-      const thinTrade = { id: 't1', symbol: 'BTC', _thin: true, _sig_json: '{"s1":true}', extra: 'should stay' };
+    it('should strip _sig_json, active_trade_events, and sequences from thin trades for low-fidelity clients', () => {
+      const thinTrade = {
+        id: 't1',
+        symbol: 'BTC',
+        _thin: true,
+        _sig_json: '{"s1":true}',
+        active_trade_events: [{ ts: 1, msg: 'event' }],
+        live_rr_sequence: [0.5, 1],
+        exit_rr_sequence: [0.1, 0.5],
+        extra: 'should stay',
+      };
       const payload = { type: 'tick', trades: [thinTrade] };
       const client = { focusMode: false };
 
       const result = service.getFidelityTick(payload, client);
       expect(result.trades[0]._sig_json).toBeUndefined();
+      expect(result.trades[0].active_trade_events).toBeUndefined();
+      expect(result.trades[0].live_rr_sequence).toBeUndefined();
+      expect(result.trades[0].exit_rr_sequence).toBeUndefined();
       expect(result.trades[0].extra).toBe('should stay');
     });
 

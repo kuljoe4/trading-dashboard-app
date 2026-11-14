@@ -2,6 +2,7 @@ import { Entity, Column, PrimaryColumn, Index } from 'typeorm';
 
 @Entity('klines')
 @Index(['symbol', 'interval', 'time'], { unique: true })
+@Index('IDX_KLINES_INTERVAL_TIME', ['interval', 'time'])
 export class Kline {
   @PrimaryColumn()
   id: string; // symbol_interval_time

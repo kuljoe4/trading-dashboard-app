@@ -93,8 +93,11 @@ export class KlineStoreService {
       } 
       
       if (time > lastCandle.time) {
-        // Persist completed candle to DB if it's new
-        this.persistCandle(symbol, interval, lastCandle).catch(() => {});
+        // Persist completed higher-timeframe candle to DB if it's new.
+        // Skip 1m candles: they expire within 2m of any restart and account for >90% of DB tuple/WAL churn.
+        if (interval !== '1m') {
+          this.persistCandle(symbol, interval, lastCandle).catch(() => {});
+        }
 
         // New candle arriving - allocate only once per interval
         existing.push({ time, open, high, low, close, volume });
@@ -482,11 +485,14 @@ export class KlineStoreService {
     this.invalidateSymbolIntervalCaches(symbol, interval);
     this.logger.verbose(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
 
-    // Persist to DB for future boots
-    this.bulkPersist(symbol, interval, trimmed).catch(() => {});
+    // Persist higher-timeframe candles to DB for future warm boots (skip 1m to avoid DB bloat & TCP egress spikes)
+    if (interval !== '1m') {
+      this.bulkPersist(symbol, interval, trimmed.slice(-150)).catch(() => {});
+    }
   }
 
   async loadFromDb(symbol: string, interval: string, count: number): Promise<number> {
+    if (interval === '1m') return 0;
     try {
       const entities = await this.klineRepository.find({
         where: { symbol, interval },

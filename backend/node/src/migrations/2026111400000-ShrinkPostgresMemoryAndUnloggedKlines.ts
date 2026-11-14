@@ -6,9 +6,9 @@ export class ShrinkPostgresMemoryAndUnloggedKlines2026111400000 implements Migra
   public async up(queryRunner: QueryRunner): Promise<void> {
     // 1. Cap per-session memory during maintenance
     const sessionSettings = [
-      `SET work_mem = '4MB'`,
-      `SET maintenance_work_mem = '16MB'`,
-      `SET temp_buffers = '4MB'`,
+      `SET LOCAL work_mem = '4MB'`,
+      `SET LOCAL maintenance_work_mem = '16MB'`,
+      `SET LOCAL temp_buffers = '4MB'`,
     ];
     for (const stmt of sessionSettings) {
       try {
@@ -18,31 +18,7 @@ export class ShrinkPostgresMemoryAndUnloggedKlines2026111400000 implements Migra
       }
     }
 
-    // 2. Tune PostgreSQL server-level WAL & memory limits to prevent 1GB container page-cache growth on Railway
-    const systemSettings = [
-      `ALTER SYSTEM SET max_wal_size = '64MB'`,
-      `ALTER SYSTEM SET min_wal_size = '16MB'`,
-      `ALTER SYSTEM SET wal_keep_size = '0MB'`,
-      `ALTER SYSTEM SET work_mem = '4MB'`,
-      `ALTER SYSTEM SET maintenance_work_mem = '16MB'`,
-      `ALTER SYSTEM SET autovacuum_work_mem = '16MB'`,
-      `ALTER SYSTEM SET temp_buffers = '4MB'`,
-      `ALTER SYSTEM SET wal_compression = 'on'`,
-    ];
-    for (const stmt of systemSettings) {
-      try {
-        await queryRunner.query(stmt);
-      } catch {
-        // Ignore if role lacks superuser/ALTER SYSTEM privileges
-      }
-    }
-    try {
-      await queryRunner.query(`SELECT pg_reload_conf()`);
-    } catch {
-      // Ignore if unsupported
-    }
-
-    // 3. Reclaim klines disk & OS page cache immediately via temp-table swap + TRUNCATE + UNLOGGED conversion
+    // 2. Reclaim klines disk & OS page cache immediately via temp-table swap + TRUNCATE + UNLOGGED conversion
     const hasKlines = await queryRunner.hasTable("klines");
     if (hasKlines) {
       const dayMs = 24 * 60 * 60 * 1000;
@@ -108,13 +84,12 @@ export class ShrinkPostgresMemoryAndUnloggedKlines2026111400000 implements Migra
       );
     }
 
-    // 4. Prune expired log and balance_history rows and compact their heap files
+    // 3. Prune expired log and balance_history rows
     const hasLog = await queryRunner.hasTable("log");
     if (hasLog) {
       const logCutoff = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
       try {
         await queryRunner.query(`DELETE FROM "log" WHERE "ts" < $1`, [logCutoff]);
-        await queryRunner.query(`VACUUM FULL ANALYZE "log"`);
       } catch {}
     }
 
@@ -123,15 +98,7 @@ export class ShrinkPostgresMemoryAndUnloggedKlines2026111400000 implements Migra
       const balanceCutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
       try {
         await queryRunner.query(`DELETE FROM "balance_history" WHERE "timestamp" < $1`, [balanceCutoff]);
-        await queryRunner.query(`VACUUM FULL ANALYZE "balance_history"`);
       } catch {}
-    }
-
-    // 5. Force a CHECKPOINT so PostgreSQL immediately recycles/unlinks old 16MB WAL segment files in pg_wal/
-    try {
-      await queryRunner.query(`CHECKPOINT`);
-    } catch {
-      // Ignore if role lacks CHECKPOINT permission
     }
   }
 

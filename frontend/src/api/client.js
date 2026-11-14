@@ -342,7 +342,7 @@ export const createSessionAPI = (apiInstance = api) => ({
     config: sanitizeSessionConfig(config),
     paper_mode: paperMode ?? true,
     sessionId,
-  }),
+  }, { timeout: 60000 }),
   stop: () => apiInstance.post('/session/stop'),
   status: (config) => apiInstance.get('/session/status', config),
   list: () => apiInstance.get('/session/list'),
@@ -396,6 +396,39 @@ export const smartOptimizerAPI = {
 export const healthAPI = {
   getStartupChecklist: (fresh = false) => api.get(`/session/startup-checklist${fresh ? '?fresh=true' : ''}`),
   getBinanceHealth: (fresh = false) => api.get(`/healthz/binance${fresh ? '?fresh=true' : ''}`),
+}
+
+export const formatApiErrorMessage = (error, fallback = 'Request failed') => {
+  if (!error) return fallback;
+  if (error.code === 'ECONNABORTED' || String(error.message || '').toLowerCase().includes('timeout')) {
+    return 'Request timed out while waiting for the backend. Check server status and try again.';
+  }
+  if (error.message === 'Network Error' || error.code === 'ERR_NETWORK') {
+    return 'Network Error: Failed to reach backend. Check your connection or backend health.';
+  }
+  const data = error.response?.data;
+  const extract = (val) => {
+    if (!val) return '';
+    if (typeof val === 'string') return val.trim();
+    if (Array.isArray(val)) {
+      return val.map(item => (typeof item === 'string' ? item : (item?.message || (item?.constraints ? Object.values(item.constraints).join(', ') : JSON.stringify(item))))).filter(Boolean).join('; ');
+    }
+    if (typeof val === 'object') {
+      return Object.values(val).map(v => extract(v)).filter(Boolean).join('; ');
+    }
+    return String(val);
+  };
+  const detailMsg = extract(data?.detail);
+  const bodyMsg = extract(data?.message || data?.error);
+  if (detailMsg && bodyMsg && detailMsg !== bodyMsg) {
+    return `${bodyMsg}: ${detailMsg}`;
+  }
+  if (detailMsg) return detailMsg;
+  if (bodyMsg) return bodyMsg;
+  if (error.response?.status) {
+    return `${fallback} (HTTP ${error.response.status})`;
+  }
+  return error.message || fallback;
 }
 
 export { sanitizeSessionConfig }

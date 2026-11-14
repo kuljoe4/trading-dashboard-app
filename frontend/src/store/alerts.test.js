@@ -62,4 +62,30 @@ test('alerts store subsystem validation', async (t) => {
     state = useTradingStore.getState();
     assert.strictEqual(state.alerts.length, 0, 'Alert should be deleted from the store');
   });
+
+  await t.test('addAlert consolidates identical alerts added across >5s within 60s window', () => {
+    useTradingStore.setState({ alerts: [] });
+
+    useTradingStore.getState().addAlert({
+      level: 'error',
+      title: 'Resume Failed',
+      message: 'Session already running'
+    });
+
+    // Simulate alert timestamp from 12 seconds ago
+    const staleTs = Date.now() - 12000;
+    useTradingStore.setState(st => ({
+      alerts: st.alerts.map(a => ({ ...a, ts: staleTs }))
+    }));
+
+    useTradingStore.getState().addAlert({
+      level: 'error',
+      title: 'Resume Failed',
+      message: 'Session already running'
+    });
+
+    const state = useTradingStore.getState();
+    assert.strictEqual(state.alerts.length, 1, 'Should consolidate identical repeated alert within 60s instead of stacking duplicates');
+    assert.strictEqual(state.alerts[0].count, 2);
+  });
 });

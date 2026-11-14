@@ -1,21 +1,26 @@
 import React, { useMemo, useState, useEffect, useCallback, Suspense } from 'react'
-import { pnlColor, pnlClass, fmtUSD } from '../lib/theme'
+import { pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
-import { DecisionLog } from '../components/DecisionLog'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
-import { 
-  StatCard, SectionLabel, StatusBadge, PaperBadge, DemoBadge, LiveBadge,
-  ConditionWidget, PnLBars, CopyButton, cn, ViewHeader, Tooltip
+import {
+  SIGNAL_LABELS,
+  formatSignalLabel,
+  formatSignalValue,
+  getStrategyRulesDiagnostics,
+  buildStrategyNarrative,
+} from '../utils/strategyDiagnostics'
+import {
+  StatCard, SectionLabel, StatusBadge,
+  CopyButton, cn, ViewHeader, Tooltip
 } from '../components/ui/primitives'
 import { SignalGauge } from '../components/ui/SignalGauge'
-import { calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
+import { calculateOpportunityProximity } from '../lib/formatters'
 import { calculatePerformanceMetrics } from '../lib/analytics'
 import { ScannerPreview } from '../components/ScannerPreview'
-import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ChevronLeft, Activity, BarChart3, TrendingUp, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon, ChevronDown, Turtle, Flame,
-  RefreshCw, Clock, CheckCircle2, AlertCircle, Radio, Layers, Search, ShieldCheck, Cpu, ArrowUpRight, Target, Compass, ArrowRight, Lock,
-  Copy, Check, Filter, AlertTriangle, ShieldAlert, FileText, ChevronRight, X
+  Activity, BarChart3, Zap, Pause, Play, Edit3, Loader2, Calendar as CalendarIcon,
+  ChevronDown, Turtle, Flame, RefreshCw, Clock, Radio, Search,
+  Copy, Check, FileText, X, ShieldCheck, AlertTriangle, CheckCircle2, Ban
 } from 'lucide-react'
 import { useResourceFocus } from '../hooks/useResourceFocus'
 import { sessionAPI } from '../api/client'
@@ -30,20 +35,29 @@ const preloadTradeDetailModal = () => {
   import('../components/TradeDetailModal');
 };
 
-const SIGNAL_LABELS = {
-  momentum_pct: 'Momentum',
-  breakout_hl: 'Breakout H/L',
-  ema_price_cross: 'EMA Cross',
-  ema_dual_cross: 'Dual EMA Cross',
-  ema_close: 'EMA Close',
-  ema_dual_close: 'Dual EMA Close',
-  ma: 'MA Cross',
-  engulfing: 'Engulfing',
-  macd_impulse: 'MACD Impulse',
-  macd_fade: 'MACD Fade',
-  macd_pbc: 'MACD PBC',
-  supertrend: 'Supertrend'
-};
+const VerdictTag = React.memo(({ status, customLabel }) => {
+  const map = {
+    allowed: { label: customLabel || 'ALLOWED', cls: 'text-green font-semibold' },
+    firing: { label: customLabel || 'FIRED', cls: 'text-green font-semibold' },
+    rejected: { label: customLabel || 'REJECTED', cls: 'text-red font-semibold' },
+    clamped: { label: customLabel || 'CLAMPED', cls: 'text-amber font-semibold' },
+    warning: { label: customLabel || 'WARNING', cls: 'text-amber font-semibold' },
+    warming: { label: customLabel || 'WARMING', cls: 'text-amber font-semibold' },
+    waiting: { label: customLabel || 'WAITING', cls: 'text-dim font-medium' },
+    configured: { label: customLabel || 'ARMED', cls: 'text-dim font-medium' },
+    neutral: { label: customLabel || 'INFO', cls: 'text-dim font-medium' },
+  };
+  const item = map[status] || map.neutral;
+  return (
+    <span className={cn("text-[11px] font-mono uppercase tracking-wide whitespace-nowrap inline-flex items-center gap-1", item.cls)}>
+      {(status === 'allowed' || status === 'firing') && <CheckCircle2 size={11} className="shrink-0" />}
+      {status === 'rejected' && <Ban size={11} className="shrink-0" />}
+      {(status === 'clamped' || status === 'warning' || status === 'warming') && <AlertTriangle size={11} className="shrink-0" />}
+      <span>{item.label}</span>
+    </span>
+  );
+});
+VerdictTag.displayName = 'VerdictTag';
 
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const { config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing, isThrottled, isSyncingOnResume, sessionActive, pausedStrategies, sessionPaused, activeTrades, tradeHistory } = useTradingStore()
@@ -56,21 +70,26 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [showSortino, setShowSortino] = useState(false)
   const [isPausing, setIsPausing] = useState(false)
   const [isCalendarOpen, setIsCalendarOpen] = useState(false)
-  const [isChecklistOpen, setIsChecklistOpen] = useState(true)
   const [syncingTfMap, setSyncingTfMap] = useState({})
   const [isBatchSyncing, setIsBatchSyncing] = useState(false)
-  const [activeTab, setActiveTab] = useState('pipeline') // 'pipeline' | 'performance' | 'decisions'
+  const [activeTab, setActiveTab] = useState('pipeline') // 'pipeline' | 'decisions' | 'performance'
   const [showAllStaticSymbols, setShowAllStaticSymbols] = useState(false)
   const [showWarmupDebug, setShowWarmupDebug] = useState(false)
+  const [showLiveGauges, setShowLiveGauges] = useState(false)
   const [showScannerPreview, setShowScannerPreview] = useState(false)
+  const [showComplianceNotes, setShowComplianceNotes] = useState(false)
   const [expandedReasonIds, setExpandedReasonIds] = useState({})
   const toggleReasonDetails = useCallback((id) => {
     setExpandedReasonIds(prev => ({ ...prev, [id]: !prev[id] }));
   }, []);
 
-  // Journey Map & Reasons Log State
+  // Journey Map & Faceted Decision Log State
   const [activeJourneyMilestone, setActiveJourneyMilestone] = useState(null)
-  const [reasonsFilter, setReasonsFilter] = useState('all') // 'all' | 'signals' | 'gates' | 'entries' | 'exits'
+  const [reasonsOutcome, setReasonsOutcome] = useState('all') // 'all' | 'allowed' | 'rejected' | 'waiting'
+  const [reasonsStage, setReasonsStage] = useState('all') // 'all' | '1'..'6'
+  const [reasonsSymbol, setReasonsSymbol] = useState('all')
+  const [hideRoutineMisses, setHideRoutineMisses] = useState(true)
+  const [reasonsViewMode, setReasonsViewMode] = useState('timeline') // 'timeline' | 'story'
   const [reasonsSearch, setReasonsSearch] = useState('')
   const [copiedReasonId, setCopiedReasonId] = useState(null)
 
@@ -80,7 +99,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Real-time telemetry & store timestamps
   const lastAuthoritativeUpdateTs = useTradingStore(state => state.lastAuthoritativeUpdateTs || Date.now());
   const lastScanTs = useTradingStore(state => state.lastScanTs);
-  const nextScanTs = useTradingStore(state => state.nextScanTs);
   const gateState = useTradingStore(state => state.gateState || 'ACTIVE');
   const gateReason = useTradingStore(state => state.gateReason || 'OK');
 
@@ -110,7 +128,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       ? variant.symbols
       : (hasVariantScannerOverride ? [] : baseSymbols);
 
-    return { ...config, ...variant, symbols: variantSymbols };
+    return {
+      ...config,
+      ...variant,
+      signal_params: {
+        ...(config.signal_params || {}),
+        ...(variant.signal_params || {}),
+      },
+      signal_timeframes: {
+        ...(config.signal_timeframes || {}),
+        ...(variant.signal_timeframes || {}),
+      },
+      symbols: variantSymbols
+    };
   }, [config, s?.strategy_label]);
 
   const isVariant = useMemo(() => {
@@ -129,7 +159,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     if (variantScannerResults && variantScannerResults[s.strategy_label]) {
       return variantScannerResults[s.strategy_label];
     }
-    // Strict variant isolation: never leak base strategy scanner results into variant view!
     if (isVariant) {
       return [];
     }
@@ -170,7 +199,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     const overallWr = typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50;
     const hitRateRatio = overallWr > 0 ? hitRate / overallWr : 1.0;
 
-    const targetRr = strategyConfig.exit_rr_target || strategyConfig.min_rr || 1.5;
+    const targetRr = strategyConfig.exit_rr_target || strategyConfig.min_rr || strategyConfig.tp_ratio || 1.5;
     const breakevenWr = Math.round((1 / (1 + targetRr)) * 100);
     const recommendedWr = Math.min(85, Math.round(breakevenWr * 1.3));
 
@@ -188,7 +217,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       breakevenWr,
       recommendedWr
     };
-  }, [tradeHistory, analytics, s.strategy_label, strategyConfig]);
+  }, [tradeHistory, analytics, s.strategy_label, strategyConfig, startingBal]);
 
   const hitRateRatioText = stratPerformance.hitRateRatio >= 1.15
     ? `${stratPerformance.hitRateRatio.toFixed(2)}x (Expanding)`
@@ -213,17 +242,25 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         proximity
       };
     })
-    .filter(opp => {
-      const isFired = !!(opp.signalResult?.allFired && opp.signalResult?.signals);
-      return !isFired && opp.proximity < 100;
-    })
     .sort((a, b) => b.proximity - a.proximity);
   }, [strategyScannerResults, strategyConfig]);
 
   const focusedOpp = useMemo(() => {
     if (selectedFocusSymbol) {
-      const found = strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
+      const found = proximityLeaderboard.find(r => r.symbol === selectedFocusSymbol)
+        || strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
       if (found) return found;
+      const activeT = strategyActiveTrades.find(t => t.symbol === selectedFocusSymbol);
+      if (activeT) {
+        return {
+          symbol: activeT.symbol,
+          pct: 0,
+          dir: activeT.direction?.toLowerCase() || 'long',
+          close: activeT.current_price || activeT.entry_price || 0,
+          signalResult: { allFired: true, firedSignals: strategyConfig.enabled_signals || [] }
+        };
+      }
+      return { symbol: selectedFocusSymbol, pct: 0, dir: '---', signalResult: { allFired: false, firedSignals: [] } };
     }
     if (proximityLeaderboard[0]) return proximityLeaderboard[0];
     if (strategyScannerResults[0]) return strategyScannerResults[0];
@@ -232,7 +269,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         symbol: strategyActiveTrades[0].symbol,
         pct: 0,
         dir: strategyActiveTrades[0].direction?.toLowerCase() || 'long',
-        close: strategyActiveTrades[0].entry_price || 0,
+        close: strategyActiveTrades[0].current_price || strategyActiveTrades[0].entry_price || 0,
         signalResult: { allFired: true, firedSignals: strategyConfig.enabled_signals || [] }
       };
     }
@@ -240,15 +277,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyConfig.enabled_signals]);
 
   const bestOpp = focusedOpp;
-  const scanMet = Math.abs(bestOpp.pct) >= strategyConfig.scan_pct_threshold;
+  const focusedActiveTrade = useMemo(() => {
+    return strategyActiveTrades.find(t => t.symbol === focusedOpp.symbol) || strategyActiveTrades[0] || null;
+  }, [strategyActiveTrades, focusedOpp.symbol]);
+
+  const scanMet = bestOpp.symbol !== '---' && Math.abs(bestOpp.pct || 0) >= (strategyConfig.scan_pct_threshold ?? 2.0);
   const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] };
-  const entryMet = scanMet && signalResult.allFired;
+  const entryMet = scanMet && Boolean(signalResult.allFired);
   const signalsCount = strategyConfig.enabled_signals?.length || 0;
   const firedCount = signalResult.firedSignals?.length || 0;
   const signalLogic = strategyConfig.signal_logic || 'all';
   const requiredSignals = strategyConfig.required_signals || [];
 
-  // Single-pass signal label classification
+  // Single-pass signal label classification (preserved for BOLT test invariant)
   const { reqLabels, optLabels } = useMemo(() => {
     const req = [];
     const opt = [];
@@ -266,7 +307,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, [strategyConfig.enabled_signals, requiredSignals]);
 
   const conditionFormula = signalLogic === 'combo'
-    ? `${reqLabels.length > 0 ? `[Req: ${reqLabels.join(' AND ')}]` : '[Req: Base]'} AND ${optLabels.length > 0 ? `[Any: ${optLabels.join(' | ')}]` : '[Any]'}`
+    ? `${reqLabels.length > 0 ? `Req(${reqLabels.join(' & ')})` : 'Req(Base)'} & ${optLabels.length > 0 ? `Any(${optLabels.join(' | ')})` : 'Any'}`
     : signalLogic === 'all' ? 'Match All (AND)' : 'Match Any (OR)';
 
   const isStrategyPaused = pausedStrategies?.includes(s.strategy_label) || sessionPaused;
@@ -284,23 +325,22 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     for (const sym of staticSymbols) {
       const activeTrade = strategyActiveTrades.find(t => t.symbol === sym);
       if (activeTrade) {
-        map[sym] = { state: 'POSITION', label: 'IN POSITION', badgeClass: 'text-green border-green/30 bg-green/10', trade: activeTrade };
+        map[sym] = { state: 'POSITION', label: 'In Position', trade: activeTrade };
         continue;
       }
-      const opp = strategyScannerResults.find(r => r.symbol === sym);
+      const opp = proximityLeaderboard.find(r => r.symbol === sym) || strategyScannerResults.find(r => r.symbol === sym);
       if (opp?.signalResult?.allFired) {
-        map[sym] = { state: 'TRIGGERED', label: 'SIGNAL FIRED', badgeClass: 'text-amber border-amber/30 bg-amber/10', opp };
+        map[sym] = { state: 'TRIGGERED', label: 'Fired', opp };
         continue;
       }
       if (opp) {
-        const prox = calculateOpportunityProximity(opp, strategyConfig);
-        map[sym] = { state: 'EVALUATING', label: `EVALUATING (${prox}%)`, badgeClass: 'text-accent border-accent/30 bg-accent/10', opp };
+        map[sym] = { state: 'EVALUATING', label: `${opp.proximity ?? 0}%`, opp };
         continue;
       }
-      map[sym] = { state: 'MONITORING', label: 'STATIC TARGET', badgeClass: 'text-dim border-border/40 bg-surface/40' };
+      map[sym] = { state: 'MONITORING', label: 'Watching' };
     }
     return map;
-  }, [staticSymbols, strategyActiveTrades, strategyScannerResults, strategyConfig]);
+  }, [staticSymbols, strategyActiveTrades, proximityLeaderboard, strategyScannerResults]);
 
   // Active Trade / Candidate End-to-End Lifecycle Stage Resolution
   const currentLifecycleStage = useMemo(() => {
@@ -310,31 +350,31 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       const entry = Number(activeTrade.entry_price || 0);
       const isLong = activeTrade.direction === 'LONG';
       const isSlAtBreakeven = sl > 0 && (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6);
-      
-      if (activeTrade.exit_signals_status && Object.values(activeTrade.exit_signals_status).some(s => s?.fired)) {
+
+      if (activeTrade.exit_signals_status && Object.values(activeTrade.exit_signals_status).some(st => st?.fired)) {
         return {
           stageNumber: 6,
           title: 'Stage 6: Exit Signal Triggered',
-          statusLabel: 'EXIT TRIGGERED',
-          colorClass: 'text-red border-red/30 bg-red/10',
-          desc: 'Strategy exit condition crossed; order execution or stop loss close pending.'
+          statusLabel: 'Exit Fired',
+          toneClass: 'text-red',
+          desc: 'Exit condition crossed; order close pending.'
         };
       }
       if (isSlAtBreakeven || activeTrade.risk_usdt === 0) {
         return {
           stageNumber: 5,
           title: 'Stage 5: Risk Protected Position',
-          statusLabel: 'RISK PROTECTED',
-          colorClass: 'text-green border-green/30 bg-green/10',
-          desc: 'Stop loss ratcheted to breakeven or better (0.00R capital risk).'
+          statusLabel: 'Protected 0R',
+          toneClass: 'text-green',
+          desc: 'Stop loss ratcheted to breakeven or better.'
         };
       }
       return {
         stageNumber: 4,
         title: 'Stage 4: Active Managed Position',
-        statusLabel: 'IN POSITION',
-        colorClass: 'text-accent border-accent/30 bg-accent/10',
-        desc: 'Position active on exchange with active SL/TP and trailing ratchet monitoring.'
+        statusLabel: 'In Position',
+        toneClass: 'text-accent',
+        desc: 'Position open on exchange with active SL/TP.'
       };
     }
 
@@ -342,9 +382,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       return {
         stageNumber: 3,
         title: 'Stage 3: Risk Guard & Execution',
-        statusLabel: 'SIGNAL FIRED',
-        colorClass: 'text-amber border-amber/30 bg-amber/10',
-        desc: 'All entry signals matched; anti-whipsaw, leverage, and capital risk checks executing.'
+        statusLabel: effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK' ? 'Gated' : 'Checking Risk',
+        toneClass: effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK' ? 'text-red' : 'text-amber',
+        desc: 'Entry signals matched; evaluating SL bounds & risk caps.'
       };
     }
 
@@ -352,28 +392,27 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       return {
         stageNumber: 2,
         title: 'Stage 2: Technical Signal Evaluation',
-        statusLabel: 'EVALUATING',
-        colorClass: 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
-        desc: `${firedCount}/${signalsCount} entry rules satisfied; evaluating trigger formula.`
+        statusLabel: `${firedCount}/${signalsCount} Fired`,
+        toneClass: 'text-accent',
+        desc: `Evaluating technical signal formula (${conditionFormula}).`
       };
     }
 
     return {
       stageNumber: 1,
       title: 'Stage 1: Scope & Discovery',
-      statusLabel: 'MONITORING',
-      colorClass: 'text-dim border-border/40 bg-surface/40',
-      desc: isStaticWatchlist ? 'Monitored in defined Static Watchlist target list.' : 'Scanned via Smart Watchlist discovery feed.'
+      statusLabel: 'Monitoring',
+      toneClass: 'text-dim',
+      desc: isStaticWatchlist ? 'Monitoring configured Static Watchlist targets.' : 'Scanning Smart Watchlist discovery feed.'
     };
-  }, [focusedOpp, strategyActiveTrades, entryMet, scanMet, firedCount, signalsCount, isStaticWatchlist]);
+  }, [focusedOpp.symbol, strategyActiveTrades, entryMet, scanMet, firedCount, signalsCount, isStaticWatchlist, effectiveGate, conditionFormula]);
 
-  // Evaluation Timeframe Debug Table Data Construction
+  // Evaluation Timeframe Debug Table Data Construction (kept before journeyMilestones for TDZ test invariant)
   const timeframeDebugItems = useMemo(() => {
     const enabled = strategyConfig.enabled_signals || [];
     const scanTf = strategyConfig.scan_interval || '1m';
     const items = [];
 
-    // 1. Primary Scanner Timeframe
     const ohlcLen = bestOpp.ohlc_history?.length || bestOpp.history?.length || 0;
     const reqScanWarmup = 50;
     items.push({
@@ -383,10 +422,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       candles: ohlcLen > 0 ? ohlcLen : 200,
       required: reqScanWarmup,
       isWarming: ohlcLen > 0 && ohlcLen < reqScanWarmup,
-      statusMsg: ohlcLen >= reqScanWarmup || ohlcLen === 0 ? 'Ready' : `Warming (${ohlcLen}/${reqScanWarmup})`
+      statusMsg: ohlcLen >= reqScanWarmup || ohlcLen === 0 ? 'Ready' : `${ohlcLen}/${reqScanWarmup}`
     });
 
-    // 2. Technical Indicator Evaluation Timeframes
     for (const sig of enabled) {
       const rawTf = (strategyConfig.signal_timeframes || {})[sig];
       const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
@@ -402,130 +440,134 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
       items.push({
         key: sig,
-        label: SIGNAL_LABELS[sig] || sig,
+        label: formatSignalLabel(sig),
         tf,
         candles,
         required,
         isWarming,
-        statusMsg: isWarming ? `Warming (${candles}/${required})` : 'Ready'
+        statusMsg: isWarming ? `${candles}/${required}` : 'Ready'
       });
     }
 
     return items;
   }, [strategyConfig, bestOpp, signalResult]);
 
+  const anyWarming = useMemo(() => timeframeDebugItems.some(i => i.isWarming), [timeframeDebugItems]);
+
   // 6-Milestone Interactive Journey Map Specification
   const journeyMilestones = useMemo(() => {
     return [
       {
         num: 1,
-        title: '1. Discovery & Universe',
-        subtitle: 'Market Scope',
+        title: '1. Scope & Discovery',
         short: 'Scope',
-        status: isStaticWatchlist ? 'STATIC' : 'DISCOVERY',
-        isPassed: true,
-        isActive: currentLifecycleStage.stageNumber === 1,
-        badgeClass: 'text-dim border-border/40 bg-surface/40',
+        status: isStaticWatchlist ? `Static (${staticSymbols.length})` : `Top ${strategyConfig.watchlist_size || 15}`,
+        tone: 'neutral',
         desc: isStaticWatchlist
-          ? `Fixed universe of ${staticSymbols.length} pairs explicitly monitored in strategy configuration.`
-          : `Smart discovery scanning 24h ${strategyConfig.discovery_mode || 'volume'} universe on ${strategyConfig.scan_interval || '5m'} interval.`,
+          ? `Fixed universe of ${staticSymbols.length} pairs explicitly monitored.`
+          : `Smart discovery scanning 24h ${strategyConfig.discovery_mode || 'volume'} universe on ${strategyConfig.scan_interval || '5m'}.`,
         criteria: [
-          { label: 'Watchlist Universe', value: isStaticWatchlist ? `${staticSymbols.length} Static Symbols` : `Top ${strategyConfig.watchlist_size || 15} by ${strategyConfig.discovery_mode || 'volume'}` },
-          { label: 'Min 24h Volume', value: `$${((strategyConfig.scan_min_volume_usdt || 500000) / 1000).toLocaleString()}k USDT` },
-          { label: 'Scan Interval', value: strategyConfig.scan_interval || '5m' },
+          { label: 'Universe', value: isStaticWatchlist ? `${staticSymbols.length} Static Symbols` : `Top ${strategyConfig.watchlist_size || 15} (${strategyConfig.discovery_mode || 'volume'})` },
+          { label: 'Min 24h Vol', value: `$${((strategyConfig.scan_min_volume_usdt || 500000) / 1000).toLocaleString()}k` },
+          { label: 'Scan TF / Lookback', value: `${strategyConfig.scan_interval || '5m'} · ${strategyConfig.scan_lookback || 3} bars` },
           { label: 'Velocity Threshold', value: `±${strategyConfig.scan_pct_threshold || 2.0}%` }
         ]
       },
       {
         num: 2,
-        title: '2. Technical Signal Engine',
-        subtitle: 'Rule Formula',
+        title: '2. Technical Entry Rules',
         short: 'Signals',
-        status: entryMet ? 'TRIGGERED' : (firedCount > 0 ? `${firedCount}/${signalsCount} FIRED` : 'EVALUATING'),
-        isPassed: currentLifecycleStage.stageNumber > 2,
-        isActive: currentLifecycleStage.stageNumber === 2,
-        badgeClass: entryMet ? 'text-green border-green/30 bg-green/10' : firedCount > 0 ? 'text-accent border-accent/30 bg-accent/10' : 'text-dim border-border/40 bg-surface/40',
-        desc: `Evaluating ${signalsCount} configured technical signals with '${signalLogic.toUpperCase()}' matching logic.`,
+        status: entryMet ? 'Triggered' : (firedCount > 0 ? `${firedCount}/${signalsCount} Fired` : 'Evaluating'),
+        tone: entryMet ? 'positive' : firedCount > 0 ? 'accent' : 'neutral',
+        desc: `Evaluating ${signalsCount} entry signal(s) with ${signalLogic.toUpperCase()} logic on ${strategyConfig.entry_side || 'both'} side.`,
         criteria: [
+          { label: 'Entry Side', value: (strategyConfig.entry_side || 'both').toUpperCase() },
           { label: 'Formula Logic', value: conditionFormula },
-          { label: 'Enabled Signals', value: (strategyConfig.enabled_signals || []).map(s => SIGNAL_LABELS[s] || s).join(', ') || 'None' },
-          { label: 'Required Signals (AND)', value: reqLabels.join(', ') || 'None (All equal)' },
-          { label: 'Buffer Warmup', value: `${timeframeDebugItems.filter(i => !i.isWarming).length}/${timeframeDebugItems.length} Timeframes Ready` }
+          { label: 'Required (AND)', value: reqLabels.join(', ') || 'All equal' },
+          { label: 'Candle Warmup', value: `${timeframeDebugItems.filter(i => !i.isWarming).length}/${timeframeDebugItems.length} Ready` }
         ]
       },
       {
         num: 3,
-        title: '3. Pre-Trade Risk & Capital Gating',
-        subtitle: 'Safety Invariants',
-        short: 'Risk Check',
-        status: isStrategyPaused ? 'PAUSED' : (effectiveGate === 'ACTIVE' || effectiveGate === 'OK') ? 'READY' : 'GATED',
-        isPassed: currentLifecycleStage.stageNumber > 3,
-        isActive: currentLifecycleStage.stageNumber === 3,
-        badgeClass: isStrategyPaused ? 'text-amber border-amber/30 bg-amber/10' : (effectiveGate === 'ACTIVE' || effectiveGate === 'OK') ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10',
-        desc: 'Anti-whipsaw, sliding frequency limits, trade spacing, and maximum account risk exposure checks.',
+        title: '3. Pre-Trade Risk & SL Bounds',
+        short: 'Risk & SL',
+        status: isStrategyPaused ? 'Paused' : (effectiveGate === 'ACTIVE' || effectiveGate === 'OK') ? 'Ready' : 'Blocked',
+        tone: isStrategyPaused ? 'warning' : (effectiveGate === 'ACTIVE' || effectiveGate === 'OK') ? 'positive' : 'danger',
+        desc: 'Validates SL bounds, anti-whipsaw delay, trade frequency, and portfolio exposure caps.',
         criteria: [
-          { label: 'Account Max Risk', value: `${strategyConfig.max_total_risk_pct || 5.0}% Total Portfolio Cap` },
+          { label: 'SL Model & Bounds', value: `${strategyConfig.sl_type || 'pct'} (${strategyConfig.sl_min_pct ?? 0.3}%–${strategyConfig.sl_max_pct ?? 3.0}% · ${strategyConfig.sl_out_of_bounds_action || 'clamp'})` },
           { label: 'Risk Per Trade', value: `${strategyConfig.risk_pct_per_trade || 1.0}% ($${((startingBal * (strategyConfig.risk_pct_per_trade || 1.0)) / 100).toFixed(2)})` },
-          { label: 'Max Open Trades', value: `${strategyConfig.max_open_trades || 3} positions` },
-          { label: 'Spacing & Anti-Whipsaw', value: `${strategyConfig.min_trade_interval_min || 0}m interval · Whipsaw Guard Active` }
+          { label: 'Max Risk / Slots', value: `${strategyConfig.max_total_risk_pct || 5.0}% Cap · ${strategyConfig.max_open_trades || 3} Open` },
+          { label: 'Anti-Whipsaw', value: `${strategyConfig.anti_whipsaw_candle_delay ?? 1}c (≤${strategyConfig.anti_whipsaw_max_tf || '4h'})` }
         ]
       },
       {
         num: 4,
-        title: '4. Order Entry & Exchange Execution',
-        subtitle: 'Order Routing',
+        title: '4. Order Execution',
         short: 'Execution',
-        status: strategyActiveTrades.length > 0 ? `${activeTradeCount} OPEN` : 'STANDBY',
-        isPassed: currentLifecycleStage.stageNumber > 4,
-        isActive: currentLifecycleStage.stageNumber === 4,
-        badgeClass: strategyActiveTrades.length > 0 ? 'text-accent border-accent/30 bg-accent/10' : 'text-dim border-border/40 bg-surface/40',
-        desc: 'Exchange order routing with mandatory LOT_SIZE precision on stop-loss orders (Binance compliance).',
+        status: strategyActiveTrades.length > 0 ? `${activeTradeCount} Open` : 'Standby',
+        tone: strategyActiveTrades.length > 0 ? 'accent' : 'neutral',
+        desc: 'Places entry order and protective stop-loss simultaneously with precision filters.',
         criteria: [
-          { label: 'Stop-Loss Order Compliance', value: 'Explicit LOT_SIZE Quantity on STOP_MARKET' },
-          { label: 'Initial SL Distance', value: `${strategyConfig.sl_distance_pct || 2.0}% (${strategyConfig.sl_type || 'pct'})` },
-          { label: 'Active Positions', value: `${activeTradeCount} Open Trade${activeTradeCount === 1 ? '' : 's'}` },
-          { label: 'Execution Fallback', value: 'Algo Conditional -> STOP_MARKET Mandatory Fallback' }
-        ]
+          { label: 'Initial SL', value: `${strategyConfig.sl_distance_pct || 0.8}% (${strategyConfig.sl_type || 'pct'})` },
+          { label: 'Leverage', value: `${strategyConfig.leverage || 10}x` },
+          { label: 'Slippage Abort', value: `${strategyConfig.slippage_abort_threshold ?? 1.5}%` },
+          { label: 'Active Positions', value: `${activeTradeCount} Open` }
+        ],
+        protocolNote: 'Uses Algo Conditional API with mandatory STOP_MARKET (explicit LOT_SIZE quantity) fallback.'
       },
       {
         num: 5,
-        title: '5. Protective Ratcheting & Trailing',
-        subtitle: 'Live Invariants',
+        title: '5. Protection & Trailing',
         short: 'Protection',
-        status: strategyActiveTrades.some(t => t.current_sl && Number(t.current_sl) >= Number(t.entry_price)) ? 'PROTECTED (0.00R)' : 'MONITORING',
-        isPassed: currentLifecycleStage.stageNumber > 5,
-        isActive: currentLifecycleStage.stageNumber === 5,
-        badgeClass: strategyActiveTrades.some(t => t.current_sl && Number(t.current_sl) >= Number(t.entry_price)) ? 'text-green border-green/30 bg-green/10' : 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
-        desc: 'Gapless Cancel-then-Replace stop-loss ratcheting with automatic re-arm rollback protection.',
+        status: strategyActiveTrades.some(t => t.current_sl && Number(t.current_sl) >= Number(t.entry_price)) ? 'Protected 0R' : 'Monitoring',
+        tone: strategyActiveTrades.some(t => t.current_sl && Number(t.current_sl) >= Number(t.entry_price)) ? 'positive' : 'neutral',
+        desc: 'Automated SL ratcheting along R:R ladder and optional trailing stop.',
         criteria: [
-          { label: 'SL Update Protocol', value: 'Cancel-then-Replace (ModifyOrder unsupported)' },
-          { label: 'Rollback Protection', value: 'Re-arm previous SL if replacement fails' },
-          { label: 'Rate-Limit Delta Guard', value: 'Min 0.01% price delta before replacing SL' },
-          { label: 'Trailing Stop Mode', value: strategyConfig.trailing_stop_enabled ? `Active (${strategyConfig.trailing_stop_distance_pct || 1.0}%)` : 'Disabled' }
-        ]
+          { label: 'Trailing Stop', value: strategyConfig.trailing_stop_enabled ? `${strategyConfig.trailing_stop_distance_pct || 1.0}% (Act ≥ ${strategyConfig.trailing_activation_rr ?? 0}R)` : 'Disabled' },
+          { label: 'Guard Ladder', value: (strategyConfig.live_rr_sequence || [1, 2, 4]).map((v, i) => `${v}R→${(strategyConfig.exit_rr_sequence || [0, 1, 2])[i] ?? 0}R`).join(', ') },
+          { label: 'Risk Release', value: strategyConfig.force_risk_release ? 'Force ON' : 'At Breakeven SL' },
+          { label: 'Guard Buffer', value: `${strategyConfig.trailing_guard_buffer_pct ?? 0.1}%` }
+        ],
+        protocolNote: 'Gapless Cancel-then-Replace SL updates with automatic re-arm rollback and 0.01% min delta guard.'
       },
       {
         num: 6,
-        title: '6. Exit Resolution & Realized PnL',
-        subtitle: 'Trade Closeout',
+        title: '6. Exit & Resolution',
         short: 'Exit',
-        status: stratPerformance.total > 0 ? `${stratPerformance.wins}W / ${stratPerformance.losses}L` : 'READY',
-        isPassed: false,
-        isActive: currentLifecycleStage.stageNumber === 6,
-        badgeClass: stratPerformance.total > 0 ? (stratPerformance.sumPnl >= 0 ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10') : 'text-dim border-border/40 bg-surface/40',
-        desc: 'Technical exit indicators, target R:R take profits, preserved exit reasons, and balance reconciliation.',
+        status: stratPerformance.total > 0 ? `${stratPerformance.wins}W / ${stratPerformance.losses}L` : 'Ready',
+        tone: stratPerformance.total > 0 ? (stratPerformance.sumPnl >= 0 ? 'positive' : 'danger') : 'neutral',
+        desc: 'Closes positions on technical exit signals, TP targets, or stop-loss.',
         criteria: [
-          { label: 'Target R:R', value: `${strategyConfig.exit_rr_target || strategyConfig.tp_ratio || 2.0}R` },
-          { label: 'Exit Signals', value: (strategyConfig.exit_signals || []).map(s => SIGNAL_LABELS[s] || s).join(', ') || 'Standard SL/TP' },
+          { label: 'TP Mode / Target', value: `${strategyConfig.tp_mode || 'fixed'} (${strategyConfig.tp_ratio || 2.0}R)` },
+          { label: 'Exit Signals', value: (strategyConfig.exit_signals || []).map(sig => formatSignalLabel(sig)).join(', ') || 'SL / TP Only' },
           { label: 'Realized PnL', value: fmtUSD(stratPerformance.sumPnl) },
-          { label: 'Historical Hit Rate', value: `${stratPerformance.hitRate.toFixed(1)}% (${stratPerformance.total} trades)` }
+          { label: 'Win Rate', value: `${stratPerformance.hitRate.toFixed(1)}% (${stratPerformance.total})` }
         ]
       }
     ];
   }, [
-    isStaticWatchlist, staticSymbols, strategyConfig, currentLifecycleStage, entryMet, firedCount, signalsCount,
-    signalLogic, conditionFormula, reqLabels, timeframeDebugItems, isStrategyPaused, effectiveGate, startingBal,
-    strategyActiveTrades, activeTradeCount, stratPerformance
+    isStaticWatchlist, staticSymbols.length, strategyConfig, entryMet, firedCount, signalsCount,
+    signalLogic, conditionFormula, reqLabels, timeframeDebugItems, isStrategyPaused, effectiveGate,
+    startingBal, strategyActiveTrades, activeTradeCount, stratPerformance
+  ]);
+
+  // Rule & Constraint Diagnostics (Entries, Exits, Params, Timeframes, Risk & SL Allowed/Rejected)
+  const rulesDiagnostics = useMemo(() => {
+    return getStrategyRulesDiagnostics({
+      strategyConfig,
+      focusedOpp: bestOpp,
+      activeTrade: focusedActiveTrade,
+      activeTradeCount,
+      totalRiskPct: Number(s.totalRiskPct || 0),
+      startingBal,
+      effectiveGate,
+      effectiveReason,
+      isStrategyPaused,
+    });
+  }, [
+    strategyConfig, bestOpp, focusedActiveTrade, activeTradeCount, s.totalRiskPct,
+    startingBal, effectiveGate, effectiveReason, isStrategyPaused
   ]);
 
   const formatClockTime = useCallback((ts) => {
@@ -548,14 +590,44 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     return `${Math.floor(diffHr / 24)}d ago`;
   }, [nowMs]);
 
+  const streamAgeSec = Math.max(0, ((nowMs - lastAuthoritativeUpdateTs) / 1000)).toFixed(1);
+  const streamFresh = Number(streamAgeSec) < 5.0;
+  const regimeInfo = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
+
+  const narrative = useMemo(() => buildStrategyNarrative({
+    isStrategyPaused,
+    effectiveGate,
+    effectiveReason,
+    gateUpdatedAt: stratGate.updatedAt,
+    timeframeDebugItems,
+    strategyActiveTrades,
+    bestOpp,
+    entryMet,
+    firedCount,
+    signalsCount,
+    strategyConfig,
+    isStaticWatchlist,
+    staticSymbols,
+    lastScanTs,
+    streamAgeSec,
+    formatTimeAgo,
+    formatClockTime,
+  }), [
+    isStrategyPaused, effectiveGate, effectiveReason, stratGate.updatedAt,
+    timeframeDebugItems, strategyActiveTrades, bestOpp, entryMet, firedCount,
+    signalsCount, strategyConfig, isStaticWatchlist, staticSymbols, lastScanTs,
+    streamAgeSec, formatTimeAgo, formatClockTime
+  ]);
+
   const handleCopyReason = useCallback((item) => {
     try {
       const payload = JSON.stringify({
-        category: item.category,
+        outcome: item.outcome,
+        stage: item.stage,
         symbol: item.symbol,
         title: item.title,
         reason: item.reason,
-        stage: item.stage,
+        timestamp: new Date(item.timestamp).toISOString(),
         details: item.details
       }, null, 2);
       navigator.clipboard.writeText(payload);
@@ -566,63 +638,133 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     }
   }, []);
 
-  // Aggregated Strategy Reasons Log
+  // Stable fallback timestamp so entries don't drift on 1s timer ticks
+  const stableFallbackTs = lastScanTs || lastAuthoritativeUpdateTs;
+
+  // Aggregated Strategy Reasons & Causal Decision Log
   const strategyReasons = useMemo(() => {
     const list = [];
+    const scanThr = Number(strategyConfig.scan_pct_threshold ?? 2.0);
+    const entrySide = (strategyConfig.entry_side || 'both').toLowerCase();
+    const slMaxPct = Number(strategyConfig.sl_max_pct ?? 3.0);
+    const slOobAction = strategyConfig.sl_out_of_bounds_action || (strategyConfig.reject_entry_if_sl_exceeds_max === false ? 'clamp' : 'reject');
 
-    // 1. Live Candidate Evaluation reasons
-    const opps = strategyScannerResults || [];
-    opps.slice(0, 8).forEach(opp => {
-      const scanDiff = Math.abs(opp.pct || 0) - (strategyConfig.scan_pct_threshold || 2.0);
-      const scanMetLocal = scanDiff >= 0;
+    // 1. Live Candidate Signal & Pre-Trade Evaluations
+    const opps = proximityLeaderboard.length > 0 ? proximityLeaderboard : (strategyScannerResults || []);
+    opps.slice(0, 12).forEach(opp => {
+      const candTs = opp.lastUpdate || opp.ts || opp.timestamp || stableFallbackTs;
+      const candDir = (opp.dir || (opp.pct >= 0 ? 'LONG' : 'SHORT')).toUpperCase();
+      const oppPctAbs = Math.abs(opp.pct || 0);
+      const scanMetLocal = oppPctAbs >= scanThr;
       const sigRes = opp.signalResult || {};
+      const sigMap = sigRes.signals || {};
       const allFired = !!sigRes.allFired;
+
+      // Side rejection
+      if (entrySide !== 'both' && entrySide.toUpperCase() !== candDir) {
+        list.push({
+          id: `cand-side-${opp.symbol}`,
+          outcome: 'rejected',
+          isRoutine: false,
+          stageNum: '2',
+          stage: '2. Signals',
+          symbol: opp.symbol,
+          direction: candDir,
+          title: `Direction Rejected (${candDir} blocked by entry_side=${entrySide})`,
+          reason: `Candidate moved ${Number(opp.pct || 0).toFixed(2)}% (${candDir}), rejected because strategy entry_side is restricted to ${entrySide.toUpperCase()}.`,
+          timestamp: candTs,
+          details: { direction: candDir, allowedSide: entrySide, velocity: `${Number(opp.pct || 0).toFixed(2)}%`, timeframe: strategyConfig.scan_interval || '5m' }
+        });
+        return;
+      }
+
+      // Check individual rejected signal filters (e.g. MACD filter rejection, max expansion cap)
+      const rejectedSignals = Object.entries(sigMap).filter(([, d]) => d?.rejected || d?.status === 'blocked');
+      if (rejectedSignals.length > 0) {
+        const [rKey, rDet] = rejectedSignals[0];
+        list.push({
+          id: `cand-sig-rej-${opp.symbol}-${rKey}`,
+          outcome: 'rejected',
+          isRoutine: false,
+          stageNum: '2',
+          stage: '2. Signals',
+          symbol: opp.symbol,
+          direction: candDir,
+          title: `Signal Filter Rejected: ${formatSignalLabel(rKey)}`,
+          reason: rDet.description || `${formatSignalLabel(rKey)} crossed trigger but was rejected by secondary filter.`,
+          timestamp: candTs,
+          details: {
+            signal: rKey,
+            value: formatSignalValue(rDet.value, rDet.unit, rDet.threshold_is_price),
+            threshold: formatSignalValue(rDet.threshold, rDet.unit, rDet.threshold_is_price),
+            timeframe: strategyConfig.signal_timeframes?.[rKey] || strategyConfig.scan_interval || '5m',
+          }
+        });
+      }
+
+      // Prospective SL bound rejection/clamp
+      if (typeof opp.sl_dist_pct === 'number' && opp.sl_dist_pct > slMaxPct) {
+        list.push({
+          id: `cand-sl-${opp.symbol}`,
+          outcome: slOobAction === 'reject' ? 'rejected' : 'waiting',
+          isRoutine: false,
+          stageNum: '3',
+          stage: '3. Risk & SL',
+          symbol: opp.symbol,
+          direction: candDir,
+          title: slOobAction === 'reject'
+            ? `SL Distance Rejected (${opp.sl_dist_pct.toFixed(2)}% > ${slMaxPct}% Max)`
+            : `SL Distance Clamped (${opp.sl_dist_pct.toFixed(2)}% → ${slMaxPct}% Max)`,
+          reason: `Prospective ${strategyConfig.sl_type || 'pct'} SL distance of ${opp.sl_dist_pct.toFixed(2)}% exceeds configured sl_max_pct (${slMaxPct}%). Action: ${slOobAction.toUpperCase()}.`,
+          timestamp: candTs,
+          details: { slType: strategyConfig.sl_type || 'pct', prospectiveSlPct: `${opp.sl_dist_pct.toFixed(2)}%`, maxSlPct: `${slMaxPct}%`, action: slOobAction }
+        });
+      }
 
       if (!scanMetLocal) {
         list.push({
           id: `cand-scan-${opp.symbol}`,
-          category: 'signals',
-          type: 'miss',
-          symbol: opp.symbol,
-          direction: opp.dir || (opp.pct >= 0 ? 'LONG' : 'SHORT'),
-          title: `Scan Velocity Below Threshold (${Math.abs(opp.pct || 0).toFixed(2)}%)`,
-          reason: `Price change velocity of ${Math.abs(opp.pct || 0).toFixed(2)}% does not meet the configured minimum threshold of ${strategyConfig.scan_pct_threshold || 2.0}%.`,
+          outcome: 'waiting',
+          isRoutine: true,
+          stageNum: '1',
           stage: '1. Discovery',
-          timestamp: opp.lastUpdate || opp.ts || opp.timestamp || (nowMs - 15000),
-          badgeClass: 'text-dim border-border/40 bg-surface/30',
-          details: { velocity: `${opp.pct}%`, threshold: `${strategyConfig.scan_pct_threshold}%`, markPrice: opp.close }
+          symbol: opp.symbol,
+          direction: candDir,
+          title: `Velocity Below Threshold (${oppPctAbs.toFixed(2)}% < ±${scanThr}%)`,
+          reason: `${opp.symbol} move (${oppPctAbs.toFixed(2)}%) on ${strategyConfig.scan_interval || '5m'} has not reached the ±${scanThr}% entry velocity threshold.`,
+          timestamp: candTs,
+          details: { velocity: `${Number(opp.pct || 0).toFixed(2)}%`, threshold: `±${scanThr}%`, timeframe: strategyConfig.scan_interval || '5m', markPrice: opp.close }
         });
       } else if (!allFired) {
         const fired = sigRes.firedSignals || [];
-        const required = strategyConfig.required_signals || [];
         const missing = (strategyConfig.enabled_signals || []).filter(sig => !fired.includes(sig));
-        const missingLabels = missing.map(m => SIGNAL_LABELS[m] || m).join(', ');
+        const missingLabels = missing.map(m => formatSignalLabel(m)).join(', ');
         list.push({
           id: `cand-sig-${opp.symbol}`,
-          category: 'signals',
-          type: 'miss',
-          symbol: opp.symbol,
-          direction: opp.dir || (opp.pct >= 0 ? 'LONG' : 'SHORT'),
-          title: `Entry Formula Incomplete (Pending: ${missingLabels || 'Awaiting Triggers'})`,
-          reason: `Velocity threshold passed (${Math.abs(opp.pct || 0).toFixed(2)}%), but ${fired.length}/${(strategyConfig.enabled_signals || []).length} indicator rules satisfied. Waiting for: ${missingLabels || 'confirmation'}.`,
+          outcome: 'waiting',
+          isRoutine: false,
+          stageNum: '2',
           stage: '2. Signals',
-          timestamp: opp.lastUpdate || opp.ts || opp.timestamp || (nowMs - 25000),
-          badgeClass: 'text-amber border-amber/30 bg-amber/10',
-          details: { firedSignals: fired, missingSignals: missing, formula: conditionFormula }
+          symbol: opp.symbol,
+          direction: candDir,
+          title: `Signals Pending (${fired.length}/${(strategyConfig.enabled_signals || []).length} Fired)`,
+          reason: `Velocity passed (${oppPctAbs.toFixed(2)}%). Waiting for: ${missingLabels || 'formula confirmation'}.`,
+          timestamp: candTs,
+          details: { firedSignals: fired.map(formatSignalLabel), missingSignals: missing.map(formatSignalLabel), formula: conditionFormula }
         });
       } else {
         list.push({
           id: `cand-fired-${opp.symbol}`,
-          category: 'signals',
-          type: 'trigger',
-          symbol: opp.symbol,
-          direction: opp.dir || (opp.pct >= 0 ? 'LONG' : 'SHORT'),
-          title: `Entry Signal Fully Fired (${opp.dir ? opp.dir.toUpperCase() : 'BUY'})`,
-          reason: `All ${(strategyConfig.enabled_signals || []).length} signal conditions satisfied according to formula [${conditionFormula}]. Candidate passed to risk engine.`,
+          outcome: 'allowed',
+          isRoutine: false,
+          stageNum: '2',
           stage: '2. Signals',
-          timestamp: opp.lastUpdate || opp.ts || opp.timestamp || (nowMs - 5000),
-          badgeClass: 'text-green border-green/30 bg-green/10',
-          details: { formula: conditionFormula, firedSignals: sigRes.firedSignals }
+          symbol: opp.symbol,
+          direction: candDir,
+          title: `Entry Formula Allowed (${candDir})`,
+          reason: `All required conditions matched [${conditionFormula}] on ${strategyConfig.scan_interval || '5m'}; routed to risk engine.`,
+          timestamp: candTs,
+          details: { formula: conditionFormula, firedSignals: (sigRes.firedSignals || []).map(formatSignalLabel), prospectiveSlPct: opp.sl_dist_pct ? `${opp.sl_dist_pct.toFixed(2)}%` : undefined }
         });
       }
     });
@@ -631,227 +773,288 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     if (isStrategyPaused) {
       list.push({
         id: `gate-paused-${stratName}`,
-        category: 'gates',
-        type: 'block',
-        symbol: '---',
+        outcome: 'rejected',
+        isRoutine: false,
+        stageNum: '3',
+        stage: '3. Risk & SL',
+        symbol: 'STRATEGY',
         title: 'Strategy Automation Paused',
-        reason: 'Automated order placement is manually paused for this strategy. Open positions continue to be monitored for exit/stop-loss triggers.',
-        stage: '3. Risk Guard',
-        timestamp: stratGate.updatedAt ? new Date(stratGate.updatedAt).getTime() : (nowMs - 60000),
-        badgeClass: 'text-amber border-amber/30 bg-amber/10',
-        details: { gateState: 'PAUSED', userIntervention: 'Manual pause flag active' }
+        reason: 'Manual pause is active — new entries are blocked while open positions continue SL and exit tracking.',
+        timestamp: stratGate.updatedAt ? new Date(stratGate.updatedAt).getTime() : stableFallbackTs,
+        details: { gateState: 'PAUSED' }
       });
     } else if (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK') {
       list.push({
         id: `gate-blocked-${stratName}`,
-        category: 'gates',
-        type: 'block',
-        symbol: '---',
-        title: `Risk Gate Triggered (${effectiveGate.toUpperCase()})`,
-        reason: `Engine risk restriction: ${effectiveReason || 'Threshold guard active'}. Entry orders throttled until condition clears.`,
-        stage: '3. Risk Guard',
-        timestamp: stratGate.updatedAt ? new Date(stratGate.updatedAt).getTime() : (nowMs - 30000),
-        badgeClass: 'text-red border-red/30 bg-red/10',
+        outcome: 'rejected',
+        isRoutine: false,
+        stageNum: '3',
+        stage: '3. Risk & SL',
+        symbol: 'STRATEGY',
+        title: `Risk Gate Blocked (${effectiveGate.toUpperCase()})`,
+        reason: `Entry orders blocked by ${effectiveGate}: ${effectiveReason || 'Risk cap or frequency guard reached'}.`,
+        timestamp: stratGate.updatedAt ? new Date(stratGate.updatedAt).getTime() : stableFallbackTs,
         details: { gateState: effectiveGate, gateReason: effectiveReason }
       });
     }
 
-    // 3. Active Trades entry reasons & lifecycle events
+    // 3. Active Trades entry, ratchet events & exit triggers
     strategyActiveTrades.forEach(trade => {
-      if (trade.entry_reason || trade.signal_reason) {
-        list.push({
-          id: `entry-${trade.id || trade.symbol}`,
-          category: 'entries',
-          type: 'fill',
-          symbol: trade.symbol,
-          direction: trade.direction,
-          title: `Position Entry Executed @ $${Number(trade.entry_price || 0).toLocaleString()}`,
-          reason: trade.entry_reason || trade.signal_reason || 'Signal rule matched and risk invariant verified.',
-          stage: '4. Order Execution',
-          timestamp: trade.entry_ts_ms || (trade.entry_ts ? new Date(trade.entry_ts).getTime() : (trade.createdAt ? new Date(trade.createdAt).getTime() : (nowMs - 120000))),
-          badgeClass: 'text-accent border-accent/30 bg-accent/10',
-          details: {
-            entryPrice: trade.entry_price,
-            qty: trade.qty,
-            riskUsdt: trade.risk_usdt,
-            initialSl: trade.initial_sl,
-            signalReason: trade.signal_reason
-          }
-        });
-      }
+      const entryTs = trade.entry_ts_ms || (trade.entry_ts ? new Date(trade.entry_ts).getTime() : (trade.createdAt ? new Date(trade.createdAt).getTime() : stableFallbackTs));
+      list.push({
+        id: `entry-${trade.id || trade.symbol}`,
+        outcome: 'allowed',
+        isRoutine: false,
+        stageNum: '4',
+        stage: '4. Execution',
+        symbol: trade.symbol,
+        direction: trade.direction,
+        title: `Entry Allowed @ $${Number(trade.entry_price || 0).toLocaleString()}`,
+        reason: trade.entry_reason || trade.signal_reason || 'Entry signals and SL/risk checks passed; order filled.',
+        timestamp: entryTs,
+        details: {
+          entryPrice: trade.entry_price,
+          qty: trade.qty,
+          riskUsdt: trade.risk_usdt,
+          initialSl: trade.initial_sl,
+          signalReason: trade.signal_reason
+        }
+      });
 
-      // Active trade events (e.g. SL ratchets, trailing activations)
       if (Array.isArray(trade.active_trade_events)) {
         trade.active_trade_events.forEach((evt, idx) => {
           list.push({
-            id: `event-${trade.id}-${idx}`,
-            category: 'entries',
-            type: 'event',
+            id: `event-${trade.id || trade.symbol}-${idx}`,
+            outcome: 'allowed',
+            isRoutine: false,
+            stageNum: '5',
+            stage: '5. Protection',
             symbol: trade.symbol,
             direction: trade.direction,
-            title: evt.title || `Risk Ratchet Milestone (${evt.type || 'SL Update'})`,
-            reason: evt.reason || evt.message || `Stop loss adjusted to preserve capital / lock in profit.`,
-            stage: '5. Protection',
-            timestamp: evt.timestamp_ms || (evt.timestamp ? new Date(evt.timestamp).getTime() : nowMs - (idx * 60000)),
-            badgeClass: 'text-cyan-400 border-cyan-400/30 bg-cyan-400/10',
+            title: evt.title || `SL Protected (${evt.type || 'Ratchet'})`,
+            reason: evt.reason || evt.message || 'Stop loss updated along protection ladder.',
+            timestamp: evt.timestamp_ms || (evt.timestamp ? new Date(evt.timestamp).getTime() : entryTs + (idx + 1) * 1000),
             details: evt
           });
         });
       }
 
-      // Exit signals fired if any
       if (trade.exit_signals_status) {
         Object.entries(trade.exit_signals_status).forEach(([sigKey, status]) => {
           if (status?.fired) {
             list.push({
-              id: `exit-sig-${trade.id}-${sigKey}`,
-              category: 'exits',
-              type: 'trigger',
+              id: `exit-sig-${trade.id || trade.symbol}-${sigKey}`,
+              outcome: 'allowed',
+              isRoutine: false,
+              stageNum: '6',
+              stage: '6. Exit',
               symbol: trade.symbol,
               direction: trade.direction,
-              title: `Exit Signal Crossed: ${SIGNAL_LABELS[sigKey] || sigKey}`,
-              reason: `Technical exit indicator condition met. Position liquidation triggered per strategy exit rules.`,
-              stage: '6. Resolution',
-              timestamp: status?.fired_ts || (trade.exit_signals_status_ts ? new Date(trade.exit_signals_status_ts).getTime() : (nowMs - 10000)),
-              badgeClass: 'text-red border-red/30 bg-red/10',
-              details: { signal: sigKey, status }
+              title: `Exit Signal Triggered: ${formatSignalLabel(sigKey)}`,
+              reason: status.description || `Exit condition crossed (${formatSignalLabel(sigKey)}). Position closure triggered.`,
+              timestamp: status?.fired_ts || (trade.exit_signals_status_ts ? new Date(trade.exit_signals_status_ts).getTime() : stableFallbackTs),
+              details: { signal: sigKey, value: status.value, threshold: status.threshold }
+            });
+          } else if (status?.rejected || status?.status === 'blocked') {
+            list.push({
+              id: `exit-sig-rej-${trade.id || trade.symbol}-${sigKey}`,
+              outcome: 'rejected',
+              isRoutine: false,
+              stageNum: '6',
+              stage: '6. Exit',
+              symbol: trade.symbol,
+              direction: trade.direction,
+              title: `Exit Signal Blocked: ${formatSignalLabel(sigKey)}`,
+              reason: status.description || 'Exit signal crossed but blocked by filter or delay.',
+              timestamp: stableFallbackTs,
+              details: { signal: sigKey, value: status.value, threshold: status.threshold }
             });
           }
         });
       }
     });
 
-    // 4. Closed Trades exit reasons
+    // 4. Closed Trades exit resolutions
     const stratTrades = (tradeHistory || []).filter(t => (t.strategy_label || 'Momentum Strategy') === stratName);
-    stratTrades.slice(0, 25).forEach(trade => {
+    stratTrades.slice(0, 30).forEach((trade, idx) => {
       const isWin = Number(trade.pnl || 0) >= 0;
+      const exitTs = trade.exit_ts_ms || (trade.exit_ts ? new Date(trade.exit_ts).getTime() : (trade.closed_at ? new Date(trade.closed_at).getTime() : stableFallbackTs - idx * 60000));
       list.push({
-        id: `closed-${trade.id || trade.symbol}-${trade.exit_ts}`,
-        category: 'exits',
-        type: isWin ? 'win' : 'loss',
+        id: `closed-${trade.id || trade.symbol}-${exitTs}-${idx}`,
+        outcome: isWin ? 'allowed' : 'rejected',
+        isRoutine: false,
+        stageNum: '6',
+        stage: '6. Exit',
         symbol: trade.symbol,
         direction: trade.direction,
-        title: `Position Closed: ${trade.exit_reason || (isWin ? 'Take Profit Target' : 'Stop Loss Hit')}`,
-        reason: `${isWin ? 'Profitable' : 'Defensive'} closure with PnL of ${fmtUSD(trade.pnl)} (${trade.exit_rr ? `${Number(trade.exit_rr).toFixed(2)}R` : ''}). Reason: ${trade.exit_reason || 'Standard exit rule'}.${trade.risk_lock_reason ? ` Lock: ${trade.risk_lock_reason}` : ''}`,
-        stage: '6. Resolution',
-        timestamp: trade.exit_ts_ms || (trade.exit_ts ? new Date(trade.exit_ts).getTime() : (trade.closed_at ? new Date(trade.closed_at).getTime() : (nowMs - 3600000))),
-        badgeClass: isWin ? 'text-green border-green/30 bg-green/10' : 'text-red border-red/30 bg-red/10',
+        title: `Closed (${isWin ? 'WIN' : 'LOSS'} ${fmtUSD(trade.pnl)}): ${trade.exit_reason || (isWin ? 'Target Hit' : 'Stop Loss')}`,
+        reason: `${trade.entry_reason ? `Entry: ${trade.entry_reason} → ` : ''}Exit: ${trade.exit_reason || 'Standard exit'}${trade.risk_lock_reason ? ` · Lock: ${trade.risk_lock_reason}` : ''}`,
+        timestamp: exitTs,
         details: {
-          exitReason: trade.exit_reason,
-          riskLockReason: trade.risk_lock_reason,
-          pnl: trade.pnl,
-          exitRr: trade.exit_rr,
+          entryPrice: trade.entry_price,
           exitPrice: trade.exit_price,
+          initialSl: trade.initial_sl,
+          exitRr: trade.exit_rr,
+          pnl: trade.pnl,
           fees: trade.funding_fee
         }
       });
     });
 
-    // 5. Relevant system logs & Scanner Diagnostics
+    // 5. Relevant Engine & Scanner Diagnostic Logs (anti-whipsaw, SL bounds, execution rejections)
     const stratInterval = strategyConfig.scan_interval || '5m';
     const seenLogIds = new Set();
+    const relevantSymbolsSet = new Set([
+      ...staticSymbols,
+      ...strategyActiveTrades.map(t => t.symbol),
+      ...opps.slice(0, 10).map(o => o.symbol),
+    ]);
 
     (logs || []).forEach((log, idx) => {
       const msg = typeof log.message === 'string' ? log.message : (typeof log.msg === 'string' ? log.msg : '');
       if (!msg) return;
 
+      const symMatch = msg.match(/\b([A-Z0-9]{2,12}USDT)\b/);
+      const itemSymbol = symMatch ? symMatch[1] : 'STRATEGY';
       const isStrategyLog = msg.includes(stratName);
       const isScannerDiag = msg.includes('[Scanner Diagnostic]');
       const isIntervalMatch = msg.includes(`(${stratInterval} timeframe)`) || msg.includes(`interval ${stratInterval}`) || msg.includes(`for interval ${stratInterval}`);
-      const isSymbolMatch = focusedOpp?.symbol && focusedOpp.symbol !== '---' && msg.includes(focusedOpp.symbol);
+      const isSymbolMatch = itemSymbol !== 'STRATEGY' && relevantSymbolsSet.has(itemSymbol);
 
       if (!isStrategyLog && !isSymbolMatch && !(isScannerDiag && isIntervalMatch)) {
         return;
       }
 
-      const logId = log.id || `diag-${idx}-${log.timestamp || idx}`;
+      const logId = log.id || `diag-${idx}-${log.ts_ms || log.timestamp || idx}`;
       if (seenLogIds.has(logId)) return;
       seenLogIds.add(logId);
 
-      const symMatch = msg.match(/\b([A-Z0-9]{2,12}USDT)\b/);
-      const itemSymbol = symMatch ? symMatch[1] : (focusedOpp?.symbol || '---');
-
-      let category = 'signals';
+      let outcome = 'waiting';
+      let stageNum = '1';
       let stage = '1. Discovery';
-      let title = `Engine Event: ${log.level ? String(log.level).toUpperCase() : 'INFO'}`;
-      let badgeClass = 'text-dim border-border/40 bg-surface/30';
-      let itemType = 'log';
+      let title = `Engine Log: ${(log.level || 'info').toUpperCase()}`;
+      let isRoutine = false;
 
-      if (msg.includes('pre-filtered: prospective SL distance')) {
-        category = 'gates';
-        stage = '3. Risk Guard';
-        itemType = 'block';
-        title = `Prospective SL Filter: ${itemSymbol}`;
-        badgeClass = 'text-amber border-amber/30 bg-amber/10';
-      } else if (msg.includes('skipped: momentum') && msg.includes('below threshold')) {
-        category = 'signals';
-        stage = '1. Discovery';
-        itemType = 'miss';
-        title = `Momentum Below Threshold: ${itemSymbol}`;
-        badgeClass = 'text-dim border-border/40 bg-surface/30';
-      } else if (msg.includes('skipped: insufficient candles')) {
-        category = 'signals';
-        stage = '1. Discovery';
-        itemType = 'warmup';
-        title = `Candle Buffer Warming: ${itemSymbol}`;
-        badgeClass = 'text-dim border-border/40 bg-surface/30';
+      if (msg.includes('pre-filtered: prospective SL distance') || msg.includes('sl_out_of_bounds') || msg.includes('SL distance')) {
+        outcome = 'rejected';
+        stageNum = '3';
+        stage = '3. Risk & SL';
+        title = `SL Bounds Rejected: ${itemSymbol}`;
+      } else if (msg.includes('Entry skipped') || msg.includes('Entry Rejected') || msg.includes('rejected') || msg.includes('anti-whipsaw') || msg.includes('Cooldown') || msg.includes('Fee Drag')) {
+        outcome = 'rejected';
+        stageNum = '3';
+        stage = '3. Risk & SL';
+        title = `Pre-Trade Rejected: ${itemSymbol}`;
       } else if (msg.includes('disallowed by entry_side')) {
-        category = 'signals';
+        outcome = 'rejected';
+        stageNum = '2';
         stage = '2. Signals';
-        itemType = 'miss';
-        title = `Direction Filter: ${itemSymbol}`;
-        badgeClass = 'text-amber border-amber/30 bg-amber/10';
+        title = `Direction Disallowed: ${itemSymbol}`;
+      } else if (msg.includes('skipped: momentum') && msg.includes('below threshold')) {
+        outcome = 'waiting';
+        stageNum = '1';
+        stage = '1. Discovery';
+        title = `Velocity Below Threshold: ${itemSymbol}`;
+        isRoutine = true;
+      } else if (msg.includes('skipped: insufficient candles')) {
+        outcome = 'waiting';
+        stageNum = '1';
+        stage = '1. Discovery';
+        title = `Warming Candles: ${itemSymbol}`;
+        isRoutine = true;
       } else if (log.level === 'error' || log.level === 'warn') {
-        category = 'gates';
-        stage = '3. Risk Guard';
-        itemType = 'block';
-        badgeClass = log.level === 'error' ? 'text-red border-red/30 bg-red/10' : 'text-amber border-amber/30 bg-amber/10';
+        outcome = 'rejected';
+        stageNum = '3';
+        stage = '3. Risk & SL';
+        title = `Risk / Engine Alert: ${itemSymbol}`;
       }
+
+      const logTs = log.ts_ms || (log.timestamp ? new Date(log.timestamp).getTime() : (log.ts ? new Date(log.ts).getTime() : stableFallbackTs));
 
       list.push({
         id: logId,
-        category,
-        type: itemType,
+        outcome,
+        isRoutine,
+        stageNum,
+        stage,
         symbol: itemSymbol,
         title,
-        reason: msg.replace(/\[Scanner Diagnostic\]\s*/, '').replace(/\[MomentumScannerService\]\s*/, ''),
-        stage,
-        timestamp: log.ts_ms || (log.timestamp ? new Date(log.timestamp).getTime() : (log.ts ? new Date(log.ts).getTime() : (nowMs - (idx * 5000)))),
-        badgeClass,
+        reason: msg.replace(/\[Scanner Diagnostic\]\s*/, '').replace(/\[MomentumScannerService\]\s*/, '').replace(/\[Execution\]\s*/, ''),
+        timestamp: logTs,
         details: log
       });
     });
 
-    // Sort descending by timestamp
     return list.sort((a, b) => b.timestamp - a.timestamp);
-  }, [s?.strategy_label, strategyScannerResults, strategyConfig, isStrategyPaused, strategyGateStates, gateState, gateReason, strategyActiveTrades, tradeHistory, logs, focusedOpp?.symbol, nowMs, conditionFormula]);
+  }, [
+    stratName, stratGate.updatedAt, proximityLeaderboard, strategyScannerResults, strategyConfig,
+    isStrategyPaused, effectiveGate, effectiveReason, strategyActiveTrades, tradeHistory, logs,
+    staticSymbols, stableFallbackTs, conditionFormula
+  ]);
 
-  const reasonsCounts = useMemo(() => {
-    return {
-      all: strategyReasons.length,
-      signals: strategyReasons.filter(r => r.category === 'signals').length,
-      gates: strategyReasons.filter(r => r.category === 'gates').length,
-      entries: strategyReasons.filter(r => r.category === 'entries').length,
-      exits: strategyReasons.filter(r => r.category === 'exits').length,
-    };
+  const reasonOutcomeCounts = useMemo(() => {
+    const counts = { all: 0, allowed: 0, rejected: 0, waiting: 0, routineHidden: 0 };
+    for (const r of strategyReasons) {
+      if (hideRoutineMisses && r.isRoutine) {
+        counts.routineHidden++;
+        continue;
+      }
+      counts.all++;
+      if (r.outcome === 'allowed') counts.allowed++;
+      else if (r.outcome === 'rejected') counts.rejected++;
+      else counts.waiting++;
+    }
+    return counts;
+  }, [strategyReasons, hideRoutineMisses]);
+
+  const availableReasonSymbols = useMemo(() => {
+    const set = new Set();
+    for (const r of strategyReasons) {
+      if (r.symbol && r.symbol !== '---') set.add(r.symbol);
+    }
+    return Array.from(set).sort();
   }, [strategyReasons]);
 
   const filteredReasons = useMemo(() => {
-    let list = strategyReasons;
-    if (reasonsFilter !== 'all') {
-      list = list.filter(r => r.category === reasonsFilter);
-    }
     const q = reasonsSearch.trim().toLowerCase();
-    if (q) {
-      list = list.filter(r =>
-        (r.symbol && r.symbol.toLowerCase().includes(q)) ||
-        (r.title && r.title.toLowerCase().includes(q)) ||
-        (r.reason && r.reason.toLowerCase().includes(q)) ||
-        (r.stage && r.stage.toLowerCase().includes(q))
-      );
+    return strategyReasons.filter(r => {
+      if (hideRoutineMisses && r.isRoutine) return false;
+      if (reasonsOutcome !== 'all' && r.outcome !== reasonsOutcome) return false;
+      if (reasonsStage !== 'all' && r.stageNum !== reasonsStage) return false;
+      if (reasonsSymbol !== 'all' && r.symbol !== reasonsSymbol) return false;
+      if (q) {
+        const hit =
+          (r.symbol && r.symbol.toLowerCase().includes(q)) ||
+          (r.title && r.title.toLowerCase().includes(q)) ||
+          (r.reason && r.reason.toLowerCase().includes(q)) ||
+          (r.stage && r.stage.toLowerCase().includes(q));
+        if (!hit) return false;
+      }
+      return true;
+    });
+  }, [strategyReasons, hideRoutineMisses, reasonsOutcome, reasonsStage, reasonsSymbol, reasonsSearch]);
+
+  const groupedStories = useMemo(() => {
+    const map = new Map();
+    for (const item of filteredReasons) {
+      const key = item.symbol || 'STRATEGY';
+      if (!map.has(key)) {
+        map.set(key, {
+          symbol: key,
+          events: [],
+          latestTs: item.timestamp,
+          latestOutcome: item.outcome,
+        });
+      }
+      const g = map.get(key);
+      g.events.push(item);
+      if (item.timestamp > g.latestTs) {
+        g.latestTs = item.timestamp;
+        g.latestOutcome = item.outcome;
+      }
     }
-    return list;
-  }, [strategyReasons, reasonsFilter, reasonsSearch]);
+    return Array.from(map.values()).sort((a, b) => b.latestTs - a.latestTs);
+  }, [filteredReasons]);
 
   const selectedTrade = useMemo(() => {
     return (strategyActiveTrades || []).find(t => t.id === selectedTradeId || t.symbol === selectedTradeId);
@@ -920,146 +1123,188 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     }
   };
 
-  // Compute live telemetry stats
-  const streamAgeSec = Math.max(0, ((nowMs - lastAuthoritativeUpdateTs) / 1000)).toFixed(1);
-  const streamFresh = streamAgeSec < 5.0;
-  const regimeInfo = getMarketRegimeInfo(strategyScannerResults, strategyConfig, { scannerPaused: isStrategyPaused });
+  // Candidate selector items (merged static + top proximity + active trades, deduplicated)
+  const candidateChips = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const t of strategyActiveTrades) {
+      if (!seen.has(t.symbol)) {
+        seen.add(t.symbol);
+        out.push({ symbol: t.symbol, tag: 'In Pos', tone: 'text-green', priority: 1 });
+      }
+    }
+    const maxStatic = showAllStaticSymbols ? staticSymbols.length : 8;
+    for (const sym of staticSymbols.slice(0, maxStatic)) {
+      if (!seen.has(sym)) {
+        seen.add(sym);
+        const info = staticSymbolStatuses[sym];
+        out.push({
+          symbol: sym,
+          tag: info?.label || 'Static',
+          tone: info?.state === 'TRIGGERED' ? 'text-green' : info?.state === 'EVALUATING' ? 'text-accent' : 'text-dim',
+          priority: 2
+        });
+      }
+    }
+    for (const opp of proximityLeaderboard.slice(0, 6)) {
+      if (!seen.has(opp.symbol)) {
+        seen.add(opp.symbol);
+        out.push({
+          symbol: opp.symbol,
+          tag: opp.signalResult?.allFired ? 'Fired' : `${opp.proximity ?? 0}%`,
+          tone: opp.signalResult?.allFired ? 'text-green' : opp.proximity >= 80 ? 'text-accent' : 'text-dim',
+          priority: 3
+        });
+      }
+    }
+    return out;
+  }, [strategyActiveTrades, staticSymbols, showAllStaticSymbols, staticSymbolStatuses, proximityLeaderboard]);
+
+  const riskPerTradePct = Number(strategyConfig.risk_pct_per_trade ?? 1.0);
+  const riskPerTradeUsdt = (startingBal * riskPerTradePct) / 100;
 
   return (
     <div className="max-w-[1300px] mx-auto p-3 md:p-5 lg:p-6 animate-in fade-in duration-300 pb-16 lg:pb-8">
       <ViewHeader
         icon={Activity}
         title={s.strategy_label}
-        subTitle={`Strategy Engine · ${s.strategyId?.substring(0, 8)}`}
+        subTitle={`${isVariant ? 'Variant' : 'Base'} Strategy · ${strategyConfig.scan_interval || '5m'} · ${(strategyConfig.entry_side || 'both').toUpperCase()} · ${regimeInfo.label}`}
         backAction={onBack}
       >
-         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap py-0.5 justify-end">
-           <CopyButton value={s.strategyId} className="p-1.5 hidden sm:inline-flex" />
-           <div className="flex items-center gap-1.5 bg-surface/60 border border-border/40 rounded-xl px-2.5 py-1">
-             <StatusBadge status={s.sessionActive} />
-             {isVariant && (
-               <span className="text-[10px] font-mono font-bold text-purple uppercase tracking-wider">
-                 · Variant
-               </span>
-             )}
-             <span className="text-[10px] font-mono font-bold text-dim uppercase tracking-wider">
-               · {activeTradeCount} Active
-             </span>
-           </div>
+        <div className="flex items-center gap-2 flex-wrap py-0.5 justify-end">
+          <CopyButton value={s.strategyId} className="p-1.5 hidden sm:inline-flex" />
 
-           {/* Strategy Control Actions */}
-           <div className="flex items-center gap-1.5 shrink-0">
-             {sessionActive && (
-               <Tooltip content={isStrategyPaused ? "Resume Strategy Automation" : "Pause Strategy Automation"}>
-                 <button
-                   type="button"
-                   disabled={isPausing}
-                   aria-busy={isPausing}
-                   onClick={async () => {
-                     if (isPausing) return;
-                     setIsPausing(true);
-                     try {
-                       await onPause(s.strategy_label);
-                     } finally {
-                       setIsPausing(false);
-                     }
-                   }}
-                   className={cn(
-                     "px-2.5 py-1.5 min-h-[32px] sm:px-3 rounded-xl border text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer active:scale-95",
-                     isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
-                       isStrategyPaused
-                         ? "bg-green/10 text-green border-green/20 hover:bg-green/20"
-                         : "bg-amber/10 text-amber border-amber/20 hover:bg-amber/20"
-                     )
-                   )}
-                   aria-label={isPausing ? (isStrategyPaused ? "Resuming strategy..." : "Pausing strategy...") : (isStrategyPaused ? "Resume strategy" : "Pause strategy")}
-                 >
-                   {isPausing ? <Loader2 size={12} className="animate-spin text-accent" /> : (isStrategyPaused ? <Play size={12} fill="currentColor" /> : <Pause size={12} fill="currentColor" />)}
-                   <span>{isPausing ? (isStrategyPaused ? "Resuming..." : "Pausing...") : (isStrategyPaused ? "Resume" : "Pause")}</span>
-                 </button>
-               </Tooltip>
-             )}
+          {/* Unboxed live telemetry metadata */}
+          <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-dim px-2">
+            <StatusBadge status={s.sessionActive} />
+            <span className="text-dim/40" aria-hidden="true">·</span>
+            <Tooltip content={regimeInfo.guidance}>
+              <span className="inline-flex items-center gap-1 cursor-help text-text/80">
+                {regimeInfo.regime === 'slow' && <Turtle size={11} className="text-cyan-400" />}
+                {regimeInfo.regime === 'active' && <Flame size={11} className="text-accent" />}
+                {regimeInfo.regime === 'moderate' && <Zap size={11} className="text-amber" />}
+                <Radio size={11} className={streamFresh ? "text-green animate-pulse" : "text-amber"} />
+                <span className="tabular-nums">{streamFresh ? `Live ${streamAgeSec}s` : `Sync ${streamAgeSec}s`}</span>
+              </span>
+            </Tooltip>
+          </div>
 
-             <Tooltip content={isVariant ? "Edit Strategy Variant Configuration" : "Edit Base Strategy Configuration"}>
-               <button
-                 type="button"
-                 onClick={onEdit}
-                 className="px-2.5 py-1.5 min-h-[32px] sm:px-3 bg-surface border border-border text-dim hover:text-accent hover:border-accent/40 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer"
-                 aria-label={isVariant ? "Edit strategy variant configuration" : "Edit base strategy configuration"}
-               >
-                 <Edit3 size={12} />
-                 <span>{isVariant ? 'Edit Variant' : 'Edit Base'}</span>
-               </button>
-             </Tooltip>
-           </div>
-         </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {sessionActive && (
+              <Tooltip content={isStrategyPaused ? "Resume Strategy Automation" : "Pause Strategy Automation"}>
+                <button
+                  type="button"
+                  disabled={isPausing}
+                  aria-busy={isPausing}
+                  onClick={async () => {
+                    if (isPausing) return;
+                    setIsPausing(true);
+                    try {
+                      await onPause(s.strategy_label);
+                    } finally {
+                      setIsPausing(false);
+                    }
+                  }}
+                  className={cn(
+                    "px-3 py-1.5 min-h-[34px] rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap",
+                    isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
+                      isStrategyPaused
+                        ? "bg-green/10 text-green border-green/25 hover:bg-green/20"
+                        : "bg-amber/10 text-amber border-amber/25 hover:bg-amber/20"
+                    )
+                  )}
+                  aria-label={isPausing ? (isStrategyPaused ? "Resuming strategy..." : "Pausing strategy...") : (isStrategyPaused ? "Resume strategy" : "Pause strategy")}
+                >
+                  {isPausing ? <Loader2 size={12} className="animate-spin text-accent" /> : (isStrategyPaused ? <Play size={12} fill="currentColor" /> : <Pause size={12} fill="currentColor" />)}
+                  <span>{isPausing ? (isStrategyPaused ? "Resuming..." : "Pausing...") : (isStrategyPaused ? "Resume" : "Pause")}</span>
+                </button>
+              </Tooltip>
+            )}
+
+            <Tooltip content={isVariant ? "Edit Strategy Variant Configuration" : "Edit Base Strategy Configuration"}>
+              <button
+                type="button"
+                onClick={onEdit}
+                className="px-3 py-1.5 min-h-[34px] bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
+                aria-label={isVariant ? "Edit strategy variant configuration" : "Edit base strategy configuration"}
+              >
+                <Edit3 size={12} />
+                <span>{isVariant ? 'Edit Variant' : 'Edit Config'}</span>
+              </button>
+            </Tooltip>
+          </div>
+        </div>
       </ViewHeader>
 
-      {/* KPI Performance Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-2.5 md:gap-3 mb-5">
+      {/* Compact 4-Card KPI Strip (Reduced vertical height) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-3">
         <StatCard
+          compact
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
           color={pnlClass(s.activePnl)}
-          subValue={analytics === null ? "Syncing..." : `Total: ${fmtUSD(s.totalPnl)}`}
+          subValue={analytics === null ? "Syncing..." : `Realized: ${fmtUSD(s.totalPnl)}`}
           syncing={showResumingFeedback || isSyncing || (analytics === null && s.activePnl === 0)}
+          tooltipText="Unrealized P&L on active positions and cumulative realized strategy P&L."
         />
         <StatCard
-          label="Hit Rate %"
+          compact
+          label="Exposure & Slots"
+          value={`${Number(s.totalRiskPct || 0).toFixed(1)}% / ${strategyConfig.max_total_risk_pct || 5}%`}
+          color={s.totalRiskPct > (strategyConfig.max_total_risk_pct || 5) * 0.8 ? "text-amber" : "text-text"}
+          subValue={`${activeTradeCount}/${strategyConfig.max_open_trades || 3} Open · ${riskPerTradePct}% ($${riskPerTradeUsdt.toFixed(0)}/tr)`}
+          tooltipText="Total active risk exposure against portfolio cap, open trade slots, and configured risk per trade."
+        />
+        <StatCard
+          compact
+          label="Win Rate"
           value={`${stratPerformance.hitRate.toFixed(1)}%`}
           color={stratPerformance.hitRate >= stratPerformance.recommendedWr ? "text-green" : "text-amber"}
-          subValue={`Target: >=${stratPerformance.recommendedWr}% (BE: ${stratPerformance.breakevenWr}%)`}
-          tooltipText={`Strategy Win Rate. Dynamic recommendation based on ${stratPerformance.targetRr}R target: Breakeven >= ${stratPerformance.breakevenWr}%, Recommended Target >= ${stratPerformance.recommendedWr}%.`}
+          subValue={`${stratPerformance.wins}W / ${stratPerformance.losses}L · Target ≥ ${stratPerformance.recommendedWr}%`}
+          tooltipText={`Strategy Win Rate (${stratPerformance.total} trades). Breakeven >= ${stratPerformance.breakevenWr}% at ${stratPerformance.targetRr}R, Recommended >= ${stratPerformance.recommendedWr}%.`}
         />
         <StatCard
-          label="Hit Rate Ratio"
-          value={hitRateRatioText}
-          color={stratPerformance.hitRateRatio >= 1.15 ? "text-green" : stratPerformance.hitRateRatio <= 0.85 ? "text-amber" : "text-text"}
-          subValue={`Baseline: ${(typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50).toFixed(0)}%`}
-          tooltipText="Hit rate ratio relative to overall performance baseline. Thresholds: >= 1.15 Expansion, <= 0.85 Contraction."
-        />
-        <StatCard
+          compact
           label="Profit Factor"
           value={stratPerformance.total > 0 ? stratPerformance.profitFactor.toFixed(2) : '---'}
           color={stratPerformance.profitFactor >= 1.5 ? "text-green" : stratPerformance.profitFactor >= 1.0 ? "text-amber" : "text-text"}
-          subValue="Target: >= 1.50"
+          subValue="Target ≥ 1.50"
           tooltipText="Profit Factor (Gross Wins / Gross Losses). Recommended: > 1.00 (Profitable), >= 1.50 (Solid), >= 2.00 (Excellent)."
         />
-        <StatCard
-          label="Sharpe (Sh)"
-          value={stratPerformance.total > 1 ? stratPerformance.sharpe.toFixed(2) : '---'}
-          color={stratPerformance.sharpe >= 1.5 ? "text-green" : stratPerformance.sharpe >= 1.0 ? "text-amber" : stratPerformance.sharpe < 0 ? "text-red" : "text-text"}
-          subValue="Target: >= 1.50"
-          tooltipText="Sharpe Ratio (Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 1.50 (Good), >= 2.00 (Excellent)."
-        />
-        <StatCard
-          label="Sortino (So)"
-          value={stratPerformance.total > 1 ? stratPerformance.sortino.toFixed(2) : '---'}
-          color={stratPerformance.sortino >= 2.0 ? "text-green" : stratPerformance.sortino >= 1.0 ? "text-amber" : stratPerformance.sortino < 0 ? "text-red" : "text-text"}
-          subValue="Target: >= 2.00"
-          tooltipText="Sortino Ratio (Downside Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 2.00 (Good), >= 3.00 (Excellent)."
-        />
-        <StatCard
-          label="Active Risk"
-          value={`${Number(s.totalRiskPct || 0).toFixed(1)}%`}
-          color={s.totalRiskPct > strategyConfig.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
-          subValue={`Limit: ${strategyConfig.max_total_risk_pct || 5}%`}
-          tooltipText="Total active risk exposure across open positions."
-        />
-        <StatCard
-          label="Active Trades"
-          value={activeTradeCount.toString()}
-          color={activeTradeCount > 0 ? "text-green" : "text-dim"}
-          subValue={activeTradeCount > 0 ? "In Position" : "Flat"}
-          tooltipText="The number of open positions currently managed under this strategy."
-        />
+      </div>
+
+      {/* 1-Line Live Diagnostic Narrative Strip ("What, Why & When") */}
+      <div
+        role="status"
+        className={cn(
+          "mb-4 px-3.5 py-2.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-left transition-colors",
+          narrative.tone === 'danger' ? "bg-red/5 border-red/30" :
+          narrative.tone === 'warning' ? "bg-amber/5 border-amber/30" :
+          narrative.tone === 'positive' ? "bg-green/5 border-green/30" :
+          "bg-surface/60 border-border/50"
+        )}
+      >
+        <div className="flex items-start sm:items-center gap-2 min-w-0">
+          {narrative.tone === 'danger' && <Ban size={14} className="text-red shrink-0 mt-0.5 sm:mt-0" />}
+          {narrative.tone === 'warning' && <AlertTriangle size={14} className="text-amber shrink-0 mt-0.5 sm:mt-0" />}
+          {narrative.tone === 'positive' && <CheckCircle2 size={14} className="text-green shrink-0 mt-0.5 sm:mt-0" />}
+          {narrative.tone === 'neutral' && <Activity size={14} className="text-accent shrink-0 mt-0.5 sm:mt-0" />}
+          <div className="text-xs leading-snug min-w-0">
+            <span className="font-semibold text-text">{narrative.headline}</span>
+            <span className="text-dim mx-1.5 hidden sm:inline" aria-hidden="true">—</span>
+            <span className="text-dim block sm:inline">{narrative.detail}</span>
+          </div>
+        </div>
+        <span className="text-[11px] font-mono text-dim tabular-nums whitespace-nowrap shrink-0">
+          {narrative.when}
+        </span>
       </div>
 
       {/* Promoted Active Positions Section (Always visible when in position) */}
       {activeTradeCount > 0 && (
-        <div className="mb-5 animate-in fade-in duration-300 text-left">
+        <div className="mb-4 animate-in fade-in duration-300 text-left">
           <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {strategyActiveTrades.map(trade => (
               <ActiveTradeCard
                 key={trade.id || trade.symbol}
@@ -1075,47 +1320,22 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </div>
       )}
 
-      {/* Segmented Cockpit Navigation Tabs */}
-      <div className="flex items-center gap-1 sm:gap-1.5 p-1 bg-surface/40 border border-border/40 rounded-xl mb-5 text-left overflow-x-auto no-scrollbar" role="tablist" aria-label="Strategy Navigation">
+      {/* Segmented Navigation Tabs */}
+      <div className="flex items-center gap-1 p-1 bg-surface/50 border border-border/50 rounded-xl mb-4 text-left overflow-x-auto no-scrollbar" role="tablist" aria-label="Strategy Navigation">
         <button
           type="button"
           role="tab"
           aria-selected={activeTab === 'pipeline'}
           onClick={() => setActiveTab('pipeline')}
           className={cn(
-            "flex-1 min-w-[95px] sm:min-w-0 py-2 px-2.5 sm:px-3 rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'pipeline'
-              ? "bg-surface text-accent border border-border/60 shadow-xs"
-              : "text-dim hover:text-text hover:bg-surface/30"
+              ? "bg-background text-text border border-border/60 shadow-xs"
+              : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
-          <Cpu size={14} className={cn("shrink-0", activeTab === 'pipeline' ? "text-accent" : "text-dim")} />
-          <span className="truncate"><span className="hidden sm:inline">Pipeline & </span>Signals</span>
-          <span className={cn(
-            "hidden xs:inline-flex text-[9px] px-1.5 py-0.2 rounded font-mono font-bold tracking-tight shrink-0",
-            isStrategyPaused ? "bg-amber/10 text-amber border border-amber/20" : "bg-green/10 text-green border border-green/20"
-          )}>
-            {isStrategyPaused ? 'Paused' : 'Active'}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'performance'}
-          onClick={() => setActiveTab('performance')}
-          className={cn(
-            "flex-1 min-w-[95px] sm:min-w-0 py-2 px-2.5 sm:px-3 rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-            activeTab === 'performance'
-              ? "bg-surface text-accent border border-border/60 shadow-xs"
-              : "text-dim hover:text-text hover:bg-surface/30"
-          )}
-        >
-          <BarChart3 size={14} className={cn("shrink-0", activeTab === 'performance' ? "text-accent" : "text-dim")} />
-          <span className="truncate"><span className="hidden sm:inline">Performance & </span>Charts</span>
-          <span className="hidden xs:inline-flex text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-white/5 text-dim border border-white/5 shrink-0">
-            {stratPerformance.total}
-          </span>
+          <ShieldCheck size={14} className={cn("shrink-0", activeTab === 'pipeline' ? "text-accent" : "text-dim")} />
+          <span>Rules &amp; Diagnostics</span>
         </button>
 
         <button
@@ -1124,225 +1344,152 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           aria-selected={activeTab === 'decisions'}
           onClick={() => setActiveTab('decisions')}
           className={cn(
-            "flex-1 min-w-[95px] sm:min-w-0 py-2 px-2.5 sm:px-3 rounded-lg text-xs font-mono font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 sm:gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            "flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
             activeTab === 'decisions'
-              ? "bg-surface text-accent border border-border/60 shadow-xs"
-              : "text-dim hover:text-text hover:bg-surface/30"
+              ? "bg-background text-text border border-border/60 shadow-xs"
+              : "text-dim hover:text-text hover:bg-surface/40"
           )}
         >
           <FileText size={14} className={cn("shrink-0", activeTab === 'decisions' ? "text-accent" : "text-dim")} />
-          <span className="truncate">Decision<span className="hidden sm:inline"> Log</span></span>
-          <span className="hidden xs:inline-flex text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-white/5 text-dim border border-white/5 shrink-0">
-            {strategyReasons.length}
-          </span>
+          <span>Decision Log</span>
+          <span className="text-[11px] font-mono text-dim tabular-nums">({strategyReasons.length})</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'performance'}
+          onClick={() => setActiveTab('performance')}
+          className={cn(
+            "flex-1 min-w-[110px] py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+            activeTab === 'performance'
+              ? "bg-background text-text border border-border/60 shadow-xs"
+              : "text-dim hover:text-text hover:bg-surface/40"
+          )}
+        >
+          <BarChart3 size={14} className={cn("shrink-0", activeTab === 'performance' ? "text-accent" : "text-dim")} />
+          <span>Performance &amp; Charts</span>
+          <span className="text-[11px] font-mono text-dim tabular-nums">({stratPerformance.total})</span>
         </button>
       </div>
 
-      {/* TAB 1: Pipeline & Live Signals */}
+      {/* TAB 1: Rules & Diagnostics */}
       {activeTab === 'pipeline' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="border border-border/50 bg-surface/20 rounded-2xl overflow-hidden text-left shadow-sm">
-            {/* Streamlined Live Pipeline & Freshness Telemetry Header */}
-            <div className="p-3.5 sm:p-4 bg-surface/50 border-b border-border/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-                <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
-                  <Cpu size={14} />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 font-mono flex-wrap">
-                    <span className="text-xs font-black uppercase tracking-wider text-text truncate">Engine Pipeline</span>
-                    <span className={cn(
-                      "px-1.5 py-0.2 rounded text-[8.5px] font-bold uppercase border shrink-0",
-                      isStrategyPaused ? "bg-amber/10 text-amber border-amber/30" : "bg-green/10 text-green border-green/30"
-                    )}>
-                      {isStrategyPaused ? 'PAUSED' : 'ACTIVE'}
-                    </span>
-                    <span className="text-[10px] text-dim/60 font-medium">·</span>
-                    <span className="text-[9.5px] text-dim font-medium uppercase truncate">{effectiveReason || 'OK'}</span>
+        <div className="space-y-4 animate-in fade-in duration-200 text-left">
+          {/* Single-elevation Diagnostic Surface */}
+          <div className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden">
+
+            {/* Row 1: Compact Candidate Switcher + Scope + Buffer Warmup Status */}
+            <div className="px-3.5 py-2.5 bg-surface/50 border-b border-border/30 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 flex-wrap min-w-0">
+                <span className="text-[11px] font-semibold text-dim whitespace-nowrap shrink-0">Inspect Candidate:</span>
+                {candidateChips.length > 0 ? (
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {candidateChips.map(c => {
+                      const isSelected = bestOpp.symbol === c.symbol;
+                      return (
+                        <button
+                          key={c.symbol}
+                          type="button"
+                          onClick={() => setSelectedFocusSymbol(c.symbol)}
+                          className={cn(
+                            "px-2 py-1 rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border",
+                            isSelected
+                              ? "bg-accent/15 border-accent/50 text-accent font-semibold"
+                              : "bg-background/40 border-border/40 text-text/80 hover:border-border hover:text-text"
+                          )}
+                        >
+                          <span>{c.symbol}</span>
+                          <span className={cn("text-[10px] tabular-nums", isSelected ? "text-accent" : c.tone)}>{c.tag}</span>
+                        </button>
+                      );
+                    })}
+                    {isStaticWatchlist && staticSymbols.length > 8 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllStaticSymbols(!showAllStaticSymbols)}
+                        className="px-2 py-1 text-[11px] font-mono text-accent hover:underline cursor-pointer"
+                      >
+                        {showAllStaticSymbols ? 'Less' : `+${staticSymbols.length - 8} more`}
+                      </button>
+                    )}
                   </div>
-                </div>
+                ) : (
+                  <span className="text-xs font-mono text-dim">
+                    {isStaticWatchlist ? `${staticSymbols.length} static targets · awaiting scan tick` : `Top ${strategyConfig.watchlist_size || 15} by ${strategyConfig.discovery_mode || 'volume'} · awaiting candidate`}
+                  </span>
+                )}
               </div>
 
-              <div className="flex items-center gap-2 sm:gap-3 font-mono text-[10px] text-dim self-stretch sm:self-auto justify-between sm:justify-end border-t sm:border-t-0 pt-2 sm:pt-0 border-border/20 flex-wrap">
-                {/* Market Regime Badge */}
-                <Tooltip content={regimeInfo.guidance}>
-                  <div className={cn(
-                    "px-2 py-0.5 rounded-lg border flex items-center gap-1 cursor-help shrink-0",
-                    regimeInfo.badgeClass
-                  )}>
-                    {regimeInfo.regime === 'slow' && <Turtle size={10} className="shrink-0 text-cyan-400" />}
-                    {regimeInfo.regime === 'active' && <Flame size={10} className="shrink-0 text-accent animate-pulse" />}
-                    {regimeInfo.regime === 'moderate' && <Zap size={10} className="shrink-0 text-amber" />}
-                    <span className="font-black uppercase tracking-wider">{regimeInfo.label}</span>
-                  </div>
-                </Tooltip>
-
-                {/* Stream Freshness & Telemetry */}
-                <div className="flex items-center gap-1.5 text-dim/80 shrink-0">
-                  <Radio size={11} className={streamFresh ? "text-green animate-pulse" : "text-amber"} />
-                  <span>{streamFresh ? `Live (${streamAgeSec}s)` : `Syncing (${streamAgeSec}s)`}</span>
-                </div>
-
-                {/* Batch Sync Action Button */}
+              {/* Right: Warmup Summary & Sync */}
+              <div className="flex items-center gap-3 text-[11px] font-mono text-dim shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowWarmupDebug(!showWarmupDebug)}
+                  className={cn(
+                    "flex items-center gap-1.5 cursor-pointer hover:text-text transition-colors whitespace-nowrap",
+                    anyWarming ? "text-amber font-semibold" : "text-dim"
+                  )}
+                  aria-expanded={showWarmupDebug}
+                >
+                  <Clock size={12} className={anyWarming ? "text-amber" : "text-accent"} />
+                  <span>
+                    Buffers: {timeframeDebugItems.filter(i => !i.isWarming).length}/{timeframeDebugItems.length} Ready
+                  </span>
+                  <ChevronDown size={12} className={cn("transition-transform duration-150", showWarmupDebug && "rotate-180")} />
+                </button>
+                <span className="text-border" aria-hidden="true">|</span>
                 <button
                   type="button"
                   disabled={isBatchSyncing || bestOpp.symbol === '---'}
                   onClick={handleBatchSyncTimeframes}
                   className={cn(
-                    "px-2.5 py-1 bg-surface border border-border/60 hover:border-accent/40 text-text rounded-lg text-[9.5px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0",
+                    "text-accent hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap",
                     isBatchSyncing && "opacity-60 cursor-wait"
                   )}
                   aria-label="Batch sync all evaluation timeframes"
                 >
-                  <RefreshCw size={10} className={cn(isBatchSyncing && "animate-spin text-accent")} />
-                  <span>{isBatchSyncing ? 'Syncing...' : 'Sync All'}</span>
+                  <RefreshCw size={11} className={cn(isBatchSyncing && "animate-spin")} />
+                  <span>{isBatchSyncing ? 'Syncing...' : 'Sync Klines'}</span>
                 </button>
               </div>
             </div>
 
-            {/* Unified Scope & Proximity 2-Column Grid (Minimizes vertical height) */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 border-b border-border/20 divide-y lg:divide-y-0 lg:divide-x divide-border/20 bg-surface/20">
-              {/* Watchlist Scope & Target Universe */}
-              <div className="p-3 bg-surface/30 flex flex-col justify-between gap-2">
-                <div className="flex items-center justify-between font-mono flex-wrap gap-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <Target size={12} className="text-accent shrink-0" />
-                    <span className="text-[10px] font-black uppercase tracking-wider text-text">Watchlist Scope & Universe</span>
-                    <span className={cn(
-                      "px-2 py-0.5 rounded text-[8.5px] font-bold uppercase border",
-                      isStaticWatchlist ? "bg-purple/10 text-purple border-purple/30" : "bg-cyan-400/10 text-cyan-400 border-cyan-400/30"
-                    )}>
-                      {isStaticWatchlist ? `STATIC WATCHLIST (${staticSymbols.length})` : `SMART WATCHLIST (Top ${strategyConfig.watchlist_size || 15})`}
-                    </span>
-                  </div>
-
-                  <span className="text-[9px] text-dim font-mono">
-                    {isStaticWatchlist
-                      ? 'Target pairs explicitly defined in strategy config'
-                      : `Discovery: ${(strategyConfig.discovery_mode || 'volume').toUpperCase()} · Interval: ${strategyConfig.scan_interval || '5m'}`}
-                  </span>
-                </div>
-
-                {/* Static Watchlist Symbol Chips with Progressive Disclosure */}
-                {isStaticWatchlist && staticSymbols.length > 0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap pt-1 font-mono">
-                    {(showAllStaticSymbols ? staticSymbols : staticSymbols.slice(0, 8)).map(sym => {
-                      const info = staticSymbolStatuses[sym] || { label: 'STATIC TARGET', badgeClass: 'text-dim border-border/40 bg-surface/40' };
-                      const isSelected = focusedOpp.symbol === sym;
-
-                      return (
-                        <button
-                          key={sym}
-                          type="button"
-                          onClick={() => setSelectedFocusSymbol(sym)}
-                          className={cn(
-                            "px-2.5 py-1 rounded-lg border text-[10px] font-bold flex items-center gap-1.5 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
-                            isSelected ? "bg-accent/20 border-accent text-accent shadow-xs" : info.badgeClass
-                          )}
-                        >
-                          <span className="truncate">{sym}</span>
-                          <span className="text-[8px] opacity-80 uppercase font-black font-mono tracking-tight shrink-0">· {info.label}</span>
-                        </button>
-                      );
-                    })}
-
-                    {staticSymbols.length > 8 && (
+            {/* Expandable Warmup Strip (Auto-highlighted when warming, collapsed cleanly when ready) */}
+            {(showWarmupDebug || anyWarming) && (
+              <div className="px-3.5 py-2.5 bg-background/40 border-b border-border/30 flex flex-wrap items-center gap-3 font-mono text-[11px]">
+                {timeframeDebugItems.map(item => {
+                  const pct = item.required > 0 ? Math.min(100, Math.round((item.candles / item.required) * 100)) : 100;
+                  const isSyncingThis = syncingTfMap[item.tf];
+                  return (
+                    <div key={item.key} className="flex items-center gap-2 pr-3 border-r border-border/30 last:border-r-0">
+                      <span className="text-text font-medium">{item.label}</span>
+                      <span className="text-dim">({item.tf})</span>
+                      <span className={cn("tabular-nums font-semibold", item.isWarming ? "text-amber" : "text-green")}>
+                        {item.statusMsg} · {pct}%
+                      </span>
                       <button
                         type="button"
-                        onClick={() => setShowAllStaticSymbols(!showAllStaticSymbols)}
-                        className="px-2 py-1 rounded-lg border border-border/60 hover:border-accent/40 bg-surface/50 text-[9.5px] font-mono font-bold text-accent flex items-center gap-1 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                        disabled={isSyncingThis || bestOpp.symbol === '---'}
+                        onClick={() => handleSyncTimeframe(item.tf, bestOpp.symbol)}
+                        className="text-accent hover:underline cursor-pointer disabled:opacity-40 text-[10px]"
+                        aria-label={`Sync ${item.tf} candles for ${bestOpp.symbol}`}
                       >
-                        <span>{showAllStaticSymbols ? 'Show Less' : `+${staticSymbols.length - 8} More`}</span>
-                        <ChevronDown size={11} className={cn("transition-transform duration-200", showAllStaticSymbols && "rotate-180")} />
+                        {isSyncingThis ? 'Syncing' : 'Sync'}
                       </button>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  );
+                })}
               </div>
+            )}
 
-              {/* Watchlist Proximity Leaderboard */}
-              <div className="p-3 bg-background/30 flex flex-col justify-between gap-2">
-                <div className="flex justify-between items-center mb-1 font-mono">
-                  <span className="text-[9px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
-                    <Zap size={11} className="text-accent" /> Watchlist Proximity Leaderboard
-                  </span>
-                  <span className="text-[8.5px] text-dim/60 uppercase">Sorted by Proximity %</span>
-                </div>
-
-                {proximityLeaderboard.length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-1.5">
-                    {proximityLeaderboard.slice(0, 5).map(opp => {
-                      const isSelected = focusedOpp.symbol === opp.symbol;
-                      const isFired = opp.signalResult?.allFired;
-                      return (
-                        <button
-                          key={opp.symbol}
-                          type="button"
-                          onClick={() => setSelectedFocusSymbol(opp.symbol)}
-                          className={cn(
-                            "p-1.5 rounded-lg border text-left transition-all cursor-pointer flex flex-col gap-0.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-w-0",
-                            isSelected
-                              ? "bg-accent/10 border-accent text-accent shadow-xs"
-                              : isFired
-                              ? "bg-green/5 border-green/30 text-green"
-                              : "bg-surface/40 border-border/40 hover:border-border text-text"
-                          )}
-                        >
-                          <div className="flex justify-between items-center font-mono gap-1">
-                            <span className="text-[10px] font-black truncate">{opp.symbol}</span>
-                            <span className={cn(
-                              "text-[8px] font-mono font-bold px-1 rounded shrink-0",
-                              isFired ? "bg-green/20 text-green" : "bg-surface text-dim"
-                            )}>
-                              {opp.proximity}%
-                            </span>
-                          </div>
-
-                          <div className="h-1 bg-background/80 rounded-full overflow-hidden relative border border-white/5">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all duration-300",
-                                isFired ? "bg-green" : opp.proximity > 80 ? "bg-accent" : "bg-dim/50"
-                              )}
-                              style={{ width: `${opp.proximity}%` }}
-                            />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-[9px] font-mono text-dim/60 uppercase py-2">
-                    Awaiting scan candidates
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Interactive End-to-End Trade Journey Map (6 Milestones) */}
-            <div className="p-3.5 sm:p-4 bg-background/25 border-b border-border/20 font-mono flex flex-col gap-3">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <Compass size={14} className="text-accent shrink-0" />
-                  <span className="text-[11px] font-black uppercase tracking-wider text-text">Trade Journey Map</span>
-                  <span className={cn("px-2 py-0.5 rounded text-[8.5px] font-black uppercase border shrink-0", currentLifecycleStage.colorClass)}>
-                    {currentLifecycleStage.statusLabel}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[9px] text-dim flex-wrap">
-                  <span>Target: <strong className="text-text font-bold">{focusedOpp.symbol !== '---' ? focusedOpp.symbol : (isStaticWatchlist ? `${staticSymbols.length} Static Targets` : 'Discovery Universe')}</strong></span>
-                  <span className="text-dim/40">·</span>
-                  <span>Click any milestone below to inspect execution criteria</span>
-                </div>
-              </div>
-
-              {/* 6-Milestone Interactive Journey Trail */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 relative">
+            {/* Row 2: Compact 1-Row Interactive 6-Stage Lifecycle Stepper */}
+            <div className="px-3.5 py-2.5 bg-background/25 border-b border-border/30">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                 {journeyMilestones.map(m => {
                   const isSelected = activeJourneyMilestone === m.num;
                   const isCurrent = currentLifecycleStage.stageNumber === m.num;
                   const isPassed = currentLifecycleStage.stageNumber > m.num;
-
                   return (
                     <button
                       key={m.num}
@@ -1351,255 +1498,299 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                       aria-expanded={isSelected}
                       aria-label={`Milestone ${m.num}: ${m.title} (${m.status})`}
                       className={cn(
-                        "p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-1.5 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none min-h-[72px] min-w-0 relative overflow-hidden group",
+                        "px-2.5 py-1.5 rounded-lg border text-left transition-all cursor-pointer flex items-center justify-between gap-1.5 min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         isSelected
-                          ? "bg-accent/15 border-accent text-accent shadow-sm ring-1 ring-accent/30"
+                          ? "bg-accent/15 border-accent text-accent"
                           : isCurrent
-                          ? "bg-accent/10 border-accent/60 text-accent font-black shadow-xs"
+                          ? "bg-accent/10 border-accent/50 text-text"
                           : isPassed
-                          ? "bg-green/10 border-green/30 text-green font-bold hover:border-green/50"
-                          : "bg-surface/40 border-border/40 text-dim/80 hover:border-border hover:text-text"
+                          ? "bg-green/5 border-green/25 text-green"
+                          : "bg-surface/40 border-border/40 text-dim hover:text-text hover:border-border"
                       )}
                     >
-                      <div className="flex items-center justify-between gap-1 min-w-0">
-                        <span className="text-[10px] font-black uppercase tracking-tight truncate">{m.short}</span>
-                        <span className={cn(
-                          "text-[7.5px] font-bold px-1.5 py-0.2 rounded border font-mono tracking-tighter shrink-0 truncate max-w-[65px]",
-                          isSelected ? "bg-accent text-white border-accent" : m.badgeClass
-                        )}>
-                          {m.status}
-                        </span>
-                      </div>
-
-                      <span className="text-[8.5px] text-dim/80 line-clamp-1 text-left leading-tight font-medium">
-                        {m.subtitle}
-                      </span>
-
-                      {/* Indicator bar */}
-                      <div className="w-full bg-background/80 rounded-full h-1 overflow-hidden relative border border-white/5">
-                        <div
-                          className={cn(
-                            "h-full rounded-full transition-all duration-300",
-                            isSelected || isCurrent ? "bg-accent w-full" : isPassed ? "bg-green w-full" : "bg-dim/30 w-1/4"
-                          )}
-                        />
-                      </div>
+                      <span className="text-[11px] font-semibold truncate">{m.num}. {m.short}</span>
+                      <span className="text-[10px] font-mono tabular-nums opacity-85 truncate shrink-0">{m.status}</span>
                     </button>
                   );
                 })}
               </div>
 
-              {/* Interactive Milestone Detailed Inspector */}
+              {/* Inline Milestone Inspector Drawer */}
               {activeJourneyMilestone && (() => {
                 const milestone = journeyMilestones.find(m => m.num === activeJourneyMilestone);
                 if (!milestone) return null;
-
                 return (
-                  <div className="mt-1 p-3.5 bg-surface/50 border border-accent/30 rounded-xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-1 duration-200">
-                    <div className="flex items-center justify-between flex-wrap gap-2 border-b border-border/20 pb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded-md bg-accent text-white text-[10px] font-black flex items-center justify-center shrink-0">
-                          {milestone.num}
-                        </span>
-                        <div>
-                          <h4 className="text-xs font-black uppercase tracking-wider text-text">{milestone.title}</h4>
-                          <p className="text-[9.5px] text-dim font-medium">{milestone.desc}</p>
-                        </div>
+                  <div className="mt-2.5 pt-2.5 border-t border-border/30 flex flex-col gap-2 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs">
+                        <span className="font-semibold text-text">{milestone.title}</span>
+                        <span className="text-dim mx-1.5" aria-hidden="true">·</span>
+                        <span className="text-dim">{milestone.desc}</span>
                       </div>
-
-                      <div className="flex items-center gap-2">
-                        <span className={cn("text-[9px] font-black px-2 py-0.5 rounded border uppercase", milestone.badgeClass)}>
-                          {milestone.status}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setActiveJourneyMilestone(null)}
-                          className="p-1 hover:bg-white/10 rounded-md text-dim hover:text-text transition-colors"
-                          aria-label="Close milestone inspection"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setActiveJourneyMilestone(null)}
+                        className="p-1 text-dim hover:text-text cursor-pointer rounded"
+                        aria-label="Close milestone inspection"
+                      >
+                        <X size={13} />
+                      </button>
                     </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 pt-1 font-mono">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono pt-1">
                       {milestone.criteria.map((crit, idx) => (
-                        <div key={idx} className="p-2 bg-background/40 border border-border/30 rounded-lg flex flex-col gap-0.5">
-                          <span className="text-[8px] font-black uppercase text-dim tracking-wider">{crit.label}</span>
-                          <span className="text-[10px] font-bold text-text truncate" title={crit.value}>{crit.value}</span>
+                        <div key={idx} className="min-w-0">
+                          <div className="text-[10px] text-dim">{crit.label}</div>
+                          <div className="font-semibold text-text truncate" title={crit.value}>{crit.value}</div>
                         </div>
                       ))}
                     </div>
+                    {milestone.protocolNote && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowComplianceNotes(!showComplianceNotes)}
+                          className="text-[11px] text-dim hover:text-accent cursor-pointer flex items-center gap-1"
+                        >
+                          <span>{showComplianceNotes ? 'Hide Execution Protocol Note' : 'Show Execution Protocol Note'}</span>
+                          <ChevronDown size={11} className={cn("transition-transform", showComplianceNotes && "rotate-180")} />
+                        </button>
+                        {showComplianceNotes && (
+                          <p className="text-[11px] text-dim mt-1">{milestone.protocolNote}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
             </div>
 
-            {/* Focused Candidate Inspector & Signal Checklist */}
-            <div className="p-3.5 sm:p-4 flex flex-col gap-4">
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-2 border-b border-border/20 font-mono">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs font-black uppercase text-text shrink-0">Candidate Signal Inspector</span>
-                  <span className="px-2 py-0.5 bg-surface border border-border text-accent rounded-md text-[10px] font-black truncate max-w-[120px] xs:max-w-none">
-                    {bestOpp.symbol} {bestOpp.dir ? bestOpp.dir.toUpperCase() : 'NEUTRAL'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 xs:gap-2 text-[9.5px] min-w-0 max-w-full">
-                  <span className="text-dim shrink-0">Formula:</span>
-                  <span className="text-text font-bold truncate max-w-[120px] xs:max-w-[180px] sm:max-w-xs md:max-w-md" title={conditionFormula}>{conditionFormula}</span>
-                  <span className={cn(
-                    "px-2 py-0.5 rounded text-[8.5px] font-black uppercase border shrink-0",
-                    entryMet ? "bg-green/10 text-green border-green/20" : "bg-amber/10 text-amber border-amber/20"
-                  )}>
-                    {entryMet ? 'TRIGGERED' : 'PENDING'}
-                  </span>
-                </div>
-              </div>
+            {/* Row 3: 2-Column Diagnostic Rules Matrix (Entry/Exit Values, Params, TFs | Risk, SL & Gates) */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 divide-y xl:divide-y-0 xl:divide-x divide-border/30">
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Left Column: Signal Gauges */}
-                {bestOpp.symbol === '---' ? (
-                  <div className="lg:col-span-2 p-6 rounded-xl bg-background/50 border border-border/40 flex flex-col items-center justify-center text-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-                      <Search size={18} />
-                    </div>
-                    <div className="flex flex-col gap-1 max-w-md">
-                      <span className="text-xs font-black uppercase tracking-wider text-text">No Candidates Passing Velocity Threshold</span>
-                      <p className="text-[11px] text-dim leading-relaxed">
-                        Scanner is actively scanning the universe on {strategyConfig.scan_interval || '4h'} (configured threshold: ±{strategyConfig.scan_pct_threshold || 1.0}%). Live evaluations, pre-filters, and candle buffer statuses are reported below in the Decision Log.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 text-[9px] font-mono text-dim font-bold bg-surface/60 px-3 py-1 rounded-lg border border-border/40">
-                      <RefreshCw size={10} className="animate-spin text-accent" />
-                      <span>Awaiting momentum trigger across {strategyConfig.watchlist_size || 80} discovery symbols</span>
+              {/* LEFT COLUMN: Entry & Exit Rules (Values, Params, Timeframes, Allowed/Rejected) */}
+              <div className="p-3.5 sm:p-4 flex flex-col gap-3 min-w-0">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-text">
+                      Entry &amp; Exit Rules
+                    </h3>
+                    <div className="text-[11px] font-mono text-dim mt-0.5 flex items-center gap-1.5 flex-wrap">
+                      <span>Target: <strong className="text-text">{bestOpp.symbol}</strong> {bestOpp.dir && bestOpp.dir !== '---' ? bestOpp.dir.toUpperCase() : ''}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>Entry: <strong className="text-text">{conditionFormula}</strong></span>
+                      <span aria-hidden="true">·</span>
+                      <span>Exit: <strong className="text-text">{(strategyConfig.exit_signal_logic || 'any').toUpperCase()}</strong></span>
                     </div>
                   </div>
-                ) : (
-                  <div className="lg:col-span-2 flex flex-col gap-3 min-w-0">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                      <SignalGauge
-                        label="Velocity Move"
-                        value={Math.abs(bestOpp.pct || 0)}
-                        threshold={strategyConfig.scan_pct_threshold || 2.0}
-                        unit="%"
-                        fired={scanMet}
-                        active={scanMet}
-                        markPrice={bestOpp.close || 0}
-                      />
+                  <button
+                    type="button"
+                    onClick={() => setShowLiveGauges(!showLiveGauges)}
+                    className="text-[11px] font-mono text-accent hover:underline cursor-pointer shrink-0"
+                  >
+                    {showLiveGauges ? 'Hide Live Gauges' : 'Show Live Gauges'}
+                  </button>
+                </div>
 
-                      {(strategyConfig.enabled_signals || []).map(sig => {
-                        const sigDetail = signalResult.signals?.[sig] || { fired: false, active: true, label: SIGNAL_LABELS[sig] || sig };
-                        return (
-                          <SignalGauge
-                            key={sig}
-                            label={SIGNAL_LABELS[sig] || sig}
-                            value={sigDetail.value}
-                            threshold={sigDetail.threshold}
-                            unit={sigDetail.unit}
-                            fired={sigDetail.fired}
-                            active={sigDetail.active !== false}
-                            remainingDelay={sigDetail.remaining_delay || 0}
-                            configDelay={sigDetail.config_delay || 0}
-                            insufficientData={sigDetail.insufficientData}
-                            thresholdIsPrice={sigDetail.threshold_is_price}
-                            isLong={bestOpp.dir === 'long'}
-                            markPrice={bestOpp.close || sigDetail.value || 0}
-                            type="entry"
-                          />
-                        );
-                      })}
-                    </div>
+                {/* Entry Rules Table */}
+                <div>
+                  <div className="text-[11px] font-semibold text-dim pb-1.5 border-b border-border/30 flex items-center justify-between">
+                    <span>Entry Conditions ({rulesDiagnostics.entryRules.length})</span>
+                    <span className="font-mono text-[10px]">Value / Target · Status</span>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    {rulesDiagnostics.entryRules.map(rule => (
+                      <div key={rule.key} className="py-2 flex items-start justify-between gap-3 text-xs min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-text">{rule.label}</span>
+                            <span className="text-[11px] font-mono text-dim">
+                              · {rule.timeframe} · {rule.role}
+                            </span>
+                          </div>
+                          <div className="text-[11px] font-mono text-dim mt-0.5 break-words">
+                            {rule.paramsText}
+                          </div>
+                          {rule.reasonText && (
+                            <div className={cn(
+                              "text-[11px] mt-0.5 break-words",
+                              rule.status === 'rejected' ? "text-red" : rule.status === 'warming' ? "text-amber" : "text-dim/90"
+                            )}>
+                              {rule.reasonText}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col items-end shrink-0 text-right font-mono">
+                          <div className="text-[11px] text-text tabular-nums">
+                            {rule.liveText}
+                            {rule.thresholdText && rule.thresholdText !== '---' && (
+                              <span className="text-dim"> / {rule.thresholdText}</span>
+                            )}
+                          </div>
+                          <div className="mt-0.5">
+                            <VerdictTag status={rule.status} customLabel={rule.status === 'allowed' ? 'PASS' : undefined} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Exit Rules & TP Ladder */}
+                <div className="pt-1">
+                  <div className="text-[11px] font-semibold text-dim pb-1.5 border-b border-border/30 flex items-center justify-between">
+                    <span>Exit Signals &amp; Targets ({rulesDiagnostics.exitRules.length})</span>
+                    <span className="font-mono text-[10px]">Live / Target · State</span>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    {rulesDiagnostics.exitRules.map(rule => (
+                      <div key={rule.key} className="py-2 flex items-start justify-between gap-3 text-xs min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-semibold text-text">{rule.label}</span>
+                            <span className="text-[11px] font-mono text-dim">
+                              · {rule.timeframe} · {rule.role}
+                            </span>
+                          </div>
+                          <div className="text-[11px] font-mono text-dim mt-0.5 break-words">
+                            {rule.paramsText}
+                          </div>
+                          {rule.reasonText && (
+                            <div className={cn(
+                              "text-[11px] mt-0.5 break-words",
+                              rule.status === 'rejected' ? "text-red" : rule.status === 'warning' ? "text-amber" : "text-dim/90"
+                            )}>
+                              {rule.reasonText}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col items-end shrink-0 text-right font-mono">
+                          <div className="text-[11px] text-text tabular-nums">
+                            {rule.liveText}
+                            {rule.thresholdText && rule.thresholdText !== '---' && (
+                              <span className="text-dim"> / {rule.thresholdText}</span>
+                            )}
+                          </div>
+                          <div className="mt-0.5">
+                            <VerdictTag
+                              status={rule.status}
+                              customLabel={rule.status === 'allowed' ? 'TRIGGERED' : rule.status === 'waiting' ? 'MONITORING' : undefined}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Optional Visual Signal Gauges Drawer */}
+                {showLiveGauges && bestOpp.symbol !== '---' && (
+                  <div className="pt-2 border-t border-border/30 grid grid-cols-1 sm:grid-cols-2 gap-2.5 animate-in fade-in duration-150">
+                    <SignalGauge
+                      label="Velocity Move"
+                      value={Math.abs(bestOpp.pct || 0)}
+                      threshold={strategyConfig.scan_pct_threshold || 2.0}
+                      unit="%"
+                      fired={scanMet}
+                      active={scanMet}
+                      markPrice={bestOpp.close || 0}
+                    />
+                    {(strategyConfig.enabled_signals || []).map(sig => {
+                      const sigDetail = signalResult.signals?.[sig] || { fired: false, active: true, label: formatSignalLabel(sig) };
+                      return (
+                        <SignalGauge
+                          key={sig}
+                          label={formatSignalLabel(sig)}
+                          value={sigDetail.value}
+                          threshold={sigDetail.threshold}
+                          unit={sigDetail.unit}
+                          fired={sigDetail.fired}
+                          active={sigDetail.active !== false}
+                          remainingDelay={sigDetail.remaining_delay || 0}
+                          configDelay={sigDetail.config_delay || 0}
+                          insufficientData={sigDetail.insufficientData}
+                          thresholdIsPrice={sigDetail.threshold_is_price}
+                          isLong={bestOpp.dir === 'long'}
+                          markPrice={bestOpp.close || sigDetail.value || 0}
+                          type="entry"
+                        />
+                      );
+                    })}
                   </div>
                 )}
+              </div>
 
-                {/* Right Column: Timeframe Candle Warmup & Freshness Debug Inspector with Progressive Disclosure */}
-                <div className="bg-background/40 border border-border/40 rounded-xl p-3 flex flex-col gap-2.5 min-w-0">
-                  <div className="flex items-center justify-between border-b border-border/20 pb-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowWarmupDebug(!showWarmupDebug)}
-                      className="text-[10px] font-black text-dim hover:text-text uppercase tracking-wider flex items-center gap-1.5 font-mono cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent rounded transition-colors"
-                    >
-                      <Clock size={12} className="text-accent" />
-                      <span>Timeframe & Warmup</span>
-                      <ChevronDown size={11} className={cn("text-dim transition-transform duration-200", showWarmupDebug && "rotate-180")} />
-                    </button>
-                    <span className="text-[8.5px] font-mono text-dim/60 uppercase">Buffer Freshness</span>
+              {/* RIGHT COLUMN: Risk, Stop-Loss Bounds & Pre-Trade Gates (Allowed vs Rejected) */}
+              <div className="p-3.5 sm:p-4 flex flex-col gap-3 min-w-0">
+                <div>
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-text">
+                    Risk, Stop-Loss &amp; Gating Limits
+                  </h3>
+                  <div className="text-[11px] font-mono text-dim mt-0.5">
+                    Configured thresholds vs. live / prospective state ({bestOpp.symbol !== '---' ? bestOpp.symbol : 'Portfolio'})
                   </div>
+                </div>
 
-                  {showWarmupDebug && (
-                    <div className="flex flex-col gap-2 animate-in fade-in duration-200">
-                      {timeframeDebugItems.map(item => {
-                        const pct = item.required > 0 ? Math.min(100, Math.round((item.candles / item.required) * 100)) : 100;
-                        const isSyncingThis = syncingTfMap[item.tf];
-
-                        return (
-                          <div key={item.key} className="p-2 bg-surface/50 border border-border/30 rounded-lg flex flex-col gap-1 font-mono">
-                            <div className="flex items-center justify-between text-[10px] gap-1">
-                              <span className="font-bold text-text flex items-center gap-1 truncate">
-                                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                                <span className="truncate">{item.label}</span>
-                                <span className="text-dim/60 shrink-0">({item.tf})</span>
-                              </span>
-                              <span className={cn("font-bold shrink-0", item.isWarming ? "text-amber" : "text-green")}>
-                                {item.statusMsg}
-                              </span>
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2 text-[9px] text-dim">
-                              <div className="flex-1 bg-background/80 rounded-full h-1 overflow-hidden relative border border-white/5 min-w-[50px]">
-                                <div
-                                  className={cn("h-full transition-all duration-300", item.isWarming ? "bg-amber" : "bg-green")}
-                                  style={{ width: `${pct}%` }}
-                                />
-                              </div>
-                              <span className="shrink-0 tabular-nums">{pct}%</span>
-                              <button
-                                type="button"
-                                disabled={isSyncingThis || bestOpp.symbol === '---'}
-                                onClick={() => handleSyncTimeframe(item.tf, bestOpp.symbol)}
-                                className={cn(
-                                  "px-1.5 py-0.5 bg-surface hover:bg-surface-light border border-border text-text rounded text-[8px] uppercase font-bold flex items-center gap-0.5 transition-all cursor-pointer focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none shrink-0",
-                                  isSyncingThis && "opacity-60 cursor-wait"
-                                )}
-                                aria-label={`Sync ${item.tf} candles for ${bestOpp.symbol}`}
-                              >
-                                <RefreshCw size={8} className={cn(isSyncingThis && "animate-spin text-accent")} />
-                                <span>Sync</span>
-                              </button>
-                            </div>
+                <div>
+                  <div className="text-[11px] font-semibold text-dim pb-1.5 border-b border-border/30 flex items-center justify-between">
+                    <span>Risk &amp; SL Invariants</span>
+                    <span className="font-mono text-[10px]">Live / Status</span>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    {rulesDiagnostics.riskChecks.map(check => (
+                      <div key={check.key} className="py-2.5 flex items-start justify-between gap-3 text-xs min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-text">{check.label}</div>
+                          <div className="text-[11px] font-mono text-dim mt-0.5 break-words">
+                            {check.configuredText}
                           </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          <div className={cn(
+                            "text-[11px] mt-0.5 break-words",
+                            check.status === 'rejected' ? "text-red font-medium" :
+                            (check.status === 'clamped' || check.status === 'warning') ? "text-amber" :
+                            "text-dim/90"
+                          )}>
+                            {check.reasonText}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end shrink-0 text-right font-mono">
+                          <div className="text-[11px] font-semibold text-text tabular-nums">
+                            {check.liveText}
+                          </div>
+                          <div className="mt-0.5">
+                            <VerdictTag status={check.status} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Collapsible Live Scanner Preview Bar (Saves ~350px vertical scroll) */}
-          <div className="bg-surface/30 border border-border/40 rounded-2xl overflow-hidden shadow-xs">
+          {/* Collapsible Live Scanner Preview Bar */}
+          <div className="bg-surface/30 border border-border/50 rounded-2xl overflow-hidden">
             <button
               type="button"
               onClick={() => setShowScannerPreview(!showScannerPreview)}
-              className="w-full p-3.5 flex items-center justify-between hover:bg-surface/50 transition-colors font-mono text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
+              className="w-full px-4 py-3 flex items-center justify-between hover:bg-surface/50 transition-colors text-left cursor-pointer focus-visible:ring-2 focus-visible:ring-accent outline-none"
               aria-expanded={showScannerPreview}
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 text-xs font-mono">
                 <Zap size={14} className="text-accent" />
-                <span className="text-xs font-black uppercase text-text">Live Scanner Stream</span>
-                <span className="text-[9px] text-dim uppercase">· {strategyScannerResults.length} Pairs Monitored</span>
+                <span className="font-semibold text-text">Live Scanner Stream</span>
+                <span className="text-dim">· {strategyScannerResults.length} pairs monitored</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[9.5px] font-bold text-accent uppercase">
-                  {showScannerPreview ? 'Collapse Scanner' : 'Expand Scanner'}
-                </span>
-                <ChevronDown size={12} className={cn("text-accent transition-transform duration-200", showScannerPreview && "rotate-180")} />
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-accent">
+                <span>{showScannerPreview ? 'Collapse' : 'Expand'}</span>
+                <ChevronDown size={13} className={cn("transition-transform duration-150", showScannerPreview && "rotate-180")} />
               </div>
             </button>
             {showScannerPreview && (
-              <div className="border-t border-border/20 animate-in fade-in duration-200">
+              <div className="border-t border-border/30 animate-in fade-in duration-150">
                 <ScannerPreview
                   scannerResults={strategyScannerResults}
                   config={strategyConfig}
@@ -1611,18 +1802,323 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </div>
       )}
 
-      {/* TAB 2: Performance & Overlay Charts */}
-      {activeTab === 'performance' && (
-        <div className="space-y-6 animate-in fade-in duration-200">
-          <div className="border border-border/40 bg-surface/30 rounded-2xl overflow-hidden transition-all flex flex-col gap-3 p-3.5 sm:p-4 shadow-sm">
-            <div className="flex items-center justify-between flex-wrap gap-3 pb-2.5 border-b border-border/20">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-                  <BarChart3 size={13} />
+      {/* TAB 2: Decision Log (Causal Filtering & Trade Story) */}
+      {activeTab === 'decisions' && (
+        <div className="space-y-3 animate-in fade-in duration-200 text-left">
+          {/* Faceted Filter Bar */}
+          <div className="p-3 bg-surface/40 border border-border/50 rounded-xl flex flex-col gap-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {/* Outcome Segmented Filter */}
+              <div className="flex items-center gap-1 p-0.5 bg-background/60 border border-border/40 rounded-lg overflow-x-auto">
+                {[
+                  { id: 'all', label: 'All', count: reasonOutcomeCounts.all },
+                  { id: 'allowed', label: 'Allowed / Fired', count: reasonOutcomeCounts.allowed },
+                  { id: 'rejected', label: 'Rejected / Blocked', count: reasonOutcomeCounts.rejected },
+                  { id: 'waiting', label: 'Waiting / Miss', count: reasonOutcomeCounts.waiting },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setReasonsOutcome(tab.id)}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5",
+                      reasonsOutcome === tab.id
+                        ? "bg-surface text-text border border-border/60 shadow-xs"
+                        : "text-dim hover:text-text"
+                    )}
+                  >
+                    <span>{tab.label}</span>
+                    <span className="text-[11px] font-mono text-dim tabular-nums">{tab.count}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* View Mode & Noise Filter */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setHideRoutineMisses(!hideRoutineMisses)}
+                  aria-pressed={hideRoutineMisses}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg border text-xs font-medium cursor-pointer transition-colors whitespace-nowrap",
+                    hideRoutineMisses
+                      ? "bg-accent/10 border-accent/40 text-accent"
+                      : "bg-background/50 border-border/40 text-dim hover:text-text"
+                  )}
+                >
+                  {hideRoutineMisses
+                    ? `Routine Misses Hidden (${reasonOutcomeCounts.routineHidden})`
+                    : 'Show Routine Misses'}
+                </button>
+
+                <div className="flex items-center gap-0.5 p-0.5 bg-background/60 border border-border/40 rounded-lg">
+                  <button
+                    type="button"
+                    onClick={() => setReasonsViewMode('timeline')}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer transition-colors",
+                      reasonsViewMode === 'timeline' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
+                    )}
+                  >
+                    Timeline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReasonsViewMode('story')}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium rounded-md cursor-pointer transition-colors",
+                      reasonsViewMode === 'story' ? "bg-surface text-text shadow-xs" : "text-dim hover:text-text"
+                    )}
+                  >
+                    By Symbol
+                  </button>
                 </div>
+              </div>
+            </div>
+
+            {/* Secondary Facets: Stage, Symbol & Search */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+              <div className="sm:col-span-3">
+                <select
+                  aria-label="Filter by lifecycle stage"
+                  value={reasonsStage}
+                  onChange={(e) => setReasonsStage(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
+                >
+                  <option value="all">All Lifecycle Stages</option>
+                  <option value="1">1. Discovery</option>
+                  <option value="2">2. Entry Signals</option>
+                  <option value="3">3. Risk &amp; SL</option>
+                  <option value="4">4. Execution</option>
+                  <option value="5">5. Protection</option>
+                  <option value="6">6. Exit</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-3">
+                <select
+                  aria-label="Filter by symbol"
+                  value={reasonsSymbol}
+                  onChange={(e) => setReasonsSymbol(e.target.value)}
+                  className="w-full px-2.5 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text focus:outline-none focus:border-accent"
+                >
+                  <option value="all">All Symbols ({availableReasonSymbols.length})</option>
+                  {availableReasonSymbols.map(sym => (
+                    <option key={sym} value={sym}>{sym}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-4 relative">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim" />
+                <input
+                  type="text"
+                  value={reasonsSearch}
+                  onChange={(e) => setReasonsSearch(e.target.value)}
+                  placeholder="Filter keyword (e.g. SL, MACD, ETH)..."
+                  className="w-full pl-8 pr-7 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent"
+                />
+                {reasonsSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setReasonsSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-text cursor-pointer p-0.5"
+                    aria-label="Clear search"
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              <div className="sm:col-span-2 flex items-center justify-between sm:justify-end gap-2 text-[11px] font-mono text-dim">
+                <span className="tabular-nums">{filteredReasons.length} shown</span>
+                {(reasonsOutcome !== 'all' || reasonsStage !== 'all' || reasonsSymbol !== 'all' || reasonsSearch) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReasonsOutcome('all');
+                      setReasonsStage('all');
+                      setReasonsSymbol('all');
+                      setReasonsSearch('');
+                    }}
+                    className="text-accent hover:underline cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Decision Results */}
+          {filteredReasons.length === 0 ? (
+            <div className="p-8 text-center bg-surface/30 border border-border/40 rounded-xl">
+              <FileText size={22} className="mx-auto text-dim/40 mb-2" />
+              <div className="text-xs font-semibold text-text mb-1">No matching decision events</div>
+              <p className="text-xs text-dim max-w-md mx-auto">
+                Try toggling &ldquo;Show Routine Misses&rdquo; or resetting the stage/symbol filters.
+              </p>
+            </div>
+          ) : reasonsViewMode === 'timeline' ? (
+            <div className="border border-border/50 bg-surface/20 rounded-xl divide-y divide-border/25 max-h-[540px] overflow-y-auto">
+              {filteredReasons.map(item => {
+                const isCopied = copiedReasonId === item.id;
+                const isExpanded = !!expandedReasonIds[item.id];
+                return (
+                  <div key={item.id} className="px-3.5 py-2.5 hover:bg-surface/40 transition-colors group">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0 font-mono">
+                        <VerdictTag status={item.outcome} />
+                        {item.symbol && item.symbol !== '---' && (
+                          <span className="font-semibold text-text">{item.symbol}</span>
+                        )}
+                        {item.direction && (
+                          <span className={cn("font-semibold", item.direction === 'LONG' || item.direction === 'long' ? "text-green" : "text-red")}>
+                            {item.direction.toUpperCase()}
+                          </span>
+                        )}
+                        <span className="text-dim" aria-hidden="true">·</span>
+                        <span className="text-dim">{item.stage}</span>
+                        <span className="text-dim" aria-hidden="true">·</span>
+                        <span className="font-sans font-semibold text-text">{item.title}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0 ml-auto font-mono text-[11px] text-dim">
+                        <time dateTime={new Date(item.timestamp).toISOString()} title={new Date(item.timestamp).toLocaleString()} className="tabular-nums cursor-help">
+                          {formatClockTime(item.timestamp)} · {formatTimeAgo(item.timestamp)}
+                        </time>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyReason(item)}
+                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-dim hover:text-text cursor-pointer"
+                          title="Copy decision details"
+                          aria-label="Copy decision details"
+                        >
+                          {isCopied ? <Check size={12} className="text-green" /> : <Copy size={12} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-text/80 leading-relaxed mt-1">
+                      {item.reason}
+                    </p>
+
+                    {item.details && Object.keys(item.details).length > 0 && (
+                      <div className="mt-1.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleReasonDetails(item.id)}
+                          className="text-[11px] font-mono text-dim hover:text-accent flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>{isExpanded ? 'Hide parameters' : 'Parameters & values'}</span>
+                          <ChevronDown size={11} className={cn("transition-transform", isExpanded && "rotate-180")} />
+                        </button>
+                        {isExpanded && (
+                          <div className="mt-1.5 pt-1.5 border-t border-border/20 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-dim">
+                            {Object.entries(item.details).map(([k, v]) => {
+                              if (v === undefined || v === null || typeof v === 'object' && !Array.isArray(v)) return null;
+                              const displayVal = Array.isArray(v) ? v.join(', ') : String(v);
+                              if (!displayVal) return null;
+                              return (
+                                <span key={k}>
+                                  <span className="text-dim/80">{k}:</span>{' '}
+                                  <strong className="text-text tabular-nums">{displayVal}</strong>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* Grouped By Symbol Story Mode */
+            <div className="space-y-3 max-h-[540px] overflow-y-auto pr-0.5">
+              {groupedStories.map(group => (
+                <div key={group.symbol} className="border border-border/50 bg-surface/25 rounded-xl overflow-hidden">
+                  <div className="px-3.5 py-2 bg-surface/50 border-b border-border/30 flex items-center justify-between gap-2 text-xs font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-text">{group.symbol}</span>
+                      <span className="text-dim">· {group.events.length} event{group.events.length === 1 ? '' : 's'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <VerdictTag status={group.latestOutcome} />
+                      <span className="text-dim tabular-nums">{formatTimeAgo(group.latestTs)}</span>
+                    </div>
+                  </div>
+                  <div className="divide-y divide-border/20">
+                    {group.events.map(item => (
+                      <div key={item.id} className="px-3.5 py-2 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1.5">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <VerdictTag status={item.outcome} />
+                            <span className="font-mono text-dim">{item.stage}</span>
+                            <span className="font-semibold text-text">{item.title}</span>
+                          </div>
+                          <p className="text-text/80 mt-0.5">{item.reason}</p>
+                        </div>
+                        <time className="text-[11px] font-mono text-dim tabular-nums shrink-0">
+                          {formatClockTime(item.timestamp)}
+                        </time>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TAB 3: Performance & Charts */}
+      {activeTab === 'performance' && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          {/* Quant Metrics Strip (Moved here to keep primary diagnostic view clutter-free) */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <StatCard
+              compact
+              label="Hit Rate Ratio"
+              value={hitRateRatioText}
+              color={stratPerformance.hitRateRatio >= 1.15 ? "text-green" : stratPerformance.hitRateRatio <= 0.85 ? "text-amber" : "text-text"}
+              subValue={`Baseline: ${(typeof analytics?.overallWinRate === 'number' ? analytics.overallWinRate : 50).toFixed(0)}% · BE: ${stratPerformance.breakevenWr}%`}
+              tooltipText="Hit rate ratio relative to overall performance baseline. Thresholds: >= 1.15 Expansion, <= 0.85 Contraction."
+            />
+            <StatCard
+              compact
+              label="Sharpe (Sh)"
+              value={stratPerformance.total > 1 ? stratPerformance.sharpe.toFixed(2) : '---'}
+              color={stratPerformance.sharpe >= 1.5 ? "text-green" : stratPerformance.sharpe >= 1.0 ? "text-amber" : stratPerformance.sharpe < 0 ? "text-red" : "text-text"}
+              subValue="Target: >= 1.50"
+              tooltipText="Sharpe Ratio (Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 1.50 (Good), >= 2.00 (Excellent)."
+            />
+            <StatCard
+              compact
+              label="Sortino (So)"
+              value={stratPerformance.total > 1 ? stratPerformance.sortino.toFixed(2) : '---'}
+              color={stratPerformance.sortino >= 2.0 ? "text-green" : stratPerformance.sortino >= 1.0 ? "text-amber" : stratPerformance.sortino < 0 ? "text-red" : "text-text"}
+              subValue="Target: >= 2.00"
+              tooltipText="Sortino Ratio (Downside Risk-Adjusted Return). Recommended: >= 1.00 (Acceptable), >= 2.00 (Good), >= 3.00 (Excellent)."
+            />
+            <StatCard
+              compact
+              label="Closed Trades"
+              value={`${stratPerformance.total}`}
+              color="text-text"
+              subValue={`${stratPerformance.wins} Wins · ${stratPerformance.losses} Losses`}
+              tooltipText="Total closed historical executions attributed to this strategy."
+            />
+          </div>
+
+          <div className="border border-border/50 bg-surface/30 rounded-2xl overflow-hidden flex flex-col gap-3 p-3.5 sm:p-4">
+            <div className="flex items-center justify-between flex-wrap gap-3 pb-2.5 border-b border-border/20">
+              <div className="flex items-center gap-2 text-left">
+                <BarChart3 size={15} className="text-accent shrink-0" />
                 <div>
-                  <span className="text-xs font-black uppercase tracking-wider text-text">Strategy Performance Overlay</span>
-                  <p className="text-[9px] text-dim font-medium">Cumulative PnL ($) and rolling Hit Rate (%)</p>
+                  <span className="text-xs font-bold uppercase tracking-wider text-text">Strategy Performance Overlay</span>
+                  <p className="text-[11px] text-dim">Cumulative PnL ($) and rolling Hit Rate (%)</p>
                 </div>
               </div>
 
@@ -1632,11 +2128,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowPnl(!showPnl)}
                   aria-pressed={showPnl}
                   className={cn(
-                    "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                    showPnl ? "bg-surface border border-border/60 text-green" : "text-dim/60 hover:text-dim"
+                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    showPnl ? "bg-background border border-border/60 text-green" : "text-dim hover:text-text"
                   )}
                 >
-                  <span className={cn("w-1.5 h-1.5 rounded-full", showPnl ? "bg-green" : "bg-dim/30")} />
                   PnL
                 </button>
                 <button
@@ -1644,11 +2139,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowHitRate(!showHitRate)}
                   aria-pressed={showHitRate}
                   className={cn(
-                    "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                    showHitRate ? "bg-surface border border-border/60 text-accent" : "text-dim/60 hover:text-dim"
+                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    showHitRate ? "bg-background border border-border/60 text-accent" : "text-dim hover:text-text"
                   )}
                 >
-                  <span className={cn("w-1.5 h-1.5 rounded-full", showHitRate ? "bg-accent" : "bg-dim/30")} />
                   Hit Rate
                 </button>
                 <button
@@ -1656,11 +2150,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowPf(!showPf)}
                   aria-pressed={showPf}
                   className={cn(
-                    "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                    showPf ? "bg-surface border border-border/60 text-purple" : "text-dim/60 hover:text-dim"
+                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    showPf ? "bg-background border border-border/60 text-purple" : "text-dim hover:text-text"
                   )}
                 >
-                  <span className={cn("w-1.5 h-1.5 rounded-full", showPf ? "bg-purple" : "bg-dim/30")} />
                   PF
                 </button>
                 <button
@@ -1668,11 +2161,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowSharpe(!showSharpe)}
                   aria-pressed={showSharpe}
                   className={cn(
-                    "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                    showSharpe ? "bg-surface border border-border/60 text-amber" : "text-dim/60 hover:text-dim"
+                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    showSharpe ? "bg-background border border-border/60 text-amber" : "text-dim hover:text-text"
                   )}
                 >
-                  <span className={cn("w-1.5 h-1.5 rounded-full", showSharpe ? "bg-amber" : "bg-dim/30")} />
                   Sh
                 </button>
                 <button
@@ -1680,11 +2172,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   onClick={() => setShowSortino(!showSortino)}
                   aria-pressed={showSortino}
                   className={cn(
-                    "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                    showSortino ? "bg-surface border border-border/60 text-cyan-400" : "text-dim/60 hover:text-dim"
+                    "px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                    showSortino ? "bg-background border border-border/60 text-cyan-400" : "text-dim hover:text-text"
                   )}
                 >
-                  <span className={cn("w-1.5 h-1.5 rounded-full", showSortino ? "bg-cyan-400" : "bg-dim/30")} />
                   So
                 </button>
               </div>
@@ -1692,7 +2183,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
             {(showPnl || showHitRate || showPf || showSharpe || showSortino) ? (
               <Suspense fallback={
-                <div className="h-[200px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
+                <div className="h-[220px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
                   <Loader2 size={18} className="animate-spin text-accent" />
                 </div>
               }>
@@ -1710,7 +2201,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             ) : (
               <div className="py-6 flex flex-col items-center justify-center text-center bg-background/20 border border-dashed border-border/40 rounded-xl">
                 <BarChart3 size={18} className="text-dim/40 mb-1" />
-                <span className="text-[10px] font-bold uppercase tracking-wider text-dim">Chart layers hidden</span>
+                <span className="text-xs font-medium text-dim">Chart layers hidden</span>
               </div>
             )}
 
@@ -1723,13 +2214,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 className="w-full py-2 flex items-center justify-between text-left hover:bg-surface/50 transition-colors cursor-pointer rounded-xl px-2 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
               >
                 <div className="flex items-center gap-2">
-                  <CalendarIcon size={12} className="text-accent" />
-                  <span className="text-[10px] font-black uppercase tracking-wider text-text">Daily Calendar Breakdown</span>
+                  <CalendarIcon size={13} className="text-accent" />
+                  <span className="text-xs font-semibold text-text">Daily Calendar Breakdown</span>
                 </div>
-                <ChevronDown size={14} className={cn("text-dim transition-transform duration-200", isCalendarOpen && "rotate-180")} />
+                <ChevronDown size={14} className={cn("text-dim transition-transform duration-150", isCalendarOpen && "rotate-180")} />
               </button>
               {isCalendarOpen && (
-                <div id="calendar-content" className="pt-2 animate-in fade-in duration-200">
+                <div id="calendar-content" className="pt-2 animate-in fade-in duration-150">
                   <Suspense fallback={
                     <div className="h-[120px] w-full flex items-center justify-center bg-background/20 rounded-xl border border-border/30">
                       <Loader2 size={16} className="animate-spin text-accent" />
@@ -1740,244 +2231,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB 3: Strategy Reasons & Decision Log */}
-      {activeTab === 'decisions' && (
-        <div className="space-y-4 animate-in fade-in duration-200 text-left">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <SectionLabel>Strategy Reasons & Decision Log</SectionLabel>
-              <p className="text-xs text-dim">
-                Complete causal chain of opportunity evaluations, gating decisions, executions, and exit triggers for this strategy.
-              </p>
-            </div>
-
-            {/* Quick Filter Tabs */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-              {[
-                { id: 'all', label: 'All', count: reasonsCounts.all },
-                { id: 'signals', label: 'Signals', count: reasonsCounts.signals },
-                { id: 'gates', label: 'Risk Gates', count: reasonsCounts.gates },
-                { id: 'entries', label: 'Entries', count: reasonsCounts.entries },
-                { id: 'exits', label: 'Exits', count: reasonsCounts.exits },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setReasonsFilter(tab.id)}
-                  className={cn(
-                    "px-2.5 py-1 text-xs font-mono rounded-lg transition-all border flex items-center gap-1.5 cursor-pointer whitespace-nowrap",
-                    reasonsFilter === tab.id
-                      ? "bg-accent/15 text-accent border-accent/40 font-semibold shadow-xs"
-                      : "bg-surface/60 text-dim hover:text-text border-border/40 hover:border-border"
-                  )}
-                >
-                  <span>{tab.label}</span>
-                  <span className={cn(
-                    "text-[10px] px-1.5 py-0.2 rounded-full tabular-nums",
-                    reasonsFilter === tab.id ? "bg-accent/20 text-accent font-bold" : "bg-white/5 text-dim"
-                  )}>
-                    {tab.count}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filter & Search Bar */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 p-3 bg-surface/50 border border-border/40 rounded-xl">
-            <div className="relative w-full sm:w-80">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" />
-              <input
-                type="text"
-                value={reasonsSearch}
-                onChange={(e) => setReasonsSearch(e.target.value)}
-                placeholder="Search symbol, trigger, or reason keyword..."
-                className="w-full pl-9 pr-8 py-1.5 bg-background/70 border border-border/50 rounded-lg text-xs font-mono text-text placeholder:text-dim/60 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all"
-              />
-              {reasonsSearch && (
-                <button
-                  type="button"
-                  onClick={() => setReasonsSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-text cursor-pointer p-0.5"
-                  aria-label="Clear search"
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end text-[11px] text-dim font-mono">
-              <span>Showing <strong className="text-text tabular-nums">{filteredReasons.length}</strong> of <strong className="tabular-nums">{strategyReasons.length}</strong> events</span>
-              {reasonsSearch && (
-                <button
-                  type="button"
-                  onClick={() => { setReasonsSearch(''); setReasonsFilter('all'); }}
-                  className="text-accent hover:underline text-[11px] cursor-pointer"
-                >
-                  Reset filters
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Reasons Feed List */}
-          <div className="space-y-2 max-h-[520px] overflow-y-auto pr-1">
-            {filteredReasons.length === 0 ? (
-              <div className="p-8 text-center bg-surface/30 border border-border/30 rounded-xl">
-                <FileText size={24} className="mx-auto text-dim/40 mb-2" />
-                <div className="text-xs font-semibold text-text mb-1">No matching strategy decisions</div>
-                <p className="text-[11px] text-dim max-w-sm mx-auto">
-                  {reasonsSearch || reasonsFilter !== 'all'
-                    ? 'No events match your current filter or search criteria. Try selecting "All" or clearing the search keyword.'
-                    : 'Decision events will appear here as scanner opportunities are scored, gates are evaluated, and orders are executed.'}
-                </p>
-              </div>
-            ) : (
-              filteredReasons.map((item) => {
-                const isCopied = copiedReasonId === item.id;
-                return (
-                  <div
-                    key={item.id}
-                    className="p-2.5 bg-surface/50 hover:bg-surface/80 border border-border/30 hover:border-border/60 rounded-lg transition-all flex flex-col gap-1.5 font-mono group"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-1.5 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap min-w-0 text-[11px]">
-                        {/* Direction Indicator */}
-                        {item.direction && (
-                          <span className={cn(
-                            "font-bold uppercase tracking-wider text-[11px] shrink-0",
-                            item.direction === 'LONG' || item.direction === 'long' ? "text-green" : "text-red"
-                          )}>
-                            [{item.direction.toUpperCase()}]
-                          </span>
-                        )}
-
-                        {/* Symbol */}
-                        {item.symbol && item.symbol !== '---' && (
-                          <span className="font-bold text-text font-mono shrink-0">
-                            {item.symbol}
-                          </span>
-                        )}
-
-                        {/* Middle dot separator */}
-                        {(item.direction || (item.symbol && item.symbol !== '---')) && (
-                          <span className="text-dim/40 text-[10px]">·</span>
-                        )}
-
-                        {/* Stage indicator */}
-                        <span className="text-dim text-[10.5px] shrink-0 font-medium">
-                          {item.stage}
-                        </span>
-
-                        <span className="text-dim/40 text-[10px]">·</span>
-
-                        {/* Title */}
-                        <span className="font-semibold text-text group-hover:text-accent transition-colors truncate max-w-[220px] xs:max-w-xs sm:max-w-md">
-                          {item.title}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0 ml-auto">
-                        {/* Dual Authoritative Timestamp: Clock time (HH:MM:SS) + Relative elapsed (Xs ago) */}
-                        <time
-                          dateTime={new Date(item.timestamp).toISOString()}
-                          title={new Date(item.timestamp).toLocaleString()}
-                          className="text-[10px] text-dim/90 whitespace-nowrap flex items-center gap-1 tabular-nums font-mono cursor-help"
-                        >
-                          <span className="font-bold text-text/80">{formatClockTime(item.timestamp)}</span>
-                          <span className="text-dim/40">·</span>
-                          <span className="text-dim">{formatTimeAgo(item.timestamp)}</span>
-                        </time>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyReason(item)}
-                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-dim hover:text-text bg-surface/60 hover:bg-surface rounded border border-border/30 transition-all cursor-pointer"
-                          title="Copy decision explanation"
-                          aria-label="Copy decision explanation"
-                        >
-                          {isCopied ? <Check size={11} className="text-green" /> : <Copy size={11} />}
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Primary Reason Text (Direct prose, zero box-in-a-box) */}
-                    <p className="text-[11.5px] text-text/85 font-sans leading-relaxed break-words pl-0.5">
-                      {item.reason}
-                    </p>
-
-                    {/* Supplemental Meta Parameters with Progressive Disclosure */}
-                    {item.details && Object.keys(item.details).length > 0 && (
-                      <div className="pt-1 border-t border-border/15 flex flex-col gap-1">
-                        <button
-                          type="button"
-                          onClick={() => toggleReasonDetails(item.id)}
-                          className="text-[9px] font-mono font-bold text-dim/70 hover:text-accent flex items-center gap-1 cursor-pointer transition-colors self-start"
-                        >
-                          <span>{expandedReasonIds[item.id] ? 'Hide Execution Details' : 'View Execution Details'}</span>
-                          <ChevronDown size={10} className={cn("transition-transform duration-200", expandedReasonIds[item.id] && "rotate-180")} />
-                        </button>
-
-                        {expandedReasonIds[item.id] && (
-                          <div className="flex flex-wrap items-center gap-2 text-[9.5px] text-dim font-mono pt-0.5 border-t border-dashed border-border/20 animate-in fade-in duration-150">
-                            {item.details.formula && (
-                              <span className="truncate max-w-full" title={item.details.formula}>
-                                Formula: <span className="text-text font-bold">{item.details.formula}</span>
-                              </span>
-                            )}
-                            {item.details.formula && item.details.entryPrice && <span className="text-dim/30">|</span>}
-                            {item.details.entryPrice && (
-                              <span>
-                                Entry: <span className="text-text font-bold tabular-nums">${Number(item.details.entryPrice).toLocaleString()}</span>
-                              </span>
-                            )}
-                            {item.details.initialSl && (
-                              <>
-                                <span className="text-dim/30">|</span>
-                                <span>
-                                  SL: <span className="text-text font-bold tabular-nums">${Number(item.details.initialSl).toLocaleString()}</span>
-                                </span>
-                              </>
-                            )}
-                            {item.details.exitRr !== undefined && (
-                              <>
-                                <span className="text-dim/30">|</span>
-                                <span>
-                                  R:R: <span className={cn("font-bold tabular-nums", Number(item.details.exitRr) >= 0 ? "text-green" : "text-red")}>
-                                    {Number(item.details.exitRr) >= 0 ? '+' : ''}{Number(item.details.exitRr).toFixed(2)}R
-                                  </span>
-                                </span>
-                              </>
-                            )}
-                            {item.details.pnl !== undefined && (
-                              <>
-                                <span className="text-dim/30">|</span>
-                                <span>
-                                  PnL: <span className={cn("font-bold tabular-nums", Number(item.details.pnl) >= 0 ? "text-green" : "text-red")}>
-                                    {fmtUSD(item.details.pnl)}
-                                  </span>
-                                </span>
-                              </>
-                            )}
-                            {item.details.missingSignals && item.details.missingSignals.length > 0 && (
-                              <>
-                                <span className="text-dim/30">|</span>
-                                <span className="text-amber">
-                                  Missing: {item.details.missingSignals.join(', ')}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
           </div>
         </div>
       )}

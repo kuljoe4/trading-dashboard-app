@@ -18,7 +18,7 @@ const formatTimeAgo = (ts) => {
   return `${diffDays}d ago`;
 };
 import { useTradingStore } from '../store/trading'
-import { sessionAPI } from '../api/client'
+import { sessionAPI, formatApiErrorMessage } from '../api/client'
 import { getMarketRegimeInfo } from '../utils/marketRegime'
 import { 
   StatCard, InteractiveLimitCard, SectionLabel, Btn, StatusBadge, PaperBadge, EcoBadge, DemoBadge, LiveBadge,
@@ -1701,6 +1701,7 @@ ReconciliationCenter.displayName = 'ReconciliationCenter';
 export function DashboardView({ initialStrategy }) {
   const [selected, setSelected] = useState(initialStrategy || null)
   const searchInputRef = useRef(null)
+  const resumingRef = useRef(false)
   const [cardViewMode, setCardViewMode] = useState(() => {
     return localStorage.getItem('dashboard_card_view_mode') || 'detailed';
   });
@@ -2171,10 +2172,10 @@ export function DashboardView({ initialStrategy }) {
       setEditingVariantIndex(null)
       await fetchSessions()
     } catch (e) {
-      const isNetworkError = e.message === 'Network Error' || e.code === 'ERR_NETWORK';
+      const isNetworkError = e?.message === 'Network Error' || e?.code === 'ERR_NETWORK';
       const msg = isNetworkError
         ? 'Network Error: Failed to reach backend. Check your internet or CORS settings.'
-        : (e?.response?.data?.detail || e?.response?.data?.message || 'Failed to save config');
+        : formatApiErrorMessage(e, 'Failed to save config');
       addAlert({ level: 'error', title: 'Action Failed', message: msg });
     } finally {
       setLoading(false)
@@ -2224,8 +2225,8 @@ export function DashboardView({ initialStrategy }) {
   }, [sessionPaused, pausedStrategies, addAlert, pausingMap]);
 
   const handleResumeLast = React.useCallback(async () => {
-    if (!lastSession) return;
-    if (apiStatus?.isBanned) {
+    if (!lastSession || resumingRef.current) return;
+    if (apiStatus?.isBanned || apiStatus?.isGeoBlocked) {
       addAlert({
         level: 'error',
         title: 'Action Blocked',
@@ -2233,19 +2234,36 @@ export function DashboardView({ initialStrategy }) {
       });
       return;
     }
+    resumingRef.current = true;
     setLoading(true);
     setSyncing(true);
     try {
-      const res = await sessionAPI.start(lastSession.config, lastSession.paperMode, lastSession.id);
-      setSessionActive(true, res.data.strategyId || res.data.strategy_id);
-      addAlert({ level: 'success', title: 'Session Resumed', message: `Restored previous session "${lastSession.config.strategy_label}".` });
+      const baseCfg = lastSession.config && typeof lastSession.config === 'object' ? lastSession.config : {};
+      const resolvedPaperMode = lastSession.paperMode ?? lastSession.paper_mode ?? baseCfg.paper_mode ?? true;
+      const resolvedTradingMode = baseCfg.trading_mode || lastSession.tradingMode || (resolvedPaperMode === false ? 'live' : 'paper');
+      const resumeConfig = {
+        ...baseCfg,
+        trading_mode: resolvedTradingMode,
+        paper_mode: resolvedTradingMode === 'paper',
+      };
+      const res = await sessionAPI.start(resumeConfig, resumeConfig.paper_mode, lastSession.id);
+      setSessionActive(true, res.data?.strategyId || res.data?.strategy_id || res.data?.sessionId || lastSession.id);
+      const label = baseCfg.strategy_label || lastSession.strategyLabel || 'Previous Session';
+      addAlert({ level: 'success', title: 'Session Resumed', message: `Restored previous session "${label}".` });
     } catch (e) {
-      addAlert({ level: 'error', title: 'Resume Failed', message: 'Could not restore previous session state.' });
+      const status = e?.response?.status;
+      const errMsg = formatApiErrorMessage(e, 'Could not restore previous session state.');
+      console.error('[Resume Last] Failed to restore session:', e);
+      addAlert({ level: 'error', title: 'Resume Failed', message: errMsg });
+      if (status === 409 && typeof useTradingStore.getState().sync === 'function') {
+        useTradingStore.getState().sync();
+      }
     } finally {
+      resumingRef.current = false;
       setLoading(false);
       setSyncing(false);
     }
-  }, [lastSession, setSessionActive, addAlert, setSyncing]);
+  }, [lastSession, apiStatus?.isBanned, apiStatus?.isGeoBlocked, setSessionActive, addAlert, setSyncing]);
 
   const handleStop = React.useCallback(async () => {
     setLoading(true)
@@ -3196,7 +3214,7 @@ export function DashboardView({ initialStrategy }) {
                       <button
                         onClick={handleResumeLast}
                         disabled={loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked}
-                        aria-label={`Resume last session: ${lastSession.config.strategy_label}`}
+                        aria-label={`Resume last session: ${lastSession.config?.strategy_label || lastSession.strategyLabel || 'Previous Session'}`}
                         className={cn(
                           "bg-background border-2 border-dashed border-border rounded-2xl p-6 flex flex-col items-center justify-center gap-4 text-dim transition-all group min-h-[200px] w-full col-span-1",
                           (loading || isSyncing || apiStatus?.isBanned || apiStatus?.isGeoBlocked) ? "opacity-30 grayscale cursor-not-allowed pointer-events-none" : "hover:text-accent hover:border-accent/40 hover:bg-accent/5"
@@ -3210,7 +3228,7 @@ export function DashboardView({ initialStrategy }) {
                             {apiStatus?.isGeoBlocked ? 'Resume Disabled (Geo-Blocked)' : (apiStatus?.isBanned ? 'Resume Disabled (API Ban)' : 'Resume Last')}
                           </span>
                           <span className="text-[9px] text-dim/60 font-medium uppercase mt-1 truncate max-w-[150px]">
-                            {lastSession.config.strategy_label}
+                            {lastSession.config?.strategy_label || lastSession.strategyLabel || 'Previous Session'}
                           </span>
                         </div>
                       </button>

@@ -469,9 +469,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
      set(st => {
        const alerts = st.alerts || [];
-       const existing = alerts.find(a => a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 5000));
+       const existing = alerts.find(
+         a => a.level === newAlert.level && a.title === newAlert.title && a.message === newAlert.message && (now - a.ts < 60000)
+       );
        if (existing) {
-          return { alerts: alerts.map(a => a.id === existing.id ? { ...a, ts: now, count: (a.count || 1) + 1 } : a) };
+          const updated = { ...existing, ts: now, count: (existing.count || 1) + 1 };
+          return { alerts: [updated, ...alerts.filter(a => a.id !== existing.id)].slice(0, 10) };
        }
        return { alerts: [newAlert, ...alerts].slice(0, 10) };
      });

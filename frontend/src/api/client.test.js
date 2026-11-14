@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { sanitizeSessionConfig, createSessionAPI, normalizeUrl } from './client.js'
+import { sanitizeSessionConfig, createSessionAPI, normalizeUrl, formatApiErrorMessage } from './client.js'
 
 describe('normalizeUrl', () => {
   it('passes through null/undefined', () => {
@@ -358,6 +358,38 @@ describe('presetsAPI', () => {
     assert.equal(normalizeUrl(rawUrl, 'https'), 'https://backend-production.up.railway.app')
     assert.equal(normalizeUrl('https://backend-production.up.railway.app/'), 'https://backend-production.up.railway.app')
     assert.equal(normalizeUrl('wss://backend-production.up.railway.app/session/ws'), 'wss://backend-production.up.railway.app/session/ws')
+  })
+})
+
+describe('formatApiErrorMessage & sessionAPI.start timeout', () => {
+  it('passes extended 60s timeout to axios on sessionAPI.start', async () => {
+    const postCalls = []
+    const mockApi = {
+      post: (url, body, opts) => {
+        postCalls.push({ url, body, opts })
+        return Promise.resolve({ data: { strategyId: 'abc123' } })
+      },
+      get: () => Promise.resolve({}),
+      patch: () => Promise.resolve({}),
+      delete: () => Promise.resolve({}),
+    }
+    const customSessionAPI = createSessionAPI(mockApi)
+    await customSessionAPI.start({ scan_interval: '5m' }, true, 'sess-1')
+    assert.equal(postCalls[0].opts?.timeout, 60000)
+  })
+
+  it('extracts actionable detail, message, timeout, and network errors cleanly', () => {
+    assert.match(formatApiErrorMessage({ code: 'ECONNABORTED', message: 'timeout of 15000ms exceeded' }), /timed out/i)
+    assert.match(formatApiErrorMessage({ code: 'ERR_NETWORK', message: 'Network Error' }), /Network Error/i)
+    assert.equal(
+      formatApiErrorMessage({ response: { status: 400, data: { message: 'Invalid config', detail: [{ message: 'EMA period invalid' }] } } }),
+      'Invalid config: EMA period invalid'
+    )
+    assert.equal(
+      formatApiErrorMessage({ response: { status: 409, data: { message: 'Session already running' } } }),
+      'Session already running'
+    )
+    assert.equal(formatApiErrorMessage(null, 'Fallback msg'), 'Fallback msg')
   })
 })
 

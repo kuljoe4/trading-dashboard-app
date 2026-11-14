@@ -436,6 +436,61 @@ describe('SessionService Validation', () => {
       expect(restartCall[0].paused_strategies).toContain('Base Strategy');
       expect(restartCall[0].paused_strategies).toContain('Variant Strategy');
     });
+
+    it('normalizes legacy null/empty map fields on resume without failing validation', async () => {
+      const existingSession = {
+        id: 'test-legacy-resume',
+        balance: 10000,
+        totalPnl: 0,
+        paperMode: true,
+        tradingMode: 'paper',
+        config: {
+          signal_timeframes: { rsi: '', ema: null, macd: '5m' },
+          exit_signal_delays: { ema_cross: null },
+        },
+        running: false,
+      };
+      mockRepository.findOne.mockResolvedValue(existingSession);
+      mockRepository.save.mockResolvedValue({ ...existingSession, running: true });
+
+      const strippedClientConfig = new SessionConfig();
+      await service.startSession(strippedClientConfig, true, 'test-legacy-resume');
+
+      const restartCall = mockTradingSessionService.start.mock.calls[mockTradingSessionService.start.mock.calls.length - 1];
+      expect(restartCall[0].signal_timeframes).toEqual({ macd: '5m' });
+      expect(restartCall[0].exit_signal_delays).toEqual({});
+    });
+
+    it('rolls back sessionRunning and DB running flag if engine startup throws', async () => {
+      const existingSession = {
+        id: 'test-rollback',
+        balance: 10000,
+        totalPnl: 0,
+        paperMode: true,
+        tradingMode: 'paper',
+        config: { scan_interval: '5m', strategy_label: 'Rollback Test' },
+        running: false,
+      };
+      mockRepository.findOne.mockResolvedValue(existingSession);
+      mockRepository.save.mockResolvedValue({ ...existingSession, running: true });
+      mockRepository.update = jest.fn().mockResolvedValue({ affected: 1 });
+      (mockTradingSessionService as any).rollbackStartup = jest.fn().mockResolvedValue(undefined);
+      mockTradingSessionService.start.mockRejectedValueOnce(new Error('Simulated UDS failure'));
+
+      await expect(service.startSession(new SessionConfig(), true, 'test-rollback')).rejects.toThrow('Simulated UDS failure');
+
+      expect((service as any).sessionRunning).toBe(false);
+      expect((service as any).currentSessionId).toBeNull();
+      expect(mockRepository.update).toHaveBeenCalledWith('test-rollback', { running: false });
+      expect((mockTradingSessionService as any).rollbackStartup).toHaveBeenCalledTimes(1);
+
+      // Next attempt must NOT fail with ConflictException("Session already running")
+      mockTradingSessionService.start.mockResolvedValueOnce({ status: 'started' });
+      await expect(service.startSession(new SessionConfig(), true, 'test-rollback')).resolves.toEqual({
+        strategyId: 'test-rollback',
+        status: 'started',
+      });
+    });
   });
 
   describe('saveTradeAtomic', () => {

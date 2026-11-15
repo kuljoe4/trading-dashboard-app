@@ -36,6 +36,7 @@ describe('SL Ratchet Simulation & Synchronization Suite', () => {
       isRateLimited: jest.fn().mockReturnValue(false),
       isBanned: jest.fn().mockReturnValue(false),
       isOrderRateLimited: jest.fn().mockReturnValue(false),
+      getBinanceRateLimit: jest.fn().mockReturnValue({ used_weight_1m: 0, limit: 2400 }),
       hasOrderCapacity: jest.fn().mockReturnValue(true),
       config: { trailing_guard_buffer_pct: 0.1 },
       realTimeOrders: new Map(),
@@ -146,7 +147,7 @@ describe('SL Ratchet Simulation & Synchronization Suite', () => {
     } as any as Trade;
 
     mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
-      data: () => Promise.resolve({ code: 200, algoId: 999888, msg: 'Success' }),
+      data: () => Promise.resolve({ code: 200, algoId: 999888, status: 'NEW', msg: 'Success' }),
       headers: { get: () => '0' }
     });
 
@@ -365,6 +366,8 @@ describe('SL Ratchet Simulation & Synchronization Suite', () => {
 
   it('9. Ratchet updates exchange order even when trailing_execution_mode is local', async () => {
     mockSessionState.config.trailing_execution_mode = 'local';
+    mockTickerCache.getTicker.mockReturnValue({ mark_price: 1.03, price: 1.03 });
+    mockTickerCache.getPrice.mockReturnValue(1.03);
     const trade = {
       id: 'trade-local-cfg',
       symbol: 'DOTUSDT',
@@ -379,7 +382,7 @@ describe('SL Ratchet Simulation & Synchronization Suite', () => {
     } as any as Trade;
 
     mockBinanceClient.restAPI.newAlgoOrder.mockResolvedValueOnce({
-      data: () => Promise.resolve({ code: 200, algoId: 3000002281999999, msg: 'Success' }),
+      data: () => Promise.resolve({ code: 200, algoId: 3000002281999999, status: 'NEW', msg: 'Success' }),
       headers: { get: () => '0' }
     });
 

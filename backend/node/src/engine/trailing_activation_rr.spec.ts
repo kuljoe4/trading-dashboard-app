@@ -44,6 +44,7 @@ describe('Trailing Activation R:R Threshold Tests', () => {
       trailing_stop_enabled: true,
       trailing_stop_distance_pct: 1.0,
       trailing_activation_rr: 1.0,
+      paper_mode: false,
     } as any;
 
     const trade: Trade = {
@@ -71,6 +72,7 @@ describe('Trailing Activation R:R Threshold Tests', () => {
       trailing_stop_enabled: true,
       trailing_stop_distance_pct: 1.0,
       trailing_activation_rr: 1.0,
+      paper_mode: false,
     } as any;
 
     const trade: Trade = {

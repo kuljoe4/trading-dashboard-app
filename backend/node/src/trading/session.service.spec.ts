@@ -114,7 +114,7 @@ describe('SessionService Validation', () => {
       const config = new SessionConfig();
       config.enabled_signals = ['ema_dual_cross'];
       config.signal_params = { entry_ema_fast: 21, entry_ema_slow: 9 };
-      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
+      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual: Fast period must be less than slow period');
     });
 
     it('validates EMA Dual Cross & Dual Close with various parameter key aliases', () => {
@@ -145,7 +145,7 @@ describe('SessionService Validation', () => {
       const invalidConfig = new SessionConfig();
       invalidConfig.enabled_signals = ['ema_dual_cross_2'];
       invalidConfig.signal_params = { entry_ema_fast_2: 26, entry_ema_slow_2: 12 };
-      expect(() => (service as any).validateConfig(invalidConfig)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
+      expect(() => (service as any).validateConfig(invalidConfig)).toThrow('EMA Dual: Fast period must be less than slow period');
     });
 
     it('validates strategy variants inheriting base signal_params for EMA Dual Cross without throwing duplicate label errors', () => {
@@ -180,14 +180,14 @@ describe('SessionService Validation', () => {
       config.enabled_signals = ['momentum_pct'];
       config.exit_signals = ['ema_dual_cross'];
       config.signal_params = { exit_ema_fast: 21, exit_ema_slow: 9 };
-      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross: Fast period must be less than slow period');
+      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual: Fast period must be less than slow period');
     });
 
     it('throws error when EMA Dual Cross fast or slow period is zero, negative, or invalid', () => {
       const config = new SessionConfig();
       config.enabled_signals = ['ema_dual_cross'];
       config.signal_params = { entry_ema_fast: 0, entry_ema_slow: 21 };
-      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual Cross requires both fast and slow periods (e.g., 9 and 21)');
+      expect(() => (service as any).validateConfig(config)).toThrow('EMA Dual requires both fast and slow periods (e.g., 9 and 21)');
     });
 
     it('throws error if risk per trade exceeds max total risk', () => {

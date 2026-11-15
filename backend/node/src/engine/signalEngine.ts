@@ -224,9 +224,9 @@ export class SignalEngineService {
         const lookback = parseInt(String(lookbackVal), 10);
         maxReq = Math.max(maxReq, lookback + 1);
       } else if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
-        const lookbackVal = resolveParam(signalType, baseType, 'htf_breakout_lookback', 1);
-        const lookback = parseInt(String(lookbackVal), 10) || 1;
-        maxReq = Math.max(maxReq, lookback + 2);
+        // HTF breakout loads its reference and trigger candles independently.
+        // Applying this trigger-timeframe warmup here can short-circuit the
+        // handler before it returns its own timeframe-specific diagnostics.
       } else if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
         const nVal = resolveParam(signalType, baseType, 'trigger_candle_exit_n', 0);
         const n = parseInt(String(nVal), 10) || 0;

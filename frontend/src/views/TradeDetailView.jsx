@@ -90,7 +90,7 @@ const TradeDetailView = ({ tradeId }) => {
   const isVariant = trade && config && trade.strategy_label !== config.strategy_label;
 
   return (
-    <div className="max-w-[1200px] mx-auto p-4 md:p-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-[1200px] mx-auto px-4 pt-4 md:px-8 md:pt-8 pb-36 sm:pb-36 md:pb-36 lg:pb-16 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <ViewHeader
         title={trade.symbol}
         subTitle={`${trade.strategy_label} · ${duration}`}

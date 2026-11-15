@@ -2390,14 +2390,14 @@ export const HistoryView = () => {
 
   return (
     <div className={cn(
-      "min-h-screen transition-all duration-300 no-scrollbar",
+      "min-h-screen transition-all duration-300",
       sidebarCollapsed ? "lg:pl-[80px]" : "lg:pl-[260px]"
     )}>
       <React.Suspense fallback={null}>
       <Sidebar />
       <div className={cn(
-        "max-w-[1200px] mx-auto p-4 md:p-10 animate-in fade-in slide-in-from-bottom-4 duration-500 lg:pb-10 transition-all",
-        healthEnabled ? "pb-48" : "pb-32"
+        "max-w-[1200px] mx-auto px-4 pt-4 md:px-10 md:pt-10 animate-in fade-in slide-in-from-bottom-4 duration-500 transition-all",
+        healthEnabled ? "pb-48 sm:pb-48 md:pb-48 lg:pb-16" : "pb-36 sm:pb-36 md:pb-36 lg:pb-16"
       )}>
         <ViewHeader
           icon={activeViewTab === 'backtest' ? BarChart3 : HistoryIcon}

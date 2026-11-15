@@ -14,7 +14,31 @@ const htmlBypass = (req) => {
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    dedupe: ['react', 'react-dom'],
+    dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  },
+  optimizeDeps: {
+    entries: ['index.html', 'src/main.jsx', 'src/views/**/*.jsx', 'src/components/**/*.jsx'],
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'vaul',
+      'framer-motion',
+      'lucide-react',
+      'axios',
+      'clsx',
+      'tailwind-merge',
+      'zustand',
+      'zustand/middleware',
+      'zustand/shallow',
+      'zustand/traditional',
+      '@radix-ui/react-dialog',
+      '@radix-ui/react-progress',
+      '@radix-ui/react-switch',
+      '@radix-ui/react-tooltip',
+    ],
   },
   build: {
     minify: 'esbuild',

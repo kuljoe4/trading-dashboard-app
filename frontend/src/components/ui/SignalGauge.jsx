@@ -1,225 +1,193 @@
-import React from 'react'
-import { motion } from 'framer-motion'
-import { cn, Tooltip } from './primitives'
-import { Zap, Activity, Clock, CheckCircle2 } from 'lucide-react'
-import { price, calculateProximity, formatDuration } from '../../lib/formatters'
+import React, { useMemo } from 'react';
+import { cn, Tooltip } from './primitives';
+import { price as fmtPrice } from '../../lib/formatters';
+import { computeConditionMeter, buildHtfLadderModel } from '../../utils/candidateConditions';
+import { ConditionDial, HtfBreakoutLadder } from './CandidateConditionsGauge';
 
+const ZONE_TEXT_CLASS = {
+  watching: 'text-dim',
+  near: 'text-accent',
+  fresh: 'text-green',
+  stale: 'text-amber',
+  late: 'text-red',
+  warming: 'text-amber',
+  blocked: 'text-purple-400',
+};
+
+const ZONE_DOT_CLASS = {
+  watching: 'bg-dim/70',
+  near: 'bg-accent',
+  fresh: 'bg-green',
+  stale: 'bg-amber',
+  late: 'bg-red',
+  warming: 'bg-amber',
+  blocked: 'bg-purple-400',
+};
+
+/**
+ * SignalGauge: Renders the vertical HtfBreakoutLadder for HTF Breakout signals
+ * or the 0–150% semicircular ConditionDial for threshold/spread signals.
+ */
 export const SignalGauge = React.memo(({
+  signal,
   label,
   value,
   threshold,
-  unit,
-  fired,
-  active,
-  remainingDelay,
-  configDelay,
-  insufficientData,
-  thresholdIsPrice,
-  isLong,
-  entryPrice,
-  markPrice,
-  qty,
-  riskUsdt,
-  signalEstimation,
-  children,
-  signalKey,
-  signalMetric,
-  signalDescription,
-  type = 'entry' // 'entry' or 'exit'
+  unit = '',
+  fired = false,
+  active = true,
+  rejected = false,
+  status,
+  description = '',
+  proximity = 0,
+  etaCandles = null,
+  estimatedPnl = null,
+  estimatedR = null,
+  insufficientData = false,
+  thresholdIsPrice = false,
+  isExit = false,
+  isLong = true,
+  className,
+  compact = false,
 }) => {
-  const isFired = fired && active
-  const isDelayed = remainingDelay > 0 && !isFired
+  const s = signal || {
+    label,
+    value,
+    threshold,
+    unit,
+    fired,
+    active,
+    rejected,
+    status,
+    description,
+    proximity,
+    etaCandles,
+    estimatedPnl,
+    estimatedR,
+    insufficientData,
+    threshold_is_price: thresholdIsPrice,
+  };
 
-  const numValue = Number(value) || 0
-  const numThreshold = Number(threshold) || 0
+  const finalLabel = s.label || label || s.key || 'Signal';
+  const finalValue = s.value !== undefined ? s.value : value;
+  const finalThreshold = s.threshold !== undefined ? s.threshold : threshold;
+  const finalUnit = s.unit !== undefined ? s.unit : unit;
+  const isFired = s.fired !== undefined ? s.fired : fired;
+  const isActive = s.active !== undefined ? s.active : active;
+  const isRejected = s.rejected !== undefined ? s.rejected : (s.status === 'blocked' || rejected);
+  const finalProx = Math.min(100, Math.max(0, Math.round(s.proximity !== undefined ? s.proximity : proximity)));
+  const finalEta = s.etaCandles !== undefined ? s.etaCandles : etaCandles;
+  const finalInsufficient = s.insufficientData !== undefined ? s.insufficientData : insufficientData;
+  const isPrice = s.threshold_is_price !== undefined ? s.threshold_is_price : thresholdIsPrice;
+  const sigKey = String(s.key || finalLabel || '').toLowerCase();
+  const isHtfBreakout =
+    sigKey.includes('htf_breakout') ||
+    sigKey.includes('prev_day_breakout') ||
+    finalLabel.toLowerCase().includes('htf breakout') ||
+    (s.ref_high !== undefined && s.ref_low !== undefined);
 
-  const isDualEma = !!(
-    label && (label.toLowerCase().includes('dual') || label.toLowerCase().includes('cross'))
-  );
+  const ladder = useMemo(() => {
+    if (!isHtfBreakout || finalInsufficient) return null;
+    return buildHtfLadderModel({
+      sigKey: s.key || 'htf_breakout',
+      signalDetail: s,
+      markPrice: Number(finalValue || 0),
+      isLong,
+      isExit,
+    });
+  }, [isHtfBreakout, finalInsufficient, s, finalValue, isLong, isExit]);
 
-  // Use authoritative backend exit estimation if present; fallback to calculateProximity
-  const progress = (signalEstimation && typeof signalEstimation.proximity === 'number')
-    ? signalEstimation.proximity
-    : calculateProximity({
-        value,
-        threshold,
-        fired,
-        active,
-        insufficientData,
-        threshold_is_price: thresholdIsPrice,
-        is_indicator_pair: isDualEma,
-        key: signalKey,
-        metric: signalMetric,
-        description: signalDescription
-      }, markPrice, entryPrice, isLong, type === 'exit');
+  const meter = useMemo(() => computeConditionMeter({
+    value: finalValue,
+    threshold: finalThreshold,
+    thresholdIsPrice: Boolean(isPrice),
+    unit: finalUnit || '',
+    isLong,
+    isExit,
+    fired: Boolean(isFired),
+    active: isActive !== false,
+    rejected: Boolean(isRejected),
+    insufficientData: Boolean(finalInsufficient),
+    signalKey: s.key || finalLabel,
+    proximity: finalProx,
+    isIndicatorPair: String(s.key || finalLabel).toLowerCase().includes('dual') || String(s.key || finalLabel).toLowerCase().includes('cross'),
+  }), [finalValue, finalThreshold, isPrice, finalUnit, isLong, isExit, isFired, isActive, isRejected, finalInsufficient, s.key, finalLabel, finalProx]);
 
-  const getStatus = () => {
-    if (insufficientData) return { label: 'Collecting', color: 'text-dim bg-background/50 border-border/40' }
-    if (isFired || signalEstimation?.state === 'fired') return { label: 'Triggered', color: 'text-white bg-red border-red/20 shadow-lg shadow-red/20' }
-    if (signalEstimation?.state === 'blocked') return { label: 'Blocked', color: 'text-red bg-red/10 border-red/20' }
-    if (signalEstimation?.state === 'diverging') return { label: 'Diverging', color: 'text-dim bg-background/50 border-border/40' }
-    if (isDelayed) return { label: 'Delayed', color: 'text-amber bg-amber/20 border-amber/30' }
-    if ((progress === 0 || signalEstimation?.state === 'stale') && (isDualEma || label?.toLowerCase().includes('cross'))) {
-      if (value > 0 && threshold > 0) {
-        if (isLong ? value >= threshold : value <= threshold) {
-          return { label: 'Passed', color: 'text-dim/60 bg-background/40 border-border/30' }
-        }
-      }
-    }
-    if (fired || signalEstimation?.state === 'ready') return { label: 'Ready', color: 'text-amber bg-amber/20 border-amber/30' }
-    if (progress >= 100 && !fired && signalEstimation?.state !== 'fired') return { label: 'Ready', color: 'text-amber bg-amber/20 border-amber/30' }
-    if (progress > 80) return { label: 'Near', color: 'text-accent bg-accent/10 border-accent/20' }
-    return { label: 'Watching', color: 'text-dim bg-background/50 border-border/40' }
-  }
+  const formatVal = (val) => {
+    if (val === undefined || val === null || Number.isNaN(Number(val))) return '---';
+    const num = Number(val);
+    if (isPrice || finalUnit === 'price') return fmtPrice(num);
+    const decimals = Math.abs(num) >= 100 ? 2 : Math.abs(num) >= 1 ? 3 : 4;
+    return `${num.toFixed(decimals)}${finalUnit || ''}`;
+  };
 
-  const status = getStatus()
-
-  // Estimated PnL / RR for exit signals (prioritize authoritative backend exit estimation, fallback to price threshold calculation)
-  const backendEstPnl = (signalEstimation && typeof signalEstimation.est_pnl === 'number')
-    ? signalEstimation.est_pnl
-    : null
-  const backendEstRr = (signalEstimation && typeof signalEstimation.risk_reward === 'number')
-    ? signalEstimation.risk_reward
-    : null
-
-  const rawEstPnl = backendEstPnl !== null
-    ? backendEstPnl
-    : (thresholdIsPrice && entryPrice && qty)
-      ? (numThreshold - entryPrice) * qty * (isLong ? 1 : -1)
-      : null
-  const livePnl = (markPrice && entryPrice && qty)
-    ? (markPrice - entryPrice) * qty * (isLong ? 1 : -1)
-    : null
-  const estPnl = (rawEstPnl !== null && livePnl !== null)
-    ? Math.min(rawEstPnl, livePnl)
-    : rawEstPnl
-  const estRr = backendEstRr !== null
-    ? backendEstRr
-    : (estPnl !== null && riskUsdt > 0) ? (estPnl / riskUsdt) : null
-
-  const content = (
-    <div className={cn(
-      "relative overflow-hidden p-3 rounded-xl border transition-all duration-500",
-      isFired ? "bg-red/5 border-red/40" : fired ? "bg-amber/5 border-amber/30" : "bg-background/30 border-border/80"
-    )}>
-      <div className="flex justify-between items-start mb-2.5">
-        <div className="flex items-center gap-2">
-          <div className={cn(
-            "w-8 h-8 rounded-lg flex items-center justify-center border transition-all duration-500",
-            isFired ? "bg-red text-white border-red/30" : fired ? "bg-amber text-white border-amber/20" : "bg-surface border-border/80 text-dim"
-          )}>
-            {isFired ? <Zap size={14} fill="currentColor" /> : <Activity size={14} />}
-          </div>
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-black uppercase tracking-tight">{label}</span>
-              {isDelayed && (
-                <div className="flex items-center gap-1 text-amber bg-amber/10 px-1 py-0.5 rounded border border-amber/20 text-[8px] font-black">
-                  <Clock size={8} />
-                  <span>{formatDuration(remainingDelay * 1000)}</span>
-                </div>
-              )}
-            </div>
-            <span className="text-[9px] text-dim font-bold uppercase tracking-tight opacity-70">
-              {insufficientData
-                ? 'Collecting data...'
-                : thresholdIsPrice && numThreshold > 0
-                  ? `Target: ${price(numThreshold)}`
-                  : numThreshold > 0 && unit
-                    ? `Target: ${numThreshold}${unit}`
-                    : numThreshold > 0
-                      ? `Target: ${numThreshold}`
-                      : `Target: ${isDualEma ? 'Bullish Cross' : (label && label.toLowerCase().includes('macd')) ? 'Impulse Trigger' : 'Signal Trigger'}`}
-            </span>
-          </div>
-        </div>
-        <div className="flex flex-col items-end">
-          <div className={cn("text-sm font-mono font-black tracking-tighter leading-none", isFired ? "text-red" : fired ? "text-amber" : "text-text")}>
-            {insufficientData ? '---' : thresholdIsPrice ? price(numValue) : Number(numValue).toFixed(numValue >= 100 ? 2 : 4)}
-            {!thresholdIsPrice && unit ? <span className="text-[9px] ml-0.5 opacity-40 font-bold">{unit}</span> : null}
-          </div>
-          <div className={cn("mt-1 px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest border", status.color)}>
-            {status.label}
-          </div>
-        </div>
-      </div>
-
-      {/* Dual EMA / Indicator-Pair Aligned Markers & Design Tokens */}
-      {isDualEma && !insufficientData && numValue > 0 && numThreshold > 0 && (
-        <div className="mb-2.5 px-2 py-1.5 bg-background/60 rounded-lg border border-white/5 flex items-center justify-between font-mono text-[9px]">
-          <div className="flex items-center gap-1.5">
-            <span className="text-accent bg-accent/10 border border-accent/20 px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider">
-              FAST EMA
-            </span>
-            <span className="font-bold text-text/90">{price(numValue)}</span>
-          </div>
-
-          <div className="text-[8px] text-dim/60 font-black tracking-widest px-1">
-            Δ {price(Math.abs(numValue - numThreshold))}
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="text-purple bg-purple/10 border border-purple/20 px-1.5 py-0.5 rounded font-black text-[8px] uppercase tracking-wider">
-              SLOW EMA
-            </span>
-            <span className="font-bold text-text/90">{price(numThreshold)}</span>
-          </div>
-        </div>
-      )}
-
-      <div className="flex flex-col gap-1.5">
-        <div className="flex justify-between items-end px-1">
-          <span className="text-[8px] font-black text-dim uppercase tracking-widest">{(signalEstimation?.components?.distancePct !== undefined && signalEstimation?.components?.distancePct !== null) ? `Distance (${signalEstimation.components.distancePct.toFixed(2)}%)` : "Proximity"}</span>
-          <span className={cn("text-[9px] font-mono font-black", isFired ? "text-red" : fired ? "text-amber" : "text-accent")}>
-            {insufficientData ? '0.0' : Number(progress).toFixed(1)}%
-          </span>
-        </div>
-        <div className="h-1.5 bg-background/80 rounded-full overflow-hidden relative border border-white/5">
-          <motion.div
-            initial={{ width: 0 }}
-            animate={{ width: `${progress}%` }}
-            transition={{ type: "spring", stiffness: 40, damping: 20 }}
-            className={cn(
-              "absolute top-0 left-0 h-full rounded-full transition-colors duration-700",
-              isFired ? "bg-gradient-to-r from-red/80 to-red shadow-[0_0_8px_rgba(255,68,102,0.5)]" : fired ? "bg-gradient-to-r from-amber/80 to-amber" : "bg-gradient-to-r from-accent/60 to-accent"
-            )}
-          />
-        </div>
-      </div>
-
-      {type === 'exit' && (estPnl !== null || estRr !== null) && (
-        <div className="mt-3 pt-3 border-t border-border/40 flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-dim/60">
-          <div className="flex items-center gap-3">
-            {estPnl !== null && (
-              <div className="flex items-center gap-1.5">
-                <span className="opacity-40">Est. PnL:</span>
-                <span className={cn("font-mono", estPnl >= 0 ? "text-green" : "text-red")}>
-                  {estPnl >= 0 ? '+' : '-'}${Number(Math.abs(estPnl)).toFixed(2)}
-                </span>
-              </div>
-            )}
-            {estRr !== null && (
-              <div className="flex items-center gap-1.5">
-                <span className="opacity-40">Est. RR:</span>
-                <span className="font-mono text-text/80">{Number(estRr).toFixed(2)}R</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {children && (
-        <div className="mt-2 pt-2 border-t border-border/30">
-          {children}
-        </div>
-      )}
-    </div>
-  );
+  const zone = meter.dialZone || 'watching';
 
   return (
-    <Tooltip content={status.label === 'Triggered' ? 'Signal Active' : 'Waiting for convergence'}>
-      {content}
+    <Tooltip content={s.description || description || `${finalLabel}: ${formatVal(finalValue)} / ${formatVal(finalThreshold)}`}>
+      <div
+        className={cn(
+          'rounded-xl border border-border/50 bg-bg/40 flex flex-col justify-between transition-colors',
+          compact ? 'p-2.5 gap-1.5' : 'p-3 gap-2',
+          isHtfBreakout && 'sm:col-span-2',
+          zone === 'fresh' && 'border-green/35 bg-green/[0.03]',
+          zone === 'stale' && 'border-amber/35 bg-amber/[0.03]',
+          (zone === 'late' || zone === 'blocked') && 'border-red/35 bg-red/[0.03]',
+          className
+        )}
+      >
+        {/* Top Row: Label + Unboxed Zone Status */}
+        <div className="flex items-start justify-between gap-2 min-w-0">
+          <div className="min-w-0">
+            <span className="text-[11px] font-bold text-text leading-snug break-words block">
+              {finalLabel}
+            </span>
+            {finalEta !== null && finalEta > 0 && !isFired && (
+              <span className="text-[9.5px] font-mono text-dim">
+                ~{finalEta} bars to target
+              </span>
+            )}
+          </div>
+          <span
+            className={cn(
+              'inline-flex items-center gap-1 text-[10px] font-mono font-bold shrink-0',
+              ZONE_TEXT_CLASS[zone] || 'text-dim'
+            )}
+          >
+            <span className={cn('w-1.5 h-1.5 rounded-full', ZONE_DOT_CLASS[zone] || 'bg-dim')} />
+            {ladder ? ladder.zoneLabel : meter.dialStatus}
+          </span>
+        </div>
+
+        {/* Body: HTF Level Ladder or Semicircular Dial */}
+        {ladder ? (
+          <HtfBreakoutLadder ladder={ladder} compact={compact} />
+        ) : (
+          <>
+            <div className="flex justify-center items-center my-0.5">
+              <ConditionDial
+                dialPct={meter.dialPct}
+                dialZone={zone}
+                dialOverText={meter.dialOverText}
+                size="sm"
+              />
+            </div>
+
+            <div className="flex items-baseline justify-between gap-2 pt-1.5 border-t border-border/30 font-mono text-[10.5px] tabular-nums">
+              <span className="text-dim text-[9.5px]">Live / Target</span>
+              <div className="truncate">
+                <strong className="text-text font-bold">{finalInsufficient ? '---' : formatVal(finalValue)}</strong>
+                {finalThreshold !== undefined && finalThreshold !== null && (
+                  <span className="text-dim"> / {formatVal(finalThreshold)}</span>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </Tooltip>
   );
-})
-SignalGauge.displayName = 'SignalGauge'
+});
+
+SignalGauge.displayName = 'SignalGauge';
+export default SignalGauge;

@@ -61,7 +61,7 @@ export function resolveSignalParamClient(params, signalType, baseSignalType, par
 export function formatSignalValue(val, unit, thresholdIsPrice) {
   if (val === undefined || val === null || Number.isNaN(Number(val))) return '---';
   const num = Number(val);
-  if (thresholdIsPrice) return `$${fmtPrice(num)}`;
+  if (thresholdIsPrice) return fmtPrice(num);
   const decimals = Math.abs(num) >= 100 ? 2 : Math.abs(num) >= 1 ? 3 : 5;
   return `${num.toFixed(decimals)}${unit || ''}`;
 }
@@ -78,10 +78,9 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
   const tokens = [];
 
   if (baseType === 'momentum_pct') {
-    tokens.push(`±${config.scan_pct_threshold ?? 2.0}%`);
-    tokens.push(`Lookback ${config.scan_lookback ?? 3}`);
+    tokens.push(`±${config.scan_pct_threshold ?? 2.0}% · ${config.scan_lookback ?? 3}b`);
   } else if (baseType === 'breakout_hl') {
-    tokens.push(`Lookback ${config.scan_lookback ?? 3} H/L`);
+    tokens.push(`${config.scan_lookback ?? 3}b H/L`);
   } else if (baseType === 'ma') {
     tokens.push(`MA(${p('ma_period', 20)})`);
   } else if (['ema', 'ema_cross', 'ema_price_cross', 'ema_close'].includes(baseType)) {
@@ -92,18 +91,18 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     tokens.push(`EMA(${period})`);
   } else if (['ema_dual', 'ema_dual_cross', 'ema_dual_close'].includes(baseType)) {
     const fast = purpose === 'exit'
-      ? p('exit_ema_fast', p('entry_ema_fast', 9))
-      : p('entry_ema_fast', p('exit_ema_fast', 9));
+      ? p('exit_ema_fast', p('entry_ema_fast', p('ema_fast_period', 9)))
+      : p('entry_ema_fast', p('exit_ema_fast', p('ema_fast_period', 9)));
     const slow = purpose === 'exit'
-      ? p('exit_ema_slow', p('entry_ema_slow', 21))
-      : p('entry_ema_slow', p('exit_ema_slow', 21));
+      ? p('exit_ema_slow', p('entry_ema_slow', p('ema_slow_period', 21)))
+      : p('entry_ema_slow', p('exit_ema_slow', p('ema_slow_period', 21)));
     tokens.push(`EMA ${fast}/${slow}`);
-    const macdFilter = p('ema_dual_macd_filter', false);
+    const macdFilter = p('ema_dual_macd_filter', p('ema_macd_filter_enabled', false));
     if (macdFilter === true || macdFilter === 'true') {
       const mF = p('macd_fast', 12);
       const mS = p('macd_slow', 26);
       const mSig = p('macd_signal', 9);
-      tokens.push(`MACD Filter(${mF}/${mS}/${mSig})`);
+      tokens.push(`MACD(${mF}/${mS}/${mSig})`);
     }
   } else if (baseType === 'engulfing') {
     const mode = p('engulfing_mode', config.engulfing_mode || 'range');
@@ -113,11 +112,11 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     const timing = p('engulfing_timing', config.engulfing_timing || 'is_opportunity');
     const vol = p('engulfing_volume_confirm', config.engulfing_volume_confirm || false);
     const maxExp = Number(p('engulfing_max_expansion_pct', config.engulfing_max_expansion_pct ?? 0));
-    tokens.push(`Mode:${mode}`);
-    tokens.push(`Win:${lookback} / Strk:${streak}${seq ? ' Seq' : ''}`);
+    tokens.push(`${mode}`);
+    tokens.push(`W${lookback}/S${streak}${seq ? ' Seq' : ''}`);
     if (timing === 'after_opportunity') tokens.push('Next-Bar');
     if (vol === true || vol === 'true') tokens.push('Vol↑');
-    if (maxExp > 0) tokens.push(`MaxExp≤${maxExp}%`);
+    if (maxExp > 0) tokens.push(`Cap ${maxExp}%`);
   } else if (['macd_impulse', 'macd_fade', 'macd_pbc'].includes(baseType)) {
     const mF = p('macd_fast', config.macd_fast || 12);
     const mS = p('macd_slow', config.macd_slow || 26);
@@ -125,25 +124,25 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     tokens.push(`MACD(${mF}/${mS}/${mSig})`);
     if (baseType === 'macd_impulse') {
       const strict = p('macd_strict_expansion', true);
-      tokens.push(strict === true || strict === 'true' ? 'Strict Exp' : 'Soft Exp');
+      tokens.push(strict === true || strict === 'true' ? 'Strict' : 'Soft');
     }
     if (baseType === 'macd_pbc') {
       const ema = p('macd_pbc_trend_ema', config.macd_pbc_trend_ema || 50);
       const lb = p('macd_pbc_lookback', config.macd_pbc_lookback || 10);
       const mc = p('macd_pbc_max_continuation', config.macd_pbc_max_continuation || 2);
-      tokens.push(`EMA(${ema}) · LB:${lb} · MaxCont:${mc}`);
+      tokens.push(`EMA(${ema}) · LB:${lb} · Cont:${mc}`);
     }
   } else if (baseType === 'supertrend') {
     const period = p('supertrend_period', 10);
     const mult = p('supertrend_multiplier', 3);
     const mode = p('supertrend_mode', 'trend');
     tokens.push(`ATR(${period})×${mult}`);
-    tokens.push(mode === 'crossover' ? 'Crossover' : 'Trend');
+    tokens.push(mode === 'crossover' ? 'Cross' : 'Trend');
   } else if (baseType === 'knife_catch') {
     const roc = p('knife_roc_threshold', 2.0);
     const wick = p('knife_wick_pct', 30.0);
     const lb = p('knife_lookback', 3);
-    tokens.push(`ROC≥${roc}% · Wick≥${wick}% · LB:${lb}`);
+    tokens.push(`ROC≥${roc}% · Wick≥${wick}% · ${lb}b`);
   } else if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
     const refTf = p('htf_breakout_ref_timeframe', config.htf_breakout_ref_timeframe || '1d');
     const trigRaw = p('htf_breakout_trigger_timeframe', config.htf_breakout_trigger_timeframe || '1h');
@@ -154,9 +153,11 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     const lb = p('htf_breakout_lookback', config.htf_breakout_lookback ?? 1);
     const buf = Number(p('htf_breakout_buffer_pct', config.htf_breakout_buffer_pct ?? 0));
     const maxExp = Number(p('htf_breakout_max_expansion_pct', config.htf_breakout_max_expansion_pct ?? 0));
-    tokens.push(`${mode} · ${refLvl} (LB:${lb})`);
+    const modeLabel = mode === 'closed_candle_confirm' ? 'Confirm Close' : mode === 'wick_break' ? 'Wick Break' : 'Close Break';
+    const refLabel = refLvl === 'open_close_body' ? 'Body' : refLvl === 'close_only' ? 'Close' : 'H/L';
+    tokens.push(`${modeLabel} · ${refLabel}(${lb})`);
     if (buf > 0) tokens.push(`Buf +${buf}%`);
-    if (maxExp > 0) tokens.push(`MaxExp≤${maxExp}%`);
+    if (maxExp > 0) tokens.push(`Cap ${maxExp}%`);
   } else if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
     const trigRaw = p('trigger_candle_exit_timeframe', config.trigger_candle_exit_timeframe || 'default');
     if (trigRaw && trigRaw !== 'default') timeframe = trigRaw;
@@ -448,7 +449,9 @@ export function getStrategyRulesDiagnostics({
   const riskPerTradeUsdt = (startingBal * riskPerTradePct) / 100;
   const maxTotalRiskPct = Number(strategyConfig.max_total_risk_pct ?? 5.0);
   const riskAtCap = totalRiskPct >= maxTotalRiskPct;
-  const riskNearCap = totalRiskPct >= maxTotalRiskPct * 0.8;
+  const maxOpenTrades = Number(strategyConfig.max_open_trades ?? 3);
+  const singleSlotBottleneck = maxTotalRiskPct <= riskPerTradePct && maxOpenTrades > 1;
+  const riskNearCap = totalRiskPct >= maxTotalRiskPct * 0.8 || singleSlotBottleneck;
 
   riskChecks.push({
     key: 'risk_cap',
@@ -458,11 +461,12 @@ export function getStrategyRulesDiagnostics({
     status: riskAtCap ? 'rejected' : riskNearCap ? 'warning' : 'allowed',
     reasonText: riskAtCap
       ? `Total active risk ${totalRiskPct.toFixed(1)}% reached ${maxTotalRiskPct}% cap (new entries blocked)`
+      : singleSlotBottleneck
+      ? `Warning: max_total_risk_pct (${maxTotalRiskPct}%) ≤ risk_pct_per_trade (${riskPerTradePct}%), capping open trades to 1 despite max_open_trades=${maxOpenTrades}`
       : `Min-notional auto-scale: ${strategyConfig.auto_scale_min_notional !== false ? `ON (max ${strategyConfig.auto_scale_max_overshoot ?? 3}x)` : 'OFF'}${strategyConfig.risk_hardening_enabled ? ` · Hard cap ${strategyConfig.max_single_trade_risk_pct ?? 20}%` : ''}`,
   });
 
   // Concurrency & Anti-Whipsaw
-  const maxOpenTrades = Number(strategyConfig.max_open_trades ?? 3);
   const tradesFull = activeTradeCount >= maxOpenTrades;
   const awDelay = strategyConfig.anti_whipsaw_candle_delay ?? 1;
   const awMaxTf = strategyConfig.anti_whipsaw_max_tf || '4h';
@@ -484,6 +488,21 @@ export function getStrategyRulesDiagnostics({
   const todOn = Boolean(strategyConfig.risk_use_tod_stats);
   const martOn = Boolean(strategyConfig.martingale_enabled);
   const guardUsdt = Number(strategyConfig.total_sl_guard_usdt ?? 0);
+  const slGuardTight = guardUsdt > 0 && guardUsdt < riskPerTradeUsdt;
+  const shortAbsMismatch = entrySide === 'short' && strategyConfig.discovery_mode === 'abs_change_pct';
+  const excludedList = Array.isArray(strategyConfig.excluded_symbols) ? strategyConfig.excluded_symbols : [];
+  const typoSymbols = excludedList.filter(s => typeof s === 'string' && s.trim().toUpperCase() === 'BTW');
+
+  const configAuditNotes = [];
+  if (slGuardTight) {
+    configAuditNotes.push(`Session SL Guard ($${guardUsdt}) is below single-trade risk ($${riskPerTradeUsdt.toFixed(0)})`);
+  }
+  if (shortAbsMismatch) {
+    configAuditNotes.push(`Short strategy uses abs_change_pct (can pick gainers to short; prefer signed negative change)`);
+  }
+  if (typoSymbols.length > 0) {
+    configAuditNotes.push(`Possible typo in excluded_symbols: "${typoSymbols.join(', ')}" (did you mean BTC?)`);
+  }
 
   riskChecks.push({
     key: 'guards_extras',
@@ -494,13 +513,23 @@ export function getStrategyRulesDiagnostics({
       guardUsdt > 0 ? `Session SL Guard $${guardUsdt}` : null,
       martOn ? `Martingale ×${strategyConfig.martingale_multiplier ?? 2} (max ${strategyConfig.martingale_max_steps ?? 3})` : null,
     ].filter(Boolean).join(' · '),
-    liveText: isStrategyPaused ? 'PAUSED' : (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK' ? effectiveGate.toUpperCase() : 'ALLOWED'),
-    status: isStrategyPaused ? 'warning' : (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK' ? 'rejected' : 'allowed'),
+    liveText: isStrategyPaused
+      ? 'PAUSED'
+      : (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK'
+        ? effectiveGate.toUpperCase()
+        : (configAuditNotes.length > 0 ? 'CHECK CONFIG' : 'ALLOWED')),
+    status: isStrategyPaused
+      ? 'warning'
+      : (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK'
+        ? 'rejected'
+        : (configAuditNotes.length > 0 ? 'warning' : 'allowed')),
     reasonText: isStrategyPaused
       ? 'Strategy manually paused'
       : (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK')
         ? `Gate blocked: ${effectiveReason || effectiveGate}`
-        : `Slippage abort ≥ ${strategyConfig.slippage_abort_threshold ?? 1.5}% · All pre-trade guards clear`,
+        : configAuditNotes.length > 0
+          ? configAuditNotes.join(' · ')
+          : `Slippage abort ≥ ${strategyConfig.slippage_abort_threshold ?? 1.5}% · All pre-trade guards clear`,
   });
 
   return {
@@ -531,6 +560,7 @@ export function buildStrategyNarrative({
   staticSymbols = [],
   lastScanTs,
   streamAgeSec,
+  recentSkipEvent = null,
   formatTimeAgo,
   formatClockTime,
 }) {
@@ -612,12 +642,16 @@ export function buildStrategyNarrative({
   }
 
   return {
-    tone: 'neutral',
+    tone: recentSkipEvent ? 'warning' : 'neutral',
     headline: isStaticWatchlist
       ? `Monitoring ${staticSymbols.length} static symbol${staticSymbols.length === 1 ? '' : 's'} on ${strategyConfig.scan_interval || '5m'}`
       : `Scanning top ${strategyConfig.watchlist_size || 15} pairs by ${strategyConfig.discovery_mode || 'volume'} on ${strategyConfig.scan_interval || '5m'}`,
-    detail: `Waiting for ±${strategyConfig.scan_pct_threshold ?? 2.0}% velocity expansion before running ${signalsCount} entry signal${signalsCount === 1 ? '' : 's'}.`,
-    when: lastScanTs ? `Last scan ${formatTimeAgo(lastScanTs)}` : `Live ${streamAgeSec}s`,
+    detail: recentSkipEvent
+      ? `Last candidate ${recentSkipEvent.symbol} skipped: ${recentSkipEvent.shortReason}`
+      : `Waiting for ±${strategyConfig.scan_pct_threshold ?? 2.0}% velocity expansion before running ${signalsCount} entry signal${signalsCount === 1 ? '' : 's'}.`,
+    when: recentSkipEvent?.timestamp
+      ? `Skipped ${formatTimeAgo(recentSkipEvent.timestamp)}`
+      : (lastScanTs ? `Last scan ${formatTimeAgo(lastScanTs)}` : `Live ${streamAgeSec}s`),
   };
 }
 

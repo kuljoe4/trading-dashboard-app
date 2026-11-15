@@ -80,11 +80,98 @@ export class TradingSessionService implements OnApplicationShutdown {
   private lastWatchdogTs = 0;
   private lastMemoryMaintenanceTs = 0;
   private loggedKnifeBypassMap: Map<string, number> = new Map();
+  private nearTargetCandidatesByStrategy: Map<string, Map<string, { score: number; pct: number; direction: string; allFired: boolean; firedCount: number; ts: number }>> = new Map();
+  private loggedCandidateDropMap: Map<string, number> = new Map();
   private _lastGateTransitionKey = '';
   private _lastGateStateLogTs = 0;
 
   private cachedStrategyConfigs: SessionConfig[] | null = null;
   private cachedScanSignatures: Map<SessionConfig, string> = new Map();
+
+  private trackAndLogRemovedCandidates(
+    strategyConfigs: SessionConfig[],
+    scannerData: { strategy_label?: string; opportunities: any[] }[],
+    activePositionSymbols: Set<string> | string[],
+  ) {
+    const activeSet = activePositionSymbols instanceof Set
+      ? activePositionSymbols
+      : new Set(activePositionSymbols || []);
+    const now = Date.now();
+    const dropCooldownMs = 90000;
+
+    for (let i = 0; i < strategyConfigs.length; i++) {
+      const sc = strategyConfigs[i];
+      const label = sc.strategy_label || "Momentum Strategy";
+      const isPaused = this.sessionState.isStrategyPaused
+        ? this.sessionState.isStrategyPaused(label)
+        : Boolean(this.sessionState.pausedStrategies?.has(label));
+      if (isPaused) continue;
+
+      const opps = scannerData[i]?.opportunities || [];
+      const currentSymbols = new Set<string>();
+      for (let j = 0; j < opps.length; j++) {
+        if (opps[j]?.symbol) currentSymbols.add(opps[j].symbol);
+      }
+
+      const prevMap = this.nearTargetCandidatesByStrategy.get(label);
+      if (prevMap && prevMap.size > 0) {
+        for (const [sym, prev] of prevMap.entries()) {
+          if (currentSymbols.has(sym) || activeSet.has(sym)) continue;
+          const dropKey = `${label}:${sym}`;
+          const nextAllowed = this.loggedCandidateDropMap.get(dropKey) || 0;
+          if (now < nextAllowed) continue;
+
+          if (this.loggedCandidateDropMap.size >= 250) {
+            for (const [k, exp] of this.loggedCandidateDropMap.entries()) {
+              if (exp <= now || this.loggedCandidateDropMap.size >= 200) {
+                this.loggedCandidateDropMap.delete(k);
+              }
+            }
+          }
+          this.loggedCandidateDropMap.set(dropKey, now + dropCooldownMs);
+
+          const preReason = typeof (this.momentumScanner as any)?.getPreFilterReason === 'function'
+            ? (this.momentumScanner as any).getPreFilterReason(sym)
+            : undefined;
+          const reasonText = preReason?.reason
+            || `dropped from top-${ENGINE_CONSTANTS.SCANNER_MAX_RESULTS} watchlist cutoff`;
+          const pctStr = `${prev.pct >= 0 ? '+' : ''}${Number(prev.pct || 0).toFixed(2)}%`;
+          const firedText = prev.allFired ? 'all signals fired' : prev.firedCount > 0 ? `${prev.firedCount} signal(s) fired` : `score ${Math.round(prev.score)}`;
+          const msg = `[Scanner] ${sym} (${label}): Candidate removed (${reasonText}; prior ${pctStr}, ${firedText}).`;
+
+          this.logger.debug(msg);
+          this.eventEmitter?.emit?.(ENGINE_EVENTS.LOG_MESSAGE, {
+            msg,
+            level: preReason?.code === 'sl_bounds' ? 'warn' : 'info',
+            symbol: sym,
+          });
+        }
+      }
+
+      const nextNearMap = new Map<string, { score: number; pct: number; direction: string; allFired: boolean; firedCount: number; ts: number }>();
+      const pctThreshold = Number(sc.scan_pct_threshold ?? 2.0);
+      for (let j = 0; j < opps.length && nextNearMap.size < 25; j++) {
+        const opp = opps[j];
+        if (!opp?.symbol) continue;
+        const absPct = Math.abs(Number(opp.momentum ?? opp.pct ?? 0));
+        const allFired = Boolean(opp.signalResult?.allFired);
+        const firedCount = Array.isArray(opp.signalResult?.firedSignals) ? opp.signalResult.firedSignals.length : 0;
+        const score = Number(opp.score || 0);
+        const isNearTarget = allFired || firedCount > 0 || score >= 65 || (pctThreshold > 0 && absPct >= pctThreshold * 0.75);
+        if (isNearTarget) {
+          nextNearMap.set(opp.symbol, {
+            score,
+            pct: Number(opp.momentum ?? opp.pct ?? 0),
+            direction: (opp.direction || opp.dir || 'LONG').toUpperCase(),
+            allFired,
+            firedCount,
+            ts: now,
+          });
+        }
+      }
+      this.nearTargetCandidatesByStrategy.set(label, nextNearMap);
+    }
+  }
 
   private getStrategyLabel(
     config: Partial<SessionConfig> | null | undefined,
@@ -139,6 +226,10 @@ export class TradingSessionService implements OnApplicationShutdown {
             signal_params: {
               ...(this.config?.signal_params || {}),
               ...(v?.signal_params || {}),
+            },
+            signal_timeframes: {
+              ...(this.config?.signal_timeframes || {}),
+              ...(v?.signal_timeframes || {}),
             },
             strategy_label: this.getStrategyLabel(v, i + 1),
             base_strategy_label: baseLabel,
@@ -951,6 +1042,8 @@ export class TradingSessionService implements OnApplicationShutdown {
         };
       });
 
+      this.trackAndLogRemovedCandidates(strategyConfigs, scannerData, activePositionSymbols);
+
       if (this.sessionState.dashboardCount > 0) {
         const opportunitiesWithSignals = scannerData[0]?.opportunities || [];
         this.updateScannerResults(opportunitiesWithSignals);
@@ -1324,6 +1417,11 @@ export class TradingSessionService implements OnApplicationShutdown {
     this.lastScannerResultsJson = "";
     this.cachedStrategyConfigs = null;
     this.cachedScanSignatures.clear();
+    this.nearTargetCandidatesByStrategy.clear();
+    this.loggedCandidateDropMap.clear();
+    if (typeof (this.momentumScanner as any)?.clearPreFilterReasons === 'function') {
+      (this.momentumScanner as any).clearPreFilterReasons();
+    }
     this.monitoringService.clearAppMetrics();
     this.engineBroadcaster.minimize();
     if (typeof (this.signalEngine as any)?.clearCaches === "function") {
@@ -1391,6 +1489,11 @@ export class TradingSessionService implements OnApplicationShutdown {
         if (!validTradeIds.has(tradeId)) {
           this.appliedPnL.delete(tradeId);
         }
+      }
+
+      const cleanupNow = Date.now();
+      for (const [k, exp] of this.loggedCandidateDropMap.entries()) {
+        if (exp <= cleanupNow) this.loggedCandidateDropMap.delete(k);
       }
     } catch (err: any) {
       this.logger.debug(
@@ -1761,11 +1864,18 @@ export class TradingSessionService implements OnApplicationShutdown {
     exitPrice: number,
     reason: string,
   ) {
-    // SRE: Immediate cooldown on exit (Issue 3). Defaults to 2m if min_trade_interval_min is 0/undefined.
+    // Only apply explicit interval cooldown if min_trade_interval_min > 0 (otherwise let Strategy Tab anti-whipsaw govern)
+    const tradeConfig = {
+      ...(this.config || {}),
+      ...(trade.strategy_config || {}),
+    } as SessionConfig;
     const mode =
-      this.config?.trading_mode || (this.config?.paper_mode ? "paper" : "live");
-    const cooldownMin = this.config?.min_trade_interval_min || 2;
-    this.executionService.setCooldown(trade.symbol, mode, cooldownMin);
+      tradeConfig.trading_mode || (tradeConfig.paper_mode ? "paper" : "live");
+    const cooldownMin = Number(tradeConfig.min_trade_interval_min || 0);
+    if (cooldownMin > 0) {
+      const scopeLabel = tradeConfig.anti_whipsaw_per_strategy !== false ? trade.strategy_label : undefined;
+      this.executionService.setCooldown(trade.symbol, mode, cooldownMin, scopeLabel);
+    }
 
     this.sessionState.updateStatsOnClose(
       (trade.pnl || 0) > 0,

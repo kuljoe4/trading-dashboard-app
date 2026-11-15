@@ -452,6 +452,18 @@ function addLog(msg: string, level = 'info') {
   broadcast({ type: 'log', ...logItem });
 }
 
+function resolveCfgSignalParam(cfg: any, sigType: string, baseType: string, key: string, fallback: any) {
+  const sp = cfg?.signal_params || {};
+  if (sp[sigType] && typeof sp[sigType] === 'object' && sp[sigType][key] !== undefined && sp[sigType][key] !== '') {
+    return sp[sigType][key];
+  }
+  const compositeKey = `${sigType}_${key}`;
+  if (sp[compositeKey] !== undefined && sp[compositeKey] !== '') return sp[compositeKey];
+  if (sp[key] !== undefined && sp[key] !== '') return sp[key];
+  if (cfg?.[key] !== undefined && cfg?.[key] !== '') return cfg[key];
+  return fallback;
+}
+
 function getScannerOpportunities(cfg?: any) {
   const targetConfig = cfg || state.config || {};
   const staticSymbols = Array.isArray(targetConfig.symbols) && targetConfig.symbols.length > 0 ? targetConfig.symbols : null;
@@ -469,7 +481,10 @@ function getScannerOpportunities(cfg?: any) {
     }
   } else {
     const discoveryMode = targetConfig.discovery_mode || 'volume';
-    if (discoveryMode === 'change_pct') {
+    const entrySide = String(targetConfig.entry_side || 'both').toLowerCase();
+    if (discoveryMode === 'losers' || (discoveryMode === 'change_pct' && entrySide === 'short')) {
+      items.sort((a, b) => a.momentum - b.momentum);
+    } else if (discoveryMode === 'change_pct') {
       items.sort((a, b) => b.momentum - a.momentum);
     } else if (discoveryMode === 'abs_change_pct') {
       items.sort((a, b) => Math.abs(b.momentum) - Math.abs(a.momentum));
@@ -480,11 +495,197 @@ function getScannerOpportunities(cfg?: any) {
     items = items.slice(0, watchlistSize);
   }
 
+  const enabledSignals: string[] = Array.isArray(targetConfig.enabled_signals) ? targetConfig.enabled_signals : [];
+  const signalLogic = String(targetConfig.signal_logic || 'all').toLowerCase();
+  const requiredSignals: string[] = Array.isArray(targetConfig.required_signals) ? targetConfig.required_signals : [];
+  const entrySideCfg = String(targetConfig.entry_side || 'both').toLowerCase();
+
   let rank = 1;
   for (const item of items) {
-    const isLong = item.momentum >= 0;
-    const thresh = targetConfig.scan_pct_threshold || 1.2;
-    const fired = Math.abs(item.momentum) >= thresh;
+    const isLong = entrySideCfg === 'long' ? true : entrySideCfg === 'short' ? false : item.momentum >= 0;
+    const sideUpper = isLong ? 'LONG' : 'SHORT';
+    const thresh = Number(targetConfig.scan_pct_threshold ?? 1.2);
+    const scannerFired = Math.abs(item.momentum) >= thresh;
+
+    const signalsMap: Record<string, any> = {
+      momentum_pct: {
+        label: 'Momentum %',
+        value: item.momentum,
+        threshold: thresh,
+        unit: '%',
+        fired: scannerFired,
+        active: true,
+        description: scannerFired
+          ? `Velocity ${Math.abs(item.momentum).toFixed(2)}% >= ${thresh}% threshold`
+          : `Velocity ${Math.abs(item.momentum).toFixed(2)}% < ${thresh}% threshold`,
+      },
+    };
+
+    const ohlc = Array.isArray(item.ohlc_history) && item.ohlc_history.length > 0 ? item.ohlc_history : [];
+    const decimals = item.symbol.includes('DOGE') || item.symbol.includes('ADA') || item.symbol.includes('XRP') ? 4 : 2;
+
+    for (const sigKey of enabledSignals) {
+      const baseType = sigKey.split(':').shift() || sigKey;
+      if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
+        const refTf = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_ref_timeframe', '1d'));
+        const trigTfRaw = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_trigger_timeframe', targetConfig.kline_interval || '1h'));
+        const trigTf = trigTfRaw === 'default' || !trigTfRaw ? String(targetConfig.kline_interval || '1h') : trigTfRaw;
+        const mode = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_mode', 'closed_candle_confirm'));
+        const lookback = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_lookback', 1)) || 1;
+        const refLevelType = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_reference_level', 'high_low'));
+        const bufferPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_buffer_pct', 0)) || 0);
+        const maxExpPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_max_expansion_pct', 2)) || 0);
+
+        const completedCandles = ohlc.length > 2 ? ohlc.slice(0, -1) : ohlc;
+        const formingCandle = ohlc[ohlc.length - 1] || { open: item.price, high: item.price * 1.002, low: item.price * 0.998, close: item.price };
+        const prevCompleted = ohlc.length >= 2 ? ohlc[ohlc.length - 2] : formingCandle;
+
+        let refHigh = item.price * 1.012;
+        let refLow = item.price * 0.988;
+        if (completedCandles.length > 0) {
+          let h = -Infinity;
+          let l = Infinity;
+          for (const c of completedCandles) {
+            const cH = refLevelType === 'open_close_body' ? Math.max(c.open, c.close) : refLevelType === 'close_only' ? c.close : c.high;
+            const cL = refLevelType === 'open_close_body' ? Math.min(c.open, c.close) : refLevelType === 'close_only' ? c.close : c.low;
+            if (cH > h) h = cH;
+            if (cL < l) l = cL;
+          }
+          if (Number.isFinite(h) && Number.isFinite(l) && h > l) {
+            refHigh = parseFloat(h.toFixed(decimals));
+            refLow = parseFloat(l.toFixed(decimals));
+          }
+        }
+
+        const evalClose = mode === 'closed_candle_confirm' ? prevCompleted.close : item.price;
+        const livePrice = item.price;
+        const liveHigh = Math.max(formingCandle.high || livePrice, livePrice);
+        const liveLow = Math.min(formingCandle.low || livePrice, livePrice);
+
+        const breakoutLevel = sideUpper === 'LONG'
+          ? parseFloat((refHigh * (1 + bufferPct / 100)).toFixed(decimals))
+          : parseFloat((refLow * (1 - bufferPct / 100)).toFixed(decimals));
+
+        const expansionCap = maxExpPct > 0
+          ? parseFloat((sideUpper === 'LONG' ? refHigh * (1 + maxExpPct / 100) : refLow * (1 - maxExpPct / 100)).toFixed(decimals))
+          : null;
+
+        let candleConfirmState: 'closed_beyond' | 'wicked_only' | 'below' = 'below';
+        let sigFired = false;
+        let sigRejected = false;
+
+        if (sideUpper === 'LONG') {
+          if (evalClose > breakoutLevel) {
+            candleConfirmState = 'closed_beyond';
+            sigFired = true;
+          } else if (liveHigh > breakoutLevel || livePrice > breakoutLevel) {
+            candleConfirmState = 'wicked_only';
+            sigFired = mode === 'wick_break';
+          }
+          if (expansionCap !== null && (livePrice > expansionCap || evalClose > expansionCap)) {
+            sigFired = false;
+            sigRejected = true;
+          }
+        } else {
+          if (evalClose < breakoutLevel) {
+            candleConfirmState = 'closed_beyond';
+            sigFired = true;
+          } else if (liveLow < breakoutLevel || livePrice < breakoutLevel) {
+            candleConfirmState = 'wicked_only';
+            sigFired = mode === 'wick_break';
+          }
+          if (expansionCap !== null && (livePrice < expansionCap || evalClose < expansionCap)) {
+            sigFired = false;
+            sigRejected = true;
+          }
+        }
+
+        const tfUnit = trigTf.slice(-1);
+        const tfNum = parseInt(trigTf.slice(0, -1), 10) || 1;
+        const tfMs = tfUnit === 'm' ? tfNum * 60000 : tfUnit === 'h' ? tfNum * 3600000 : tfUnit === 'd' ? tfNum * 86400000 : 3600000;
+        const trigCloseCountdownMs = Math.max(0, tfMs - (Date.now() % tfMs));
+
+        signalsMap[sigKey] = {
+          label: 'HTF Breakout',
+          fired: sigFired,
+          rejected: sigRejected,
+          value: livePrice,
+          closed_value: evalClose,
+          threshold: breakoutLevel,
+          ref_high: refHigh,
+          ref_low: refLow,
+          pattern_high: refHigh,
+          pattern_low: refLow,
+          buffer_pct: bufferPct,
+          breakout_level: breakoutLevel,
+          max_expansion_pct: maxExpPct,
+          expansion_cap: expansionCap,
+          live_price: livePrice,
+          candle_high: liveHigh,
+          candle_low: liveLow,
+          candle_confirm_state: candleConfirmState,
+          trig_close_countdown_ms: trigCloseCountdownMs,
+          unit: 'price',
+          threshold_is_price: true,
+          ref_timeframe: refTf,
+          trigger_timeframe: trigTf,
+          mode,
+          lookback,
+          reference_level: refLevelType,
+          description: sigRejected
+            ? `Rejected: price ${livePrice.toFixed(decimals)} expanded > ${maxExpPct}% beyond ${refTf} level (${expansionCap?.toFixed(decimals)})`
+            : sigFired
+            ? `${trigTf} close (${evalClose.toFixed(decimals)}) broke ${refTf} ${sideUpper === 'LONG' ? 'high' : 'low'} (${breakoutLevel.toFixed(decimals)})`
+            : `Monitoring ${trigTf} close (${livePrice.toFixed(decimals)}) vs prev ${refTf} ${sideUpper === 'LONG' ? 'high' : 'low'} (${breakoutLevel.toFixed(decimals)})`,
+        };
+      } else if (baseType.startsWith('ema_dual') || baseType === 'ema' || baseType === 'ma') {
+        const fastPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_fast_period', 9)) || 9;
+        const slowPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_slow_period', 21)) || 21;
+        const closes = ohlc.map((c: any) => c.close);
+        const fastSlice = closes.slice(-Math.max(2, Math.min(fastPeriod, closes.length)));
+        const slowSlice = closes.slice(-Math.max(3, Math.min(slowPeriod, closes.length)));
+        const fastVal = fastSlice.length > 0 ? parseFloat((fastSlice.reduce((a: number, b: number) => a + b, 0) / fastSlice.length).toFixed(decimals)) : item.price;
+        const slowVal = slowSlice.length > 0 ? parseFloat((slowSlice.reduce((a: number, b: number) => a + b, 0) / slowSlice.length).toFixed(decimals)) : item.price;
+        const sigFired = sideUpper === 'LONG' ? fastVal > slowVal : fastVal < slowVal;
+        signalsMap[sigKey] = {
+          label: baseType === 'ema_dual_cross' ? 'EMA Crossover' : 'EMA Dual',
+          fired: sigFired,
+          value: fastVal,
+          threshold: slowVal,
+          unit: 'price',
+          threshold_is_price: true,
+          description: `Fast (${fastPeriod}): ${fastVal.toFixed(decimals)}, Slow (${slowPeriod}): ${slowVal.toFixed(decimals)}`,
+        };
+      } else if (!signalsMap[sigKey]) {
+        const sigFired = scannerFired && Math.abs(item.momentum) >= thresh * 1.1;
+        signalsMap[sigKey] = {
+          label: sigKey,
+          fired: sigFired,
+          value: item.momentum,
+          threshold: thresh,
+          unit: '%',
+          description: `${sigKey}: ${item.momentum.toFixed(2)}% vs ${thresh}%`,
+        };
+      }
+    }
+
+    const firedSignalsList = enabledSignals.filter(k => signalsMap[k]?.fired);
+    let signalsLogicPassed = scannerFired;
+    if (enabledSignals.length > 0) {
+      if (signalLogic === 'any') {
+        signalsLogicPassed = scannerFired && firedSignalsList.length >= 1;
+      } else if (signalLogic === 'combo') {
+        const reqSet = new Set(requiredSignals);
+        const reqList = enabledSignals.filter(k => reqSet.has(k));
+        const optList = enabledSignals.filter(k => !reqSet.has(k));
+        const allReqFired = reqList.every(k => signalsMap[k]?.fired);
+        const anyOptFired = optList.length === 0 || optList.some(k => signalsMap[k]?.fired);
+        signalsLogicPassed = scannerFired && allReqFired && anyOptFired;
+      } else {
+        signalsLogicPassed = scannerFired && enabledSignals.every(k => signalsMap[k]?.fired);
+      }
+    }
+
     opps.push({
       symbol: item.symbol,
       pct: item.momentum,
@@ -497,7 +698,6 @@ function getScannerOpportunities(cfg?: any) {
       price: item.price,
       volume_rank: rank++,
       history: item.history,
-      ohlc_history: item.ohlc_history,
       score_breakdown: {
         momentum: parseFloat((Math.abs(item.momentum) * 10).toFixed(1)),
         volatility: item.volatility,
@@ -506,27 +706,15 @@ function getScannerOpportunities(cfg?: any) {
       },
       lastUpdate: Date.now(),
       signalResult: {
-        allFired: fired,
-        firedSignals: fired ? ['momentum_pct'] : [],
-        reason: fired ? 'Momentum threshold exceeded' : 'Awaiting confirmation',
-        signals: {
-          momentum_pct: {
-            label: 'Momentum %',
-            value: item.momentum,
-            threshold: thresh,
-            unit: '%',
-            fired,
-            active: true,
-          },
-          volume_spike: {
-            label: 'Volume Spike',
-            value: parseFloat((item.volume24h / 10000000).toFixed(1)),
-            threshold: 5.0,
-            unit: 'M',
-            fired: item.volume24h > 200000000,
-            active: true,
-          },
-        },
+        allFired: signalsLogicPassed,
+        scannerFired,
+        firedSignals: enabledSignals.length > 0 ? firedSignalsList : (scannerFired ? ['momentum_pct'] : []),
+        reason: signalsLogicPassed
+          ? 'All entry conditions satisfied'
+          : !scannerFired
+          ? `Velocity ${Math.abs(item.momentum).toFixed(2)}% below ${thresh}% threshold`
+          : `Awaiting signal confirmation (${firedSignalsList.length}/${enabledSignals.length} hit)`,
+        signals: signalsMap,
       },
     });
   }
@@ -665,6 +853,7 @@ function getStatusSnapshot() {
     apiStatus: state.apiStatus,
     rateLimit: {
       used_weight_1m: 14,
+      limit: 2400,
       order_count_10s: 0,
     },
   };
@@ -911,27 +1100,30 @@ function broadcastTick() {
   const topSym = baseOpps[0]?.symbol || 'BTCUSDT';
   const pInfo = prices.get(topSym);
 
-  wss.clients.forEach((client: any) => {
-    if (client.readyState !== WebSocket.OPEN) return;
-    if (client.isActive === false) return;
-
-    // Send tick
-    if (pInfo) {
-      client.send(JSON.stringify({
+  const tickMsg = pInfo
+    ? JSON.stringify({
         type: 'tick',
         symbol: topSym,
         price: pInfo.price,
         time: Date.now(),
         trades: state.activeTrades,
-      }));
-    }
+      })
+    : null;
 
-    // Send scanner
-    client.send(JSON.stringify({
-      type: 'scanner',
-      opportunities: baseOpps,
-      variant_opportunities: variantData,
-    }));
+  const scannerMsg = JSON.stringify({
+    type: 'scanner',
+    opportunities: baseOpps,
+    variant_opportunities: variantData,
+  });
+
+  wss.clients.forEach((client: any) => {
+    if (client.readyState !== WebSocket.OPEN) return;
+    if (client.isActive === false) return;
+
+    if (tickMsg) {
+      client.send(tickMsg);
+    }
+    client.send(scannerMsg);
   });
 }
 

@@ -32,17 +32,17 @@ test('ConfigModal includes discovery_mode input field and maps it to scan tab in
   )
 })
 
-test('ScannerOverlay supports all discovery modes including volume, change_pct, and abs_change_pct', () => {
+test('ScannerOverlay supports signed discovery modes including volume, change_pct (Top Gainers), and losers (Top Losers)', () => {
   const filePath = path.resolve(__dirname, '../components/ScannerOverlay.jsx')
   const content = fs.readFileSync(filePath, 'utf8')
 
   assert.ok(
-    content.includes("id: 'abs_change_pct', label: 'Top Volatile', color: 'amber'"),
-    'ScannerOverlay toolbar must include Top Volatile (abs_change_pct) mode'
+    content.includes("id: 'losers', label: 'Top Losers', color: 'amber'"),
+    'ScannerOverlay toolbar must include signed Top Losers mode'
   )
 
   assert.ok(
-    content.includes("discoveryMode === 'abs_change_pct'"),
-    'ScannerOverlay filteredResults must handle abs_change_pct sorting'
+    content.includes("discoveryMode === 'losers'") && content.includes("discoveryMode === 'abs_change_pct'"),
+    'ScannerOverlay filteredResults must handle signed losers and abs_change_pct sorting'
   )
 })

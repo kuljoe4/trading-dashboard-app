@@ -1077,30 +1077,49 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
 });
 WatchlistDropdownInput.displayName = 'WatchlistDropdownInput';
 
-const ListInput = React.memo(({ value, onChange, placeholder }) => {
+const ListInput = React.memo(({ id, value, onChange, placeholder }) => {
   const getStr = (val) => {
     if (Array.isArray(val)) return val.join(', ');
     if (typeof val === 'string') return val;
     return '';
   };
+  const parseTokens = (str) => String(str || '').split(',').map(s => s.trim()).filter(Boolean);
   const [localValue, setLocalValue] = useState(() => getStr(value));
 
-  // Update local value when external value changes (e.g. on preset load)
+  // Update local value when external value tokens differ (e.g. on preset load) without wiping trailing commas while typing
   useEffect(() => {
-    setLocalValue(getStr(value));
+    const extTokens = Array.isArray(value) ? value.map(s => String(s).trim()).filter(Boolean) : parseTokens(value);
+    const localTokens = parseTokens(localValue);
+    const same = extTokens.length === localTokens.length && extTokens.every((t, i) => t === localTokens[i]);
+    if (!same) {
+      setLocalValue(getStr(value));
+    }
   }, [value]);
 
+  const handleChange = (e) => {
+    const nextVal = e.target.value;
+    setLocalValue(nextVal);
+    const extTokens = Array.isArray(value) ? value.map(s => String(s).trim()).filter(Boolean) : parseTokens(value);
+    const nextTokens = parseTokens(nextVal);
+    const same = extTokens.length === nextTokens.length && extTokens.every((t, i) => t === nextTokens[i]);
+    if (!same) {
+      onChange(nextTokens);
+    }
+  };
+
   const handleBlur = () => {
-    const list = localValue.split(',').map(s => s.trim()).filter(Boolean);
+    const list = parseTokens(localValue);
+    setLocalValue(list.join(', '));
     onChange(list);
   };
 
   return (
     <input
+      id={id}
       type="text"
       placeholder={placeholder}
       value={localValue}
-      onChange={(e) => setLocalValue(e.target.value)}
+      onChange={handleChange}
       onBlur={handleBlur}
       onKeyDown={(e) => { if (e.key === 'Enter') handleBlur(); }}
       className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
@@ -2720,6 +2739,20 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
     });
     c.signal_params = sp;
 
+    // Synchronize duplicate top-level signal keys with signal_params so signal_params is the single source of truth
+    const syncTopLevelKeys = [
+      'htf_breakout_ref_timeframe', 'htf_breakout_trigger_timeframe', 'htf_breakout_mode',
+      'htf_breakout_reference_level', 'htf_breakout_lookback', 'htf_breakout_buffer_pct', 'htf_breakout_max_expansion_pct',
+      'engulfing_mode', 'engulfing_timing', 'engulfing_volume_confirm', 'engulfing_lookback',
+      'engulfing_streak', 'engulfing_sequential', 'engulfing_max_expansion_pct',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
+    ];
+    syncTopLevelKeys.forEach(k => {
+      if (sp[k] !== undefined && sp[k] !== null && sp[k] !== '') {
+        c[k] = sp[k];
+      }
+    });
+
     // Ensure numeric values where expected
     const numericFields = [
       'risk_pct_per_trade', 'max_total_risk_pct', 'max_open_trades', 'total_sl_guard_usdt',
@@ -3492,17 +3525,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'smart_watchlist_sensitivity',
       'trailing_stop_distance_pct',
       'trailing_stop_rr',
+      'knife_trailing_distance_pct',
+      'knife_auto_ratchet_be_rr',
+      'knife_auto_ratchet_lock_rr',
+      'anti_whipsaw_candle_delay',
+      'anti_whipsaw_tf_delay_min',
       'scan_pct_threshold', 'scan_lookback', 'scan_min_volume_usdt', 'watchlist_size',
       'watchlist_offset', 'sl_distance_pct', 'sl_min_pct', 'sl_max_pct', 'trailing_guard_buffer_pct',
       'tp_ratio', 'max_trades_per_period', 'trades_period_min', 'max_trades_24h',
       'scanner_signal_depth',
-      'engulfing_lookback', 'engulfing_streak',
+      'engulfing_lookback', 'engulfing_streak', 'engulfing_max_expansion_pct',
+      'macd_pbc_trend_ema', 'macd_pbc_lookback', 'macd_pbc_max_continuation',
       'min_trade_interval_min', 'trades_jitter_pct', 'paper_starting_balance',
       'testnet_starting_balance', 'live_starting_balance', 'hot_loop_interval_ms',
       'main_loop_interval_ms', 'sl_lookback_period', 'sl_pct_limit',
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
-      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight'
+      'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
+      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score'
     ];
 
     numericFields.forEach(f => {
@@ -3510,6 +3550,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         c[f] = Number(c[f]);
       }
     });
+
+    if (typeof c.anti_whipsaw_timeframes === 'string') {
+      c.anti_whipsaw_timeframes = c.anti_whipsaw_timeframes.split(',').map(s => s.trim()).filter(Boolean);
+    } else if (!Array.isArray(c.anti_whipsaw_timeframes)) {
+      c.anti_whipsaw_timeframes = [];
+    }
+    if (c.anti_whipsaw_max_tf) {
+      c.anti_whipsaw_max_tf = String(c.anti_whipsaw_max_tf).trim();
+    }
+    c.anti_whipsaw_per_strategy = c.anti_whipsaw_per_strategy !== false;
 
     c.htf_ema_cross_boost_enabled = c.htf_ema_cross_boost_enabled !== false;
     c.htf_ema_cross_interval = c.htf_ema_cross_interval || '4h';
@@ -3534,7 +3584,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
     }
     c.strategy_variants = (cfg.strategy_variants || []).map((v) => {
-      return coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' });
+      return coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' }, true);
     });
 
     // Clean up temporary UI fields
@@ -4305,7 +4355,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   ), [cfg, errors, setField, handleInputFocus]);
 
   return (
-    <div ref={modalRef} tabIndex={-1} className="flex flex-col h-full bg-surface text-text overflow-hidden relative outline-none">
+    <div ref={modalRef} tabIndex={-1} className="flex flex-col flex-1 min-h-0 h-full bg-surface text-text overflow-hidden relative outline-none">
       <div className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-border relative">
         <div className="py-3 px-4 flex justify-between items-center relative z-20">
           <div className="min-w-0 flex-1 mr-4">
@@ -4522,7 +4572,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       </div>
       <ModalAlertTicker />
 
-      <div className="flex-1 overflow-y-auto no-scrollbar p-3 md:p-4 pb-24 overscroll-contain" data-vaul-no-drag>
+      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-3 pt-3 md:px-4 md:pt-4 pb-24 md:pb-24 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
           <div
             id="config-panel-scan"
@@ -5192,6 +5242,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         onChange={(val) => setField('anti_whipsaw_timeframes', val)}
                       />
                     </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-border/20">
+                    <div className="flex flex-col text-left pr-3">
+                      <span className="text-[10px] font-black text-text uppercase tracking-widest">
+                        Per-Strategy Cooldown Isolation
+                      </span>
+                      <p className="text-[8.5px] text-dim/75 leading-snug mt-0.5">
+                        When enabled (default), anti-whipsaw cooldowns apply strictly within this strategy or variant so one strategy never blocks another on the same symbol.
+                      </p>
+                    </div>
+                    <Toggle value={cfg.anti_whipsaw_per_strategy !== false} onChange={(v) => setField('anti_whipsaw_per_strategy', v)} />
                   </div>
                   <p className="text-[8.5px] text-dim/70 leading-snug">
                     Anti-whipsaw gating prevents rapid oscillation and double-dipping on the same symbol right after an exit. Signals above the Max Timeframe (like a 1d confirming signal) are automatically excluded so macro confirmation does not freeze candidate re-entries for 24 hours. High-velocity Knife Catch trades can optionally bypass this delay via "Allow Knife Re-entry".

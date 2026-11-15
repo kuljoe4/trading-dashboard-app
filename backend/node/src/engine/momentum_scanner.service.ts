@@ -60,6 +60,50 @@ export class MomentumScannerService {
     scoreBoost: number;
   }>();
 
+  // Bounded O(1) diagnostic map recording why a symbol was dropped during the latest scan pass
+  private readonly lastPreFilterReasons = new Map<string, {
+    reason: string;
+    code: 'sl_bounds' | 'entry_side' | 'momentum_below' | 'insufficient_candles' | 'invalid_price' | 'missing_filters';
+    pct?: number;
+    slDistPct?: number;
+    ts: number;
+  }>();
+
+  private recordPreFilterReason(
+    symbol: string,
+    code: 'sl_bounds' | 'entry_side' | 'momentum_below' | 'insufficient_candles' | 'invalid_price' | 'missing_filters',
+    reason: string,
+    pct?: number,
+    slDistPct?: number,
+  ) {
+    if (!symbol) return;
+    if (this.lastPreFilterReasons.size >= 250 && !this.lastPreFilterReasons.has(symbol)) {
+      const oldestKey = this.lastPreFilterReasons.keys().next().value;
+      if (oldestKey) this.lastPreFilterReasons.delete(oldestKey);
+    }
+    this.lastPreFilterReasons.set(symbol, {
+      code,
+      reason,
+      pct,
+      slDistPct,
+      ts: Date.now(),
+    });
+  }
+
+  public getPreFilterReason(symbol: string) {
+    const entry = this.lastPreFilterReasons.get(symbol);
+    if (!entry) return undefined;
+    if (Date.now() - entry.ts > 5 * 60 * 1000) {
+      this.lastPreFilterReasons.delete(symbol);
+      return undefined;
+    }
+    return entry;
+  }
+
+  public clearPreFilterReasons() {
+    this.lastPreFilterReasons.clear();
+  }
+
   constructor(
     private readonly klineStore: KlineStoreService,
     private readonly tickerCache: TickerCacheService,
@@ -272,6 +316,7 @@ export class MomentumScannerService {
     // before performing any calculations.
     const filters = this.marketFeed.getSymbolFilters(symbol);
     if (!filters) {
+      this.recordPreFilterReason(symbol, 'missing_filters', `missing exchange symbol filters`);
       return null;
     }
 
@@ -298,6 +343,8 @@ export class MomentumScannerService {
           };
         }
       }
+      const warmReason = `insufficient ${interval} candles (${candles.length}/${lookback + 1})`;
+      this.recordPreFilterReason(symbol, 'insufficient_candles', warmReason);
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: insufficient candles (${candles.length} < ${lookback + 1}) for interval ${interval}`,
@@ -310,6 +357,7 @@ export class MomentumScannerService {
     const previousPrice = candles[candles.length - 1 - lookback].close;
 
     if (!this.isValidPrice(currentPrice) || !this.isValidPrice(previousPrice)) {
+      this.recordPreFilterReason(symbol, 'invalid_price', `invalid candle prices on ${interval}`);
       this.logger.verbose(
         `Skipping scan for ${symbol} due invalid candle prices current=${currentPrice} previous=${previousPrice}`,
       );
@@ -319,6 +367,7 @@ export class MomentumScannerService {
     // Calculate simple momentum
     const momentumPct = this.calculateMomentum(currentPrice, previousPrice);
     if (!Number.isFinite(momentumPct)) {
+      this.recordPreFilterReason(symbol, 'invalid_price', `non-finite momentum on ${interval}`);
       this.logger.verbose(
         `Skipping scan for ${symbol} due invalid momentum current=${currentPrice} previous=${previousPrice}`,
       );
@@ -328,6 +377,12 @@ export class MomentumScannerService {
     // BOLT OPTIMIZATION: Early return if momentum is below threshold (unless explicit watchlist target)
     const threshold = config.scan_pct_threshold ?? 0;
     if (!isExplicitSymbol && Math.abs(momentumPct) < threshold) {
+      this.recordPreFilterReason(
+        symbol,
+        'momentum_below',
+        `momentum ${momentumPct.toFixed(2)}% cooled below ±${threshold}% threshold (${interval})`,
+        momentumPct,
+      );
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: momentum ${momentumPct.toFixed(2)}% below threshold ${threshold}% (${interval} timeframe)`,
@@ -342,6 +397,7 @@ export class MomentumScannerService {
     // Enforce configured entry_side ('both' | 'long' | 'short')
     const allowedSide = (config.entry_side || 'both').toLowerCase();
     if (!isExplicitSymbol && allowedSide === 'long' && direction !== 'LONG') {
+      this.recordPreFilterReason(symbol, 'entry_side', `${direction} disallowed by entry_side=${config.entry_side}`, momentumPct);
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
@@ -350,6 +406,7 @@ export class MomentumScannerService {
       return null;
     }
     if (!isExplicitSymbol && allowedSide === 'short' && direction !== 'SHORT') {
+      this.recordPreFilterReason(symbol, 'entry_side', `${direction} disallowed by entry_side=${config.entry_side}`, momentumPct);
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
@@ -369,6 +426,8 @@ export class MomentumScannerService {
     // 1. PRE-FILTER SL BOUNDS: Reject move if SL distance exceeds sl_max_pct (unless explicit watchlist target)
     const slCheck = this.checkSlBounds(symbol, displayPrice || currentPrice, direction, config, candles);
     if (!isExplicitSymbol && slCheck.rejected) {
+      const slReason = `prospective SL ${slCheck.slDistPct.toFixed(2)}% > max ${config.sl_max_pct ?? 3.0}%`;
+      this.recordPreFilterReason(symbol, 'sl_bounds', slReason, momentumPct, slCheck.slDistPct);
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} pre-filtered: prospective SL distance ${slCheck.slDistPct.toFixed(2)}% exceeds sl_max_pct ${config.sl_max_pct || 3.0}% (Reason: ${slCheck.reason})`,
@@ -376,6 +435,8 @@ export class MomentumScannerService {
       }
       return null;
     }
+
+    this.lastPreFilterReasons.delete(symbol);
 
     // 2. Calculate HTF (4H default) EMA Dual Cross historical performance ranking score using prospective candidate SL distance
     const htfPerfResult = this.calculateHtfEmaCrossPerf(symbol, config, slCheck.slDistPct);

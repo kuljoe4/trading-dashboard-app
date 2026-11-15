@@ -74,4 +74,27 @@ test('Card and Modal Proximity Alignment Tests', async (t) => {
     assert.strictEqual(modalSignalProximity > 0, true);
     assert.strictEqual(sigEst, undefined);
   });
+
+  await t.test('SignalGauge, ActiveTradeCard, and TradeDetailContent obey field alignment and hook ordering invariants', async () => {
+    const fs = await import('node:fs');
+    const path = await import('node:path');
+    const { fileURLToPath } = await import('node:url');
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+    const signalGaugeSrc = fs.readFileSync(path.resolve(__dirname, '../components/ui/SignalGauge.jsx'), 'utf8');
+    assert.ok(signalGaugeSrc.includes('signalEstimation?.estimatedPnl'), 'SignalGauge must read backend estimatedPnl');
+    assert.ok(signalGaugeSrc.includes('signalEstimation?.estimatedR'), 'SignalGauge must read backend estimatedR');
+
+    const cardSrc = fs.readFileSync(path.resolve(__dirname, '../components/ActiveTradeCard.jsx'), 'utf8');
+    assert.ok(cardSrc.includes("exit_signal_logic || config?.exit_signal_logic || 'any'"), 'ActiveTradeCard fallback must honor exit_signal_logic');
+    assert.ok(cardSrc.includes('DIVERGING · {exitSignalProximity}%'), 'ActiveTradeCard diverging label must show exitSignalProximity');
+
+    const detailSrc = fs.readFileSync(path.resolve(__dirname, '../components/trade/TradeDetailContent.jsx'), 'utf8');
+    const entryCtxStart = detailSrc.indexOf('const EntrySignalContext = memo');
+    const entryCtxSlice = detailSrc.slice(entryCtxStart, entryCtxStart + 900);
+    const hookIdx = entryCtxSlice.indexOf('useMemo(');
+    const guardIdx = entryCtxSlice.indexOf('if (!trade) return null;');
+    assert.ok(hookIdx !== -1 && guardIdx !== -1 && hookIdx < guardIdx, 'EntrySignalContext must run hooks before early null return');
+  });
 });
+

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Condition Gauges – mock</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--dim:#6b7280;--bd:#e3e6eb;--w:#9ca3af;--n:#2563eb;--g:#16a34a;--a:#d97706;--r:#dc2626;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#171b22;--tx:#e8ebf0;--dim:#8b94a3;--bd:#262c36;--w:#5b6472;--n:#60a5fa;--g:#4ade80;--a:#fbbf24;--r:#f87171}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+h1{font-size:17px;margin:0 0 4px}p.s{color:var(--dim);margin:0 0 10px;font-size:12px}
+.leg{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--dim);margin-bottom:12px}
+.leg i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:4px;vertical-align:middle}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;max-width:780px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:10px 10px 12px;text-align:center}
+.lbl{font-size:12px;font-weight:600}.val{font-size:11px;color:var(--dim)}
+.badge{display:inline-block;margin-top:4px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid currentColor}
+.m{display:flex;justify-content:space-between;font-size:11px;color:var(--dim);margin-top:8px}
+.m b{color:var(--tx)}
+.sum{max-width:780px;margin-top:12px}
+</style></head><body>
+<h1>Condition gauges · past-target view</h1>
+<p class="s">Dial runs 0–150% of target. The ▼ marks the target (100%). Needle past it = overshoot, color-coded by distance. Sample data.</p>
+<div class="leg"><span><i style="background:var(--w)"></i>Watching &lt;80</span><span><i style="background:var(--n)"></i>Near 80–100</span><span><i style="background:var(--g)"></i>Fresh 0–5% past</span><span><i style="background:var(--a)"></i>Stale 5–15% past</span><span><i style="background:var(--r)"></i>Late &gt;15% past</span></div>
+<div class="grid" id="g"></div>
+<div class="card sum" id="sum"></div>
+<script>
+const MAX=150;
+const data=[
+{l:'MACD hist cross',v:'-0.12 → 0',p:62,pnl:'+$14.2',r:'0.9R',eta:'~3 candles'},
+{l:'EMA 9/21 cross',v:'gap 0.08%',p:88,pnl:'+$21.0',r:'1.4R',eta:'~1 candle'},
+{l:'Supertrend flip',v:'fired just now',p:103,pnl:'+$9.8',r:'0.6R',eta:'fired'},
+{l:'Momentum %',v:'1.5 / 1.5 hit',p:112,pnl:'+$17.5',r:'1.1R',eta:'fired 2c ago'},
+{l:'ATR trail',v:'beyond by 0.9 ATR',p:131,pnl:'+$26.1',r:'1.7R',eta:'fired 5c ago'},
+{l:'RSI exhaustion',v:'diverging',p:18,pnl:'—',r:'—',eta:'—'}];
+const col=p=>p<80?'var(--w)':p<100?'var(--n)':p<=105?'var(--g)':p<=115?'var(--a)':'var(--r)';
+const st=p=>p<80?'Watching':p<100?'Near':p<=105?'Fresh':p<=115?'Stale':'Late';
+const pt=(a,r)=>[(100+r*Math.cos(Math.PI-a)).toFixed(1),(100-r*Math.sin(Math.PI-a)).toFixed(1)];
+const ang=p=>Math.PI*Math.min(p,MAX)/MAX;
+function arc(p0,p1,r,c,w){const[a,b]=pt(ang(p0),r),[x,y]=pt(ang(p1),r);return `<path d="M${a} ${b}A${r} ${r} 0 0 1 ${x} ${y}" fill="none" stroke="${c}" stroke-width="${w}"/>`}
+function dial(d){const p=d.p,c=col(p),[nx,ny]=pt(ang(p),58),[t1x,t1y]=pt(ang(100),64),[t2x,t2y]=pt(ang(100),92);
+const zones=[[0,80,'var(--w)'],[80,100,'var(--n)'],[100,105,'var(--g)'],[105,115,'var(--a)'],[115,150,'var(--r)']];
+const track=zones.map(z=>arc(z[0],z[1],78,z[2],11).replace('/>',' opacity="0.28"/>')).join('');
+const fill=zones.map(z=>p>z[0]?arc(z[0],Math.min(p,z[1]),78,z[2],11):'').join('');
+const over=p>100?`+${Math.round(p-100)}% past`:`${Math.round(100-p)}% to go`;
+return `<svg viewBox="0 0 200 124" width="100%" role="img" aria-label="${d.l} ${over}">${track}${fill}
+<line x1="${t1x}" y1="${t1y}" x2="${t2x}" y2="${t2y}" stroke="var(--tx)" stroke-width="2"/>
+<text x="${t2x}" y="${(t2y-4).toFixed(1)}" text-anchor="middle" font-size="9" fill="var(--tx)">▼ target</text>
+<line x1="100" y1="100" x2="${nx}" y2="${ny}" stroke="var(--tx)" stroke-width="3" stroke-linecap="round"/>
+<circle cx="100" cy="100" r="6" fill="var(--tx)"/>
+<text x="100" y="120" text-anchor="middle" font-size="14" font-weight="700" fill="${c}">${over}</text></svg>`}
+document.getElementById('g').innerHTML=data.map(d=>`<div class="card"><div class="lbl">${d.l}</div><div class="val">${d.v}</div>${dial(d)}<span class="badge" style="color:${col(d.p)}">${st(d.p)}</span><div class="m"><span>Est <b>${d.pnl}</b></span><span><b>${d.r}</b></span><span>${d.eta}</span></div></div>`).join('');
+const avg=Math.round(data.reduce((s,d)=>s+d.p,0)/data.length),fired=data.filter(d=>d.p>=100).length;
+document.getElementById('sum').innerHTML=`<div class="lbl">Composite exit pressure</div>${dial({l:'Composite',p:avg})}<div class="val">${fired} of ${data.length} signals at or past target · telemetry only, does not gate exits</div>`;
+</script></body></html>

@@ -48,7 +48,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
   }
 
   return (
-    <Drawer.Root open={isOpen} onOpenChange={onClose} repositionInputs={false}>
+    <Drawer.Root open={isOpen} onOpenChange={onClose} repositionInputs={false} noBodyStyles>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]" />
         <Drawer.Content
@@ -66,7 +66,7 @@ export const TradeDetailModal = memo(({ trade, isOpen, onClose, onTradeClose }) 
           </div>
 
           {/* Drawer scrollable content */}
-          <div className="flex-1 overflow-y-auto no-scrollbar p-4 lg:p-6">
+          <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-4 pt-4 lg:px-6 lg:pt-6 pb-20 lg:pb-12 overscroll-contain" data-vaul-no-drag>
             <div className="flex items-center justify-between mb-3 sticky -top-5 bg-background/80 backdrop-blur-sm z-20 pb-2 pt-2">
               <div className="flex items-center gap-2.5">
                 <div className={cn(

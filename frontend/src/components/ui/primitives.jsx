@@ -536,7 +536,7 @@ export const VisuallyHidden = ({ children }) => (
   </span>
 )
 
-export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false }) => {
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false, hideMetricsNumbers = false }) => {
   const { balance, totalPnl, activeTrades, gateState, totalRiskPct, config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
 
@@ -550,8 +550,8 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
   const headerRef = React.useRef(null);
 
-  // SRE-PERF: Auto-collapse sticky header on scroll for ultra-high-density screen real estate.
-  // Supports both global window scroll and parent modal / drawer scroll containers.
+  // SRE-PERF: Sticky primary bar + non-sticky flow metrics strip prevents document height
+  // oscillation and browser scroll-anchoring flicker when crossing scroll thresholds.
   React.useEffect(() => {
     if (!sticky) return;
 
@@ -565,8 +565,12 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       }
     }
 
-    const handleScroll = () => {
-      const scrollY = targetElement === window ? window.scrollY : (targetElement?.scrollTop || 0);
+    let rafId = null;
+    const updateScrollState = () => {
+      rafId = null;
+      const scrollY = targetElement === window
+        ? (window.scrollY ?? window.pageYOffset ?? document.documentElement?.scrollTop ?? 0)
+        : (targetElement?.scrollTop || 0);
       setIsScrolled(prev => {
         if (!prev && scrollY > 40) return true;
         if (prev && scrollY < 10) return false;
@@ -574,9 +578,17 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       });
     };
 
+    const handleScroll = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(updateScrollState);
+    };
+
     targetElement.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll();
-    return () => targetElement.removeEventListener('scroll', handleScroll);
+    updateScrollState();
+    return () => {
+      targetElement.removeEventListener('scroll', handleScroll);
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
+    };
   }, [sticky]);
 
   const newestAlert = alerts && alerts.length > 0 ? alerts[0] : null
@@ -651,94 +663,13 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
   const liveRisk = Number(totalRiskPct) || 0;
   const gate = gateState || 'ACTIVE';
 
-  return (
-    <div
-      ref={headerRef}
-      role="region"
-      aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
-      tabIndex={0}
-      className={cn(
-        "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset mb-3 lg:mb-4 py-2 px-2.5 sm:px-3.5 rounded-2xl transition-colors transition-shadow duration-200",
-        sticky && "sticky top-0 backdrop-blur-xl border-b",
-        sticky && isScrolled
-          ? "bg-background/95 border-border/40 shadow-md shadow-black/30"
-          : "bg-background/60 border-border/20 shadow-none"
-      )}
-    >
-      {/* ROW 1: Brand / Title / Navigation & Action Controls */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 relative w-full min-h-[36px]">
-        {/* Left Side: Title, Icon and Badges */}
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          {backAction && (
-            <button
-              onClick={backAction}
-              aria-label="Go back"
-              className="p-1.5 hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
-            >
-              <ChevronLeft size={14} className="text-dim group-hover:text-text" />
-            </button>
-          )}
-          <div className="flex items-center gap-2 min-w-0">
-            {Icon && (
-              <div className="w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 transition-all">
-                <Icon size={14} className="text-accent" />
-              </div>
-            )}
-            <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
-                <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase text-text">
-                  {showResumingFeedback ? 'Resuming...' : title}
-                </h1>
-                <div className="flex items-center gap-1 shrink-0 scale-90 sm:scale-100 origin-left">
-                  {tradingMode === 'paper' && <PaperBadge />}
-                  {tradingMode === 'testnet' && <DemoBadge />}
-                  {tradingMode === 'live' && <LiveBadge />}
-                  {tradingMode === 'backtest' && <BacktestBadge />}
-                  {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
-                </div>
-              </div>
-              {subTitle && (
-                <div className="flex items-center gap-2 min-w-0 transition-opacity duration-200">
-                  <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
-                    {subTitle}
-                  </p>
-                  <div className="hidden sm:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.85] origin-left">
-                    <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
-                      {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
-                    </span>
-                    {wsStatus !== 'live' && (
-                      <button
-                        onClick={() => window.location.reload()}
-                        className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
-                        aria-label="Retry connection"
-                      >
-                        Retry
-                      </button>
-                    )}
-                    <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+  const shouldRenderSecondRow = !hideMetrics && (!hideMetricsNumbers || Boolean(activeAlert));
+  const hasSplitStickyMetrics = sticky && shouldRenderSecondRow;
 
-        {/* Right Side: Children Action Items */}
-        {children && (
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap shrink-0 justify-end">
-            {children}
-          </div>
-        )}
-      </div>
-
-      {/* ROW 2: Ultra-Dense Critical Metrics Strip & Integrated Alert Ticker */}
-      {!hideMetrics && (
-        <div className={cn(
-          "w-full transition-all duration-300 overflow-hidden",
-          isScrolled ? "max-h-0 opacity-0 mt-0 pointer-events-none" : "max-h-16 opacity-100 mt-2 pt-1.5 border-t border-border/20"
-        )}>
-          <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
+  const metricsStripContent = shouldRenderSecondRow ? (
+    <div className="flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap">
             {/* Live Metrics Strip */}
+            {!hideMetricsNumbers && (
             <div className="flex items-center gap-2 sm:gap-3 font-mono text-[9.5px] sm:text-[10px] tabular-nums font-bold flex-wrap min-w-0">
               <div className="flex items-center gap-1 text-dim shrink-0">
                 <span className="text-[8.5px] uppercase tracking-wider opacity-60 font-sans">BAL</span>
@@ -777,6 +708,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                 </span>
               </div>
             </div>
+            )}
 
             {/* Integrated Non-Blocking Alert Ticker Pill in Row 2 */}
             {activeAlert && (
@@ -889,9 +821,112 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
               </div>
             )}
           </div>
+  ) : null;
+
+  return (
+    <>
+      <div
+        ref={headerRef}
+        role="region"
+        aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
+        tabIndex={0}
+        className={cn(
+          "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset py-2 px-2.5 sm:px-3.5 [overflow-anchor:none] transition-[background-color,border-color,box-shadow,border-radius] duration-200",
+          hasSplitStickyMetrics ? "mb-0" : "mb-3 lg:mb-4",
+          hasSplitStickyMetrics && !isScrolled ? "rounded-t-2xl" : "rounded-2xl",
+          sticky && "sticky top-0 backdrop-blur-xl border-b",
+          sticky && isScrolled
+            ? "bg-background/95 border-border/40 shadow-md shadow-black/30"
+            : "bg-background/60 border-border/20 shadow-none"
+        )}
+      >
+        {/* ROW 1: Brand / Title / Navigation & Action Controls */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 relative w-full min-h-[36px]">
+          {/* Left Side: Title, Icon and Badges */}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {backAction && (
+              <button
+                onClick={backAction}
+                aria-label="Go back"
+                className="p-1.5 hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+              >
+                <ChevronLeft size={14} className="text-dim group-hover:text-text" />
+              </button>
+            )}
+            <div className="flex items-center gap-2 min-w-0">
+              {Icon && (
+                <div className="w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 transition-all">
+                  <Icon size={14} className="text-accent" />
+                </div>
+              )}
+              <div className="flex flex-col min-w-0">
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
+                  <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase text-text">
+                    {showResumingFeedback ? 'Resuming...' : title}
+                  </h1>
+                  <div className="flex items-center gap-1 shrink-0 scale-90 sm:scale-100 origin-left">
+                    {tradingMode === 'paper' && <PaperBadge />}
+                    {tradingMode === 'testnet' && <DemoBadge />}
+                    {tradingMode === 'live' && <LiveBadge />}
+                    {tradingMode === 'backtest' && <BacktestBadge />}
+                    {(isThrottled || isEcoMode || wsStatus !== 'live') && <EcoBadge />}
+                  </div>
+                </div>
+                {subTitle && (
+                  <div className="flex items-center gap-2 min-w-0 transition-opacity duration-200">
+                    <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
+                      {subTitle}
+                    </p>
+                    <div className="hidden sm:flex items-center gap-1.5 shrink-0 opacity-40 scale-[0.85] origin-left">
+                      <span className={cn("text-[9px] font-bold font-mono tracking-widest uppercase", !showResumingFeedback ? "text-green" : "text-accent")}>
+                        {wsStatus !== 'live' ? 'Reconnecting' : showResumingFeedback ? 'Resuming Feed...' : 'Connected'}
+                      </span>
+                      {wsStatus !== 'live' && (
+                        <button
+                          onClick={() => window.location.reload()}
+                          className="text-[9px] font-bold font-mono tracking-widest uppercase text-amber hover:text-white underline transition-colors"
+                          aria-label="Retry connection"
+                        >
+                          Retry
+                        </button>
+                      )}
+                      <PulseDot color={!showResumingFeedback ? "bg-green" : "bg-accent"} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Side: Children Action Items */}
+          {children && (
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap shrink-0 justify-end">
+              {children}
+            </div>
+          )}
+        </div>
+
+        {/* ROW 2 (Non-sticky inline mode) */}
+        {!sticky && metricsStripContent && (
+          <div className="w-full mt-2 pt-1.5 border-t border-border/20">
+            {metricsStripContent}
+          </div>
+        )}
+      </div>
+
+      {/* ROW 2 (Sticky mode): Rendered in normal document flow directly beneath Row 1 so scrolling never mutates header height */}
+      {hasSplitStickyMetrics && metricsStripContent && (
+        <div
+          className={cn(
+            "relative w-full mb-3 lg:mb-4 py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
+            showDropdown ? "z-30" : "z-10",
+            isScrolled ? "opacity-0 pointer-events-none" : "opacity-100"
+          )}
+        >
+          {metricsStripContent}
         </div>
       )}
-    </div>
+    </>
   )
 }
 

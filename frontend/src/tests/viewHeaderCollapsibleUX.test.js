@@ -16,4 +16,7 @@ test('ViewHeader Ultra-High-Density Auto-Collapsing Header Verification', () => 
   assert.ok(primitivesCode.includes('role="region"'), 'ViewHeader must enforce role="region" accessibility attribute');
   assert.ok(primitivesCode.includes('tabIndex={0}'), 'ViewHeader must enforce tabIndex={0} keyboard focusability');
   assert.ok(primitivesCode.includes('aria-label='), 'ViewHeader must enforce dynamic aria-label detailing collapsed state');
+  assert.ok(primitivesCode.includes('[overflow-anchor:none]'), 'ViewHeader must disable scroll anchoring to prevent sticky oscillation');
+  assert.ok(primitivesCode.includes('hasSplitStickyMetrics'), 'ViewHeader must render Row 2 outside sticky container to avoid layout height shifts on scroll');
+  assert.ok(!primitivesCode.includes('isScrolled ? "max-h-0'), 'ViewHeader must not animate max-height to 0 inside sticky flow');
 });

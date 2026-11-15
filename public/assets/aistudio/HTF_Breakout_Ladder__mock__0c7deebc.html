@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HTF Breakout Ladder – mock</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#14181f;--dim:#6b7280;--bd:#e3e6eb;--w:#9ca3af;--n:#2563eb;--g:#16a34a;--a:#d97706;--r:#dc2626;--x:#7c3aed;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1116;--card:#171b22;--tx:#e8ebf0;--dim:#8b94a3;--bd:#262c36;--w:#5b6472;--n:#60a5fa;--g:#4ade80;--a:#fbbf24;--r:#f87171;--x:#a78bfa}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px}
+h1{font-size:17px;margin:0 0 4px}p.s{color:var(--dim);margin:0 0 10px;font-size:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px;max-width:420px}
+.hd{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:4px}
+.hd b{font-size:15px}.dim{color:var(--dim);font-size:11px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.tabs button{font:inherit;font-size:11px;padding:4px 9px;border-radius:99px;border:1px solid var(--bd);background:transparent;color:var(--tx);cursor:pointer}
+.tabs button.on{border-color:var(--n);color:var(--n);font-weight:600}
+.lad{position:relative;height:300px;margin:6px 0 6px 0}
+.zone{position:absolute;left:78px;right:70px;opacity:.22}
+.ln{position:absolute;left:0;right:0;border-top:1.5px dashed var(--dim);font-size:10px;color:var(--dim)}
+.ln span{position:absolute;left:0;top:-7px;background:var(--card);padding-right:4px;width:72px}
+.ln em{position:absolute;right:0;top:-7px;background:var(--card);padding-left:4px;font-style:normal}
+.band{position:absolute;left:78px;right:70px;border-left:3px solid var(--dim);background:var(--dim);opacity:.12}
+.px{position:absolute;left:62px;right:54px;border-top:2.5px solid var(--tx);z-index:3}
+.px i{position:absolute;right:-50px;top:-9px;font-style:normal;font-size:11px;font-weight:700;background:var(--tx);color:var(--card);border-radius:4px;padding:1px 5px}
+.px u{position:absolute;left:-8px;top:-5px;width:8px;height:8px;border-radius:50%;background:var(--tx)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip{font-size:11px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid currentColor}
+.rd{display:flex;justify-content:space-between;font-size:12px;margin-top:8px;border-top:1px solid var(--bd);padding-top:8px;color:var(--dim)}.rd b{color:var(--tx)}
+.lg{display:flex;flex-wrap:wrap;gap:8px;font-size:10px;color:var(--dim);margin-bottom:8px}.lg i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px}
+</style></head><body>
+<h1>HTF breakout · level ladder</h1>
+<p class="s">Mock. 1d reference → 1h trigger · closed_candle_confirm · buffer 0% · max expansion 2%. Zones are fractions of the expansion cap, not fixed %.</p>
+<div class="card">
+ <div class="hd"><b>LINK · LONG</b><span class="dim">HTF Breakout · 1d→1h</span></div>
+ <div class="tabs" id="t"></div>
+ <div class="lg"><span><i style="background:var(--w)"></i>Below</span><span><i style="background:var(--n)"></i>Near</span><span><i style="background:var(--g)"></i>Fresh 0–25% of cap</span><span><i style="background:var(--a)"></i>Stale 25–60%</span><span><i style="background:var(--r)"></i>Late 60–100%</span><span><i style="background:var(--x)"></i>Rejected &gt;cap</span></div>
+ <div class="lad" id="l"></div>
+ <div class="chips" id="c"></div>
+ <div class="rd" id="r"></div>
+</div>
+<script>
+const H=13.50,L=12.80,CAP=H*1.02,BUF=0,LV=H*(1+BUF/100);
+const S=[
+{n:'Below',p:13.31,c:'below'},
+{n:'Wicked through',p:13.46,c:'wick',cd:'38m'},
+{n:'Closed · fresh',p:13.55,c:'ok',cd:'—'},
+{n:'Closed · stale',p:13.66,c:'ok',cd:'—'},
+{n:'Closed · late',p:13.74,c:'ok',cd:'—'},
+{n:'Past cap',p:13.86,c:'ok',cd:'—'}];
+const lo=L*0.985,hi=CAP*1.012,Hh=300;
+const y=p=>(Hh*(1-(p-lo)/(hi-lo))).toFixed(1);
+const f=p=>(p-LV)/(CAP-LV);
+function zone(p){if(p<LV){return (LV-p)/LV<0.005?['Near','var(--n)']:['Below','var(--w)']}const k=f(p);return k<=.25?['Fresh','var(--g)']:k<=.6?['Stale','var(--a)']:k<=1?['Late','var(--r)']:['Rejected','var(--x)']}
+function seg(a,b,col){return `<div class="zone" style="top:${y(b)}px;height:${(y(a)-y(b)).toFixed(1)}px;background:${col}"></div>`}
+function ln(p,t,col){return `<div class="ln" style="top:${y(p)}px;${col?'border-color:'+col+';':''}"><span style="${col?'color:'+col:''}">${t}</span><em>${p.toFixed(2)}</em></div>`}
+function render(i){const s=S[i],[z,col]=zone(s.p),d=((s.p/LV-1)*100),used=Math.max(0,f(s.p)*100);
+const q=[0,.25,.6,1].map(k=>LV+(CAP-LV)*k);
+document.getElementById('l').innerHTML=
+`<div class="band" style="top:${y(H)}px;height:${(y(L)-y(H)).toFixed(1)}px"></div>`+
+seg(CAP,hi/1.0,'var(--x)')+seg(q[3],q[2],'var(--r)')+seg(q[2],q[1],'var(--a)')+seg(q[1],q[0],'var(--g)')+seg(LV,LV*0.995,'var(--n)')+
+ln(CAP,'cap +2%','var(--x)')+ln(LV,'1d high','var(--tx)')+ln(L,'1d low')+
+`<div class="px" style="top:${y(s.p)}px"><u></u><i>${s.p.toFixed(2)}</i></div>`;
+const conf=s.c==='ok'?['Candle closed beyond ✓','var(--g)']:s.c==='wick'?['Wicked only · awaiting close','var(--a)']:['No touch','var(--w)'];
+document.getElementById('c').innerHTML=`<span class="chip" style="color:${col}">${z}</span><span class="chip" style="color:${conf[1]}">${conf[0]}</span>`+(s.cd&&s.cd!=='—'?`<span class="chip" style="color:var(--dim)">1h close in ${s.cd}</span>`:'')+(z==='Rejected'?`<span class="chip" style="color:var(--x)">entry blocked: over max expansion</span>`:'');
+document.getElementById('r').innerHTML=`<span>${d>=0?'Past level':'To level'} <b>${Math.abs(d).toFixed(2)}%</b></span><span>Cap used <b>${Math.round(used)}%</b></span><span>Cap room <b>${Math.max(0,(CAP/s.p-1)*100).toFixed(2)}%</b></span>`;
+document.querySelectorAll('#t button').forEach((b,j)=>b.classList.toggle('on',j===i))}
+document.getElementById('t').innerHTML=S.map((s,i)=>`<button onclick="render(${i})">${s.n}</button>`).join('');
+render(2);
+</script></body></html>

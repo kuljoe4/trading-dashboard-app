@@ -223,12 +223,37 @@ describe('Strategy Diagnostics & UX Clarity', () => {
     assert.ok(gated.when.includes('10s ago'));
   });
 
+  test('buildStrategyNarrative surfaces recentSkipEvent when scanner has no active candidate', () => {
+    const skipped = buildStrategyNarrative({
+      isStrategyPaused: false,
+      effectiveGate: 'ACTIVE',
+      bestOpp: { symbol: '---' },
+      signalsCount: 2,
+      strategyConfig: { watchlist_size: 15, discovery_mode: 'volume', scan_interval: '5m' },
+      recentSkipEvent: {
+        symbol: 'ENAUSDT',
+        shortReason: 'Lookback SL dist 26.08% above max 20%',
+        timestamp: 1700000000000,
+      },
+      streamAgeSec: '1.0',
+      formatTimeAgo: () => '12s ago',
+      formatClockTime: () => '12:00:00',
+    });
+    assert.strictEqual(skipped.tone, 'warning');
+    assert.ok(skipped.detail.includes('ENAUSDT skipped'));
+    assert.ok(skipped.detail.includes('26.08%'));
+    assert.ok(skipped.when.includes('12s ago'));
+  });
+
   test('StrategyDetailView implements faceted Decision Log, narrative strip, and clean single-elevation layout', () => {
     const viewPath = path.join(__dirname, '../views/StrategyDetailView.jsx');
     const src = fs.readFileSync(viewPath, 'utf-8');
 
     assert.ok(src.includes('buildStrategyNarrative'), 'Must render live diagnostic narrative');
     assert.ok(src.includes('getStrategyRulesDiagnostics'), 'Must render entry/exit/risk/SL diagnostic rules');
+    assert.ok(src.includes('recentSkipEvent'), 'Must surface recent skipped/removed candidates in narrative');
+    assert.ok(src.includes('Candidate Removed:'), 'Must classify removed near-target candidates in Decision Log');
+    assert.ok(!src.includes('SignalGauge'), 'Must not render redundant SignalGauge drawer alongside CandidateConditionsGauge');
     assert.ok(src.includes('reasonsOutcome'), 'Must support allowed/rejected/waiting outcome filtering');
     assert.ok(src.includes('reasonsStage'), 'Must support lifecycle stage filtering');
     assert.ok(src.includes('reasonsSymbol'), 'Must support symbol filtering');

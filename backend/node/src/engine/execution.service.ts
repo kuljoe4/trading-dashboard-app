@@ -27,6 +27,34 @@ export class ExecutionService {
   private entryCooldowns: Map<string, number> = new Map();
   private consecutiveFailures: Map<string, number> = new Map();
   private loggedAntiWhipsawMap: Map<string, number> = new Map();
+  private loggedEntrySkipMap: Map<string, number> = new Map();
+
+  private emitEntrySkipLog(
+    symbol: string,
+    strategyLabel: string,
+    reasonKey: string,
+    reasonText: string,
+    level: 'info' | 'warn' = 'info',
+    cooldownMs = 60000,
+  ) {
+    const now = Date.now();
+    const mapKey = `${strategyLabel}:${symbol}:${reasonKey}`;
+    const expiry = this.loggedEntrySkipMap.get(mapKey) || 0;
+    if (now < expiry) return;
+
+    if (this.loggedEntrySkipMap.size >= 300 && !this.loggedEntrySkipMap.has(mapKey)) {
+      for (const [k, exp] of this.loggedEntrySkipMap.entries()) {
+        if (exp <= now || this.loggedEntrySkipMap.size >= 300) {
+          this.loggedEntrySkipMap.delete(k);
+        }
+        if (this.loggedEntrySkipMap.size < 250) break;
+      }
+    }
+    this.loggedEntrySkipMap.set(mapKey, now + cooldownMs);
+
+    const msg = `[Decision] ${symbol} (${strategyLabel}): Entry skipped - ${reasonText}`;
+    this.eventEmitter?.emit?.(ENGINE_EVENTS.LOG_MESSAGE, { msg, level, symbol });
+  }
 
   constructor(
     private readonly tickerCache: TickerCacheService,
@@ -48,19 +76,24 @@ export class ExecutionService {
     private readonly marketFeedService: MarketFeedService,
   ) {}
 
-  public setCooldown(symbol: string, mode: string, minutes: number) {
-    this.entryCooldowns.set(`${mode}:${symbol}`, Date.now() + minutes * 60 * 1000);
+  public setCooldown(symbol: string, mode: string, minutes: number, strategyLabel?: string) {
+    if (!Number.isFinite(minutes) || minutes <= 0) return;
+    const key = strategyLabel ? `${mode}:${strategyLabel}:${symbol}` : `${mode}:${symbol}`;
+    this.entryCooldowns.set(key, Date.now() + minutes * 60 * 1000);
   }
 
   private getTimeframeMs(tf: string): number {
     if (!tf) return 60 * 1000;
-    const match = tf.toLowerCase().match(/^(\d+)([mhd])$/);
+    const trimmed = tf.trim();
+    const match = trimmed.match(/^(\d+)([mhdwM])$/);
     if (!match) return 60 * 1000;
     const num = parseInt(match[1], 10);
     const unit = match[2];
     if (unit === 'm') return num * 60 * 1000;
     if (unit === 'h') return num * 60 * 60 * 1000;
     if (unit === 'd') return num * 24 * 60 * 60 * 1000;
+    if (unit === 'w') return num * 7 * 24 * 60 * 60 * 1000;
+    if (unit === 'M') return num * 30 * 24 * 60 * 60 * 1000;
     return 60 * 1000;
   }
 
@@ -203,23 +236,13 @@ export class ExecutionService {
             this.sessionState.setActiveTrades(this.positionTracker.activeList());
             this.eventEmitter.emit(ENGINE_EVENTS.WATCHLIST_NEEDS_UPDATE, tradeConfig);
 
-            // SRE: Immediate cooldown on exit strictly per-symbol.
-            // Uses max of config.min_trade_interval_min and all active strategy candle timeframe durations (e.g. 60m for 1h candle).
+            // Only apply explicit interval cooldown if min_trade_interval_min > 0 (otherwise let Strategy Tab anti-whipsaw govern)
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-            let maxTfMs = this.getTimeframeMs(tradeConfig.scan_interval || '1m');
-            if (tradeConfig.enabled_signals) {
-              for (const sig of tradeConfig.enabled_signals) {
-                const tf = tradeConfig.signal_timeframes?.[sig];
-                if (tf && tf !== 'default') {
-                  const ms = this.getTimeframeMs(tf);
-                  if (ms > maxTfMs) maxTfMs = ms;
-                }
-              }
+            const configuredMin = Number(tradeConfig.min_trade_interval_min || 0);
+            if (configuredMin > 0) {
+              const scopeLabel = tradeConfig.anti_whipsaw_per_strategy !== false ? trade.strategy_label : undefined;
+              this.setCooldown(trade.symbol, mode, configuredMin, scopeLabel);
             }
-            const tfCooldownMin = Math.ceil(maxTfMs / (60 * 1000));
-            const configuredMin = tradeConfig.min_trade_interval_min || 2;
-            const cooldownMin = Math.max(configuredMin, tfCooldownMin);
-            this.setCooldown(trade.symbol, mode, cooldownMin);
 
             const analytics = this.analyticsService.calculateAnalytics(
               this.sessionState.closedTrades as any[],
@@ -323,7 +346,14 @@ export class ExecutionService {
         const cooldownKey = `${mode}:${opp.symbol}`;
         const cooldownExpiry = this.entryCooldowns.get(cooldownKey);
         if (cooldownExpiry && now < cooldownExpiry) {
-          this.logger.debug(`${opp.symbol}: Entry skipped (${mode}) - symbol is in cooldown for ${Math.ceil((cooldownExpiry - now) / 1000)}s`);
+          const remSec = Math.ceil((cooldownExpiry - now) / 1000);
+          this.logger.debug(`${opp.symbol}: Entry skipped (${mode}) - symbol is in cooldown for ${remSec}s`);
+          this.emitEntrySkipLog(
+            opp.symbol,
+            opp.strategy_label || config.strategy_label || strategyLabel || 'Momentum Strategy',
+            'cooldown',
+            `cooldown active (${remSec}s remaining)`,
+          );
           continue;
         } else if (cooldownExpiry) {
           this.entryCooldowns.delete(cooldownKey);
@@ -346,8 +376,23 @@ export class ExecutionService {
                 ...(symbolConfig?.signal_params || {}),
                 ...(variant?.signal_params || {}),
               },
+              signal_timeframes: {
+                ...(symbolConfig?.signal_timeframes || {}),
+                ...(variant?.signal_timeframes || {}),
+              },
             } as SessionConfig;
           }
+        }
+
+        const scopedCooldownKey = `${mode}:${currentStrategyLabel}:${opp.symbol}`;
+        const scopedCooldownExpiry = this.entryCooldowns.get(scopedCooldownKey);
+        if (scopedCooldownExpiry && now < scopedCooldownExpiry) {
+          const remSec = Math.ceil((scopedCooldownExpiry - now) / 1000);
+          this.logger.debug(`${opp.symbol} (${currentStrategyLabel}): Entry skipped (${mode}) - strategy interval cooldown active for ${remSec}s`);
+          this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'scoped_cooldown', `strategy interval cooldown (${remSec}s remaining)`);
+          continue;
+        } else if (scopedCooldownExpiry) {
+          this.entryCooldowns.delete(scopedCooldownKey);
         }
 
         // Fast-fail resource optimization: Skip entries if this strategy is paused
@@ -361,33 +406,40 @@ export class ExecutionService {
         const oppDirection = (opp.direction || '').toUpperCase();
         if (allowedSide === 'long' && oppDirection !== 'LONG') {
           this.logger.debug(`${opp.symbol}: Entry skipped - strategy only allows LONG positions (candidate: ${oppDirection})`);
+          this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'entry_side', `${oppDirection} disallowed (LONG only)`);
           continue;
         }
         if (allowedSide === 'short' && oppDirection !== 'SHORT') {
           this.logger.debug(`${opp.symbol}: Entry skipped - strategy only allows SHORT positions (candidate: ${oppDirection})`);
+          this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'entry_side', `${oppDirection} disallowed (SHORT only)`);
           continue;
         }
 
-        // Anti-whipsaw / same-candle re-entry protection
+        // Anti-whipsaw / same-candle re-entry protection (evaluated against resolvedConfig so variants override base cleanly)
         const uniqueTimeframes = new Set<string>();
+        const rawExplicitTfs = Array.isArray(resolvedConfig.anti_whipsaw_timeframes)
+          ? resolvedConfig.anti_whipsaw_timeframes
+          : (typeof resolvedConfig.anti_whipsaw_timeframes === 'string'
+              ? String(resolvedConfig.anti_whipsaw_timeframes).split(',').map(s => s.trim()).filter(Boolean)
+              : []);
 
-        if (Array.isArray(symbolConfig.anti_whipsaw_timeframes) && symbolConfig.anti_whipsaw_timeframes.length > 0) {
-          for (const rawTf of symbolConfig.anti_whipsaw_timeframes) {
-            const resolved = this.marketFeedService.resolveInterval(rawTf, symbolConfig);
+        if (rawExplicitTfs.length > 0) {
+          for (const rawTf of rawExplicitTfs) {
+            const resolved = this.marketFeedService.resolveInterval(rawTf, resolvedConfig);
             if (resolved) uniqueTimeframes.add(resolved);
           }
         } else {
-          const resolvedScan = this.marketFeedService.resolveInterval(symbolConfig.scan_interval || '1m', symbolConfig);
+          const resolvedScan = this.marketFeedService.resolveInterval(resolvedConfig.scan_interval || '1m', resolvedConfig);
           if (resolvedScan) uniqueTimeframes.add(resolvedScan);
 
-          const maxTf = symbolConfig.anti_whipsaw_max_tf || '4h';
+          const maxTf = resolvedConfig.anti_whipsaw_max_tf || '4h';
           const maxTfMs = maxTf === 'none' ? Infinity : this.getTimeframeMs(maxTf);
 
-          if (symbolConfig.enabled_signals) {
-            for (const sig of symbolConfig.enabled_signals) {
-              const tf = symbolConfig.signal_timeframes?.[sig];
+          if (resolvedConfig.enabled_signals) {
+            for (const sig of resolvedConfig.enabled_signals) {
+              const tf = resolvedConfig.signal_timeframes?.[sig];
               if (tf && tf !== 'default') {
-                const resolvedTf = this.marketFeedService.resolveInterval(tf, symbolConfig);
+                const resolvedTf = this.marketFeedService.resolveInterval(tf, resolvedConfig);
                 if (resolvedTf) {
                   const tfMs = this.getTimeframeMs(resolvedTf);
                   // Exclude timeframes exceeding max anti-whipsaw cap (default: '4h') unless explicitly specified
@@ -412,7 +464,7 @@ export class ExecutionService {
           if (t && t.symbol === opp.symbol) {
             const status = (t as any).status as string;
             const isFailedOrCancelled = status === 'ENTRY_FAILED' || status === 'CANCELLED' || status === 'REJECTED' || Boolean((t as any).is_reconciliation);
-            const isDifferentStrategy = Boolean((symbolConfig.anti_whipsaw_per_strategy !== false) && t.strategy_label && t.strategy_label !== currentStrategyLabel);
+            const isDifferentStrategy = Boolean((resolvedConfig.anti_whipsaw_per_strategy !== false) && t.strategy_label && t.strategy_label !== currentStrategyLabel);
             if (!isFailedOrCancelled && !isDifferentStrategy) {
               hasClosedForSymbol = true;
               symbolClosedTrades.push(t);
@@ -420,15 +472,18 @@ export class ExecutionService {
           }
         }
 
-        if (hasClosedForSymbol) {
+        const candleDelay = Math.max(0, Number(resolvedConfig.anti_whipsaw_candle_delay ?? 1));
+        const tfDelayMin = Math.max(0, Number(resolvedConfig.anti_whipsaw_tf_delay_min ?? 0));
+
+        if (hasClosedForSymbol && (candleDelay > 0 || tfDelayMin > 0)) {
           // Check if candidate opportunity is a knife trade prior to anti-whipsaw checks
           let isCandidateKnife = false;
-          if (symbolConfig.anti_whipsaw_allow_knife) {
+          if (resolvedConfig.anti_whipsaw_allow_knife) {
             try {
               const knifeCheck = this.signalEngine.knifeCatchSignal(
                 opp.symbol,
-                symbolConfig,
-                symbolConfig.scan_interval || '1m',
+                resolvedConfig,
+                resolvedConfig.scan_interval || '1m',
                 opp.direction.toUpperCase() as 'LONG' | 'SHORT',
                 'entry',
                 undefined,
@@ -443,88 +498,95 @@ export class ExecutionService {
           let sameCandleGated = false;
           let gatedTimeframe = '';
           let gateReason = '';
+          const nowMs = Date.now();
+          const tfDelayMs = tfDelayMin * 60 * 1000;
 
           for (const tf of uniqueTimeframes) {
             const tfCandles = this.klineStore.getRawCandles(opp.symbol, tf);
             const tfDurationMs = this.getTimeframeMs(tf);
+            const wallCandleStart = Math.floor(nowMs / tfDurationMs) * tfDurationMs;
 
+            let currentCandleStart = wallCandleStart;
             if (tfCandles.length > 0) {
-              const currentCandleStart = tfCandles[tfCandles.length - 1].time;
+              const rawLastCandleTime = Number(tfCandles[tfCandles.length - 1].time || 0);
+              currentCandleStart = rawLastCandleTime > 1e11
+                ? Math.max(rawLastCandleTime, wallCandleStart)
+                : rawLastCandleTime;
+            }
 
-              const candleDelay = symbolConfig.anti_whipsaw_candle_delay ?? 1;
-              const tfDelayMin = symbolConfig.anti_whipsaw_tf_delay_min ?? 0;
-              const effectiveDelayMs = Math.max(candleDelay * tfDurationMs, tfDelayMin * 60 * 1000);
+            const candleGateStart = candleDelay > 0
+              ? currentCandleStart - (candleDelay - 1) * tfDurationMs
+              : Infinity;
 
-              if (effectiveDelayMs > 0) {
-                const nowMs = Date.now();
-                const cooldownMins = Math.ceil(effectiveDelayMs / 60000);
-                const allowCandleGating = candleDelay > 0;
+            for (let i = 0; i < symbolClosedTrades.length; i++) {
+              const t = symbolClosedTrades[i];
 
-                for (let i = 0; i < symbolClosedTrades.length; i++) {
-                  const t = symbolClosedTrades[i];
+              // If anti_whipsaw_allow_knife is active, candidate is knife, and closed trade was a knife trade, bypass gating
+              if (resolvedConfig.anti_whipsaw_allow_knife && isCandidateKnife && t.is_knife) {
+                const bypassMsg = `[Anti-Whipsaw Bypass] ${opp.symbol}: Knife re-entry allowed for closed knife trade.`;
+                this.logger.log(bypassMsg);
+                this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
+                this.broadcastService.broadcast('alert', {
+                  level: 'info',
+                  title: 'Anti-Whipsaw Knife Bypass',
+                  message: bypassMsg,
+                  symbol: opp.symbol
+                });
+                continue;
+              }
 
-                  // If anti_whipsaw_allow_knife is active, candidate is knife, and closed trade was a knife trade, bypass gating
-                  if (symbolConfig.anti_whipsaw_allow_knife && isCandidateKnife && t.is_knife) {
-                    const bypassMsg = `[Anti-Whipsaw Bypass] ${opp.symbol}: Knife re-entry allowed for closed knife trade.`;
-                    this.logger.log(bypassMsg);
-                    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: bypassMsg, level: 'info' });
-                    this.broadcastService.broadcast('alert', {
-                      level: 'info',
-                      title: 'Anti-Whipsaw Knife Bypass',
-                      message: bypassMsg,
-                      symbol: opp.symbol
-                    });
-                    continue;
-                  }
+              const rawEntryTs = t.entry_ts || (t as any).opened_at || (t as any).timestamp || (t as any).created_at;
+              if (rawEntryTs) {
+                const entryTsMs = this.toTimestampMs(rawEntryTs);
+                const isSameCandle = candleDelay > 0 && entryTsMs >= candleGateStart;
+                const isInTimeDelay = tfDelayMs > 0 && nowMs < entryTsMs + tfDelayMs;
 
-                  const rawEntryTs = t.entry_ts || (t as any).opened_at || (t as any).timestamp || (t as any).created_at;
-                  if (rawEntryTs) {
-                    const entryTsMs = this.toTimestampMs(rawEntryTs);
-                    const isSameCandle = allowCandleGating && entryTsMs >= currentCandleStart;
-                    const isInCooldown = nowMs < entryTsMs + effectiveDelayMs;
-
-                    if (entryTsMs > 0 && entryTsMs <= nowMs + 60000 && (isSameCandle || isInCooldown)) {
-                      sameCandleGated = true;
-                      gatedTimeframe = tf;
-                      gateReason = `entered during the current ${tf} candle period`;
-                      break;
-                    }
-                  }
-
-                  const rawExitTs = t.exit_ts || (t as any).closed_at;
-                  if (rawExitTs) {
-                    const exitTsMs = this.toTimestampMs(rawExitTs);
-                    const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
-                    const isSameCandle = allowCandleGating && validExitTsMs >= currentCandleStart;
-                    const isInCooldown = nowMs < validExitTsMs + effectiveDelayMs;
-
-                    if (validExitTsMs > 0 && (isSameCandle || isInCooldown)) {
-                      sameCandleGated = true;
-                      gatedTimeframe = tf;
-                      gateReason = isSameCandle
-                        ? `exited during the active ${tf} candle`
-                        : `exited within the ${cooldownMins}m timeframe cooldown window`;
-                      break;
-                    }
-                  }
+                if (entryTsMs > 0 && entryTsMs <= nowMs + 60000 && (isSameCandle || isInTimeDelay)) {
+                  sameCandleGated = true;
+                  gatedTimeframe = tf;
+                  gateReason = isSameCandle
+                    ? (candleDelay > 1
+                        ? `entered within the last ${candleDelay} ${tf} candle periods`
+                        : `entered during the current ${tf} candle period`)
+                    : `entered within the ${tfDelayMin}m cooldown window`;
+                  break;
                 }
               }
-              if (sameCandleGated) break;
+
+              const rawExitTs = t.exit_ts || (t as any).closed_at;
+              if (rawExitTs) {
+                const exitTsMs = this.toTimestampMs(rawExitTs);
+                const validExitTsMs = exitTsMs > nowMs ? nowMs : exitTsMs;
+                const isSameCandle = candleDelay > 0 && validExitTsMs >= candleGateStart;
+                const isInTimeDelay = tfDelayMs > 0 && nowMs < validExitTsMs + tfDelayMs;
+
+                if (validExitTsMs > 0 && (isSameCandle || isInTimeDelay)) {
+                  sameCandleGated = true;
+                  gatedTimeframe = tf;
+                  gateReason = isSameCandle
+                    ? (candleDelay > 1
+                        ? `exited within the last ${candleDelay} ${tf} candle periods`
+                        : `exited during the active ${tf} candle`)
+                    : `exited within the ${tfDelayMin}m timeframe cooldown window`;
+                  break;
+                }
+              }
             }
+            if (sameCandleGated) break;
           }
 
           if (sameCandleGated) {
-            const gateMsg = `[Anti-Whipsaw] ${opp.symbol}: Entry skipped - a trade was already ${gateReason}.`;
+            const gateMsg = `[Anti-Whipsaw] ${opp.symbol} (${currentStrategyLabel}): Entry skipped - a trade was already ${gateReason}.`;
             this.logger.debug(gateMsg);
 
             const nowTs = Date.now();
-            const logKey = `${opp.symbol}:${gatedTimeframe}`;
+            const logKey = `${currentStrategyLabel}:${opp.symbol}:${gatedTimeframe}`;
             const lastLoggedExpiry = this.loggedAntiWhipsawMap.get(logKey) || 0;
 
             if (nowTs > lastLoggedExpiry) {
               // Deduplicate alert & decision log emission once per gating window
-              const tfDurationMs = this.getTimeframeMs(gatedTimeframe);
-              this.loggedAntiWhipsawMap.set(logKey, nowTs + tfDurationMs);
+              const dedupeDurationMs = tfDelayMs > 0 && candleDelay === 0 ? tfDelayMs : this.getTimeframeMs(gatedTimeframe);
+              this.loggedAntiWhipsawMap.set(logKey, nowTs + dedupeDurationMs);
 
               this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: gateMsg, level: 'info' });
               this.broadcastService.broadcast('alert', {
@@ -541,8 +603,8 @@ export class ExecutionService {
         // "After Opportunity" timing check:
         // If timing is 'after_opportunity', the momentum event must have happened in the PREVIOUS candle.
         // GATED: Only apply if engulfing is actually enabled.
-        if (symbolConfig.engulfing_timing === 'after_opportunity' && symbolConfig.enabled_signals?.includes('engulfing')) {
-           const scanInterval = this.marketFeedService.resolveInterval(symbolConfig.scan_interval || '1m', symbolConfig) || '1m';
+        if (resolvedConfig.engulfing_timing === 'after_opportunity' && resolvedConfig.enabled_signals?.includes('engulfing')) {
+           const scanInterval = this.marketFeedService.resolveInterval(resolvedConfig.scan_interval || '1m', resolvedConfig) || '1m';
            const candles = this.klineStore.getRawCandles(opp.symbol, scanInterval);
            if (candles.length < 2) continue;
 
@@ -551,11 +613,12 @@ export class ExecutionService {
            if (!prevPrevCandle) continue;
 
            const prevMomentum = ((prevCandle.close - prevPrevCandle.close) / prevPrevCandle.close) * 100;
-           const threshold = symbolConfig.scan_pct_threshold ?? 0;
+           const threshold = resolvedConfig.scan_pct_threshold ?? 0;
            const momentumMatched = opp.direction === 'LONG' ? prevMomentum >= threshold : prevMomentum <= -threshold;
 
            if (!momentumMatched) {
              this.logger.debug(`${opp.symbol}: After-Opp Timing failed. Previous candle did not match momentum threshold.`);
+             this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'after_opp', `previous candle did not match ±${threshold}% threshold for after_opportunity timing`);
              continue;
            }
         }
@@ -567,6 +630,7 @@ export class ExecutionService {
         if (!signalResult.allFired) {
           if (signalResult.reason.includes('warm-up')) {
             this.logger.debug(`${opp.symbol}: Entry blocked - ${signalResult.reason}`);
+            this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'warmup', signalResult.reason, 'info', 120000);
           }
           continue;
         }
@@ -634,6 +698,7 @@ export class ExecutionService {
 
         if (slResult.rejected) {
            this.logger.log(`${opp.symbol}: Entry skipped - ${slResult.reason}`);
+           this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'sl_rejected', slResult.reason || 'SL out of bounds', 'warn');
            this.broadcastService.broadcast('gate', {
              gateState: 'sl_out_of_bounds',
              reason: slResult.reason,
@@ -645,6 +710,7 @@ export class ExecutionService {
         let slPrice = slResult.slPrice;
         if (slPrice <= 0) {
            this.logger.warn(`${opp.symbol}: Skip entry opportunity - computed SL price ${slPrice} is non-positive.`);
+           this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'sl_zero', `computed SL price ${slPrice} is non-positive`, 'warn');
            continue;
         }
 
@@ -658,6 +724,7 @@ export class ExecutionService {
         const rawSlDistance = Math.abs(price - slPrice);
         if (tickSize > 0 && rawSlDistance > 0 && (tickSize / rawSlDistance) > 0.1) {
            this.logger.debug(`${opp.symbol}: Entry skipped - tick size granularity (${tickSize}) is too large relative to SL distance (${rawSlDistance}).`);
+           this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'tick_size', `tick size (${tickSize}) > 10% of SL distance`);
            continue;
         }
 
@@ -692,6 +759,7 @@ export class ExecutionService {
              });
           } else {
              this.logger.debug(`${opp.symbol}: Position size is 0 after SL filtering. SL: ${slPrice}, Entry: ${price}`);
+             this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'qty_zero', `position size rounded to 0 (SL: ${slPrice}, Entry: ${price})`);
           }
           continue;
         }
@@ -714,6 +782,7 @@ export class ExecutionService {
         if (prospectiveRiskUsdt > 0 && (estimatedFeeUsdt / prospectiveRiskUsdt) > 0.05) {
            const feeDragReason = `Fee drag too high (${((estimatedFeeUsdt / prospectiveRiskUsdt) * 100).toFixed(1)}% of 1R risk).`;
            this.logger.debug(`${opp.symbol}: Entry skipped - ${feeDragReason}`);
+           this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'fee_drag', feeDragReason);
            continue;
         }
 
@@ -738,6 +807,7 @@ export class ExecutionService {
           // Do NOT update global sessionState.gateState here as it causes log/UI flapping.
           // Global gating is handled by TradingSessionService.refreshRiskGating().
           this.logger.debug(`${opp.symbol}: Entry skipped - ${riskResult.reason}`);
+          this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'risk_gate', riskResult.reason || 'risk gate rejected');
           continue;
         }
 
@@ -821,8 +891,8 @@ export class ExecutionService {
               try {
                 const knifeRes = this.signalEngine.knifeCatchSignal(
                   opp.symbol,
-                  symbolConfig,
-                  symbolConfig.scan_interval || '1m',
+                  resolvedConfig,
+                  resolvedConfig.scan_interval || '1m',
                   opp.direction.toUpperCase() as 'LONG' | 'SHORT',
                   'entry',
                   undefined,

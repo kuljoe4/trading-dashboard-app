@@ -989,26 +989,16 @@ const ExitMonitor = memo(({ status, logic, trade, interactiveEnabled, setInterac
 })
 
 const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
-  if (!trade) return null;
-
   const [isSyncingCandles, setIsSyncingCandles] = useState(false);
 
-  const entryType = trade.entry_signal_type || trade.strategy_label || 'combo';
-  const entryReason = trade.entry_reason || trade.entry_signal_reason || 'Signal conditions satisfied on entry evaluation pass';
-  const strategyLabel = trade.strategy_label || activeSessionConfig?.strategy_label || 'Momentum Strategy';
-  const initialRisk = Number(trade.initial_risk_usdt || trade.risk_usdt || 0);
-  const entryDailyChange = Number(trade.entry_daily_change_pct || 0);
-
-  const signalParams = trade.strategy_config?.signal_params || activeSessionConfig?.signal_params;
+  const signalParams = trade?.strategy_config?.signal_params || activeSessionConfig?.signal_params;
 
   const paramEntries = useMemo(() => {
     if (!signalParams) return [];
     return Object.entries(signalParams).filter(([_, v]) => v !== undefined && v !== null && v !== '');
   }, [signalParams]);
 
-  const scanInterval = trade.strategy_config?.scan_interval || activeSessionConfig?.scan_interval || '1m';
-
-  const entryTs = trade.created_at || trade.entry_ts;
+  const entryTs = trade?.created_at || trade?.entry_ts;
   const entryTimeFormatted = useMemo(() => {
     if (!entryTs) return 'Live Session';
     try {
@@ -1017,6 +1007,15 @@ const EntrySignalContext = memo(({ trade, activeSessionConfig }) => {
       return String(entryTs);
     }
   }, [entryTs]);
+
+  if (!trade) return null;
+
+  const entryType = trade.entry_signal_type || trade.strategy_label || 'combo';
+  const entryReason = trade.entry_reason || trade.entry_signal_reason || 'Signal conditions satisfied on entry evaluation pass';
+  const strategyLabel = trade.strategy_label || activeSessionConfig?.strategy_label || 'Momentum Strategy';
+  const initialRisk = Number(trade.initial_risk_usdt || trade.risk_usdt || 0);
+  const entryDailyChange = Number(trade.entry_daily_change_pct || 0);
+  const scanInterval = trade.strategy_config?.scan_interval || activeSessionConfig?.scan_interval || '1m';
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-3 md:p-5 shadow-sm flex flex-col gap-3">

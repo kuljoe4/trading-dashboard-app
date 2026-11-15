@@ -324,4 +324,122 @@ describe('Anti-Whipsaw Protection Unit Tests', () => {
     // Should BLOCK entry because 1h is explicitly specified in anti_whipsaw_timeframes
     expect(orderManager.enter).not.toHaveBeenCalled();
   });
+
+  it('should honor variant-level anti-whipsaw timeframes & delays when evaluating variant opportunities', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1h';
+    config.anti_whipsaw_candle_delay = 1;
+    config.anti_whipsaw_tf_delay_min = 60; // Base has strict 60m delay
+    config.anti_whipsaw_timeframes = ['1h'];
+    config.paper_mode = true;
+    config.strategy_variants = [
+      {
+        strategy_label: 'Fast Variant',
+        scan_interval: '5m',
+        anti_whipsaw_candle_delay: 0,
+        anti_whipsaw_tf_delay_min: 5, // Variant allows entry after 5m
+        anti_whipsaw_timeframes: ['5m'],
+      } as any,
+    ];
+
+    const now = Date.now();
+    // Closed trade 10 minutes ago under Fast Variant
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'LINKUSDT';
+    closedTrade.strategy_label = 'Fast Variant';
+    closedTrade.entry_ts = new Date(now - 12 * 60 * 1000);
+    closedTrade.exit_ts = new Date(now - 10 * 60 * 1000);
+    sessionState.closedTrades = [closedTrade];
+
+    klineStore.getRawCandles.mockReturnValue([
+      { time: now - 10 * 60 * 1000, close: 100, open: 100, high: 100, low: 100, volume: 1000, isCompleted: true },
+      { time: Math.floor(now / (5 * 60 * 1000)) * (5 * 60 * 1000), close: 101, open: 100, high: 102, low: 99, volume: 1500, isCompleted: true },
+    ]);
+
+    const opportunities = [{ symbol: 'LINKUSDT', direction: 'LONG', score: 1, strategy_label: 'Fast Variant' }];
+    await executionService.processEntries(opportunities, config, 'Base Strategy');
+
+    // 10m > variant's 5m tfDelayMin & candleDelay=0 -> allowed even though base had 60m/1h
+    expect(orderManager.enter).toHaveBeenCalled();
+  });
+
+  it('should not lock a 1h strategy for 60m after candle close when candle_delay=1 and tf_delay_min=0', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1h';
+    config.anti_whipsaw_candle_delay = 1;
+    config.anti_whipsaw_tf_delay_min = 0;
+    config.anti_whipsaw_timeframes = ['1h'];
+    config.paper_mode = true;
+
+    const hourMs = 60 * 60 * 1000;
+    const currentHourStart = Math.floor(Date.now() / hourMs) * hourMs;
+
+    // Trade entered and exited in the PREVIOUS 1h candle (2 minutes before candle rollover)
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'LINKUSDT';
+    closedTrade.entry_ts = new Date(currentHourStart - 10 * 60 * 1000);
+    closedTrade.exit_ts = new Date(currentHourStart - 2 * 60 * 1000);
+    sessionState.closedTrades = [closedTrade];
+
+    klineStore.getRawCandles.mockReturnValue([
+      { time: currentHourStart - hourMs, close: 100, open: 100, high: 100, low: 100, volume: 1000, isCompleted: true },
+      { time: currentHourStart, close: 101, open: 100, high: 102, low: 99, volume: 1500, isCompleted: true },
+    ]);
+
+    const opportunities = [{ symbol: 'LINKUSDT', direction: 'LONG', score: 1 }];
+    await executionService.processEntries(opportunities, config, 'HourlyStrat');
+
+    // New 1h candle has opened and tf_delay_min is 0, so entry is allowed immediately
+    expect(orderManager.enter).toHaveBeenCalled();
+  });
+
+  it('should bypass anti-whipsaw when both candle_delay=0 and tf_delay_min=0', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '15m';
+    config.anti_whipsaw_candle_delay = 0;
+    config.anti_whipsaw_tf_delay_min = 0;
+    config.paper_mode = true;
+
+    const now = Date.now();
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'SUIUSDT';
+    closedTrade.entry_ts = new Date(now - 60 * 1000);
+    closedTrade.exit_ts = new Date(now - 10 * 1000);
+    sessionState.closedTrades = [closedTrade];
+
+    const opportunities = [{ symbol: 'SUIUSDT', direction: 'LONG', score: 1 }];
+    await executionService.processEntries(opportunities, config, 'NoCooldownStrat');
+
+    expect(orderManager.enter).toHaveBeenCalled();
+  });
+
+  it('should isolate closed trades by strategy when anti_whipsaw_per_strategy is enabled', async () => {
+    const config = new SessionConfig();
+    config.scan_interval = '1h';
+    config.anti_whipsaw_candle_delay = 1;
+    config.anti_whipsaw_per_strategy = true;
+    config.paper_mode = true;
+    config.strategy_variants = [
+      {
+        strategy_label: 'Variant B',
+        scan_interval: '5m',
+        anti_whipsaw_candle_delay: 1,
+        anti_whipsaw_per_strategy: true,
+      } as any,
+    ];
+
+    const now = Date.now();
+    const closedTrade = new Trade();
+    closedTrade.symbol = 'ADAUSDT';
+    closedTrade.strategy_label = 'Base Strategy';
+    closedTrade.entry_ts = new Date(now - 30 * 1000);
+    closedTrade.exit_ts = new Date(now - 10 * 1000);
+    sessionState.closedTrades = [closedTrade];
+
+    const opportunities = [{ symbol: 'ADAUSDT', direction: 'LONG', score: 1, strategy_label: 'Variant B' }];
+    await executionService.processEntries(opportunities, config, 'Base Strategy');
+
+    expect(orderManager.enter).toHaveBeenCalled();
+  });
 });
+

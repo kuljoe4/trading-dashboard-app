@@ -207,18 +207,49 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
       return exitEst.proximity
     }
     if (!trade.exit_signals_status) return 0
-    const statuses = Object.entries(trade.exit_signals_status)
+    const statuses = Object.entries(trade.exit_signals_status).filter(([, sig]) => Boolean(sig))
     if (statuses.length === 0) return 0
+
+    const exitLogic = (trade.strategy_config?.exit_signal_logic || config?.exit_signal_logic || 'any').toLowerCase()
+    const requiredExit = trade.strategy_config?.exit_required_signals || trade.strategy_config?.required_signals || config?.exit_required_signals || []
+
+    if (exitLogic === 'all') {
+      let minProx = 100
+      for (const [key, sig] of statuses) {
+        const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
+        if (prox < minProx) minProx = prox
+      }
+      return Math.round(minProx)
+    }
+
+    if (exitLogic === 'combo' && statuses.length > 1) {
+      let minReq = 100
+      let maxOpt = 0
+      let hasReq = false
+      let hasOpt = false
+      for (let i = 0; i < statuses.length; i++) {
+        const [key, sig] = statuses[i]
+        const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
+        const isReq = requiredExit.length > 0 ? requiredExit.includes(key) : i === 0
+        if (isReq) {
+          hasReq = true
+          if (prox < minReq) minReq = prox
+        } else {
+          hasOpt = true
+          if (prox > maxOpt) maxOpt = prox
+        }
+      }
+      const composite = hasReq && hasOpt ? Math.min(minReq, maxOpt) : (hasReq ? minReq : maxOpt)
+      return Math.round(composite)
+    }
 
     let maxProx = 0
     for (const [key, sig] of statuses) {
-      if (sig) {
-        const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
-        if (prox > maxProx) maxProx = prox
-      }
+      const prox = calculateProximity({ ...sig, key }, mark, entry, isLong, true)
+      if (prox > maxProx) maxProx = prox
     }
     return Math.round(maxProx)
-  }, [exitEst, trade.exit_signals_status, mark, entry, isLong])
+  }, [exitEst, trade.exit_signals_status, trade.strategy_config, config, mark, entry, isLong])
 
   // Track mark price movement for restrained motion trail
   const prevMarkRef = React.useRef(mark)
@@ -694,8 +725,8 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
             </Tooltip>
           ) : exitEst?.state === 'diverging' ? (
             <Tooltip content={exitEst.description || "Fast/Slow EMA moving apart"}>
-              <span className="text-dim font-bold flex items-center gap-1 cursor-help">
-                <span>DIVERGING</span>
+              <span className="text-dim font-bold flex items-center gap-1 cursor-help tabular-nums">
+                <span>DIVERGING · {exitSignalProximity}%</span>
               </span>
             </Tooltip>
           ) : hasDelayedSignal ? (
@@ -741,13 +772,17 @@ export const ActiveTradeCard = React.memo(({ trade, config, onTradeClose, onClic
               <div className="flex flex-col gap-1 text-[10px] p-1">
                 <div className="font-bold border-b border-white/10 pb-0.5">Dual Indicator Convergence</div>
                 {dualIndicatorMarkers.map(m => {
+                  const baseKey = String(m.key || '').replace(/-(fast|slow)$/, '');
+                  const backendSigEst = exitEst?.signalEstimations?.[baseKey];
                   const syntheticSignal = m.signal || {
                     value: m.price,
                     threshold: mark,
                     threshold_is_price: true,
                     is_indicator_pair: true
                   };
-                  const prox = calculateProximity(syntheticSignal, mark, entry, isLong, true);
+                  const prox = (backendSigEst && typeof backendSigEst.proximity === 'number')
+                    ? backendSigEst.proximity
+                    : calculateProximity(syntheticSignal, mark, entry, isLong, true);
                   return (
                     <div key={m.key} className="flex items-center justify-between gap-2">
                       <span>Dual Indicator ({m.label}):</span>

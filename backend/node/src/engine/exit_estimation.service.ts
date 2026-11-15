@@ -425,6 +425,25 @@ export class ExitEstimationService {
     if (baseType === 'supertrend') {
       const thresh = Number(signalDetail?.threshold || 0);
       if (thresh > 0) {
+        const isCrossed = isLong ? currentPrice <= thresh : currentPrice >= thresh;
+        if (isCrossed) {
+          const { estPnl, estR } = computePnLAndR(currentPrice);
+          return {
+            signalType,
+            state: 'ready' as const,
+            proximity: 99,
+            etaCandles: 0,
+            etaSeconds: 0,
+            confidence: 90,
+            estimatedExitPrice: currentPrice,
+            estimatedPnl: estPnl,
+            estimatedR: estR,
+            method: 'indicator_convergence',
+            description: 'Supertrend reversal threshold crossed',
+            components: { atr: roundTo(atr, 4), distance: 0 }
+          };
+        }
+
         const dist = Math.abs(currentPrice - thresh);
         const { estPnl, estR } = computePnLAndR(thresh);
 
@@ -541,6 +560,24 @@ export class ExitEstimationService {
     const val = Number(signalDetail?.value ?? currentPrice);
 
     if (thresh > 0) {
+      if (signalDetail?.threshold_is_price && (isLong ? val <= thresh : val >= thresh)) {
+        const { estPnl, estR } = computePnLAndR(currentPrice);
+        return {
+          signalType,
+          state: 'ready' as const,
+          proximity: 99,
+          etaCandles: 0,
+          etaSeconds: 0,
+          confidence: 90,
+          estimatedExitPrice: currentPrice,
+          estimatedPnl: estPnl,
+          estimatedR: estR,
+          method: 'indicator_convergence',
+          description: 'Exit price threshold crossed',
+          components: { atr: roundTo(atr, 4), distance: 0 }
+        };
+      }
+
       const dist = Math.abs(val - thresh);
       const effectiveSpeed = Math.max(Math.abs(priceVelocity), atr / 4);
 

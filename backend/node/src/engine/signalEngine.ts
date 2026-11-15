@@ -2762,17 +2762,24 @@ export class SignalEngineService {
         targetRefLow = refClose;
       }
 
-      // 6. Evaluate Trigger Candle
+      // 6. Evaluate Trigger Candle & Forming Candle
+      const formingCandle = trigCandles[trigCandles.length - 1];
       const evalCandle = (mode === 'closed_candle_confirm')
         ? trigCandles[trigCandles.length - 2]
-        : trigCandles[trigCandles.length - 1];
+        : formingCandle;
 
       const currentPrice = evalCandle.close;
       const currentHigh = evalCandle.high;
       const currentLow = evalCandle.low;
+      const livePrice = formingCandle ? formingCandle.close : currentPrice;
+      const liveHigh = formingCandle ? Math.max(currentHigh, formingCandle.high) : currentHigh;
+      const liveLow = formingCandle ? Math.min(currentLow, formingCandle.low) : currentLow;
 
       let fired = false;
+      let rejected = false;
       let thresholdPrice = 0;
+      let expansionCapPrice: number | null = null;
+      let candleConfirmState: 'closed_beyond' | 'wicked_only' | 'below' = 'below';
       let description = '';
       const isExit = purpose === 'exit';
 
@@ -2780,33 +2787,50 @@ export class SignalEngineService {
         // Base breakout threshold with buffer %
         const bufferAmount = (bufferPct > 0) ? targetRefHigh * (bufferPct / 100) : 0;
         thresholdPrice = targetRefHigh + bufferAmount;
+        if (maxExpansionPct > 0) {
+          expansionCapPrice = targetRefHigh * (1 + maxExpansionPct / 100);
+        }
 
         if (!isExit) {
           // LONG ENTRY
           if (mode === 'wick_break') {
             fired = currentHigh > thresholdPrice;
+            candleConfirmState = currentPrice > thresholdPrice ? 'closed_beyond' : (currentHigh > thresholdPrice ? 'wicked_only' : 'below');
+          } else if (mode === 'closed_candle_confirm') {
+            fired = currentPrice > thresholdPrice;
+            if (currentPrice > thresholdPrice) {
+              candleConfirmState = 'closed_beyond';
+            } else if (liveHigh > thresholdPrice || livePrice > thresholdPrice) {
+              candleConfirmState = 'wicked_only';
+            } else {
+              candleConfirmState = 'below';
+            }
           } else {
             fired = currentPrice > thresholdPrice;
+            candleConfirmState = currentPrice > thresholdPrice ? 'closed_beyond' : (currentHigh > thresholdPrice ? 'wicked_only' : 'below');
           }
 
           // Anti-overexpansion ceiling guard
-          if (fired && maxExpansionPct > 0) {
-            const expansionCap = targetRefHigh * (1 + maxExpansionPct / 100);
-            if (currentPrice > expansionCap) {
+          if (expansionCapPrice !== null && (currentPrice > expansionCapPrice || livePrice > expansionCapPrice)) {
+            if (fired) {
               fired = false;
-              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${maxExpansionPct}% above ${refTf} level (${expansionCap.toFixed(4)})`;
+              rejected = true;
+              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${maxExpansionPct}% above ${refTf} level (${expansionCapPrice.toFixed(4)})`;
+            } else if (livePrice > expansionCapPrice) {
+              rejected = true;
             }
           }
 
           if (fired && !description) {
             description = `${effectiveTrigTf} candle (${mode === 'wick_break' ? 'high' : 'close'} ${mode === 'wick_break' ? currentHigh.toFixed(4) : currentPrice.toFixed(4)}) breached prev ${lookback === 1 ? '' : lookback + ' '}${refTf} high (${targetRefHigh.toFixed(4)})`;
           } else if (!description) {
-            description = `Monitoring ${effectiveTrigTf} close (${currentPrice.toFixed(4)}) vs prev ${refTf} high (${targetRefHigh.toFixed(4)})`;
+            description = `Monitoring ${effectiveTrigTf} close (${livePrice.toFixed(4)}) vs prev ${refTf} high (${targetRefHigh.toFixed(4)})`;
           }
         } else {
           // LONG EXIT (failed breakout or breakdown below reference level)
           thresholdPrice = targetRefLow;
           fired = currentPrice < targetRefLow;
+          candleConfirmState = fired ? 'closed_beyond' : (liveLow < targetRefLow ? 'wicked_only' : 'below');
           description = fired
             ? `Exit: ${effectiveTrigTf} candle dropped below prev ${refTf} level (${targetRefLow.toFixed(4)})`
             : `Holding above prev ${refTf} level (${targetRefLow.toFixed(4)})`;
@@ -2815,33 +2839,50 @@ export class SignalEngineService {
         // SHORT
         const bufferAmount = (bufferPct > 0) ? targetRefLow * (bufferPct / 100) : 0;
         thresholdPrice = targetRefLow - bufferAmount;
+        if (maxExpansionPct > 0) {
+          expansionCapPrice = targetRefLow * (1 - maxExpansionPct / 100);
+        }
 
         if (!isExit) {
           // SHORT ENTRY
           if (mode === 'wick_break') {
             fired = currentLow < thresholdPrice;
+            candleConfirmState = currentPrice < thresholdPrice ? 'closed_beyond' : (currentLow < thresholdPrice ? 'wicked_only' : 'below');
+          } else if (mode === 'closed_candle_confirm') {
+            fired = currentPrice < thresholdPrice;
+            if (currentPrice < thresholdPrice) {
+              candleConfirmState = 'closed_beyond';
+            } else if (liveLow < thresholdPrice || livePrice < thresholdPrice) {
+              candleConfirmState = 'wicked_only';
+            } else {
+              candleConfirmState = 'below';
+            }
           } else {
             fired = currentPrice < thresholdPrice;
+            candleConfirmState = currentPrice < thresholdPrice ? 'closed_beyond' : (currentLow < thresholdPrice ? 'wicked_only' : 'below');
           }
 
           // Anti-overexpansion floor guard
-          if (fired && maxExpansionPct > 0) {
-            const expansionFloor = targetRefLow * (1 - maxExpansionPct / 100);
-            if (currentPrice < expansionFloor) {
+          if (expansionCapPrice !== null && (currentPrice < expansionCapPrice || livePrice < expansionCapPrice)) {
+            if (fired) {
               fired = false;
-              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${maxExpansionPct}% below ${refTf} level (${expansionFloor.toFixed(4)})`;
+              rejected = true;
+              description = `Rejected: price ${currentPrice.toFixed(4)} expanded > ${maxExpansionPct}% below ${refTf} level (${expansionCapPrice.toFixed(4)})`;
+            } else if (livePrice < expansionCapPrice) {
+              rejected = true;
             }
           }
 
           if (fired && !description) {
             description = `${effectiveTrigTf} candle (${mode === 'wick_break' ? 'low' : 'close'} ${mode === 'wick_break' ? currentLow.toFixed(4) : currentPrice.toFixed(4)}) broke below prev ${lookback === 1 ? '' : lookback + ' '}${refTf} low (${targetRefLow.toFixed(4)})`;
           } else if (!description) {
-            description = `Monitoring ${effectiveTrigTf} close (${currentPrice.toFixed(4)}) vs prev ${refTf} low (${targetRefLow.toFixed(4)})`;
+            description = `Monitoring ${effectiveTrigTf} close (${livePrice.toFixed(4)}) vs prev ${refTf} low (${targetRefLow.toFixed(4)})`;
           }
         } else {
           // SHORT EXIT (reclamation above reference level)
           thresholdPrice = targetRefHigh;
           fired = currentPrice > targetRefHigh;
+          candleConfirmState = fired ? 'closed_beyond' : (liveHigh > targetRefHigh ? 'wicked_only' : 'below');
           description = fired
             ? `Exit: ${effectiveTrigTf} candle rose above prev ${refTf} level (${targetRefHigh.toFixed(4)})`
             : `Holding below prev ${refTf} level (${targetRefHigh.toFixed(4)})`;
@@ -2851,13 +2892,30 @@ export class SignalEngineService {
       if (minimal) return fired;
 
       const slPrice = side === 'LONG' ? targetRefLow : targetRefHigh;
+      const tfUnit = effectiveTrigTf.slice(-1);
+      const tfNum = parseInt(effectiveTrigTf.slice(0, -1), 10) || 1;
+      const tfMs = tfUnit === 'm' ? tfNum * 60000 : tfUnit === 'h' ? tfNum * 3600000 : tfUnit === 'd' ? tfNum * 86400000 : 3600000;
+      const trigCloseCountdownMs = Math.max(0, tfMs - (Date.now() % tfMs));
 
       return {
         fired,
-        value: roundTo(currentPrice, 8),
+        rejected,
+        value: roundTo(livePrice, 8),
+        closed_value: roundTo(currentPrice, 8),
         threshold: roundTo(thresholdPrice, 8),
+        ref_high: roundTo(targetRefHigh, 8),
+        ref_low: roundTo(targetRefLow, 8),
         pattern_high: roundTo(targetRefHigh, 8),
         pattern_low: roundTo(targetRefLow, 8),
+        buffer_pct: bufferPct,
+        breakout_level: roundTo(thresholdPrice, 8),
+        max_expansion_pct: maxExpansionPct,
+        expansion_cap: expansionCapPrice !== null ? roundTo(expansionCapPrice, 8) : null,
+        live_price: roundTo(livePrice, 8),
+        candle_high: roundTo(liveHigh, 8),
+        candle_low: roundTo(liveLow, 8),
+        candle_confirm_state: candleConfirmState,
+        trig_close_countdown_ms: trigCloseCountdownMs,
         slPrice: roundTo(slPrice, 8),
         unit: 'price',
         metric: 'HTF Breakout',
@@ -2866,6 +2924,8 @@ export class SignalEngineService {
         ref_timeframe: refTf,
         trigger_timeframe: effectiveTrigTf,
         mode,
+        lookback,
+        reference_level: refLevelType,
       };
     } catch (error) {
       this.logger.debug(`HTF Breakout signal error: ${error instanceof Error ? error.message : String(error)}`);

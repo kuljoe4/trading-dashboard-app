@@ -157,11 +157,16 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   // allocated a brand-new object on every broadcast, defeating React.memo on ScannerRow. We now
   // compute a cheap fingerprint over the display-relevant fields and reuse the previous object
   // reference when nothing meaningful changed, so unchanged rows skip re-rendering.
-  // history/ohlc_history/score_breakdown/signalResult are intentionally NOT in the fingerprint:
-  // they are slow-changing telemetry retained from the previous object when the new payload omits
-  // them (gated/partial updates), exactly like normalizeTrade's _fingerprint retention.
+  // Heavy chart history stays outside the fingerprint. Compact score and signal digests are included
+  // because they drive visible scanner rows and Rules condition widgets.
   const sig = res.signalResult;
-  const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}` : '';
+  const sigDetailsDigest = sig?.signals
+    ? Object.keys(sig.signals).sort().map(key => {
+        const detail = sig.signals[key];
+        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}`;
+      }).join('|')
+    : '';
+  const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}|${sigDetailsDigest}` : '';
   const sb = res.score_breakdown;
   const sbDigest = sb ? `${sb.momentum}:${sb.volatility}:${sb.trend}:${sb.htf_ema_cross || 0}` : '';
   const f = `${res.symbol}:${res.pct}:${res.momentum}:${res.dir}:${res.vol}:${res.score}:${res.price}:${res.volume_rank}:${sbDigest}:${sigDigest}`;

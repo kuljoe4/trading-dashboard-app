@@ -35,6 +35,33 @@ test('normalizeOpportunity optimization: correctness of signal mapping', () => {
   assert.strictEqual(res.signalResult.signals.macd_surge.fired, false);
 });
 
+test('normalizeOpportunity refreshes the candidate when only a condition value changes', () => {
+  const initialPayload = {
+    symbol: 'BTCUSDT', pct: 2.5, dir: 'long', vol: 1000000, score: 85, price: 50000,
+    signalResult: {
+      allFired: false,
+      firedSignals: [],
+      signals: {
+        ema_cross: { value: 1.2, threshold: 1.5, fired: false, active: true }
+      },
+      reason: 'Waiting for EMA cross'
+    }
+  };
+  const initial = normalizeOpportunity(initialPayload);
+  const updated = normalizeOpportunity({
+    ...initialPayload,
+    signalResult: {
+      ...initialPayload.signalResult,
+      signals: {
+        ema_cross: { value: 1.3, threshold: 1.5, fired: false, active: true }
+      }
+    }
+  }, initial);
+
+  assert.notStrictEqual(updated, initial);
+  assert.strictEqual(updated.signalResult.signals.ema_cross.value, 1.3);
+});
+
 test('normalizeOpportunity optimization: performance benchmark comparison', () => {
   const samplePayload = {
     symbol: 'ETHUSDT',

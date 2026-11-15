@@ -933,7 +933,15 @@ export class OrderManagerService {
       // SRE: Check if SL was clamped by PERCENT_PRICE. If it moved more than 0.5%, reject entry.
       const slClampDiffPct = Math.abs(filteredSl - slPrice) / slPrice;
       if (slClampDiffPct > 0.005) { // 0.5% tolerance
-        const reason = `SL price ${slPrice} was silently clamped to ${filteredSl} by Binance PERCENT_PRICE filter (${(slClampDiffPct * 100).toFixed(2)}% move). Rejecting entry to preserve risk/reward integrity.`;
+        const ticker = this.tickerCache.getTicker(symbol);
+        const markPrice = ticker?.mark_price || ticker?.price;
+        const tickerAgeMs = ticker?.updated_at_ms ? Date.now() - ticker.updated_at_ms : undefined;
+        const multiplierUp = Number(filters?.multiplierUp);
+        const multiplierDown = Number(filters?.multiplierDown);
+        const rawBand = markPrice && Number.isFinite(multiplierUp) && Number.isFinite(multiplierDown)
+          ? `[${(markPrice * multiplierDown).toFixed(8)}, ${(markPrice * multiplierUp).toFixed(8)}]`
+          : 'unavailable';
+        const reason = `SL price ${slPrice} was clamped to ${filteredSl} by the local Binance PERCENT_PRICE preflight (${(slClampDiffPct * 100).toFixed(2)}% move). Mark: ${markPrice ?? 'unavailable'}, multipliers: ${filters?.multiplierDown ?? 'unavailable'}/${filters?.multiplierUp ?? 'unavailable'}, raw band: ${rawBand}, ticker age: ${tickerAgeMs ?? 'unavailable'}ms, evaluated: ${new Date().toISOString()}. Rejecting entry to preserve risk/reward integrity.`;
         this.logger.warn(`[OrderManager] ${symbol} entry rejected: ${reason}`);
         return { status: ExecutionStatus.ORDER_REJECTED, error: reason };
       }

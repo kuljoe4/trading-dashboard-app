@@ -36,6 +36,8 @@ import { GatingService } from "./gating.service";
 import { MaintenanceService } from "./maintenance.service";
 import { AuditLogService } from "../trading/audit-log.service";
 import { TradeSerializationDto } from "../trading/dto/trade-serialization.dto";
+import { rankByBreakoutOpportunity } from "./breakout-ranking";
+import { scannerResultsFingerprint } from "./scanner-fingerprint";
 
 function monitoringChangedInternal(curr: any, prev: any): boolean {
   if (!curr || !prev) return true;
@@ -961,14 +963,14 @@ export class TradingSessionService implements OnApplicationShutdown {
             scan_interval_ms: this.sessionState.scan_interval_ms,
             opportunities: this.lastScannerResults.slice(0, 5).map((o) => {
               if (isFull) return o;
-              const { ohlc_history, ...rest } = o;
+              const { ohlc_history, history, ...rest } = o;
               return rest;
             }),
             variant_opportunities: this.lastVariantScannerResults.map((v) => ({
               ...v,
               opportunities: v.opportunities.slice(0, 5).map((o: any) => {
                 if (isFull) return o;
-                const { ohlc_history, ...rest } = o;
+                const { ohlc_history, history, ...rest } = o;
                 return rest;
               }),
             })),
@@ -991,6 +993,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       const strategyConfigs = this.getStrategyConfigs();
       const activePositionSymbols = this.positionTracker.getPositionSymbols();
       const opportunitiesBySignature = new Map<string, any[]>();
+      const rankedOpportunitiesByConfig = new Map<SessionConfig, any[]>();
       let primaryOpportunities: any[] = [];
       const isPausedLabel = (label: string) =>
         this.sessionState.isStrategyPaused
@@ -1036,9 +1039,11 @@ export class TradingSessionService implements OnApplicationShutdown {
             );
             return { ...opp, signalResult };
           });
+        const rankedOpportunities = rankByBreakoutOpportunity(opportunitiesWithSignals, c);
+        rankedOpportunitiesByConfig.set(c, rankedOpportunities);
         return {
           strategy_label: c.strategy_label,
-          opportunities: opportunitiesWithSignals,
+          opportunities: rankedOpportunities,
         };
       });
 
@@ -1050,22 +1055,11 @@ export class TradingSessionService implements OnApplicationShutdown {
         this.lastVariantScannerResults = scannerData;
         const now = Date.now();
         const isFull = now - this.lastScannerFullBroadcast > 30000;
-        const nextResultsJson = JSON.stringify(
-          this.lastScannerResults.map((o) => o.symbol + o.direction + o.score),
-        );
+        const nextResultsJson = scannerResultsFingerprint(this.lastScannerResults);
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson;
         this.lastScannerResultsJson = nextResultsJson;
 
-        const resultsPriceChanged = () => {
-          const prevResults = this.engineBroadcaster.getLastScannerResults();
-          if (!prevResults || prevResults.length === 0) return false;
-          return this.lastScannerResults.some((o, i) => {
-            const prev = prevResults[i];
-            return prev && Math.abs(o.price - prev.price) / prev.price > 0.001;
-          });
-        };
-
-        if (isFull || resultsChanged || resultsPriceChanged()) {
+        if (isFull || resultsChanged) {
           if (isFull) this.lastScannerFullBroadcast = now;
           this.lastScannerResultsJson = nextResultsJson;
           this.sessionState.last_scan_ts = Date.now();
@@ -1080,7 +1074,7 @@ export class TradingSessionService implements OnApplicationShutdown {
               .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
               .map((o) => {
                 if (isFull) return o;
-                const { ohlc_history, ...rest } = o;
+                const { ohlc_history, history, ...rest } = o;
                 return rest;
               }),
             variant_opportunities: this.lastVariantScannerResults.map((v) => ({
@@ -1089,7 +1083,7 @@ export class TradingSessionService implements OnApplicationShutdown {
                 .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
                 .map((o: any) => {
                   if (isFull) return o;
-                  const { ohlc_history, ...rest } = o;
+                  const { ohlc_history, history, ...rest } = o;
                   return rest;
                 }),
             })),
@@ -1139,7 +1133,7 @@ export class TradingSessionService implements OnApplicationShutdown {
           continue;
         }
 
-        const opps = opportunitiesBySignature.get(this.scanSignature(sc)) || [];
+        const opps = rankedOpportunitiesByConfig.get(sc) || opportunitiesBySignature.get(this.scanSignature(sc)) || [];
         await this.executionService.processEntries(
           opps,
           sc,
@@ -1193,6 +1187,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       history: o.history,
       ohlc_history: o.ohlc_history,
       signalResult: o.signalResult,
+      breakout_rank: o.breakout_rank,
       score_breakdown: o.score_breakdown ? {
         momentum: roundTo(o.score_breakdown.momentum, 1),
         volatility: roundTo(o.score_breakdown.volatility, 1),

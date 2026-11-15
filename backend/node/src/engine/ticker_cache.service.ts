@@ -8,6 +8,7 @@ export interface Ticker {
   mark_price?: number;
   volume_24h: number;
   open_24h?: number;
+  updated_at_ms?: number;
 }
 
 @Injectable()
@@ -81,6 +82,7 @@ export class TickerCacheService {
         // BOLT: Ensure price is initialized if we only have mark_price
         if (existing.price === 0) existing.price = mp;
       }
+      existing.updated_at_ms = Date.now();
     } else {
       this.tickers.set(symbol, {
         symbol,
@@ -88,6 +90,7 @@ export class TickerCacheService {
         mark_price: (mp !== undefined && !Number.isNaN(mp) && mp > 0) ? mp : undefined,
         volume_24h: (v !== undefined && !Number.isNaN(v)) ? v : 0,
         open_24h: (o !== undefined && !Number.isNaN(o) && o > 0) ? o : undefined,
+        updated_at_ms: Date.now(),
       });
       this.latestTickersCache = null; // Invalidate cache on new symbol addition
     }

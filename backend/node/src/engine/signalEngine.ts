@@ -2896,6 +2896,9 @@ export class SignalEngineService {
       const tfNum = parseInt(effectiveTrigTf.slice(0, -1), 10) || 1;
       const tfMs = tfUnit === 'm' ? tfNum * 60000 : tfUnit === 'h' ? tfNum * 3600000 : tfUnit === 'd' ? tfNum * 86400000 : 3600000;
       const trigCloseCountdownMs = Math.max(0, tfMs - (Date.now() % tfMs));
+      const expansionPct = side === 'LONG'
+        ? ((livePrice - targetRefHigh) / targetRefHigh) * 100
+        : ((targetRefLow - livePrice) / targetRefLow) * 100;
 
       return {
         fired,
@@ -2926,6 +2929,7 @@ export class SignalEngineService {
         mode,
         lookback,
         reference_level: refLevelType,
+        expansion_pct: roundTo(expansionPct, 8),
       };
     } catch (error) {
       this.logger.debug(`HTF Breakout signal error: ${error instanceof Error ? error.message : String(error)}`);

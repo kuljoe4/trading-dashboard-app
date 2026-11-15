@@ -52,8 +52,8 @@ describe('MomentumScannerService Unified Loop Optimization', () => {
 
     // BTCUSDT and ETHUSDT should be scanned exactly once each
     expect(spy).toHaveBeenCalledTimes(2)
-    expect(spy).toHaveBeenCalledWith('BTCUSDT', '1m', expect.any(Object))
-    expect(spy).toHaveBeenCalledWith('ETHUSDT', '1m', expect.any(Object))
+    expect(spy).toHaveBeenCalledWith('BTCUSDT', '1m', expect.any(Object), true)
+    expect(spy).toHaveBeenCalledWith('ETHUSDT', '1m', expect.any(Object), true)
 
     // Results should contain both
     expect(results).toHaveLength(2)

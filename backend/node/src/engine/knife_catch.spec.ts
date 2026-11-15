@@ -70,6 +70,7 @@ describe('Knife Catch Signal & Dynamic Auto-Ratchet Engine Tests', () => {
   it('should auto-ratchet stop loss to breakeven or locked profit on knife trades crossing RR thresholds', async () => {
     const config = new SessionConfig();
     config.knife_trailing_enabled = true;
+    config.paper_mode = false;
     config.knife_auto_ratchet_be_rr = 0.5;
     config.knife_auto_ratchet_lock_rr = 1.0;
     config.knife_trailing_distance_pct = 1.0;

@@ -578,7 +578,8 @@ describe('PositionTrackerService', () => {
       const config = {
         trailing_stop_enabled: true,
         trailing_stop_distance_pct: 1.0, // 1% = .00 distance
-        trailing_guard_buffer_pct: 0.05
+        trailing_guard_buffer_pct: 0.05,
+        paper_mode: false,
       } as any;
 
       mockOrderManager.applyFilters.mockReturnValue({ price: 104 }); // Price 105 - 1% = 104
@@ -606,6 +607,7 @@ describe('PositionTrackerService', () => {
       const config = {
         trailing_stop_enabled: true,
         trailing_stop_distance_pct: 1.0, // 1% = .00 distance
+        paper_mode: false,
       } as any;
 
       mockOrderManager.applyFilters.mockReturnValue({ price: 96 }); // Price 95 + 1% = 96

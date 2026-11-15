@@ -280,6 +280,14 @@ describe('Anti-Whipsaw Protection Unit Tests', () => {
 
     const opportunities = [{ symbol: 'ERAUSDT', direction: 'LONG', score: 1 }];
 
+    // Keep the fixture timestamps in the same range as the Date-based trade
+    // timestamps so the 1h scan candle does not appear to be from epoch 1970.
+    const now = Date.now();
+    klineStore.getRawCandles.mockReturnValue([
+      { time: now - 2 * 60 * 60 * 1000, close: 100, open: 100, high: 100, low: 100, volume: 1000, isCompleted: true },
+      { time: now - 60 * 60 * 1000, close: 101, open: 100, high: 102, low: 99, volume: 1500, isCompleted: true },
+    ]);
+
     await executionService.processEntries(opportunities, config, 'MacroConfirmStrategy');
 
     // Should ALLOW entry because 1d confirming timeframe is capped out by anti_whipsaw_max_tf ('4h')

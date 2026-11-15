@@ -72,6 +72,7 @@ describe('REST Telemetry & Watchdog Cache Optimization', () => {
       direction: 'LONG',
       entry_price: 100,
       current_sl: 98,
+      status: 'OPEN',
       updated_at: new Date(Date.now() - 60000), // 60s ago (> 45s threshold)
     }));
 
@@ -120,6 +121,7 @@ describe('REST Telemetry & Watchdog Cache Optimization', () => {
       direction: 'LONG',
       entry_price: 100,
       current_sl: 98,
+      status: 'OPEN',
       updated_at: new Date(Date.now() - 60000),
     }));
 

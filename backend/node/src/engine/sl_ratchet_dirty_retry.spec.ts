@@ -25,6 +25,7 @@ describe('SL Ratchet Dirty Symbol Retry & Deferral Audit Standard', () => {
       config: {
         trailing_stop_enabled: true,
         trailing_stop_distance_pct: 2.0,
+        paper_mode: false,
       },
       setActiveTrades: () => {},
     };
@@ -62,6 +63,7 @@ describe('SL Ratchet Dirty Symbol Retry & Deferral Audit Standard', () => {
     const config: SessionConfig = {
       trailing_stop_enabled: true,
       trailing_stop_distance_pct: 2.0,
+      paper_mode: false,
     } as any;
 
     // 1. Evaluate trailing stop while isRatcheting is true
@@ -104,6 +106,7 @@ describe('SL Ratchet Dirty Symbol Retry & Deferral Audit Standard', () => {
       config: {
         trailing_stop_enabled: true,
         trailing_stop_distance_pct: 2.0,
+        paper_mode: false,
       },
       setActiveTrades: () => {},
     };

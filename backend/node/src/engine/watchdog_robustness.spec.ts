@@ -84,6 +84,7 @@ describe('Watchdog Robustness', () => {
     const trade = {
       symbol: 'BTCUSDT',
       binance_order_id: '123',
+      status: 'OPEN',
       updated_at: new Date(Date.now() - 10000), // 10s ago
     } as Trade;
 
@@ -98,6 +99,7 @@ describe('Watchdog Robustness', () => {
     const trades = [{
       symbol: 'BTCUSDT',
       binance_order_id: '123',
+      status: 'OPEN',
       updated_at: new Date(Date.now() - 60000),
     }] as Trade[];
 
@@ -118,6 +120,7 @@ describe('Watchdog Robustness', () => {
       symbol: `BTCUSDT_${i}`,
       binance_order_id: `123_${i}`,
       qty: 1.0,
+      status: 'OPEN',
       updated_at: new Date(Date.now() - 150000), // 150s ago (> 120s nuclear threshold)
     })) as Trade[];
 

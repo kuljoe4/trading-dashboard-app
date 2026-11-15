@@ -284,7 +284,11 @@ export class MaintenanceService {
             const ordCooldownKey = `ord:${trade.symbol}`;
             const lastFreshOrd = this.forceFreshCooldownMap.get(ordCooldownKey) || 0;
             const canQueryFresh = !weightTooHigh && (Date.now() - lastFreshOrd >= MaintenanceService.FORCE_FRESH_COOLDOWN_MS || targetSymbol === trade.symbol);
-            if (canQueryFresh) {
+            // Prefer the cached order set when it already contains candidates.
+            // Replacing it with an unavailable/empty REST snapshot can erase a
+            // valid chart-created close-position order and cause an unnecessary
+            // stop-loss replacement instead of adopting it.
+            if (canQueryFresh && slOrders.length === 0) {
               this.forceFreshCooldownMap.set(ordCooldownKey, Date.now());
               const freshOrders = await this.orderManager.fetchOpenOrders(trade.symbol, { forceFresh: true });
               slOrders = freshOrders.filter(isSlOrder);

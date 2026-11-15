@@ -11,8 +11,8 @@ describe('Bolt - Smart Watchlist Scanner Optimization', () => {
   let marketFeedService: jest.Mocked<MarketFeedService>;
 
   const mockTickers: Ticker[] = Array.from({ length: 300 }, (_, i) => ({
-    symbol: `SYM_${i}USDT`,
-    price: 100 + (i % 20),
+    symbol: `SYM${i}USDT`,
+    price: 105,
     open_24h: 100,
     volume_24h: (i + 1) * 1000,
   }));
@@ -62,6 +62,7 @@ describe('Bolt - Smart Watchlist Scanner Optimization', () => {
       scan_pct_threshold: 2.0,
       watchlist_size: 10,
       scan_interval: '1m',
+      scan_lookback: 1,
       sl_max_pct: 10.0,
     } as SessionConfig;
 

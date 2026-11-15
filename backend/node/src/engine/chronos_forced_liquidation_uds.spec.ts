@@ -36,6 +36,7 @@ describe('Forced Liquidation & UDS Stop-Loss Recovery', () => {
       setActiveTrades: jest.fn(),
       realTimeOrders: new Map(),
       isRateLimited: jest.fn().mockReturnValue(false),
+      isBanned: jest.fn().mockReturnValue(false),
     };
 
     const module: TestingModule = await Test.createTestingModule({

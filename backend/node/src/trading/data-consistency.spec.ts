@@ -116,8 +116,12 @@ describe('SessionService Data Consistency Fixes', () => {
     // Mock aggregation query
     const mockQueryBuilder = {
       select: jest.fn().mockReturnThis(),
+      leftJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
       andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      take: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
       getRawOne: jest.fn().mockResolvedValue({ sum: '-50' }),
     };
     mockTradeRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);

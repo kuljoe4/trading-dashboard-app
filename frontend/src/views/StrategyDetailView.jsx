@@ -96,6 +96,29 @@ const LiveRelativeTime = React.memo(({ ts, nowMs }) => {
 });
 LiveRelativeTime.displayName = 'LiveRelativeTime';
 
+const entrySnapshotOpportunity = (trade) => {
+  const snapshot = trade?.entry_signal_snapshot;
+  if (!snapshot?.signalResult) return null;
+  return {
+    symbol: trade.symbol,
+    pct: Number(snapshot.candidate_momentum || 0),
+    momentum: Number(snapshot.candidate_momentum || 0),
+    price: Number(snapshot.candidate_price || trade.entry_price || 0),
+    close: Number(snapshot.candidate_price || trade.entry_price || 0),
+    dir: String(snapshot.direction || trade.direction || 'LONG').toLowerCase(),
+    direction: String(snapshot.direction || trade.direction || 'LONG').toLowerCase(),
+    score: Number(snapshot.candidate_score || 0),
+    signalResult: snapshot.signalResult,
+    breakout_rank: snapshot.breakout_rank,
+    capRespected: snapshot.cap_respected,
+    snapshotConfig: snapshot.config,
+    snapshotCapturedAt: snapshot.captured_at_ms,
+    isEntrySnapshot: true,
+    snapshotTradeStatus: trade.status,
+    snapshotTradeId: trade.id,
+  };
+};
+
 const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const {
     config, scannerResults, variantScannerResults, analytics, wsStatus, isSyncing,
@@ -305,11 +328,20 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   const focusedOpp = useMemo(() => {
     if (selectedFocusSymbol) {
+      if (selectedFocusSymbol.startsWith('trade:')) {
+        const tradeId = selectedFocusSymbol.slice(6);
+        const selectedSnapshotTrade = [...strategyActiveTrades, ...strategyTrades]
+          .find(t => String(t.id) === tradeId);
+        const snapshotOpp = entrySnapshotOpportunity(selectedSnapshotTrade);
+        if (snapshotOpp) return snapshotOpp;
+      }
       const found = proximityLeaderboard.find(r => r.symbol === selectedFocusSymbol)
         || strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
       if (found) return found;
       const activeT = strategyActiveTrades.find(t => t.symbol === selectedFocusSymbol);
       if (activeT) {
+        const snapshotOpp = entrySnapshotOpportunity(activeT);
+        if (snapshotOpp) return snapshotOpp;
         return {
           symbol: activeT.symbol,
           pct: 0,
@@ -323,6 +355,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     if (proximityLeaderboard[0]) return proximityLeaderboard[0];
     if (strategyScannerResults[0]) return strategyScannerResults[0];
     if (strategyActiveTrades[0]) {
+      const snapshotOpp = entrySnapshotOpportunity(strategyActiveTrades[0]);
+      if (snapshotOpp) return snapshotOpp;
       return {
         symbol: strategyActiveTrades[0].symbol,
         pct: 0,
@@ -332,9 +366,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       };
     }
     return { symbol: '---', pct: 0, dir: '---' };
-  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyConfig.enabled_signals]);
+  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyTrades, strategyConfig.enabled_signals]);
 
   const bestOpp = focusedOpp;
+  const diagnosticStrategyConfig = useMemo(() => (
+    bestOpp?.isEntrySnapshot && bestOpp.snapshotConfig
+      ? { ...strategyConfig, ...bestOpp.snapshotConfig }
+      : strategyConfig
+  ), [bestOpp, strategyConfig]);
   const focusedActiveTrade = useMemo(() => {
     return strategyActiveTrades.find(t => t.symbol === focusedOpp.symbol) || strategyActiveTrades[0] || null;
   }, [strategyActiveTrades, focusedOpp.symbol]);
@@ -615,7 +654,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Rule & Constraint Diagnostics (Entries, Exits, Params, Timeframes, Risk & SL Allowed/Rejected)
   const rulesDiagnostics = useMemo(() => {
     return getStrategyRulesDiagnostics({
-      strategyConfig,
+      strategyConfig: diagnosticStrategyConfig,
       focusedOpp: bestOpp,
       activeTrade: focusedActiveTrade,
       activeTradeCount,
@@ -626,7 +665,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       isStrategyPaused,
     });
   }, [
-    strategyConfig, bestOpp, focusedActiveTrade, activeTradeCount, s.totalRiskPct,
+    diagnosticStrategyConfig, bestOpp, focusedActiveTrade, activeTradeCount, s.totalRiskPct,
     startingBal, effectiveGate, effectiveReason, isStrategyPaused
   ]);
 
@@ -1231,8 +1270,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     for (const t of strategyActiveTrades) {
       if (!seen.has(t.symbol)) {
         seen.add(t.symbol);
-        out.push({ symbol: t.symbol, tag: 'In Pos', tone: 'text-green', priority: 1 });
+        out.push({ symbol: t.symbol, focusKey: `trade:${t.id}`, tag: 'In Pos', tone: 'text-green', priority: 1 });
       }
+    }
+    for (const t of strategyTrades) {
+      if (out.filter(item => item.tag === 'Closed').length >= 4) break;
+      if (!t.entry_signal_snapshot || seen.has(t.symbol)) continue;
+      seen.add(t.symbol);
+      out.push({ symbol: t.symbol, focusKey: `trade:${t.id}`, tag: 'Closed', tone: 'text-dim', priority: 2 });
     }
     const maxStatic = showAllStaticSymbols ? staticSymbols.length : 8;
     for (const sym of staticSymbols.slice(0, maxStatic)) {
@@ -1241,6 +1286,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         const info = staticSymbolStatuses[sym];
         out.push({
           symbol: sym,
+          focusKey: sym,
           tag: info?.label || 'Static',
           tone: info?.state === 'TRIGGERED' ? 'text-green' : info?.state === 'EVALUATING' ? 'text-accent' : 'text-dim',
           priority: 2
@@ -1252,6 +1298,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         seen.add(opp.symbol);
         out.push({
           symbol: opp.symbol,
+          focusKey: opp.symbol,
           tag: opp.signalResult?.allFired ? 'Fired' : `${opp.proximity ?? 0}%`,
           tone: opp.signalResult?.allFired ? 'text-green' : opp.proximity >= 80 ? 'text-accent' : 'text-dim',
           priority: 3
@@ -1259,7 +1306,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       }
     }
     return out;
-  }, [strategyActiveTrades, staticSymbols, showAllStaticSymbols, staticSymbolStatuses, proximityLeaderboard]);
+  }, [strategyActiveTrades, strategyTrades, staticSymbols, showAllStaticSymbols, staticSymbolStatuses, proximityLeaderboard]);
 
   const riskPerTradePct = Number(strategyConfig.risk_pct_per_trade ?? 1.0);
   const riskPerTradeUsdt = (startingBal * riskPerTradePct) / 100;
@@ -1513,12 +1560,14 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                 {candidateChips.length > 0 ? (
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap pb-0.5 sm:pb-0">
                     {candidateChips.map(c => {
-                      const isSelected = bestOpp.symbol === c.symbol;
+                      const isSelected = selectedFocusSymbol
+                        ? selectedFocusSymbol === c.focusKey
+                        : bestOpp.symbol === c.symbol;
                       return (
                         <button
-                          key={c.symbol}
+                          key={c.focusKey || c.symbol}
                           type="button"
-                          onClick={() => setSelectedFocusSymbol(c.symbol)}
+                          onClick={() => setSelectedFocusSymbol(c.focusKey || c.symbol)}
                           className={cn(
                             "min-h-[34px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded-lg sm:rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
                             isSelected
@@ -1728,12 +1777,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
             )}>
               <CandidateConditionsGauge
                 opp={bestOpp}
-                strategyConfig={strategyConfig}
-                activeTrade={focusedActiveTrade && focusedActiveTrade.symbol === bestOpp?.symbol ? focusedActiveTrade : null}
+                strategyConfig={diagnosticStrategyConfig}
+                activeTrade={!bestOpp?.isEntrySnapshot && focusedActiveTrade && focusedActiveTrade.symbol === bestOpp?.symbol ? focusedActiveTrade : null}
                 closedTrades={tradeHistory}
                 isPaused={isStrategyPaused}
                 gateState={effectiveGate}
                 gateReason={effectiveReason}
+                nowMs={lastAuthoritativeUpdateTs}
               />
             </div>
 

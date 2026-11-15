@@ -931,6 +931,7 @@ export function buildCandidateConditionsModel({
     stateLabel: symbol === '---' ? 'IDLE' : !sideMatched ? 'SIDE MISMATCH' : velocityPassed ? 'PASS' : 'WATCHING',
     tone: !sideMatched ? 'danger' : velocityPassed ? 'positive' : velocityProximity >= 75 ? 'accent' : 'neutral',
     description: '',
+    evaluatedAtMs: opp?.snapshotCapturedAt,
   };
 
   const signalConditionItems = enabledSignals.map((sigKey) => {
@@ -1066,6 +1067,7 @@ export function buildCandidateConditionsModel({
       stateLabel,
       tone,
       description: asText(s.description, ''),
+      evaluatedAtMs: s.evaluated_at_ms || opp?.snapshotCapturedAt,
     };
   });
 

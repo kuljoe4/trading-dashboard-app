@@ -41,6 +41,18 @@ const ZONE_DOT_CLASS = {
   blocked: 'bg-purple-400',
 };
 
+function formatFreshness(ts, nowMs) {
+  const evaluated = Number(ts);
+  if (!Number.isFinite(evaluated) || evaluated <= 0) return 'Update time unavailable';
+  const ageSeconds = Math.max(0, Math.floor((Number(nowMs) - evaluated) / 1000));
+  if (ageSeconds < 60) return `Updated ${ageSeconds}s ago`;
+  const ageMinutes = Math.floor(ageSeconds / 60);
+  if (ageMinutes < 60) return `Updated ${ageMinutes}m ago`;
+  const ageHours = Math.floor(ageMinutes / 60);
+  if (ageHours < 24) return `Captured ${ageHours}h ago`;
+  return `Captured ${Math.floor(ageHours / 24)}d ago`;
+}
+
 /**
  * Piecewise angle mapping for 0..150 dial so Fresh (100-105) and Stale (105-115)
  * have wide, legible visual arcs instead of razor-thin 6° slices:
@@ -520,6 +532,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   gateReason = '',
   compact = false,
   className = '',
+  nowMs = Date.now(),
 }) {
   const model = useMemo(() => buildCandidateConditionsModel({
     opp,
@@ -529,7 +542,8 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
     isPaused,
     gateState,
     gateReason,
-  }), [opp, strategyConfig, activeTrade, closedTrades, isPaused, gateState, gateReason]);
+    nowMs,
+  }), [opp, strategyConfig, activeTrade, closedTrades, isPaused, gateState, gateReason, nowMs]);
 
   const isInPos = model.mode === 'in_position';
   const posMeta = model.positionMeta;
@@ -568,6 +582,16 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
           <span className="text-[10px] font-mono text-dim">
             · {isInPos ? 'Exit Gate' : 'Signal Gate'}: <strong className="text-text">{model.logicLabel}</strong>
           </span>
+          {opp?.isEntrySnapshot && (
+            <span className="text-[10px] font-mono text-accent">
+              · Entry snapshot
+              {typeof opp.capRespected === 'boolean' && (
+                <strong className={opp.capRespected ? 'text-green' : 'text-red'}>
+                  {' '}· Cap {opp.capRespected ? 'respected' : 'exceeded'}
+                </strong>
+              )}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-3">
@@ -645,6 +669,9 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                     </div>
                     <div className="text-[10px] font-mono text-dim mt-0.5 leading-snug break-words">
                       {c.timeframe}{c.paramsText && c.paramsText !== 'Standard' ? ` · ${c.paramsText}` : ''}
+                    </div>
+                    <div className="text-[9px] font-mono text-dim/75 mt-0.5 tabular-nums">
+                      {formatFreshness(c.evaluatedAtMs, nowMs)}
                     </div>
                   </div>
 

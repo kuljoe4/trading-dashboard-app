@@ -881,7 +881,7 @@ export class OrderManagerService {
     qty: number,
     slPrice: number,
     tpPrice: number | null,
-    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct' | 'entry_reason' | 'entry_signal_type' | 'entry_signal_reason' | 'trigger_candle_low' | 'trigger_candle_high' | 'trigger_candle_open' | 'trigger_candle_close' | 'trigger_candle_time' | 'trigger_candle_timeframe'> = {},
+    metadata: Pick<Trade, 'strategy_label' | 'strategy_config' | 'entry_daily_change_pct' | 'entry_reason' | 'entry_signal_type' | 'entry_signal_reason' | 'entry_signal_snapshot' | 'trigger_candle_low' | 'trigger_candle_high' | 'trigger_candle_open' | 'trigger_candle_close' | 'trigger_candle_time' | 'trigger_candle_timeframe'> = {},
   ): Promise<ExecutionResult<Trade>> {
     const filters = this.marketFeed.getSymbolFilters(symbol);
 
@@ -924,7 +924,8 @@ export class OrderManagerService {
     
     try {
       // PERF: Fetch filters once and reuse across all filter operations
-      const filtered = this.applyFilters(symbol, entryPrice, qty, { cachedFilters: filters });
+      const requestedQty = qty;
+      let filtered = this.applyFilters(symbol, entryPrice, qty, { cachedFilters: filters });
       // SRE: Apply clampToPercentPrice up-front so we can reject entries where the SL is silently clamped,
       // which would destroy risk/reward multi-R strategies.
       const filteredSl = this.applyFilters(symbol, slPrice, qty, { skipNotionalCheck: true, clampToPercentPrice: true, cachedFilters: filters }).price;
@@ -957,9 +958,35 @@ export class OrderManagerService {
         return { status: ExecutionStatus.ORDER_REJECTED, error: `Symbol ${symbol} is not tradable in the current environment.` };
       }
 
+      if (qty <= 0 && requestedQty > 0 && metadata.strategy_config?.auto_scale_min_notional && Number(filters?.minNotional) > 0) {
+        const minNotional = Number(filters.minNotional);
+        const stepSize = Number(filters.stepSize) || 0;
+        const rawMinQty = (minNotional * 1.002) / entryPrice;
+        const scaledQty = stepSize > 0
+          ? roundEight(Math.ceil((rawMinQty - 1e-10) / stepSize) * stepSize)
+          : roundEight(rawMinQty);
+        const scaled = this.applyFilters(symbol, entryPrice, scaledQty, { cachedFilters: filters });
+        const balance = this.sessionState.getBalance(this.paperMode);
+        const intendedRiskUsdt = balance * ((metadata.strategy_config.risk_pct_per_trade ?? 1) / 100);
+        const scaledRiskUsdt = Math.abs(entryPrice - slPrice) * scaled.qty;
+        const overshootRatio = intendedRiskUsdt > 0 ? scaledRiskUsdt / intendedRiskUsdt : Infinity;
+        const maxOvershoot = metadata.strategy_config.auto_scale_max_overshoot ?? 3;
+
+        if (scaled.qty > 0 && overshootRatio <= maxOvershoot) {
+          this.logger.log(`[OrderManager] ${symbol}: Scaled quantity ${requestedQty} -> ${scaled.qty} for symbol MIN_NOTIONAL ${minNotional} (risk ${overshootRatio.toFixed(2)}x intended).`);
+          filtered = scaled;
+          qty = scaled.qty;
+        }
+      }
+
       if (qty <= 0) {
-        this.logger.warn(`${symbol}: Position size too small after LOT_SIZE filtering.`);
-        return { status: ExecutionStatus.ORDER_REJECTED, error: 'Position size too small after LOT_SIZE filtering.' };
+        const requestedNotional = requestedQty * entryPrice;
+        const minNotional = Number(filters?.minNotional) || 0;
+        const reason = minNotional > 0 && requestedNotional < minNotional
+          ? `Order notional ${requestedNotional.toFixed(4)} USDT is below ${symbol} MIN_NOTIONAL ${minNotional} after lot-step filtering; safe auto-scale was unavailable or exceeded the configured risk ceiling.`
+          : `Quantity ${requestedQty} became 0 after ${symbol} LOT_SIZE filtering (stepSize ${filters?.stepSize ?? 'unavailable'}, marketMinQty ${filters?.marketMinQty ?? 'unavailable'}).`;
+        this.logger.warn(`${symbol}: ${reason}`);
+        return { status: ExecutionStatus.ORDER_REJECTED, error: reason };
       }
 
       // SRE: Enforce MAX_OVERSHOOT after LOT_SIZE filtering step rounding
@@ -1017,6 +1044,7 @@ export class OrderManagerService {
         entry_signal_type: metadata.entry_signal_type || 'combo',
         entry_reason: metadata.entry_reason || metadata.entry_signal_reason,
         entry_signal_reason: metadata.entry_signal_reason || metadata.entry_reason,
+        entry_signal_snapshot: metadata.entry_signal_snapshot,
         entry_signal_confidence: 1.0,
         pnl: 0,
         realized_fee: 0,

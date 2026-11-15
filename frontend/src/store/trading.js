@@ -130,6 +130,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
                 remaining_delay: toNumber(s.remaining_delay),
                 config_delay: toNumber(s.config_delay),
                 insufficientData: !!s.insufficientData,
+                evaluated_at_ms: s.evaluated_at_ms ? toNumber(s.evaluated_at_ms) : undefined,
                 streak_start_ts: s.streak_start_ts ? toNumber(s.streak_start_ts) : undefined,
                 streak_end_ts: s.streak_end_ts ? toNumber(s.streak_end_ts) : undefined,
                 slPrice: s.slPrice ? toNumber(s.slPrice) : undefined,
@@ -163,7 +164,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const sigDetailsDigest = sig?.signals
     ? Object.keys(sig.signals).sort().map(key => {
         const detail = sig.signals[key];
-        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}`;
+        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}:${detail.evaluated_at_ms || 0}`;
       }).join('|')
     : '';
   const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}|${sigDetailsDigest}` : '';
@@ -250,6 +251,7 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
       qty: t.qty !== undefined ? toNumber(t.qty) : p.qty,
       exit_signals_status: sigStatus || p.exit_signals_status || {},
       strategy_config: t.strategy_config || p.strategy_config,
+      entry_signal_snapshot: t.entry_signal_snapshot || p.entry_signal_snapshot,
       live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence,
       exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence,
       sl_adjustments: t.sl_adjustments || p.sl_adjustments,
@@ -298,7 +300,7 @@ export const normalizeTrade = (t = {}, pt = null, isResuming = false) => {
   const rawMinRr = t.min_rr_achieved !== undefined ? toNumber(t.min_rr_achieved) : p.min_rr_achieved ?? 0;
   const min_rr_achieved = resolveNonZeroMetric(rawMinRr, p.min_rr_achieved ?? 0, isMetricResuming);
 
-  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl, pnl_pct: pnlPct, rr, max_rr, est_pnl_to_realize, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr, min_rr_achieved, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], active_trade_events: t.active_trade_events || p.active_trade_events || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: max_rr, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, exit_estimation: t.exit_estimation !== undefined ? t.exit_estimation : p.exit_estimation, _fingerprint: f, exit_ts_ms, entry_ts_ms };
+  return { ...t, symbol: t.symbol ?? p.symbol ?? '---', strategy_label: t.strategy_label ?? p.strategy_label ?? 'Momentum Strategy', direction: (t.direction ?? t.side ?? p.direction ?? '').toString().toUpperCase(), entry_price: ep, current_price: cp, sl_price: toNumber(t.sl_price ?? t.current_sl ?? t.sl ?? t.initial_sl ?? p.sl_price), initial_sl: toNumber(t.initial_sl ?? t.sl_price ?? t.sl ?? p.initial_sl), tp_price: t.tp_price == null && t.tp == null ? p.tp_price ?? null : toNumber(t.tp_price ?? t.tp), pnl, pnl_pct: pnlPct, rr, max_rr, est_pnl_to_realize, est_pnl_source: t.est_pnl_source ?? p.est_pnl_source ?? 'sl', exit_rr, min_rr_achieved, live_rr_sequence: t.live_rr_sequence || p.live_rr_sequence || [], exit_rr_sequence: t.exit_rr_sequence || p.exit_rr_sequence || [], tp_mode: t.tp_mode || p.tp_mode || (t.tp_price == null && t.tp == null ? 'exp_rr_seq' : 'fixed'), tp_ratio: (t.tp_ratio !== undefined) ? toNumber(t.tp_ratio, 2) : p.tp_ratio ?? 0, sl_adjustments: t.sl_adjustments || p.sl_adjustments || [], active_trade_events: t.active_trade_events || p.active_trade_events || [], exit_reason: t.exit_reason ?? p.exit_reason, exit_price: t.exit_price == null ? (p.exit_price == null ? undefined : toNumber(p.exit_price)) : toNumber(t.exit_price), paper_mode: t.paper_mode ?? p.paper_mode ?? true, qty: toNumber(t.qty ?? t.quantity ?? p.qty ?? 0), max_rr_achieved: max_rr, exit_signals_status: sigStatus || p.exit_signals_status || {}, strategy_config: t.strategy_config || p.strategy_config, entry_signal_snapshot: t.entry_signal_snapshot || p.entry_signal_snapshot, exit_estimation: t.exit_estimation !== undefined ? t.exit_estimation : p.exit_estimation, _fingerprint: f, exit_ts_ms, entry_ts_ms };
 }
 
 const deepMerge = (target, source) => {

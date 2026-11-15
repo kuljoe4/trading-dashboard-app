@@ -28,6 +28,7 @@ interface SignalDetail {
   mode?: string;
   expansion_pct?: number;
   max_expansion_pct?: number;
+  evaluated_at_ms?: number;
   [key: string]: any;
 }
 
@@ -264,6 +265,7 @@ export class SignalEngineService {
     passedCandles?: Candle[],
     trade?: any,
   ): { allFired: boolean; firedSignals: string[]; reason: string; details?: Record<string, SignalDetail> } {
+    const evaluatedAtMs = Date.now();
     // BOLT OPTIMIZATION: Dynamically select correct active signals depending on purpose.
     // Avoids requiring caller to clone the config object on every check.
     const activeSignals = purpose === 'exit'
@@ -328,6 +330,7 @@ export class SignalEngineService {
             metric: 'Warmup',
             description: 'Waiting for mathematical convergence',
             insufficientData: true,
+            evaluated_at_ms: evaluatedAtMs,
           }
         }
       };
@@ -387,7 +390,7 @@ export class SignalEngineService {
         else failedSignals.push(signalType);
 
         if (!minimal) {
-          if (typeof result !== 'boolean') details[signalType] = { ...result, metric: result.metric || baseSignalType };
+          if (typeof result !== 'boolean') details[signalType] = { ...result, metric: result.metric || baseSignalType, evaluated_at_ms: evaluatedAtMs };
         } else {
           // Early exit if logic is satisfied
           if (fired && logic === 'any') return { allFired: true, firedSignals: [], reason: 'minimal' };

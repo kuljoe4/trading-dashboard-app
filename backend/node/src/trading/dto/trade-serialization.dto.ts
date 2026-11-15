@@ -31,6 +31,7 @@ export interface TradeSerializationDto {
   signal_logic?: 'any' | 'all' | 'combo';
   exit_signal_logic?: 'any' | 'all' | 'combo';
   strategy_config?: Partial<SessionConfig>;
+  entry_signal_snapshot?: Record<string, any>;
   is_knife?: boolean;
   is_martingale?: boolean;
   is_reconciliation?: boolean;

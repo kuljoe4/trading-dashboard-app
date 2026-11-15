@@ -291,6 +291,7 @@ export function getStrategyRulesDiagnostics({
       thresholdText,
       status,
       reasonText,
+      freshnessTs: detail?.evaluated_at_ms || focusedOpp?.snapshotCapturedAt,
     });
   }
 

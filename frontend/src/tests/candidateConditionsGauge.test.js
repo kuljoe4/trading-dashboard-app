@@ -6,6 +6,8 @@ import {
   evaluateAntiWhipsawStatus,
   resolveDialZone,
   computeConditionMeter,
+  computeConditionValueDelta,
+  buildMacdFilterModel,
   buildHtfLadderModel,
   buildCandidateConditionsModel,
 } from '../utils/candidateConditions.js';
@@ -431,4 +433,153 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.strictEqual(frozenModel.conditions[0].evaluatedAtMs, snapshotCapturedAt);
     assert.strictEqual(frozenModel.conditions[1].evaluatedAtMs, 1700000005000);
   });
+
+  await t.test('computeConditionValueDelta highlights live value changes, directional arrows, and semantic tone classes', () => {
+    const prevCond = {
+      liveValue: 98.5,
+      liveText: '$98.50',
+      dialPct: 82,
+      rawDialPct: 82,
+      dialZone: 'near',
+      unit: '',
+      thresholdIsPrice: true,
+      stateLabel: 'NEAR',
+    };
+    const nextCondToward = {
+      liveValue: 99.75,
+      liveText: '$99.75',
+      dialPct: 95,
+      rawDialPct: 95,
+      dialZone: 'near',
+      unit: '',
+      thresholdIsPrice: true,
+      stateLabel: 'NEAR',
+    };
+
+    const deltaToward = computeConditionValueDelta(prevCond, nextCondToward);
+    assert.ok(deltaToward);
+    assert.strictEqual(deltaToward.changed, true);
+    assert.strictEqual(deltaToward.direction, 'toward');
+    assert.strictEqual(deltaToward.arrow, '▲');
+    assert.strictEqual(deltaToward.dialDelta, 13);
+    assert.strictEqual(deltaToward.toneClass, 'text-green');
+
+    const nextCondAway = {
+      liveValue: 97.2,
+      liveText: '$97.20',
+      dialPct: 68,
+      rawDialPct: 68,
+      dialZone: 'watching',
+      unit: '',
+      thresholdIsPrice: true,
+      stateLabel: 'WATCHING',
+    };
+
+    const deltaAway = computeConditionValueDelta(prevCond, nextCondAway);
+    assert.ok(deltaAway);
+    assert.strictEqual(deltaAway.direction, 'away');
+    assert.strictEqual(deltaAway.arrow, '▼');
+    assert.strictEqual(deltaAway.dialDelta, -14);
+    assert.strictEqual(deltaAway.toneClass, 'text-amber');
+
+    const nextCondOverCap = {
+      liveValue: 103.5,
+      liveText: '$103.50',
+      dialPct: 150,
+      rawDialPct: 165,
+      dialZone: 'blocked',
+      unit: '',
+      thresholdIsPrice: true,
+      stateLabel: 'REJECTED',
+    };
+
+    const deltaOver = computeConditionValueDelta(nextCondToward, nextCondOverCap);
+    assert.ok(deltaOver);
+    assert.strictEqual(deltaOver.direction, 'over');
+    assert.strictEqual(deltaOver.toneClass, 'text-red');
+
+    // Unchanged item returns null so unchanged widgets do not flash
+    assert.strictEqual(computeConditionValueDelta(prevCond, { ...prevCond }), null);
+
+    // MACD histogram change triggers delta even when primary EMA dialPct is unchanged
+    const prevWithMacd = {
+      ...prevCond,
+      macdFilter: { enabled: true, histogram: -0.0042, aligned: false },
+    };
+    const nextWithMacd = {
+      ...prevCond,
+      macdFilter: { enabled: true, histogram: 0.0018, aligned: true },
+    };
+    const macdDelta = computeConditionValueDelta(prevWithMacd, nextWithMacd);
+    assert.ok(macdDelta);
+    assert.strictEqual(macdDelta.histChanged, true);
+    assert.strictEqual(macdDelta.alignedChanged, true);
+    assert.strictEqual(macdDelta.histArrow, '▲');
+    assert.strictEqual(macdDelta.toneClass, 'text-green');
+  });
+
+  await t.test('buildMacdFilterModel visualizes EMA Dual MACD filter and standalone MACD signal sub-gates', () => {
+    const emaDualMacd = buildMacdFilterModel({
+      sigKey: 'ema_dual_cross',
+      signalDetail: {
+        fired: false,
+        rejected: true,
+        value: 105.2,
+        threshold: 104.8,
+        macd_filter: {
+          enabled: true,
+          mode: 'ema_filter',
+          fast: 12,
+          slow: 26,
+          signal: 9,
+          histogram: -0.0245,
+          prev_histogram: -0.031,
+          recent_hist: [-0.04, -0.035, -0.031, -0.0245],
+          aligned: false,
+          rejected: true,
+          expected_sign: 'positive',
+          expected_label: 'Green (+Hist)',
+          gates: [
+            { key: 'macd_hist', label: 'MACD(12/26/9) > 0 (Green)', passed: false, rejected: true, value: '-0.0245' },
+          ],
+        },
+      },
+      isLong: true,
+      isExit: false,
+    });
+
+    assert.ok(emaDualMacd);
+    assert.strictEqual(emaDualMacd.enabled, true);
+    assert.strictEqual(emaDualMacd.mode, 'ema_filter');
+    assert.strictEqual(emaDualMacd.rejected, true);
+    assert.strictEqual(emaDualMacd.aligned, false);
+    assert.strictEqual(emaDualMacd.recentHist.length, 4);
+    assert.strictEqual(emaDualMacd.gates.length, 1);
+
+    // Fallback synthesis when strategyConfig enables ema_dual_macd_filter
+    const fallbackEmaMacd = buildMacdFilterModel({
+      sigKey: 'ema_dual',
+      signalDetail: {
+        fired: false,
+        rejected: true,
+        description: 'Rejected by MACD (-0.015)',
+      },
+      strategyConfig: {
+        signal_params: {
+          ema_dual_macd_filter: true,
+          macd_fast: 12,
+          macd_slow: 26,
+          macd_signal: 9,
+        },
+      },
+      isLong: true,
+      isExit: false,
+    });
+    assert.ok(fallbackEmaMacd);
+    assert.strictEqual(fallbackEmaMacd.enabled, true);
+    assert.strictEqual(fallbackEmaMacd.rejected, true);
+    assert.strictEqual(fallbackEmaMacd.histogram, -0.015);
+  });
 });
+
+

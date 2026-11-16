@@ -656,12 +656,233 @@ export function computeConditionMeter({
     meterFillPct,
     targetTickPct: 75,
     meterState,
+    signedDelta,
+    pctDelta: Number.isFinite(pctDelta) ? pctDelta : null,
     deltaValueText,
     deltaPctText,
     meterReadout,
     dialPct,
     rawDialPct,
     ...zoneInfo,
+  };
+}
+
+function formatHistNumber(val) {
+  const n = Number(val);
+  if (!Number.isFinite(n)) return '---';
+  const sign = n > 0 ? '+' : n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  const decimals = abs >= 10 ? 2 : abs >= 1 ? 3 : abs >= 0.01 ? 4 : 6;
+  return `${sign}${abs.toFixed(decimals)}`;
+}
+
+/**
+ * Builds a normalized MACD Filter & Histogram telemetry model for:
+ * - EMA Dual variants (`ema_dual`, `ema_dual_cross`, `ema_dual_close`) when `ema_dual_macd_filter` is enabled
+ * - Standalone MACD signals (`macd_impulse`, `macd_pbc`, `macd_fade`)
+ */
+export function buildMacdFilterModel({
+  sigKey = '',
+  signalDetail = {},
+  strategyConfig = {},
+  isLong = true,
+  isExit = false,
+} = {}) {
+  const baseType = getBaseSignalType(sigKey);
+  const raw = signalDetail?.macd_filter;
+
+  if (raw && typeof raw === 'object' && raw.enabled !== false) {
+    const histNum = Number(raw.histogram);
+    const prevHistNum = Number(raw.prev_histogram);
+    const recentHist = Array.isArray(raw.recent_hist)
+      ? raw.recent_hist.map((v) => Number(v)).filter((v) => Number.isFinite(v))
+      : [];
+    const expectedSign = raw.expected_sign || (isExit ? (isLong ? 'negative' : 'positive') : (isLong ? 'positive' : 'negative'));
+    return {
+      enabled: true,
+      mode: raw.mode || (baseType.startsWith('macd_') ? baseType : 'ema_filter'),
+      fast: Number(raw.fast) || 12,
+      slow: Number(raw.slow) || 26,
+      signal: Number(raw.signal) || 9,
+      histogram: Number.isFinite(histNum) ? histNum : null,
+      prevHistogram: Number.isFinite(prevHistNum) ? prevHistNum : null,
+      histogramText: Number.isFinite(histNum) ? formatHistNumber(histNum) : '---',
+      recentHist,
+      aligned: Boolean(raw.aligned),
+      rejected: Boolean(raw.rejected || signalDetail?.rejected),
+      expectedSign,
+      expectedLabel: raw.expected_label || (expectedSign === 'negative' ? 'Red (-Hist)' : 'Green (+Hist)'),
+      gates: Array.isArray(raw.gates) ? raw.gates : [],
+    };
+  }
+
+  // Fallback synthesis when backend snapshot predates macd_filter payload
+  const params = strategyConfig?.signal_params || {};
+  const scopedParams = (params[sigKey] && typeof params[sigKey] === 'object')
+    ? params[sigKey]
+    : (params[baseType] && typeof params[baseType] === 'object' ? params[baseType] : {});
+  const resolveParam = (k, defVal) => (scopedParams[k] ?? params[k] ?? strategyConfig?.[k] ?? defVal);
+
+  const isEmaDual = baseType === 'ema_dual' || baseType === 'ema_dual_cross' || baseType === 'ema_dual_close';
+  const desc = String(signalDetail?.description || '');
+  const emaMacdEnabled = isEmaDual && (
+    resolveParam('ema_dual_macd_filter', false) === true ||
+    resolveParam('ema_dual_macd_filter', false) === 'true' ||
+    /rejected by macd/i.test(desc)
+  );
+
+  if (emaMacdEnabled) {
+    const fast = Number(resolveParam('macd_fast', 12)) || 12;
+    const slow = Number(resolveParam('macd_slow', 26)) || 26;
+    const sig = Number(resolveParam('macd_signal', 9)) || 9;
+    const expectPositive = isExit ? !isLong : isLong;
+    const rejectedByMacd = Boolean(signalDetail?.rejected && /macd/i.test(desc));
+    const matchHist = desc.match(/MACD(?: histogram)? \(([+-]?\d+(?:\.\d+)?)/i);
+    const parsedHist = matchHist ? Number(matchHist[1]) : null;
+    const aligned = parsedHist !== null
+      ? (expectPositive ? parsedHist > 0 : parsedHist < 0)
+      : Boolean(signalDetail?.fired);
+
+    return {
+      enabled: true,
+      mode: 'ema_filter',
+      fast,
+      slow,
+      signal: sig,
+      histogram: Number.isFinite(parsedHist) ? parsedHist : null,
+      prevHistogram: null,
+      histogramText: Number.isFinite(parsedHist) ? formatHistNumber(parsedHist) : (aligned ? (expectPositive ? '+Aligned' : '-Aligned') : 'Pending'),
+      recentHist: Number.isFinite(parsedHist) ? [parsedHist] : [],
+      aligned,
+      rejected: rejectedByMacd,
+      expectedSign: expectPositive ? 'positive' : 'negative',
+      expectedLabel: expectPositive ? 'Green (+Hist)' : 'Red (-Hist)',
+      gates: [
+        {
+          key: 'macd_hist',
+          label: `MACD(${fast}/${slow}/${sig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
+          passed: aligned,
+          rejected: rejectedByMacd,
+          value: Number.isFinite(parsedHist) ? formatHistNumber(parsedHist) : (rejectedByMacd ? 'Blocked' : aligned ? 'Aligned' : 'Waiting'),
+        },
+      ],
+    };
+  }
+
+  if (baseType === 'macd_impulse' || baseType === 'macd_pbc' || baseType === 'macd_fade') {
+    const fast = Number(resolveParam('macd_fast', 12)) || 12;
+    const slow = Number(resolveParam('macd_slow', 26)) || 26;
+    const sig = Number(resolveParam('macd_signal', 9)) || 9;
+    const valNum = Number(signalDetail?.value);
+    const threshNum = Number(signalDetail?.threshold);
+    const isHistUnit = baseType === 'macd_pbc' && signalDetail?.unit !== 'price' || baseType === 'macd_fade';
+    const histVal = isHistUnit && Number.isFinite(valNum) ? valNum : null;
+    const prevHistVal = isHistUnit && Number.isFinite(threshNum) ? threshNum : null;
+    const rejected = Boolean(signalDetail?.rejected || /rejected:/i.test(desc));
+    const fired = Boolean(signalDetail?.fired);
+    const expectedSign = isExit ? (isLong ? 'negative' : 'positive') : (isLong ? 'positive' : 'negative');
+
+    return {
+      enabled: true,
+      mode: baseType,
+      fast,
+      slow,
+      signal: sig,
+      histogram: histVal,
+      prevHistogram: prevHistVal,
+      histogramText: histVal !== null ? formatHistNumber(histVal) : (Number.isFinite(valNum) ? `${valNum}${signalDetail?.unit || ''}` : '---'),
+      recentHist: histVal !== null && prevHistVal !== null ? [prevHistVal, histVal] : (histVal !== null ? [histVal] : []),
+      aligned: fired,
+      rejected,
+      expectedSign,
+      expectedLabel: expectedSign === 'negative' ? 'Red (-Hist)' : 'Green (+Hist)',
+      gates: [],
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Computes real-time tick delta and directional color-coding between two consecutive evaluations
+ * of the same condition item so the UI can highlight what value is changing and whether it is
+ * moving toward the target, pulling back, or extending past the cap.
+ */
+export function computeConditionValueDelta(prevItem, currItem) {
+  if (!prevItem || !currItem) return null;
+
+  const prevVal = Number(prevItem.liveValue);
+  const currVal = Number(currItem.liveValue);
+  const hasNumeric = Number.isFinite(prevVal) && Number.isFinite(currVal);
+  const rawDiff = hasNumeric ? (currVal - prevVal) : 0;
+  const numericChanged = hasNumeric && Math.abs(rawDiff) > 1e-10;
+
+  const prevDial = Number(prevItem.rawDialPct ?? prevItem.dialPct ?? 0);
+  const currDial = Number(currItem.rawDialPct ?? currItem.dialPct ?? 0);
+  const dialDelta = Math.round(currDial - prevDial);
+
+  const prevHist = Number(prevItem.macdFilter?.histogram);
+  const currHist = Number(currItem.macdFilter?.histogram);
+  const hasHist = Number.isFinite(prevHist) && Number.isFinite(currHist);
+  const histDiff = hasHist ? (currHist - prevHist) : 0;
+  const histChanged = hasHist && Math.abs(histDiff) > 1e-10;
+  const alignedChanged = Boolean(prevItem.macdFilter && currItem.macdFilter && Boolean(prevItem.macdFilter.aligned) !== Boolean(currItem.macdFilter.aligned));
+
+  const textChanged = Boolean(prevItem.liveText && currItem.liveText && prevItem.liveText !== currItem.liveText);
+  const stateChanged = Boolean(prevItem.stateLabel && currItem.stateLabel && prevItem.stateLabel !== currItem.stateLabel);
+  const changed = numericChanged || textChanged || dialDelta !== 0 || stateChanged || histChanged || alignedChanged;
+
+  if (!changed) return null;
+
+  const arrow = numericChanged
+    ? (rawDiff > 0 ? '▲' : '▼')
+    : (dialDelta > 0 ? '▲' : dialDelta < 0 ? '▼' : (histChanged ? (histDiff > 0 ? '▲' : '▼') : ''));
+
+  const tickDeltaText = numericChanged
+    ? formatSignedDeltaValue(rawDiff, currItem.unit || '', Boolean(currItem.thresholdIsPrice))
+    : (dialDelta !== 0
+        ? `${dialDelta > 0 ? '+' : ''}${dialDelta}%`
+        : (histChanged ? formatHistNumber(histDiff) : ''));
+
+  const zone = currItem.dialZone || 'watching';
+  let direction = 'steady';
+  let toneClass = 'text-accent';
+  let flashBgClass = 'bg-accent/15 ring-1 ring-accent/40';
+
+  if (zone === 'blocked' || (currDial > 115 && dialDelta > 0)) {
+    direction = 'over';
+    toneClass = 'text-red';
+    flashBgClass = 'bg-red/15 ring-1 ring-red/40';
+  } else if (zone === 'stale' && dialDelta > 0) {
+    direction = 'over';
+    toneClass = 'text-amber';
+    flashBgClass = 'bg-amber/15 ring-1 ring-amber/40';
+  } else if (dialDelta > 0 || (numericChanged && currDial >= prevDial) || (histChanged && currItem.macdFilter?.aligned)) {
+    direction = 'toward';
+    toneClass = 'text-green';
+    flashBgClass = 'bg-green/15 ring-1 ring-green/40';
+  } else if (dialDelta < 0 || (numericChanged && currDial < prevDial) || (histChanged && !currItem.macdFilter?.aligned)) {
+    direction = 'away';
+    toneClass = 'text-amber';
+    flashBgClass = 'bg-amber/15 ring-1 ring-amber/40';
+  }
+
+  return {
+    changed: true,
+    numericChanged,
+    stateChanged,
+    histChanged,
+    histDiff,
+    histArrow: histChanged ? (histDiff > 0 ? '▲' : '▼') : '',
+    histDeltaText: histChanged ? formatHistNumber(histDiff) : '',
+    alignedChanged,
+    direction,
+    arrow,
+    rawDiff,
+    dialDelta,
+    tickDeltaText,
+    toneClass,
+    flashBgClass,
   };
 }
 
@@ -798,12 +1019,25 @@ export function buildCandidateConditionsModel({
                 ? (requiredExit.includes(sigKey) ? 'REQ' : 'OPT')
                 : 'OR'));
 
+      const macdFilter = buildMacdFilterModel({
+        sigKey,
+        signalDetail: s,
+        strategyConfig: tradeCfg,
+        isLong,
+        isExit: true,
+      });
+
       return {
         key: sigKey,
         connector,
         label: asText(s.label, formatSignalLabel(sigKey)),
         timeframe: tf,
         paramsText,
+        macdFilter,
+        liveValue: !s.insufficientData && Number.isFinite(Number(s.value)) ? Number(s.value) : null,
+        targetValue: Number.isFinite(Number(s.threshold)) ? Number(s.threshold) : null,
+        unit: s.unit || '',
+        thresholdIsPrice: Boolean(s.threshold_is_price || s.thresholdIsPrice),
         liveText: s.insufficientData ? '---' : formatCompactValue(s.value, s.unit, s.threshold_is_price),
         targetText: formatCompactValue(s.threshold, s.unit, s.threshold_is_price),
         proximity,
@@ -934,6 +1168,10 @@ export function buildCandidateConditionsModel({
     label: 'Scanner',
     timeframe: scanTf,
     paramsText: `±${scanThreshold.toFixed(2)}% · ${scanLookback}b · ${allowedSide.toUpperCase()}`,
+    liveValue: symbol === '---' ? null : rawPct,
+    targetValue: scanThreshold,
+    unit: '%',
+    thresholdIsPrice: false,
     liveText: signedPctText,
     targetText: `±${scanThreshold.toFixed(2)}%`,
     proximity: velocityProximity,
@@ -1062,14 +1300,27 @@ export function buildCandidateConditionsModel({
           ? (requiredSignals.includes(sigKey) ? 'REQ' : 'OPT')
           : 'AND');
 
+    const macdFilter = buildMacdFilterModel({
+      sigKey,
+      signalDetail: s,
+      strategyConfig,
+      isLong,
+      isExit: false,
+    });
+
     return {
       key: sigKey,
       connector,
       visualization: ladder ? 'ladder' : 'dial',
       ladder,
+      macdFilter,
       label: asText(s.label, formatSignalLabel(sigKey)),
       timeframe: tf,
       paramsText,
+      liveValue: !isWarming && Number.isFinite(Number(effectiveValue)) ? Number(effectiveValue) : null,
+      targetValue: Number.isFinite(Number(effectiveThreshold)) ? Number(effectiveThreshold) : null,
+      unit: s.unit || '',
+      thresholdIsPrice: effectiveThresholdIsPrice,
       liveText: isWarming ? '---' : formatCompactValue(effectiveValue, s.unit, effectiveThresholdIsPrice),
       targetText: formatCompactValue(effectiveThreshold, s.unit, effectiveThresholdIsPrice),
       proximity: prox,

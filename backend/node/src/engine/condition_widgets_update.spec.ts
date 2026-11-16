@@ -7,6 +7,7 @@ import { KlineStoreService } from './kline_store.service';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { OrderManagerService } from './orderManager';
 import { scannerResultsFingerprint, scannerVariantsFingerprint } from './scanner-fingerprint';
+import { SignalEngineService } from './signalEngine';
 import { SessionConfig } from '../models/SessionConfig';
 import { Trade } from '../models/Trade';
 
@@ -99,13 +100,10 @@ describe('Condition Widgets Live Update & Broadcast Fidelity (Railway Host)', ()
 
       const serialized = broadcaster.serializeTickTrade(
         trade as Trade,
+        config,
         102,
         2,
         0.4,
-        config,
-        undefined,
-        0,
-        'NONE',
       );
 
       expect(JSON.parse(serialized._sig_json!).rsi_overbought.value).toBe(64.2);
@@ -148,13 +146,10 @@ describe('Condition Widgets Live Update & Broadcast Fidelity (Railway Host)', ()
 
       const serialized = broadcaster.serializeTickTrade(
         trade as Trade,
+        config,
         104,
         4,
         0.8,
-        config,
-        undefined,
-        0,
-        'NONE',
       );
       expect(JSON.parse(serialized._sig_json!).rsi_overbought.value).toBe(68.5);
     });
@@ -279,4 +274,66 @@ describe('Condition Widgets Live Update & Broadcast Fidelity (Railway Host)', ()
       expect(fp1).not.toBe(fp2);
     });
   });
+
+  describe('5. SignalEngineService MACD Filter & Sub-Gate Telemetry', () => {
+    it('emits live macd_filter telemetry on ema_dual_cross, macd_impulse, macd_pbc, and macd_fade', () => {
+      const prices = Array(100).fill(100);
+      for (let i = 60; i < 98; i++) {
+        prices[i] = 100 - (i - 60) * 0.5;
+      }
+      prices[98] = 82;
+      prices[99] = 83;
+
+      const candles = prices.map((price, i) => ({
+        time: i * 60000,
+        open: price - 0.5,
+        high: price + 1,
+        low: price - 1,
+        close: price,
+        volume: 1000,
+        isCompleted: true,
+      }));
+
+      const mockKlineStore = {
+        getRawCandles: jest.fn().mockReturnValue(candles),
+        getLookbackExtremes: jest.fn(),
+      };
+      const signalEngine = new SignalEngineService(mockKlineStore as any);
+
+      const config = new SessionConfig();
+      config.enabled_signals = ['ema_dual_cross', 'macd_impulse', 'macd_pbc', 'macd_fade'];
+      config.signal_params = {
+        entry_ema_fast: 9,
+        entry_ema_slow: 21,
+        ema_dual_macd_filter: true,
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+        macd_strict_expansion: true,
+        macd_pbc_trend_ema: 50,
+        macd_pbc_lookback: 5,
+      };
+
+      const res = signalEngine.checkEntry('BTCUSDT', config, '1m', 'LONG', 'entry');
+      const d = res.details as any;
+
+      expect(d.ema_dual_cross?.macd_filter).toBeDefined();
+      expect(d.ema_dual_cross.macd_filter.mode).toBe('ema_filter');
+      expect(typeof d.ema_dual_cross.macd_filter.histogram).toBe('number');
+      expect(d.ema_dual_cross.macd_filter.recent_hist.length).toBeGreaterThan(0);
+
+      expect(d.macd_impulse?.macd_filter).toBeDefined();
+      expect(d.macd_impulse.macd_filter.mode).toBe('macd_impulse');
+      expect(d.macd_impulse.macd_filter.gates.length).toBe(3);
+
+      expect(d.macd_pbc?.macd_filter).toBeDefined();
+      expect(d.macd_pbc.macd_filter.mode).toBe('macd_pbc');
+      expect(d.macd_pbc.macd_filter.gates.length).toBe(4);
+
+      expect(d.macd_fade?.macd_filter).toBeDefined();
+      expect(d.macd_fade.macd_filter.mode).toBe('macd_fade');
+      expect(d.macd_fade.macd_filter.gates.length).toBe(2);
+    });
+  });
 });
+

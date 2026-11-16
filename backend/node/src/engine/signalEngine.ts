@@ -973,32 +973,66 @@ export class SignalEngineService {
       const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'ema_dual_macd_filter', false);
       let macdRejected = false;
       let macdHistValue = 0;
+      let macdFilterMeta: any = undefined;
 
-      if (fired && (macdFilter === true || macdFilter === 'true')) {
+      if ((fired || !minimal) && (macdFilter === true || macdFilter === 'true')) {
         const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'macd_fast', '12')), 10);
         const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'macd_slow', '26')), 10);
         const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual', 'macd_signal', '9')), 10);
 
-        const macdRes = this.calculateMACDLast(candles, mFast, mSlow, mSig, symbol, interval, 0);
-        if (!macdRes.insufficientData) {
-          macdHistValue = macdRes.histogram;
+        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
+        if (!macdRes.insufficientData && macdRes.histogram.length > 0) {
+          const idx = macdRes.histogram.length - 1;
+          macdHistValue = macdRes.histogram[idx];
+          const prevHistVal = idx >= 1 ? macdRes.histogram[idx - 1] : 0;
           const isExit = purpose === 'exit';
-          if (!isExit) {
-            if (side === 'SHORT' && macdHistValue >= 0) {
-              fired = false;
-              macdRejected = true;
-            } else if (side === 'LONG' && macdHistValue <= 0) {
-              fired = false;
-              macdRejected = true;
+          const expectPositive = isExit ? side === 'SHORT' : side !== 'SHORT';
+          const isMacdAligned = expectPositive ? macdHistValue > 0 : macdHistValue < 0;
+
+          if (fired) {
+            if (!isExit) {
+              if (side === 'SHORT' && macdHistValue >= 0) {
+                fired = false;
+                macdRejected = true;
+              } else if (side === 'LONG' && macdHistValue <= 0) {
+                fired = false;
+                macdRejected = true;
+              }
+            } else {
+              if (side === 'SHORT' && macdHistValue <= 0) {
+                fired = false;
+                macdRejected = true;
+              } else if (side === 'LONG' && macdHistValue >= 0) {
+                fired = false;
+                macdRejected = true;
+              }
             }
-          } else {
-            if (side === 'SHORT' && macdHistValue <= 0) {
-              fired = false;
-              macdRejected = true;
-            } else if (side === 'LONG' && macdHistValue >= 0) {
-              fired = false;
-              macdRejected = true;
-            }
+          }
+
+          if (!minimal) {
+            macdFilterMeta = {
+              enabled: true,
+              mode: 'ema_filter',
+              fast: mFast,
+              slow: mSlow,
+              signal: mSig,
+              histogram: roundTo(macdHistValue, 8),
+              prev_histogram: roundTo(prevHistVal, 8),
+              recent_hist: macdRes.histogram.slice(Math.max(0, idx - 5), idx + 1).map((v) => roundTo(v, 8)),
+              aligned: isMacdAligned,
+              rejected: macdRejected,
+              expected_sign: expectPositive ? 'positive' : 'negative',
+              expected_label: expectPositive ? 'Green (+Hist)' : 'Red (-Hist)',
+              gates: [
+                {
+                  key: 'macd_hist',
+                  label: `MACD(${mFast}/${mSlow}/${mSig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
+                  passed: isMacdAligned,
+                  rejected: macdRejected,
+                  value: `${macdHistValue >= 0 ? '+' : ''}${roundTo(macdHistValue, 6)}`,
+                },
+              ],
+            };
           }
         }
       }
@@ -1007,12 +1041,15 @@ export class SignalEngineService {
 
       return {
         fired,
+        status: fired ? 'fired' : macdRejected ? 'blocked' : 'approaching',
+        rejected: macdRejected,
         value: currFast,
         threshold: currSlow,
         unit: 'price',
         metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
         description: macdRejected ? `Rejected by MACD (${macdHistValue.toFixed(2)})` : `Fast (${fastPeriod}): ${currFast.toFixed(2)}, Slow (${slowPeriod}): ${currSlow.toFixed(2)}`,
         threshold_is_price: true,
+        ...(macdFilterMeta ? { macd_filter: macdFilterMeta } : {}),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -1093,32 +1130,66 @@ export class SignalEngineService {
       const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'ema_dual_macd_filter', false);
       let macdRejected = false;
       let macdHistValue = 0;
+      let macdFilterMeta: any = undefined;
 
-      if (fired && (macdFilter === true || macdFilter === 'true')) {
+      if ((fired || !minimal) && (macdFilter === true || macdFilter === 'true')) {
         const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_fast', '12')), 10);
         const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_slow', '26')), 10);
         const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_cross', 'macd_signal', '9')), 10);
 
-        const macdRes = this.calculateMACDLast(candles, mFast, mSlow, mSig, symbol, interval, 0);
-        if (!macdRes.insufficientData) {
-          macdHistValue = macdRes.histogram;
+        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
+        if (!macdRes.insufficientData && macdRes.histogram.length > 0) {
+          const idx = macdRes.histogram.length - 1;
+          macdHistValue = macdRes.histogram[idx];
+          const prevHistVal = idx >= 1 ? macdRes.histogram[idx - 1] : 0;
           const isExit = purpose === 'exit';
-          if (!isExit) {
-            if (side === 'SHORT' && macdHistValue >= 0) {
-              fired = false;
-              macdRejected = true;
-            } else if (side === 'LONG' && macdHistValue <= 0) {
-              fired = false;
-              macdRejected = true;
+          const expectPositive = isExit ? side === 'SHORT' : side !== 'SHORT';
+          const isMacdAligned = expectPositive ? macdHistValue > 0 : macdHistValue < 0;
+
+          if (fired) {
+            if (!isExit) {
+              if (side === 'SHORT' && macdHistValue >= 0) {
+                fired = false;
+                macdRejected = true;
+              } else if (side === 'LONG' && macdHistValue <= 0) {
+                fired = false;
+                macdRejected = true;
+              }
+            } else {
+              if (side === 'SHORT' && macdHistValue <= 0) {
+                fired = false;
+                macdRejected = true;
+              } else if (side === 'LONG' && macdHistValue >= 0) {
+                fired = false;
+                macdRejected = true;
+              }
             }
-          } else {
-            if (side === 'SHORT' && macdHistValue <= 0) {
-              fired = false;
-              macdRejected = true;
-            } else if (side === 'LONG' && macdHistValue >= 0) {
-              fired = false;
-              macdRejected = true;
-            }
+          }
+
+          if (!minimal) {
+            macdFilterMeta = {
+              enabled: true,
+              mode: 'ema_filter',
+              fast: mFast,
+              slow: mSlow,
+              signal: mSig,
+              histogram: roundTo(macdHistValue, 8),
+              prev_histogram: roundTo(prevHistVal, 8),
+              recent_hist: macdRes.histogram.slice(Math.max(0, idx - 5), idx + 1).map((v) => roundTo(v, 8)),
+              aligned: isMacdAligned,
+              rejected: macdRejected,
+              expected_sign: expectPositive ? 'positive' : 'negative',
+              expected_label: expectPositive ? 'Green (+Hist)' : 'Red (-Hist)',
+              gates: [
+                {
+                  key: 'macd_hist',
+                  label: `MACD(${mFast}/${mSlow}/${mSig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
+                  passed: isMacdAligned,
+                  rejected: macdRejected,
+                  value: `${macdHistValue >= 0 ? '+' : ''}${roundTo(macdHistValue, 6)}`,
+                },
+              ],
+            };
           }
         }
       }
@@ -1158,6 +1229,7 @@ export class SignalEngineService {
         threshold_is_price: true,
         slPrice: roundTo(currSlow, 8),
         rejected: macdRejected,
+        ...(macdFilterMeta ? { macd_filter: macdFilterMeta } : {}),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Cross signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -1248,32 +1320,66 @@ export class SignalEngineService {
       const macdFilter = this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'ema_dual_macd_filter', false);
       let macdRejected = false;
       let macdHistValue = 0;
+      let macdFilterMeta: any = undefined;
 
-      if (fired && (macdFilter === true || macdFilter === 'true')) {
+      if ((fired || !minimal) && (macdFilter === true || macdFilter === 'true')) {
         const mFast = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_fast', '12')), 10);
         const mSlow = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_slow', '26')), 10);
         const mSig = parseInt(String(this.resolveSignalParam(params, signalTypeKey, 'ema_dual_close', 'macd_signal', '9')), 10);
 
-        const macdRes = this.calculateMACDLast(candles, mFast, mSlow, mSig, symbol, interval, 1);
-        if (!macdRes.insufficientData) {
-          macdHistValue = macdRes.histogram;
+        const macdRes = this.calculateMACD(candles, mFast, mSlow, mSig, symbol, interval);
+        if (!macdRes.insufficientData && macdRes.histogram.length > 1) {
+          const idx = macdRes.histogram.length - 2; // Last completed candle
+          macdHistValue = macdRes.histogram[idx];
+          const prevHistVal = idx >= 1 ? macdRes.histogram[idx - 1] : 0;
           const isExit = purpose === 'exit';
-          if (!isExit) {
-            if (side === 'SHORT' && macdHistValue >= 0) {
-              fired = false;
-              macdRejected = true;
-            } else if (side === 'LONG' && macdHistValue <= 0) {
-              fired = false;
-              macdRejected = true;
+          const expectPositive = isExit ? side === 'SHORT' : side !== 'SHORT';
+          const isMacdAligned = expectPositive ? macdHistValue > 0 : macdHistValue < 0;
+
+          if (fired) {
+            if (!isExit) {
+              if (side === 'SHORT' && macdHistValue >= 0) {
+                fired = false;
+                macdRejected = true;
+              } else if (side === 'LONG' && macdHistValue <= 0) {
+                fired = false;
+                macdRejected = true;
+              }
+            } else {
+              if (side === 'SHORT' && macdHistValue <= 0) {
+                fired = false;
+                macdRejected = true;
+              } else if (side === 'LONG' && macdHistValue >= 0) {
+                fired = false;
+                macdRejected = true;
+              }
             }
-          } else {
-            if (side === 'SHORT' && macdHistValue <= 0) {
-              fired = false;
-              macdRejected = true;
-            } else if (side === 'LONG' && macdHistValue >= 0) {
-              fired = false;
-              macdRejected = true;
-            }
+          }
+
+          if (!minimal) {
+            macdFilterMeta = {
+              enabled: true,
+              mode: 'ema_filter',
+              fast: mFast,
+              slow: mSlow,
+              signal: mSig,
+              histogram: roundTo(macdHistValue, 8),
+              prev_histogram: roundTo(prevHistVal, 8),
+              recent_hist: macdRes.histogram.slice(Math.max(0, idx - 5), idx + 1).map((v) => roundTo(v, 8)),
+              aligned: isMacdAligned,
+              rejected: macdRejected,
+              expected_sign: expectPositive ? 'positive' : 'negative',
+              expected_label: expectPositive ? 'Green (+Hist)' : 'Red (-Hist)',
+              gates: [
+                {
+                  key: 'macd_hist',
+                  label: `MACD(${mFast}/${mSlow}/${mSig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
+                  passed: isMacdAligned,
+                  rejected: macdRejected,
+                  value: `${macdHistValue >= 0 ? '+' : ''}${roundTo(macdHistValue, 6)}`,
+                },
+              ],
+            };
           }
         }
       }
@@ -1290,6 +1396,7 @@ export class SignalEngineService {
 
       return {
         fired,
+        status: fired ? 'fired' : macdRejected ? 'blocked' : 'approaching',
         value: roundTo(completedClose, 8),
         threshold: roundTo(threshold, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
@@ -1301,6 +1408,7 @@ export class SignalEngineService {
         rejected: macdRejected,
         prevFast: roundTo(prevFast, 8),
         prevSlow: roundTo(prevSlow, 8),
+        ...(macdFilterMeta ? { macd_filter: macdFilterMeta } : {}),
       };
     } catch (error) {
       this.logger.debug(`EMA Dual Close signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -1898,13 +2006,19 @@ export class SignalEngineService {
       }
 
       const currHist = histogram[histogram.length - 1];
+      const prevHist = histogram[histogram.length - 2] ?? 0;
+      const recentHist = histogram.slice(-6).map((v) => roundTo(v, 8));
 
       let fired = false;
       let count = 0;
       let description = '';
+      let rejected = false;
+      let strictExpansionPassed = !strictExpansion;
+      let strictRefHist = prevHist;
 
       if (side === 'LONG') {
         if (currHist <= 0) {
+          if (minimal) return false;
           return {
             fired: false,
             value: 0,
@@ -1912,6 +2026,44 @@ export class SignalEngineService {
             unit: 'bars',
             metric: 'MACD Impulse',
             description: `Histogram is not bullish (Green) | Value: ${roundTo(currHist, 8)}`,
+            macd_filter: {
+              enabled: true,
+              mode: 'macd_impulse',
+              fast: fastPeriod,
+              slow: slowPeriod,
+              signal: signalPeriod,
+              histogram: roundTo(currHist, 8),
+              prev_histogram: roundTo(prevHist, 8),
+              recent_hist: recentHist,
+              aligned: false,
+              rejected: false,
+              expected_sign: 'positive',
+              expected_label: 'Green (+Hist)',
+              gates: [
+                {
+                  key: 'hist_color',
+                  label: 'Hist > 0 (Green)',
+                  passed: false,
+                  value: `${currHist >= 0 ? '+' : ''}${roundTo(currHist, 6)}`,
+                },
+                {
+                  key: 'bar_window',
+                  label: 'Window (1–2 bars)',
+                  passed: false,
+                  value: '0 / 2 bars',
+                },
+                ...(strictExpansion
+                  ? [
+                      {
+                        key: 'strict_expansion',
+                        label: 'Strict Expansion',
+                        passed: false,
+                        value: 'Awaiting +Hist',
+                      },
+                    ]
+                  : []),
+              ],
+            },
           };
         }
 
@@ -1929,24 +2081,32 @@ export class SignalEngineService {
           if (strictExpansion) {
             if (count === 1) {
               const prevRed = idx >= 0 ? histogram[idx] : 0;
-              if (currHist <= Math.abs(prevRed)) {
+              strictRefHist = prevRed;
+              strictExpansionPassed = currHist > Math.abs(prevRed);
+              if (!strictExpansionPassed) {
                 fired = false;
+                rejected = true;
                 description = `Rejected: Green #1 (${roundTo(currHist, 8)}) is not strictly expanding over previous Red (${roundTo(prevRed, 8)})`;
               }
             } else { // count === 2
               const prevGreen = histogram[histogram.length - 2];
-              if (currHist <= prevGreen) {
+              strictRefHist = prevGreen;
+              strictExpansionPassed = currHist > prevGreen;
+              if (!strictExpansionPassed) {
                 fired = false;
+                rejected = true;
                 description = `Rejected: Green #2 (${roundTo(currHist, 8)}) is not expanding over Green #1 (${roundTo(prevGreen, 8)})`;
               }
             }
           }
         } else {
           fired = false;
+          rejected = count > 2;
           description = `Rejected: Green bar count is ${count} (Entry Window: 1-2)`;
         }
       } else if (side === 'SHORT') {
         if (currHist >= 0) {
+          if (minimal) return false;
           return {
             fired: false,
             value: 0,
@@ -1954,6 +2114,44 @@ export class SignalEngineService {
             unit: 'bars',
             metric: 'MACD Impulse',
             description: `Histogram is not bearish (Red) | Value: ${roundTo(currHist, 8)}`,
+            macd_filter: {
+              enabled: true,
+              mode: 'macd_impulse',
+              fast: fastPeriod,
+              slow: slowPeriod,
+              signal: signalPeriod,
+              histogram: roundTo(currHist, 8),
+              prev_histogram: roundTo(prevHist, 8),
+              recent_hist: recentHist,
+              aligned: false,
+              rejected: false,
+              expected_sign: 'negative',
+              expected_label: 'Red (-Hist)',
+              gates: [
+                {
+                  key: 'hist_color',
+                  label: 'Hist < 0 (Red)',
+                  passed: false,
+                  value: `${currHist >= 0 ? '+' : ''}${roundTo(currHist, 6)}`,
+                },
+                {
+                  key: 'bar_window',
+                  label: 'Window (1–2 bars)',
+                  passed: false,
+                  value: '0 / 2 bars',
+                },
+                ...(strictExpansion
+                  ? [
+                      {
+                        key: 'strict_expansion',
+                        label: 'Strict Expansion',
+                        passed: false,
+                        value: 'Awaiting -Hist',
+                      },
+                    ]
+                  : []),
+              ],
+            },
           };
         }
 
@@ -1971,34 +2169,86 @@ export class SignalEngineService {
           if (strictExpansion) {
             if (count === 1) {
               const prevGreen = idx >= 0 ? histogram[idx] : 0;
-              if (Math.abs(currHist) <= Math.abs(prevGreen)) {
+              strictRefHist = prevGreen;
+              strictExpansionPassed = Math.abs(currHist) > Math.abs(prevGreen);
+              if (!strictExpansionPassed) {
                 fired = false;
+                rejected = true;
                 description = `Rejected: Red #1 (${roundTo(currHist, 8)}) is not strictly expanding over previous Green (${roundTo(prevGreen, 8)})`;
               }
             } else { // count === 2
               const prevRed = histogram[histogram.length - 2];
-              if (Math.abs(currHist) <= Math.abs(prevRed)) {
+              strictRefHist = prevRed;
+              strictExpansionPassed = Math.abs(currHist) > Math.abs(prevRed);
+              if (!strictExpansionPassed) {
                 fired = false;
+                rejected = true;
                 description = `Rejected: Red #2 (${roundTo(currHist, 8)}) is not expanding over Red #1 (${roundTo(prevRed, 8)})`;
               }
             }
           }
         } else {
           fired = false;
+          rejected = count > 2;
           description = `Rejected: Red bar count is ${count} (Entry Window: 1-2)`;
         }
       }
 
       if (minimal) return fired;
 
+      const isAlignedColor = side === 'SHORT' ? currHist < 0 : currHist > 0;
+      const windowPassed = count >= 1 && count <= 2;
+
       return {
         fired,
+        rejected,
+        status: fired ? 'fired' : rejected ? 'blocked' : 'approaching',
         value: count,
         threshold: 2,
         insufficientData,
         unit: 'bars',
         metric: 'MACD Impulse',
         description,
+        macd_filter: {
+          enabled: true,
+          mode: 'macd_impulse',
+          fast: fastPeriod,
+          slow: slowPeriod,
+          signal: signalPeriod,
+          histogram: roundTo(currHist, 8),
+          prev_histogram: roundTo(prevHist, 8),
+          recent_hist: recentHist,
+          aligned: fired,
+          rejected,
+          expected_sign: side === 'SHORT' ? 'negative' : 'positive',
+          expected_label: side === 'SHORT' ? 'Red (-Hist)' : 'Green (+Hist)',
+          gates: [
+            {
+              key: 'hist_color',
+              label: side === 'SHORT' ? 'Hist < 0 (Red)' : 'Hist > 0 (Green)',
+              passed: isAlignedColor,
+              value: `${currHist >= 0 ? '+' : ''}${roundTo(currHist, 6)}`,
+            },
+            {
+              key: 'bar_window',
+              label: 'Window (1–2 bars)',
+              passed: windowPassed,
+              rejected: count > 2,
+              value: `Bar #${count} / 2`,
+            },
+            ...(strictExpansion
+              ? [
+                  {
+                    key: 'strict_expansion',
+                    label: 'Strict Expansion',
+                    passed: windowPassed && strictExpansionPassed,
+                    rejected: windowPassed && !strictExpansionPassed,
+                    value: `${roundTo(Math.abs(currHist), 5)} vs ${roundTo(Math.abs(strictRefHist), 5)}`,
+                  },
+                ]
+              : []),
+          ],
+        },
       };
     } catch (error) {
       this.logger.debug(`MACD Impulse signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -2062,26 +2312,73 @@ export class SignalEngineService {
 
       // Ensure trend direction matches requested entry side
       const isBullishTrend = currentCandle.close > trendEma;
-      if (side === 'LONG' && !isBullishTrend) {
+      const trendAligned = side === 'SHORT' ? !isBullishTrend : isBullishTrend;
+
+      if ((side === 'LONG' && !isBullishTrend) || (side === 'SHORT' && isBullishTrend)) {
+        if (minimal) return false;
+        const { histogram: earlyHist } = this.calculateMACD(
+          candles,
+          fastPeriod,
+          slowPeriod,
+          signalPeriod,
+          symbol,
+          interval,
+        );
+        const eLen = earlyHist.length;
+        const eCurrHist = eLen > 0 ? earlyHist[eLen - 1] : 0;
+        const ePrevHist = eLen > 1 ? earlyHist[eLen - 2] : 0;
+        const eSlopeExpanding = side === 'SHORT' ? eCurrHist < ePrevHist : eCurrHist > ePrevHist;
         return {
           fired: false,
           value: roundTo(currentCandle.close, 8),
           threshold: roundTo(trendEma, 8),
           unit: 'price',
           metric: 'MACD PBC',
-          description: `Price (${currentCandle.close}) is below Trend EMA(${trendEmaPeriod}) (${trendEma.toFixed(4)})`,
+          description:
+            side === 'LONG'
+              ? `Price (${currentCandle.close}) is below Trend EMA(${trendEmaPeriod}) (${trendEma.toFixed(4)})`
+              : `Price (${currentCandle.close}) is above Trend EMA(${trendEmaPeriod}) (${trendEma.toFixed(4)})`,
           threshold_is_price: true,
-        };
-      }
-      if (side === 'SHORT' && isBullishTrend) {
-        return {
-          fired: false,
-          value: roundTo(currentCandle.close, 8),
-          threshold: roundTo(trendEma, 8),
-          unit: 'price',
-          metric: 'MACD PBC',
-          description: `Price (${currentCandle.close}) is above Trend EMA(${trendEmaPeriod}) (${trendEma.toFixed(4)})`,
-          threshold_is_price: true,
+          macd_filter: {
+            enabled: true,
+            mode: 'macd_pbc',
+            fast: fastPeriod,
+            slow: slowPeriod,
+            signal: signalPeriod,
+            histogram: roundTo(eCurrHist, 8),
+            prev_histogram: roundTo(ePrevHist, 8),
+            recent_hist: earlyHist.slice(-6).map((v) => roundTo(v, 8)),
+            aligned: false,
+            rejected: false,
+            expected_sign: side === 'SHORT' ? 'negative' : 'positive',
+            expected_label: side === 'SHORT' ? 'Expanding -Slope' : 'Expanding +Slope',
+            gates: [
+              {
+                key: 'trend_ema',
+                label: `Trend EMA(${trendEmaPeriod})`,
+                passed: false,
+                value: `${roundTo(currentCandle.close, 4)} vs ${roundTo(trendEma, 4)}`,
+              },
+              {
+                key: 'pullback',
+                label: `Pullback (${lookbackWindow}b)`,
+                passed: false,
+                value: 'Blocked by Trend',
+              },
+              {
+                key: 'slope',
+                label: side === 'SHORT' ? 'Slope (< Prev)' : 'Slope (> Prev)',
+                passed: eSlopeExpanding,
+                value: `${roundTo(ePrevHist, 5)} → ${roundTo(eCurrHist, 5)}`,
+              },
+              {
+                key: 'cont_window',
+                label: `Window (1–${maxContinuation}b)`,
+                passed: false,
+                value: `0 / ${maxContinuation}`,
+              },
+            ],
+          },
         };
       }
 
@@ -2098,9 +2395,10 @@ export class SignalEngineService {
       const hLen = histogram.length;
       const currHist = histogram[hLen - 1];
       const prevHist = histogram[hLen - 2];
-      const prevPrevHist = histogram[hLen - 3];
 
       let fired = false;
+      let rejected = false;
+      let continuationCount = 0;
       let description = '';
       let slPrice = 0;
 
@@ -2135,11 +2433,12 @@ export class SignalEngineService {
         }
       }
 
+      const slopeExpanding = side === 'SHORT' ? currHist < prevHist : currHist > prevHist;
+
       if (side === 'LONG') {
         const isExpandingPositive = currHist > prevHist;
 
         if (isExpandingPositive && hadPullback) {
-          let continuationCount = 0;
           let idx = hLen - 1;
           while (idx >= 1 && histogram[idx] > histogram[idx - 1]) {
             continuationCount++;
@@ -2148,6 +2447,7 @@ export class SignalEngineService {
 
           if (purpose !== 'exit' && continuationCount > maxContinuation) {
             fired = false;
+            rejected = true;
             description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-${maxContinuation})`;
           } else {
             fired = true;
@@ -2162,7 +2462,6 @@ export class SignalEngineService {
         const isExpandingNegative = currHist < prevHist;
 
         if (isExpandingNegative && hadPullback) {
-          let continuationCount = 0;
           let idx = hLen - 1;
           while (idx >= 1 && histogram[idx] < histogram[idx - 1]) {
             continuationCount++;
@@ -2171,6 +2470,7 @@ export class SignalEngineService {
 
           if (purpose !== 'exit' && continuationCount > maxContinuation) {
             fired = false;
+            rejected = true;
             description = `Rejected: MACD PBC continuation candle count is ${continuationCount} (Entry Window: 1-${maxContinuation})`;
           } else {
             fired = true;
@@ -2192,6 +2492,8 @@ export class SignalEngineService {
 
       return {
         fired,
+        rejected,
+        status: fired ? 'fired' : rejected ? 'blocked' : 'approaching',
         value: roundTo(currHist, 8),
         threshold: roundTo(prevHist, 8),
         insufficientData: insufficientData || emaRes.insufficientData || (candles.length < minRequired),
@@ -2203,6 +2505,47 @@ export class SignalEngineService {
         pattern_low: fired ? triggerPatternLow : undefined,
         body_high: fired ? triggerBodyHigh : undefined,
         body_low: fired ? triggerBodyLow : undefined,
+        macd_filter: {
+          enabled: true,
+          mode: 'macd_pbc',
+          fast: fastPeriod,
+          slow: slowPeriod,
+          signal: signalPeriod,
+          histogram: roundTo(currHist, 8),
+          prev_histogram: roundTo(prevHist, 8),
+          recent_hist: histogram.slice(-6).map((v) => roundTo(v, 8)),
+          aligned: fired,
+          rejected,
+          expected_sign: side === 'SHORT' ? 'negative' : 'positive',
+          expected_label: side === 'SHORT' ? 'Expanding -Slope' : 'Expanding +Slope',
+          gates: [
+            {
+              key: 'trend_ema',
+              label: `Trend EMA(${trendEmaPeriod})`,
+              passed: trendAligned,
+              value: `${roundTo(currentCandle.close, 4)} ${side === 'SHORT' ? '<' : '>'} ${roundTo(trendEma, 4)}`,
+            },
+            {
+              key: 'pullback',
+              label: `Pullback (${lookbackWindow}b)`,
+              passed: hadPullback,
+              value: hadPullback ? 'Detected' : 'Waiting',
+            },
+            {
+              key: 'slope',
+              label: side === 'SHORT' ? 'Slope (< Prev)' : 'Slope (> Prev)',
+              passed: slopeExpanding,
+              value: `${roundTo(prevHist, 5)} → ${roundTo(currHist, 5)}`,
+            },
+            {
+              key: 'cont_window',
+              label: `Window (1–${maxContinuation}b)`,
+              passed: continuationCount >= 1 && continuationCount <= maxContinuation,
+              rejected,
+              value: continuationCount > 0 ? `Bar #${continuationCount} / ${maxContinuation}` : `0 / ${maxContinuation}`,
+            },
+          ],
+        },
       };
     } catch (error) {
       this.logger.debug(`MACD PBC signal error: ${error instanceof Error ? error.message : String(error)}`);
@@ -2307,6 +2650,12 @@ export class SignalEngineService {
 
       if (minimal) return fired;
 
+      const flippedZero = side === 'SHORT' ? currHist > 0 : currHist < 0;
+      const contracted2Bars =
+        side === 'SHORT'
+          ? currHist > prevHist && prevHist > prevPrevHist
+          : currHist < prevHist && prevHist < prevPrevHist;
+
       return {
         fired,
         value: roundTo(currHist, 8),
@@ -2315,6 +2664,34 @@ export class SignalEngineService {
         unit: '',
         metric: 'MACD Fade',
         description,
+        macd_filter: {
+          enabled: true,
+          mode: 'macd_fade',
+          fast: fastPeriod,
+          slow: slowPeriod,
+          signal: signalPeriod,
+          histogram: roundTo(currHist, 8),
+          prev_histogram: roundTo(prevHist, 8),
+          recent_hist: histogram.slice(-6).map((v) => roundTo(v, 8)),
+          aligned: fired,
+          rejected: false,
+          expected_sign: side === 'SHORT' ? 'positive' : 'negative',
+          expected_label: 'Contraction / Flip',
+          gates: [
+            {
+              key: 'color_flip',
+              label: side === 'SHORT' ? 'Flipped Green (> 0)' : 'Flipped Red (< 0)',
+              passed: flippedZero,
+              value: `${currHist >= 0 ? '+' : ''}${roundTo(currHist, 6)}`,
+            },
+            {
+              key: 'contraction_2b',
+              label: '2-Bar Contraction',
+              passed: contracted2Bars,
+              value: `${roundTo(prevPrevHist, 4)}→${roundTo(prevHist, 4)}→${roundTo(currHist, 4)}`,
+            },
+          ],
+        },
       };
     } catch (error) {
       this.logger.debug(`MACD Fade signal error: ${error instanceof Error ? error.message : String(error)}`);

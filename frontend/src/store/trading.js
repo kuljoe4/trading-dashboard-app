@@ -166,7 +166,9 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const sigDetailsDigest = sig?.signals
     ? Object.keys(sig.signals).sort().map(key => {
         const detail = sig.signals[key];
-        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}:${detail.live_price ?? ''}:${detail.closed_value ?? ''}:${detail.ref_high ?? ''}:${detail.ref_low ?? ''}:${detail.breakout_level ?? ''}:${detail.expansion_cap ?? ''}:${detail.candle_confirm_state || ''}:${detail.evaluated_at_ms ?? ''}`;
+        const mf = detail.macd_filter;
+        const mfDigest = mf ? `${mf.histogram ?? ''}:${mf.aligned ? 1 : 0}:${mf.rejected ? 1 : 0}` : '';
+        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}:${detail.live_price ?? ''}:${detail.closed_value ?? ''}:${detail.ref_high ?? ''}:${detail.ref_low ?? ''}:${detail.breakout_level ?? ''}:${detail.expansion_cap ?? ''}:${detail.candle_confirm_state || ''}:${detail.evaluated_at_ms ?? ''}:${mfDigest}`;
       }).join('|')
     : '';
   const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}|${sigDetailsDigest}` : '';

@@ -1,8 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { cn, Tooltip } from './primitives';
 import { price as fmtPrice } from '../../lib/formatters';
-import { computeConditionMeter, buildHtfLadderModel } from '../../utils/candidateConditions';
-import { ConditionDial, HtfBreakoutLadder } from './CandidateConditionsGauge';
+import { computeConditionMeter, buildHtfLadderModel, buildMacdFilterModel, computeConditionValueDelta } from '../../utils/candidateConditions';
+import { ConditionDial, HtfBreakoutLadder, MacdFilterStrip } from './CandidateConditionsGauge';
 
 const ZONE_TEXT_CLASS = {
   watching: 'text-dim',
@@ -26,7 +26,8 @@ const ZONE_DOT_CLASS = {
 
 /**
  * SignalGauge: Renders the vertical HtfBreakoutLadder for HTF Breakout signals
- * or the 0–150% semicircular ConditionDial for threshold/spread signals.
+ * or the 0–150% semicircular ConditionDial for threshold/spread signals,
+ * with live value change highlighting and semantic color-coding.
  */
 export const SignalGauge = React.memo(({
   signal,
@@ -122,17 +123,57 @@ export const SignalGauge = React.memo(({
   };
 
   const zone = meter.dialZone || 'watching';
+  const liveFormatted = finalInsufficient ? '---' : formatVal(finalValue);
+
+  const macdFilter = useMemo(() => {
+    if (finalInsufficient) return null;
+    return buildMacdFilterModel({
+      sigKey: s.key || finalLabel,
+      signalDetail: s,
+      isLong,
+      isExit,
+    });
+  }, [finalInsufficient, s, finalLabel, isLong, isExit]);
+
+  const prevItemRef = useRef(null);
+  const [changeInfo, setChangeInfo] = useState(null);
+
+  useEffect(() => {
+    const currItem = {
+      liveValue: !finalInsufficient && Number.isFinite(Number(finalValue)) ? Number(finalValue) : null,
+      liveText: liveFormatted,
+      dialPct: ladder ? ladder.dialPct : meter.dialPct,
+      rawDialPct: ladder ? ladder.rawDialPct : meter.rawDialPct,
+      dialZone: zone,
+      unit: finalUnit || '',
+      thresholdIsPrice: Boolean(isPrice || finalUnit === 'price'),
+      stateLabel: ladder ? ladder.zoneLabel : meter.dialStatus,
+      macdFilter,
+    };
+
+    const delta = computeConditionValueDelta(prevItemRef.current, currItem);
+    prevItemRef.current = currItem;
+
+    if (!delta) return undefined;
+    setChangeInfo(delta);
+    const timer = setTimeout(() => setChangeInfo(null), 1800);
+    return () => clearTimeout(timer);
+  }, [finalValue, finalInsufficient, liveFormatted, ladder, meter.dialPct, meter.rawDialPct, meter.dialStatus, zone, finalUnit, isPrice, macdFilter]);
+
+  const liveToneClass = zone === 'watching' ? 'text-text' : (ZONE_TEXT_CLASS[zone] || 'text-text');
+  const hasDeltaReadout = Boolean(meter.deltaValueText || meter.deltaPctText);
 
   return (
     <Tooltip content={s.description || description || `${finalLabel}: ${formatVal(finalValue)} / ${formatVal(finalThreshold)}`}>
       <div
         className={cn(
-          'rounded-xl border border-border/50 bg-bg/40 flex flex-col justify-between transition-colors',
+          'rounded-xl border border-border/50 bg-bg/40 flex flex-col justify-between transition-colors duration-300',
           compact ? 'p-2.5 gap-1.5' : 'p-3 gap-2',
           isHtfBreakout && 'sm:col-span-2',
           zone === 'fresh' && 'border-green/35 bg-green/[0.03]',
           zone === 'stale' && 'border-amber/35 bg-amber/[0.03]',
           (zone === 'late' || zone === 'blocked') && 'border-red/35 bg-red/[0.03]',
+          changeInfo?.changed && 'border-accent/45',
           className
         )}
       >
@@ -161,7 +202,7 @@ export const SignalGauge = React.memo(({
 
         {/* Body: HTF Level Ladder or Semicircular Dial */}
         {ladder ? (
-          <HtfBreakoutLadder ladder={ladder} compact={compact} />
+          <HtfBreakoutLadder ladder={ladder} compact={compact} changeInfo={changeInfo} />
         ) : (
           <>
             <div className="flex justify-center items-center my-0.5">
@@ -170,17 +211,53 @@ export const SignalGauge = React.memo(({
                 dialZone={zone}
                 dialOverText={meter.dialOverText}
                 size="sm"
+                changeInfo={changeInfo}
               />
             </div>
 
-            <div className="flex items-baseline justify-between gap-2 pt-1.5 border-t border-border/30 font-mono text-[10.5px] tabular-nums">
-              <span className="text-dim text-[9.5px]">Live / Target</span>
-              <div className="truncate">
-                <strong className="text-text font-bold">{finalInsufficient ? '---' : formatVal(finalValue)}</strong>
-                {finalThreshold !== undefined && finalThreshold !== null && (
-                  <span className="text-dim"> / {formatVal(finalThreshold)}</span>
-                )}
+            <div className="flex flex-col gap-1 pt-1.5 border-t border-border/30 font-mono text-[10.5px] tabular-nums">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-dim text-[9.5px]">Live / Target</span>
+                <div className="truncate flex items-center gap-1">
+                  <strong
+                    className={cn(
+                      'font-bold px-1 py-0.5 rounded transition-colors duration-300',
+                      changeInfo?.changed
+                        ? cn(changeInfo.flashBgClass, changeInfo.toneClass)
+                        : liveToneClass
+                    )}
+                  >
+                    {changeInfo?.changed && changeInfo.arrow ? `${changeInfo.arrow} ` : ''}{liveFormatted}
+                  </strong>
+                  {finalThreshold !== undefined && finalThreshold !== null && (
+                    <>
+                      <span className="text-dim">/</span>
+                      <span className="text-accent/90 font-semibold">{formatVal(finalThreshold)}</span>
+                    </>
+                  )}
+                </div>
               </div>
+
+              {hasDeltaReadout && (
+                <div className="flex items-center justify-between gap-2 text-[9px]">
+                  <span className="text-dim">
+                    {(Number(meter.dialPct) || 0) >= 100 ? 'Past target' : 'Distance'}
+                  </span>
+                  <span className={cn('font-semibold truncate', ZONE_TEXT_CLASS[zone] || 'text-dim')}>
+                    {meter.deltaValueText}
+                    {meter.deltaPctText && meter.deltaPctText !== meter.deltaValueText ? ` (${meter.deltaPctText})` : ''}
+                    {changeInfo?.changed && changeInfo.tickDeltaText ? (
+                      <span className={cn('ml-1 font-bold', changeInfo.toneClass)}>
+                        · Δ {changeInfo.tickDeltaText}
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+              )}
+
+              {macdFilter && (
+                <MacdFilterStrip macdFilter={macdFilter} changeInfo={changeInfo} />
+              )}
             </div>
           </>
         )}
@@ -191,3 +268,4 @@ export const SignalGauge = React.memo(({
 
 SignalGauge.displayName = 'SignalGauge';
 export default SignalGauge;
+

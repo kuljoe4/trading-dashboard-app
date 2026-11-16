@@ -600,5 +600,43 @@ describe('MACD and Supertrend Signal Engine Tests', () => {
       expect(trendResult.details?.supertrend?.fired).toBe(true);
       expect(trendResult.details?.supertrend?.description).toContain('is bullish');
     });
+
+    it('should expose live macd_filter telemetry on ema_dual_cross even before crossover and when rejected by MACD histogram', () => {
+      const prices = Array(100).fill(100);
+      // Slight downtrend so MACD histogram is negative
+      for (let i = 60; i < 98; i++) {
+        prices[i] = 100 - (i - 60) * 0.5;
+      }
+      // Small uptick on last candle (not enough to flip slow MACD positive, or test approaching)
+      prices[98] = 82;
+      prices[99] = 83;
+
+      const candles = generateCandles(prices);
+      klineStore.getRawCandles.mockReturnValue(candles);
+
+      const config = new SessionConfig();
+      config.enabled_signals = ['ema_dual_cross'];
+      config.signal_params = {
+        entry_ema_fast: 9,
+        entry_ema_slow: 21,
+        ema_dual_macd_filter: true,
+        macd_fast: 12,
+        macd_slow: 26,
+        macd_signal: 9,
+      };
+
+      const result = service.checkEntry('BTCUSDT', config, '1m', 'LONG', 'entry');
+      const detail = result.details?.ema_dual_cross as any;
+      expect(detail).toBeDefined();
+      expect(detail.macd_filter).toBeDefined();
+      expect(detail.macd_filter.enabled).toBe(true);
+      expect(detail.macd_filter.mode).toBe('ema_filter');
+      expect(typeof detail.macd_filter.histogram).toBe('number');
+      expect(Array.isArray(detail.macd_filter.recent_hist)).toBe(true);
+      expect(detail.macd_filter.recent_hist.length).toBeGreaterThan(0);
+      expect(Array.isArray(detail.macd_filter.gates)).toBe(true);
+      expect(detail.macd_filter.gates[0].key).toBe('macd_hist');
+    });
   });
 });
+

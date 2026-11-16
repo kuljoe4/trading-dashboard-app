@@ -23,6 +23,9 @@ function signalFingerprint(signalResult: any): any {
       detail.breakout_level !== undefined ? roundTo(Number(detail.breakout_level) || 0, 8) : null,
       detail.expansion_cap !== undefined ? roundTo(Number(detail.expansion_cap) || 0, 8) : null,
       detail.candle_confirm_state || '',
+      detail.macd_filter ? roundTo(Number(detail.macd_filter.histogram) || 0, 8) : null,
+      detail.macd_filter ? (detail.macd_filter.aligned === true ? 1 : 0) : null,
+      detail.macd_filter ? (detail.macd_filter.rejected === true ? 1 : 0) : null,
     ];
   });
 

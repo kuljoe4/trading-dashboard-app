@@ -419,11 +419,12 @@ export class SignalEngineService {
         if (signalInterval === 'default') {
           signalInterval = interval;
         }
-        // Caller-supplied candles are valid only for the interval they were requested for.
-        // Never reuse an entry/scanner timeframe buffer for a different signal timeframe.
-        const signalCandles = signalInterval === interval
-          ? candles
-          : this.klineStore.getRawCandles(symbol, signalInterval);
+        // Backtests pass a bounded historical candle slice explicitly. Keep that deterministic
+        // simulation input rather than mixing it with live KlineStore data. Live evaluations do not
+        // pass candles and therefore always read the configured signal timeframe independently.
+        const signalCandles = passedCandles
+          ? passedCandles
+          : (signalInterval === interval ? candles : this.klineStore.getRawCandles(symbol, signalInterval));
 
         const sigReqWarmup = this.getRequiredWarmupForSignal(config, signalType, purpose);
         if (signalCandles.length < sigReqWarmup) {

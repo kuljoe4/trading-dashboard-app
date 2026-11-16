@@ -746,14 +746,9 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
       const isEntry = purpose === "entry";
       const primaryFastKey = isEntry ? "entry_ema_fast" : "exit_ema_fast";
-      const fallbackFastKey = isEntry ? "exit_ema_fast" : "entry_ema_fast";
-
       const primarySlowKey = isEntry ? "entry_ema_slow" : "exit_ema_slow";
-      const fallbackSlowKey = isEntry ? "exit_ema_slow" : "entry_ema_slow";
-
       const fastStr =
         resolveKey(primaryFastKey) ??
-        resolveKey(fallbackFastKey) ??
         resolveKey("ema_fast") ??
         resolveKey(`${baseType}_fast`) ??
         resolveKey("fast_ema") ??
@@ -761,7 +756,6 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
       const slowStr =
         resolveKey(primarySlowKey) ??
-        resolveKey(fallbackSlowKey) ??
         resolveKey("ema_slow") ??
         resolveKey(`${baseType}_slow`) ??
         resolveKey("slow_ema") ??

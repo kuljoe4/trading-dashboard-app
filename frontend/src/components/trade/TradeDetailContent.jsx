@@ -1316,18 +1316,26 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
   const [savingConfig, setSavingConfig] = useState(false)
 
   const activeSignalKeys = useMemo(() => {
-    const keys = new Set();
-    if (trade?.exit_signals_status) {
-      Object.keys(trade.exit_signals_status).forEach(k => keys.add(k));
+    // The trade's captured strategy configuration is authoritative for its exit editor.
+    // Do not resurrect removed signals from persisted status maps or another active session.
+    if (Array.isArray(trade?.strategy_config?.exit_signals)) {
+      return [...new Set([
+        ...trade.strategy_config.exit_signals,
+        ...(trade.strategy_config.trigger_candle_exit_enabled &&
+          !trade.strategy_config.exit_signals.includes('trigger_candle_exit')
+          ? ['trigger_candle_exit']
+          : []),
+      ])];
     }
-    if (trade?.strategy_config?.exit_signals) {
-      trade.strategy_config.exit_signals.forEach(k => keys.add(k));
-    }
-    if (activeSessionConfig?.exit_signals) {
-      activeSessionConfig.exit_signals.forEach(k => keys.add(k));
-    }
-    return Array.from(keys);
-  }, [trade, activeSessionConfig]);
+    const sessionExits = activeSessionConfig?.exit_signals || [];
+    return [...new Set([
+      ...sessionExits,
+      ...(activeSessionConfig?.trigger_candle_exit_enabled &&
+        !sessionExits.includes('trigger_candle_exit')
+        ? ['trigger_candle_exit']
+        : []),
+    ])];
+  }, [trade?.strategy_config, activeSessionConfig?.exit_signals, activeSessionConfig?.trigger_candle_exit_enabled]);
 
   // Reset editing mode when switching active trades
   useEffect(() => {

@@ -89,6 +89,32 @@ describe('SignalEngineService - ema_dual', () => {
     expect(result.details?.ema_dual.fired).toBe(true);
   });
 
+  it('should evaluate lower-timeframe ema_dual_cross exits without entry warmup blocking them', () => {
+    const exitPrices = [...Array(60).fill(100), 80, 80, 80, 80, 80, 80];
+    const exitCandles = mockCandles(exitPrices);
+    (klineStore.getRawCandles as jest.Mock).mockImplementation((_symbol: string, timeframe: string) =>
+      timeframe === '1h' ? mockCandles(Array(30).fill(100)) : exitCandles
+    );
+
+    const config = new SessionConfig();
+    config.enabled_signals = ['ema_dual'];
+    config.exit_signals = ['ema_dual_cross'];
+    config.signal_timeframes = { ema_dual: '1h', ema_dual_cross: '5m' } as any;
+    config.signal_params = {
+      entry_ema_fast: 50,
+      entry_ema_slow: 100,
+      exit_ema_fast: 5,
+      exit_ema_slow: 10,
+    };
+
+    const result = service.checkEntry('BTCUSDT', config, '5m', 'LONG', 'exit');
+    expect(result.details?.warmup).toBeUndefined();
+    expect(result.details?.ema_dual_cross).toBeDefined();
+    expect(result.details?.ema_dual_cross.fired).toBe(true);
+    expect(result.firedSignals).toContain('ema_dual_cross');
+    expect(result.firedSignals).not.toContain('ema_dual');
+  });
+
   it('should fire LONG exit if fast EMA crosses below slow EMA immediately (live crossing)', () => {
     const prices = [...Array(80).fill(100), 80, 80, 80, 80, 80, 80];
     const candles = mockCandles(prices);

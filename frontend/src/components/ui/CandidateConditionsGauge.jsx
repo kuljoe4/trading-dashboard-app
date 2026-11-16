@@ -88,20 +88,15 @@ const ConditionFreshness = React.memo(function ConditionFreshness({ evaluatedAtM
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 transition-colors duration-300',
+        'transition-colors duration-300',
         isFreshTick
-          ? (changeInfo?.toneClass || 'text-green font-semibold')
+          ? (changeInfo?.toneClass || 'text-green')
           : isRecent
-            ? 'text-accent/90'
+            ? 'text-text/75'
             : 'text-dim/75'
       )}
     >
       {formatFreshness(evaluatedAtMs, now)}
-      {changeInfo?.changed && changeInfo.tickDeltaText && (
-        <span className={cn('font-bold', changeInfo.toneClass)}>
-          · {changeInfo.arrow} {changeInfo.tickDeltaText}
-        </span>
-      )}
     </span>
   );
 });
@@ -177,9 +172,7 @@ export const ConditionDial = React.memo(function ConditionDial({
   const [ex, ey] = polar(cx, cy, r, 0);
 
   const subTextBase = clamped <= 100 ? `${clamped}% of target` : `target + ${Math.max(0, Math.round(clamped - 100))}%`;
-  const dialShiftSuffix = changeInfo?.changed && changeInfo.dialDelta !== 0
-    ? ` (${changeInfo.dialDelta > 0 ? '+' : ''}${changeInfo.dialDelta}%)`
-    : '';
+  void changeInfo;
 
   return (
     <svg
@@ -201,7 +194,7 @@ export const ConditionDial = React.memo(function ConditionDial({
         <path
           d={describeArc(cx, cy, r, 0, clamped)}
           stroke={color}
-          strokeWidth={changeInfo?.changed ? strokeW + 1.5 : strokeW}
+          strokeWidth={strokeW}
           fill="none"
           strokeLinecap="round"
         />
@@ -258,16 +251,16 @@ export const ConditionDial = React.memo(function ConditionDial({
         fill={color}
         className="font-mono tabular-nums"
       >
-        {changeInfo?.changed && changeInfo.arrow ? `${changeInfo.arrow} ` : ''}{dialOverText || `${clamped}%`}
+        {dialOverText || `${clamped}%`}
       </text>
       <text
         x={cx}
         y={cy - 2}
         textAnchor="middle"
         fontSize={isSm ? '8' : '9'}
-        className={cn('font-mono tabular-nums', changeInfo?.changed ? 'fill-text font-bold' : 'fill-dim')}
+        className="fill-dim font-mono tabular-nums"
       >
-        {subTextBase}{dialShiftSuffix}
+        {subTextBase}
       </text>
     </svg>
   );
@@ -551,78 +544,52 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
         </text>
       </svg>
 
-      {/* Bottom 3-Metric Readout + Color-Coded Live vs Breakout Level Strip */}
-      <div className="flex flex-col gap-1.5 pt-1 border-t border-border/30 font-mono text-[10px] tabular-nums">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-[9px] text-dim">Live / {refTf} {isLong ? 'High' : 'Low'}:</span>
-            <span
-              className={cn(
-                'font-bold px-1 py-0.5 rounded transition-colors duration-300',
-                changeInfo?.changed
-                  ? cn(changeInfo.flashBgClass, changeInfo.toneClass)
-                  : (zone === 'below' ? 'text-text' : zTone.textClass)
-              )}
-            >
-              {changeInfo?.changed && changeInfo.arrow ? `${changeInfo.arrow} ` : ''}{fmtPrice(livePrice)}
-            </span>
-            <span className="text-dim">/</span>
-            <span className="text-accent font-semibold">{fmtPrice(breakoutLevel)}</span>
-          </div>
-          {changeInfo?.changed && changeInfo.tickDeltaText && (
-            <span className={cn('text-[9.5px] font-bold', changeInfo.toneClass)}>
-              Δ {changeInfo.tickDeltaText}
-            </span>
-          )}
+      {/* Bottom 3-Metric Readout */}
+      <div className="grid grid-cols-3 gap-2 pt-1 border-t border-border/30 font-mono text-[10px] tabular-nums">
+        <div className="flex flex-col">
+          <span className="text-[9px] text-dim">{distFromLevelPct >= 0 ? 'Past level' : 'To level'}</span>
+          <span
+            className={cn(
+              'font-bold transition-colors duration-300',
+              changeInfo?.changed ? changeInfo.toneClass : zTone.textClass
+            )}
+          >
+            {distText}
+          </span>
         </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          <div className="flex flex-col">
-            <span className="text-[9px] text-dim">{distFromLevelPct >= 0 ? 'Past level' : 'To level'}</span>
-            <span
-              className={cn(
-                'font-bold transition-colors duration-300',
-                zTone.textClass,
-                changeInfo?.changed && 'underline decoration-current/60 underline-offset-2'
-              )}
-            >
-              {changeInfo?.changed && changeInfo.arrow ? `${changeInfo.arrow} ` : ''}{distText}
-            </span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-[9px] text-dim">{hasHardCap ? `Cap used (${effectiveMaxExpPct}%)` : `Ref span (${effectiveMaxExpPct}%)`}</span>
-            <span
-              className={cn(
-                'font-bold',
-                capUsedRound > 100
-                  ? 'text-purple-400'
-                  : capUsedRound > 60
-                    ? 'text-red'
-                    : capUsedRound > 25
-                      ? 'text-amber'
-                      : distFromLevelPct >= 0
-                        ? 'text-green'
-                        : 'text-dim'
-              )}
-            >
-              {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
-            </span>
-          </div>
-          <div className="flex flex-col text-right">
-            <span className="text-[9px] text-dim">Cap room</span>
-            <span
-              className={cn(
-                'font-bold',
-                capRoomPct <= 0
-                  ? 'text-purple-400'
-                  : capUsedRound > 60
+        <div className="flex flex-col">
+          <span className="text-[9px] text-dim">{hasHardCap ? `Cap used (${effectiveMaxExpPct}%)` : `Ref span (${effectiveMaxExpPct}%)`}</span>
+          <span
+            className={cn(
+              'font-bold',
+              capUsedRound > 100
+                ? 'text-purple-400'
+                : capUsedRound > 60
+                  ? 'text-red'
+                  : capUsedRound > 25
                     ? 'text-amber'
-                    : 'text-green'
-              )}
-            >
-              {capRoomFormatted}
-            </span>
-          </div>
+                    : distFromLevelPct >= 0
+                      ? 'text-green'
+                      : 'text-dim'
+            )}
+          >
+            {distFromLevelPct < 0 ? '0%' : `${capUsedRound}%`}
+          </span>
+        </div>
+        <div className="flex flex-col text-right">
+          <span className="text-[9px] text-dim">Cap room</span>
+          <span
+            className={cn(
+              'font-bold',
+              capRoomPct <= 0
+                ? 'text-purple-400'
+                : capUsedRound > 60
+                  ? 'text-amber'
+                  : 'text-green'
+            )}
+          >
+            {capRoomFormatted}
+          </span>
         </div>
       </div>
     </div>
@@ -630,9 +597,7 @@ export const HtfBreakoutLadder = React.memo(function HtfBreakoutLadder({ ladder,
 });
 
 /**
- * Compact MACD Filter & Histogram strip rendered inside condition widgets for:
- * 1) EMA Dual variants (`ema_dual`, `ema_dual_cross`, `ema_dual_close`) when `ema_dual_macd_filter` is enabled
- * 2) Standalone MACD signals (`macd_impulse`, `macd_pbc`, `macd_fade`)
+ * Subtle single-line MACD Filter / Histogram readout with zero background/border CLS.
  */
 export const MacdFilterStrip = React.memo(function MacdFilterStrip({ macdFilter, changeInfo = null }) {
   if (!macdFilter || !macdFilter.enabled) return null;
@@ -641,140 +606,49 @@ export const MacdFilterStrip = React.memo(function MacdFilterStrip({ macdFilter,
   const histNum = macdFilter.histogram;
   const isPositive = Number.isFinite(histNum) ? histNum > 0 : macdFilter.expectedSign === 'positive';
   const isNegative = Number.isFinite(histNum) ? histNum < 0 : macdFilter.expectedSign === 'negative';
-  const recentBars = Array.isArray(macdFilter.recentHist) ? macdFilter.recentHist : [];
-  const maxAbsBar = recentBars.length > 0
-    ? Math.max(...recentBars.map((v) => Math.abs(Number(v) || 0)), 1e-8)
-    : 1;
-  const gates = Array.isArray(macdFilter.gates) ? macdFilter.gates : [];
   const histFlashed = Boolean(changeInfo?.histChanged || changeInfo?.alignedChanged);
+
+  const histColorClass = histFlashed
+    ? changeInfo.toneClass
+    : isPositive
+      ? 'text-green'
+      : isNegative
+        ? 'text-red'
+        : 'text-dim';
+
+  const statusColorClass = macdFilter.rejected
+    ? 'text-purple-400'
+    : macdFilter.aligned
+      ? 'text-green'
+      : 'text-amber';
+
+  const statusLabel = macdFilter.rejected
+    ? 'Blocked'
+    : macdFilter.aligned
+      ? 'Aligned'
+      : `Wait ${macdFilter.expectedSign === 'negative' ? '−' : '+'}`;
 
   return (
     <div
-      className="mt-1 pt-1.5 border-t border-border/30 flex flex-col gap-1 font-mono text-[10px] tabular-nums"
+      className="flex items-center justify-between gap-2 text-[9.5px] font-mono tabular-nums"
       data-testid="macd-filter-strip"
     >
-      {/* Top Row: MACD Filter Label + Live Histogram Value + Alignment Status */}
-      <div className="flex items-center justify-between gap-1.5 flex-wrap">
-        <span className="text-[9.5px] text-dim font-semibold">
-          {isEmaFilter
-            ? `MACD Filter (${macdFilter.fast}/${macdFilter.slow}/${macdFilter.signal})`
-            : `MACD Hist (${macdFilter.fast}/${macdFilter.slow}/${macdFilter.signal})`}
-        </span>
-
-        <div className="flex items-center gap-1.5">
-          {macdFilter.histogramText && macdFilter.histogramText !== '---' && (
-            <span
-              className={cn(
-                'font-bold px-1 py-0.25 rounded transition-colors duration-300',
-                histFlashed
-                  ? cn(changeInfo.flashBgClass, changeInfo.toneClass)
-                  : isPositive
-                    ? 'text-green bg-green/10'
-                    : isNegative
-                      ? 'text-red bg-red/10'
-                      : 'text-dim'
-              )}
-            >
-              {changeInfo?.histChanged && changeInfo.histArrow ? `${changeInfo.histArrow} ` : ''}
+      <span className="text-dim truncate">
+        {isEmaFilter ? 'MACD filter' : 'MACD hist'}
+      </span>
+      <span className="truncate font-semibold">
+        {macdFilter.histogramText && macdFilter.histogramText !== '---' && (
+          <>
+            <span className={cn('transition-colors duration-300', histColorClass)}>
               {macdFilter.histogramText}
             </span>
-          )}
-
-          <span
-            className={cn(
-              'text-[9.5px] font-bold',
-              macdFilter.rejected
-                ? 'text-purple-400'
-                : macdFilter.aligned
-                  ? 'text-green'
-                  : 'text-amber'
-            )}
-          >
-            {macdFilter.rejected
-              ? 'Blocked ✗'
-              : macdFilter.aligned
-                ? 'Aligned ✓'
-                : `Need ${macdFilter.expectedLabel}`}
-          </span>
-        </div>
-      </div>
-
-      {/* Mini 6-Bar MACD Histogram Spark-Strip */}
-      {recentBars.length > 1 && (
-        <div
-          className="flex items-center gap-1 h-5 px-1.5 py-0.5 rounded bg-surface/60 border border-border/30"
-          title={`Recent MACD Histogram (${recentBars.length} bars)`}
-        >
-          <span className="text-[8.5px] text-dim shrink-0 mr-0.5">Bars</span>
-          <div className="flex-1 flex items-center justify-end gap-1 h-full">
-            {recentBars.map((barVal, idx) => {
-              const prevVal = idx > 0 ? recentBars[idx - 1] : barVal;
-              const barPos = barVal >= 0;
-              const isExpanding = barPos ? barVal >= prevVal : barVal <= prevVal;
-              const heightPct = Math.max(18, Math.min(100, Math.round((Math.abs(barVal) / maxAbsBar) * 100)));
-              const isLatest = idx === recentBars.length - 1;
-              return (
-                <div
-                  key={idx}
-                  className="flex-1 max-w-[14px] h-full flex items-end justify-center"
-                >
-                  <div
-                    className={cn(
-                      'w-full rounded-[1.5px] transition-all duration-300',
-                      barPos
-                        ? (isExpanding ? 'bg-green' : 'bg-green/55')
-                        : (isExpanding ? 'bg-red' : 'bg-red/55'),
-                      isLatest && 'ring-1 ring-text/50'
-                    )}
-                    style={{ height: `${heightPct}%` }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          {changeInfo?.histChanged && changeInfo.histDeltaText && (
-            <span className={cn('text-[9px] font-bold shrink-0 ml-1', changeInfo.toneClass)}>
-              Δ {changeInfo.histDeltaText}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Sub-Filter Gate Checklist (for MACD Impulse, MACD PBC, MACD Fade, or EMA Dual MACD gate) */}
-      {gates.length > 0 && (!isEmaFilter || macdFilter.rejected || !macdFilter.aligned) && (
-        <div className="flex flex-col gap-0.5 pt-0.5">
-          {gates.map((g) => {
-            const gPassed = Boolean(g.passed);
-            const gRejected = Boolean(g.rejected);
-            return (
-              <div
-                key={g.key || g.label}
-                className="flex items-center justify-between gap-2 text-[9.5px] leading-tight"
-              >
-                <span className="inline-flex items-center gap-1 text-dim truncate">
-                  <span
-                    className={cn(
-                      'font-bold shrink-0',
-                      gRejected ? 'text-purple-400' : gPassed ? 'text-green' : 'text-amber'
-                    )}
-                  >
-                    {gRejected ? '✗' : gPassed ? '✓' : '○'}
-                  </span>
-                  <span className="truncate">{g.label}</span>
-                </span>
-                <span
-                  className={cn(
-                    'font-semibold shrink-0',
-                    gRejected ? 'text-purple-400' : gPassed ? 'text-green' : 'text-text/85'
-                  )}
-                >
-                  {g.value}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      )}
+            <span className="text-dim"> · </span>
+          </>
+        )}
+        <span className={cn('transition-colors duration-300', statusColorClass)}>
+          {statusLabel}
+        </span>
+      </span>
     </div>
   );
 });
@@ -818,11 +692,9 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   const hasCandidate = model.symbol && model.symbol !== '---';
   const compositeDial = model.compositeDial || { dialZone: 'watching', dialStatus: 'Watching', dialOverText: '100% to go' };
 
-  // Track single-shot condition & live value changes without polling loops
-  const prevSnapshotRef = useRef({ symbol: null, mode: null, overallStatus: null, compositeDialPct: 0, markPrice: 0, items: {} });
-  const [flashedKeys, setFlashedKeys] = useState({});
+  // Track single-shot live value changes without polling loops
+  const prevSnapshotRef = useRef({ symbol: null, mode: null, overallStatus: null, markPrice: 0, items: {} });
   const [changedValueMap, setChangedValueMap] = useState({});
-  const [compositeChange, setCompositeChange] = useState(null);
   const [runwayChange, setRunwayChange] = useState(null);
   const [handoffCue, setHandoffCue] = useState(null);
 
@@ -837,35 +709,16 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
     const prev = prevSnapshotRef.current;
     const sameSymbol = prev.symbol && prev.symbol === model.symbol && model.symbol !== '---';
     const nextItems = {};
-    const stateFlashed = {};
     const valChanges = {};
 
     for (const c of model.conditions) {
       nextItems[c.key] = c;
       const oldItem = prev.items[c.key];
       if (sameSymbol && oldItem) {
-        if (oldItem.stateLabel !== c.stateLabel && ['PASS', 'NEAR', 'TRIGGERED', 'READY'].includes(c.stateLabel)) {
-          stateFlashed[c.key] = c.stateLabel;
-        }
         const deltaInfo = computeConditionValueDelta(oldItem, c);
         if (deltaInfo) {
           valChanges[c.key] = deltaInfo;
         }
-      }
-    }
-
-    let nextCompChange = null;
-    if (sameSymbol && Number.isFinite(prev.compositeDialPct) && prev.compositeDialPct !== model.compositeDialPct) {
-      const diff = Math.round(model.compositeDialPct - prev.compositeDialPct);
-      if (diff !== 0) {
-        nextCompChange = {
-          changed: true,
-          arrow: diff > 0 ? '▲' : '▼',
-          dialDelta: diff,
-          tickDeltaText: `${diff > 0 ? '+' : ''}${diff}%`,
-          toneClass: diff > 0 ? 'text-green' : 'text-amber',
-          flashBgClass: diff > 0 ? 'bg-green/15 ring-1 ring-green/40' : 'bg-amber/15 ring-1 ring-amber/40',
-        };
       }
     }
 
@@ -874,9 +727,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
       const priceDiff = model.markPrice - prev.markPrice;
       const favorable = model.dir === 'SHORT' ? priceDiff < 0 : priceDiff > 0;
       nextRunwayChange = {
-        arrow: priceDiff > 0 ? '▲' : '▼',
         toneClass: favorable ? 'text-green' : 'text-amber',
-        flashBgClass: favorable ? 'bg-green/15 ring-1 ring-green/40' : 'bg-amber/15 ring-1 ring-amber/40',
       };
     }
 
@@ -891,30 +742,24 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
       symbol: model.symbol,
       mode: model.mode,
       overallStatus: model.overallStatus,
-      compositeDialPct: model.compositeDialPct,
       markPrice: model.markPrice,
       items: nextItems,
     };
 
     const hasValChanges = Object.keys(valChanges).length > 0;
-    const hasStateFlashed = Object.keys(stateFlashed).length > 0;
-    if (!hasValChanges && !hasStateFlashed && !nextCompChange && !nextRunwayChange && !cue) return undefined;
+    if (!hasValChanges && !nextRunwayChange && !cue) return undefined;
 
-    if (hasStateFlashed) setFlashedKeys(stateFlashed);
     if (hasValChanges) setChangedValueMap(valChanges);
-    if (nextCompChange) setCompositeChange(nextCompChange);
     if (nextRunwayChange) setRunwayChange(nextRunwayChange);
     if (cue) setHandoffCue(cue);
 
     const timer = setTimeout(() => {
-      setFlashedKeys({});
       setChangedValueMap({});
-      setCompositeChange(null);
       setRunwayChange(null);
       setHandoffCue(null);
     }, 1800);
     return () => clearTimeout(timer);
-  }, [model.symbol, model.mode, model.overallStatus, model.compositeDialPct, model.markPrice, model.dir, isInPos, valueSignature, model.conditions]);
+  }, [model.symbol, model.mode, model.overallStatus, model.markPrice, model.dir, isInPos, valueSignature, model.conditions]);
 
   const runway = isInPos ? model.positionMeta?.positionRunway : null;
 
@@ -1013,11 +858,11 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
               Live{' '}
               <strong
                 className={cn(
-                  'px-1 py-0.5 rounded transition-colors duration-300',
-                  runwayChange ? cn(runwayChange.flashBgClass, runwayChange.toneClass) : 'text-accent'
+                  'transition-colors duration-300',
+                  runwayChange ? runwayChange.toneClass : 'text-accent'
                 )}
               >
-                {runwayChange ? `${runwayChange.arrow} ` : ''}{fmtPrice(model.markPrice)}
+                {fmtPrice(model.markPrice)}
               </strong>
               {model.positionMeta?.tpPrice > 0 && (
                 <>
@@ -1028,12 +873,10 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
             </span>
             <span
               className={cn(
-                'font-bold px-1.5 py-0.5 rounded transition-colors duration-300',
-                runwayChange && runwayChange.flashBgClass,
+                'font-bold transition-colors duration-300',
                 (model.positionMeta?.currentR || 0) >= 0 ? 'text-green' : 'text-red'
               )}
             >
-              {runwayChange ? `${runwayChange.arrow} ` : ''}
               {(model.positionMeta?.currentR || 0) >= 0 ? '+' : ''}{(model.positionMeta?.currentR || 0).toFixed(2)}R
               {model.positionMeta?.trailingActive ? ' · Trailing' : model.positionMeta?.isProtected ? ' · Protected' : ''}
             </span>
@@ -1090,7 +933,6 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
           {model.conditions.map((c) => {
             const cZone = c.dialZone || 'watching';
             const isLadder = c.visualization === 'ladder' && c.ladder;
-            const justFlashed = flashedKeys[c.key];
             const changeInfo = changedValueMap[c.key] || null;
             const liveToneClass = cZone === 'watching'
               ? (c.isScannerGate && c.liveValue !== null ? (c.liveValue >= 0 ? 'text-green' : 'text-red') : 'text-text')
@@ -1101,13 +943,8 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
               <div
                 key={c.key}
                 className={cn(
-                  'rounded-xl border border-border/50 bg-bg/40 p-3 flex flex-col justify-between h-full gap-2 transition-colors duration-300',
-                  isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2'),
-                  cZone === 'fresh' && 'border-green/35 bg-green/[0.03]',
-                  cZone === 'stale' && 'border-amber/35 bg-amber/[0.03]',
-                  (cZone === 'late' || cZone === 'blocked') && 'border-red/35 bg-red/[0.03]',
-                  changeInfo?.changed && 'border-accent/45',
-                  justFlashed && 'animate-event-arrive ring-1 ring-green/45'
+                  'rounded-xl border border-border/50 bg-bg/40 p-3 flex flex-col justify-between h-full gap-2',
+                  isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2')
                 )}
               >
                 {/* Card Top Header */}
@@ -1161,20 +998,18 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                       />
                     </div>
 
-                    {/* Card Bottom: Color-Coded Live vs Target + Signed Distance / Tick Delta */}
+                    {/* Card Bottom: Color-Coded Live vs Target + Signed Distance */}
                     <div className="flex flex-col gap-1 pt-1.5 border-t border-border/30 font-mono text-[11px] tabular-nums">
                       <div className="flex items-baseline justify-between gap-2">
                         <span className="text-dim text-[10px]">Live / Target</span>
                         <div className="truncate flex items-center gap-1">
                           <strong
                             className={cn(
-                              'font-bold px-1 py-0.5 rounded transition-colors duration-300',
-                              changeInfo?.changed
-                                ? cn(changeInfo.flashBgClass, changeInfo.toneClass)
-                                : liveToneClass
+                              'font-bold transition-colors duration-300',
+                              changeInfo?.changed ? changeInfo.toneClass : liveToneClass
                             )}
                           >
-                            {changeInfo?.changed && changeInfo.arrow ? `${changeInfo.arrow} ` : ''}{c.liveText}
+                            {c.liveText}
                           </strong>
                           <span className="text-dim">/</span>
                           <span className="text-accent/90 font-semibold">{c.targetText}</span>
@@ -1186,14 +1021,14 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                           <span className="text-dim">
                             {(Number(c.dialPct) || 0) >= 100 ? 'Past target' : 'Distance'}
                           </span>
-                          <span className={cn('font-semibold truncate', ZONE_TEXT_CLASS[cZone] || 'text-dim')}>
+                          <span
+                            className={cn(
+                              'font-semibold truncate transition-colors duration-300',
+                              changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[cZone] || 'text-dim')
+                            )}
+                          >
                             {c.deltaValueText}
                             {c.deltaPctText && c.deltaPctText !== c.deltaValueText ? ` (${c.deltaPctText})` : ''}
-                            {changeInfo?.changed && changeInfo.tickDeltaText ? (
-                              <span className={cn('ml-1 font-bold', changeInfo.toneClass)}>
-                                · Δ {changeInfo.tickDeltaText}
-                              </span>
-                            ) : null}
                           </span>
                         </div>
                       )}
@@ -1210,12 +1045,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
 
           {/* Composite Gate Card */}
           {model.conditions.length > 1 && (
-            <div
-              className={cn(
-                'rounded-xl border border-border/60 bg-surface/60 p-3 flex flex-col justify-between gap-2 transition-colors duration-300',
-                compositeChange?.changed && 'border-accent/50'
-              )}
-            >
+            <div className="rounded-xl border border-border/60 bg-surface/60 p-3 flex flex-col justify-between gap-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="text-xs font-bold text-text">
@@ -1246,7 +1076,6 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                   dialZone={compositeDial.dialZone}
                   dialOverText={compositeDial.dialOverText}
                   size={compact ? 'sm' : 'md'}
-                  changeInfo={compositeChange}
                 />
               </div>
 

@@ -167,13 +167,9 @@ export const SignalGauge = React.memo(({
     <Tooltip content={s.description || description || `${finalLabel}: ${formatVal(finalValue)} / ${formatVal(finalThreshold)}`}>
       <div
         className={cn(
-          'rounded-xl border border-border/50 bg-bg/40 flex flex-col justify-between transition-colors duration-300',
+          'rounded-xl border border-border/50 bg-bg/40 flex flex-col justify-between',
           compact ? 'p-2.5 gap-1.5' : 'p-3 gap-2',
           isHtfBreakout && 'sm:col-span-2',
-          zone === 'fresh' && 'border-green/35 bg-green/[0.03]',
-          zone === 'stale' && 'border-amber/35 bg-amber/[0.03]',
-          (zone === 'late' || zone === 'blocked') && 'border-red/35 bg-red/[0.03]',
-          changeInfo?.changed && 'border-accent/45',
           className
         )}
       >
@@ -221,13 +217,11 @@ export const SignalGauge = React.memo(({
                 <div className="truncate flex items-center gap-1">
                   <strong
                     className={cn(
-                      'font-bold px-1 py-0.5 rounded transition-colors duration-300',
-                      changeInfo?.changed
-                        ? cn(changeInfo.flashBgClass, changeInfo.toneClass)
-                        : liveToneClass
+                      'font-bold transition-colors duration-300',
+                      changeInfo?.changed ? changeInfo.toneClass : liveToneClass
                     )}
                   >
-                    {changeInfo?.changed && changeInfo.arrow ? `${changeInfo.arrow} ` : ''}{liveFormatted}
+                    {liveFormatted}
                   </strong>
                   {finalThreshold !== undefined && finalThreshold !== null && (
                     <>
@@ -243,14 +237,14 @@ export const SignalGauge = React.memo(({
                   <span className="text-dim">
                     {(Number(meter.dialPct) || 0) >= 100 ? 'Past target' : 'Distance'}
                   </span>
-                  <span className={cn('font-semibold truncate', ZONE_TEXT_CLASS[zone] || 'text-dim')}>
+                  <span
+                    className={cn(
+                      'font-semibold truncate transition-colors duration-300',
+                      changeInfo?.changed ? changeInfo.toneClass : (ZONE_TEXT_CLASS[zone] || 'text-dim')
+                    )}
+                  >
                     {meter.deltaValueText}
                     {meter.deltaPctText && meter.deltaPctText !== meter.deltaValueText ? ` (${meter.deltaPctText})` : ''}
-                    {changeInfo?.changed && changeInfo.tickDeltaText ? (
-                      <span className={cn('ml-1 font-bold', changeInfo.toneClass)}>
-                        · Δ {changeInfo.tickDeltaText}
-                      </span>
-                    ) : null}
                   </span>
                 </div>
               )}

@@ -160,9 +160,9 @@ export class ExecutionService {
       // b) Indicator Warmup / Data Starvation Check for Exit Signals
       const exitSignals = activeConfig.exit_signals || [];
       if (exitSignals.length > 0) {
-        const requiredWarmup = this.signalEngine.getRequiredWarmup(activeConfig);
         for (const exitSig of exitSignals) {
-          const rawTf = activeConfig.signal_timeframes?.[exitSig];
+          const requiredWarmup = this.signalEngine.getRequiredWarmupForSignal(activeConfig, exitSig, 'exit');
+          const rawTf = activeConfig.signal_timeframes?.[exitSig] || activeConfig.signal_timeframes?.[exitSig.replace(/_(?:cross|close)$/, '')];
           const rawExitInterval = (!rawTf || rawTf === 'default') ? (activeConfig.scan_interval || '1m') : rawTf;
           const exitInterval = this.marketFeedService.resolveInterval(rawExitInterval, activeConfig) || '1m';
           const candles = this.klineStore.getRawCandles(trade.symbol, exitInterval);
@@ -677,6 +677,9 @@ export class ExecutionService {
           ? (resolvedConfig.scan_interval || '1m')
           : resolvedConfig.sl_lookback_timeframe;
         const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, resolvedConfig) || '5m';
+        // Keep the configured lookback period explicit; this was accidentally dropped in the
+        // forming-candle refactor while its value remained referenced below.
+        const lookbackPeriod = Math.max(0, Number(resolvedConfig.sl_lookback_period ?? 20) || 0);
         const includeForming = Boolean(resolvedConfig.sl_include_forming_candle);
         let lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod, includeForming);
 

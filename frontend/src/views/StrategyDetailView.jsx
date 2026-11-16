@@ -462,13 +462,24 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       const isLong = activeTrade.direction === 'LONG';
       const isSlAtBreakeven = sl > 0 && (isLong ? sl >= entry - 1e-6 : sl <= entry + 1e-6);
 
-      if (activeTrade.exit_signals_status && Object.values(activeTrade.exit_signals_status).some(st => st?.fired)) {
+      const lifecycleExitSignals = new Set([
+        ...(activeTrade.strategy_config?.exit_signals || []),
+        ...(activeTrade.strategy_config?.trigger_candle_exit_enabled ? ['trigger_candle_exit'] : []),
+      ]);
+      const lifecycleExitActions = activeTrade.strategy_config?.exit_signal_actions || {};
+      const hasActionableExit = Object.entries(activeTrade.exit_signals_status || {}).some(([signal, status]) =>
+        lifecycleExitSignals.has(signal) &&
+        status?.fired === true &&
+        status?.active === true &&
+        (!lifecycleExitActions[signal] || lifecycleExitActions[signal] === 'close')
+      );
+      if (hasActionableExit) {
         return {
           stageNumber: 6,
           title: 'Stage 6: Exit Signal Triggered',
           statusLabel: 'Exit Fired',
           toneClass: 'text-red',
-          desc: 'Exit condition crossed; order close pending.'
+          desc: 'Configured exit condition is active; position closure is pending.'
         };
       }
       if (isSlAtBreakeven || activeTrade.risk_usdt === 0) {

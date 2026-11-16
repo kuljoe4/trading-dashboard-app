@@ -2499,8 +2499,7 @@ export class OrderManagerService {
           }
         }
 
-        const baseExitSignal = exitSignal.replace(/_(?:cross|close)$/, '');
-        const configuredSignalTf = config.signal_timeframes?.[exitSignal] || config.signal_timeframes?.[baseExitSignal];
+        const configuredSignalTf = config.signal_timeframes?.[exitSignal];
         const signalTf = (configuredSignalTf && configuredSignalTf !== 'default')
           ? configuredSignalTf
           : (interval || config.scan_interval || '1m');

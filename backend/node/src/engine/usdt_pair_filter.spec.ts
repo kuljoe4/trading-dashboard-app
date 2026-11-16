@@ -15,6 +15,7 @@ describe('MomentumScannerService USDT Quote Pair Filtering', () => {
       ]),
     };
     mockTickerCache = {
+      getPrice: jest.fn().mockReturnValue(null),
       getTicker: jest.fn().mockReturnValue({ price: 105, volume_24h: 1000000 }),
       getLatestTickers: jest.fn().mockReturnValue([]),
       topByVolume: jest.fn().mockReturnValue([]),

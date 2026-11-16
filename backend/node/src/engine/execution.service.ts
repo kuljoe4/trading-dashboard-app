@@ -680,7 +680,8 @@ export class ExecutionService {
         // Keep the configured lookback period explicit; this was accidentally dropped in the
         // forming-candle refactor while its value remained referenced below.
         const lookbackPeriod = Math.max(0, Number(resolvedConfig.sl_lookback_period ?? 20) || 0);
-        const includeForming = Boolean(resolvedConfig.sl_include_forming_candle);
+        // Forming candles are included by default; opt out only with an explicit false.
+        const includeForming = resolvedConfig.sl_include_forming_candle !== false;
         let lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod, includeForming);
 
         // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles

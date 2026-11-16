@@ -695,8 +695,7 @@ export class MarketFeedService {
 
       let max = 0;
       for (const signal of signals) {
-        const baseType = signal.type.replace(/_(?:cross|close)$/, '');
-        const rawTf = candidate.signal_timeframes?.[signal.type] || candidate.signal_timeframes?.[baseType] || candidate.scan_interval || '1m';
+        const rawTf = candidate.signal_timeframes?.[signal.type] || candidate.scan_interval || '1m';
         const resolvedTf = this.resolveInterval(rawTf, candidate) || '1m';
         if (interval && resolvedTf !== interval) continue;
         max = Math.max(max, this.signalEngine.getRequiredWarmupForSignal(candidate, signal.type, signal.purpose));

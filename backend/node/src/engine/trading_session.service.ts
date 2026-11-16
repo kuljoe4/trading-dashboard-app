@@ -1095,18 +1095,18 @@ export class TradingSessionService implements OnApplicationShutdown {
       const opportunitiesWithSignals = scannerData[0]?.opportunities || [];
       this.updateScannerResults(opportunitiesWithSignals);
       this.lastVariantScannerResults = scannerData;
-      const now = Date.now();
-      this.sessionState.last_scan_ts = now;
-      this.sessionState.next_scan_ts = now + effectiveScanInterval;
+      const scanDoneNow = Date.now();
+      this.sessionState.last_scan_ts = scanDoneNow;
+      this.sessionState.next_scan_ts = scanDoneNow + effectiveScanInterval;
 
       if (this.sessionState.dashboardCount > 0) {
-        const isFull = now - this.lastScannerFullBroadcast > 30000;
+        const isFull = scanDoneNow - this.lastScannerFullBroadcast > 30000;
         const nextResultsJson = `${scannerResultsFingerprint(this.lastScannerResults)}|${scannerVariantsFingerprint(this.lastVariantScannerResults)}`;
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson;
         this.lastScannerResultsJson = nextResultsJson;
 
         if (isFull || resultsChanged) {
-          if (isFull) this.lastScannerFullBroadcast = now;
+          if (isFull) this.lastScannerFullBroadcast = scanDoneNow;
           this.lastScannerResultsJson = nextResultsJson;
           this.broadcast("scanner", {
             count: this.lastScannerResults.length,

@@ -1,0 +1,801 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var BinanceClientFactory_1;
+import { DerivativesTradingUsdsFutures, DERIVATIVES_TRADING_USDS_FUTURES_REST_API_TESTNET_URL, DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL, DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL, DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL } from '@binance/derivatives-trading-usds-futures';
+import { Injectable, Logger, Inject, forwardRef, Optional } from '@nestjs/common';
+import WebSocket from 'ws';
+import https from 'https';
+import http from 'http';
+import { URL } from 'url';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Settings as SettingsEntity } from '../models/entities/Settings.entity';
+import { SessionStateService } from '../engine/session_state.service';
+import { MonitoringService } from '../engine/monitoring.service';
+import { ENGINE_CONSTANTS } from '../models/constants';
+import { HttpsProxyAgent } from 'https-proxy-agent';
+let BinanceClientFactory = BinanceClientFactory_1 = class BinanceClientFactory {
+    eventEmitter;
+    sessionState;
+    settingsRepository;
+    monitoringService;
+    logger = new Logger(BinanceClientFactory_1.name);
+    queue = null;
+    constructor(eventEmitter, sessionState, settingsRepository, monitoringService) {
+        this.eventEmitter = eventEmitter;
+        this.sessionState = sessionState;
+        this.settingsRepository = settingsRepository;
+        this.monitoringService = monitoringService;
+    }
+    async onModuleInit() {
+        // SRE: Proactive Clock Synchronization Check (Citadel Vector 6).
+        // Drift of >1000ms makes signed requests invalid or vulnerable to replay.
+        try {
+            let proxyUrl = undefined;
+            let isTestnet = false;
+            try {
+                const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+                if (settings?.proxy_url)
+                    proxyUrl = settings.proxy_url.trim();
+                if (settings?.testnet || settings?.trading_mode === 'testnet')
+                    isTestnet = true;
+            }
+            catch (_) { }
+            if (!proxyUrl) {
+                proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
+            }
+            const baseUrl = isTestnet
+                ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL
+                : (process.env.BINANCE_REST_BASE || ENGINE_CONSTANTS.BINANCE_REST_BASE);
+            const start = Date.now();
+            const response = await this.proxyFetch(`${baseUrl}/fapi/v1/time`, {
+                signal: AbortSignal.timeout(5000)
+            }, proxyUrl);
+            if (response && response.ok) {
+                const data = (await response.json());
+                const end = Date.now();
+                const serverTime = data.serverTime;
+                const localTime = (start + end) / 2;
+                const drift = Math.abs(localTime - serverTime);
+                if (drift > 1000) {
+                    this.logger.fatal(`[CRITICAL] System clock drift detected: ${drift.toFixed(0)}ms. Execution at risk. [Weight: 1]`);
+                }
+                else {
+                    this.logger.log(`[Clock] System synchronized with Binance engine. Drift: ${drift.toFixed(0)}ms [Weight: 1]`);
+                }
+            }
+            else if (response && (response.status === 451 || response.status === 403)) {
+                this.logger.warn(`[Clock] System time check returned HTTP ${response.status} (Geo-Restriction / Blocked). Host IP may be blocked. Configure proxy_url in Settings. Non-fatal for startup.`);
+            }
+            else {
+                this.logger.warn(`[Clock] System time check returned HTTP ${response?.status || 'unknown'}. Non-fatal for startup.`);
+            }
+        }
+        catch (e) {
+            this.logger.warn(`[Clock] Failed to verify system time synchronization: ${e instanceof Error ? e.message : String(e)}. Non-fatal.`);
+        }
+        // Periodically re-verify clock synchronization in background (every 15 min, non-fatal)
+        const periodicTimer = setInterval(async () => {
+            try {
+                let pUrl = undefined;
+                let testnetMode = false;
+                try {
+                    const s = await this.settingsRepository.findOne({ where: { id: 'default' } });
+                    if (s?.proxy_url)
+                        pUrl = s.proxy_url.trim();
+                    if (s?.testnet || s?.trading_mode === 'testnet')
+                        testnetMode = true;
+                }
+                catch (_) { }
+                const bUrl = testnetMode ? ENGINE_CONSTANTS.BINANCE_TESTNET_REST_URL : (process.env.BINANCE_REST_BASE || ENGINE_CONSTANTS.BINANCE_REST_BASE);
+                const res = await this.proxyFetch(`${bUrl}/fapi/v1/time`, { signal: AbortSignal.timeout(5000) }, pUrl);
+                if (res?.ok) {
+                    const d = await res.json();
+                    const drift = Math.abs(Date.now() - d.serverTime);
+                    if (drift > 1000)
+                        this.logger.warn(`[Clock] Periodic drift warning: ${drift}ms`);
+                }
+            }
+            catch (_) { }
+        }, 15 * 60 * 1000);
+        if (periodicTimer?.unref)
+            periodicTimer.unref();
+    }
+    /**
+     * SRE: Universal HTTP fetch helper with HttpsProxyAgent support for REST queries and market data
+     */
+    async proxyFetch(url, init, proxyUrlOverride) {
+        let proxyUrl = proxyUrlOverride;
+        if (!proxyUrl && this.settingsRepository) {
+            try {
+                const settings = await this.settingsRepository.findOne({ where: { id: 'default' } });
+                if (settings?.proxy_url)
+                    proxyUrl = settings.proxy_url.trim();
+            }
+            catch (_) { }
+        }
+        if (!proxyUrl) {
+            proxyUrl = process.env.PROXY_URL || process.env.HTTPS_PROXY || undefined;
+        }
+        if (proxyUrl) {
+            return new Promise((resolve, reject) => {
+                try {
+                    const parsedUrl = new URL(url);
+                    const isHttps = parsedUrl.protocol === 'https:';
+                    const lib = isHttps ? https : http;
+                    const agent = new HttpsProxyAgent(proxyUrl);
+                    const req = lib.request(url, {
+                        method: init?.method || 'GET',
+                        headers: init?.headers || {
+                            'User-Agent': 'MomentumEngine/1.0',
+                            Accept: 'application/json, text/plain, */*',
+                        },
+                        agent: agent,
+                        signal: init?.signal,
+                    }, (res) => {
+                        const chunks = [];
+                        res.on('data', chunk => chunks.push(Buffer.from(chunk)));
+                        res.on('end', () => {
+                            const body = Buffer.concat(chunks).toString('utf-8');
+                            const status = res.statusCode || 200;
+                            const ok = status >= 200 && status < 300;
+                            resolve({
+                                ok,
+                                status,
+                                statusText: res.statusMessage || '',
+                                headers: res.headers,
+                                json: async () => JSON.parse(body),
+                                text: async () => body,
+                                clone: () => ({ text: async () => body }),
+                            });
+                        });
+                    });
+                    req.on('error', reject);
+                    if (init?.body) {
+                        req.write(typeof init.body === 'string' ? init.body : JSON.stringify(init.body));
+                    }
+                    req.end();
+                }
+                catch (err) {
+                    reject(err);
+                }
+            });
+        }
+        return fetch(url, init);
+    }
+    /**
+     * SRE: Enqueue a generic asynchronous task into the throttled Binance request queue.
+     * Ensures that even manual 'fetch' calls respect process-wide rate limits and IP reputation.
+     */
+    async genericRequest(fn, label, isEmergency = false, options) {
+        if (!this.queue) {
+            this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState, this.monitoringService);
+        }
+        return this.queue.add(async () => {
+            const result = await fn();
+            // If the result looks like a Response (has headers), update the weight automatically
+            if (result && result.headers) {
+                this.queue?.updateWeightFromHeaders(result.headers, label);
+            }
+            if (result && typeof result.status === 'number' && !result.ok) {
+                const res = result;
+                let bodyMsg = '';
+                try {
+                    bodyMsg = await res.clone().text();
+                }
+                catch (_) { }
+                throw new Error(`HTTP ${res.status} (${res.statusText || 'Error'}): ${bodyMsg || res.statusText}`);
+            }
+            return result;
+        }, label, isEmergency, options);
+    }
+    createClient(apiKey, apiSecret, isTestnet, proxyUrl) {
+        const restURL = isTestnet
+            ? DERIVATIVES_TRADING_USDS_FUTURES_REST_API_TESTNET_URL
+            : DERIVATIVES_TRADING_USDS_FUTURES_REST_API_PROD_URL;
+        const wsURL = isTestnet
+            ? DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_TESTNET_URL
+            : DERIVATIVES_TRADING_USDS_FUTURES_WS_STREAMS_PROD_URL;
+        this.logger.log(`Initializing Binance USDS-M Futures Client | mode=${isTestnet ? 'TESTNET' : 'PROD'} | rest=${restURL} | ws=${wsURL} | proxy=${proxyUrl ? 'ENABLED' : 'NONE'}`);
+        const configRestAPI = {
+            apiKey,
+            apiSecret,
+            basePath: restURL,
+            recvWindow: 10000,
+            baseOptions: {
+                recvWindow: 10000,
+            }
+        };
+        if (proxyUrl) {
+            try {
+                configRestAPI.baseOptions = {
+                    recvWindow: 10000,
+                    httpsAgent: new HttpsProxyAgent(proxyUrl)
+                };
+            }
+            catch (err) {
+                this.logger.error(`Failed to initialize proxy agent with URL: ${proxyUrl}. Error: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+        const client = new DerivativesTradingUsdsFutures({
+            configurationRestAPI: configRestAPI,
+            configurationWebsocketStreams: {
+                wsURL
+            }
+        });
+        // ARCHITECTURAL FIX: Override SDK's internal URL building to support dedicated gateways
+        // /private (for listenKey), /market (for anonymous market streams), and /public (HF data)
+        const originalConnect = client.websocketStreams.connect.bind(client.websocketStreams);
+        client.websocketStreams.connect = (async (params) => {
+            // SRE: Gate all WebSocket connection attempts through the centralized queue
+            // to respect IP reputation and ban status.
+            const stream = (params.stream || '').trim();
+            const isHF = stream.includes('!');
+            const isMarket = stream.includes('@');
+            const isCombined = stream.includes('/');
+            // CITADEL: Robust Path Detection.
+            // Combined streams (containing '/') or single aggregate streams (starting with '!')
+            // must use the /stream endpoint for maximum production gateway compatibility.
+            const useStreamEndpoint = isCombined || isHF;
+            // Citadel: Strictly isolate listenKeys (64-char alphanumeric) vs market streams.
+            const isPrivate = !isHF && !isMarket && !isCombined && stream.length >= 60;
+            // Emergency: Only User Data Stream (private) is considered emergency
+            const isEmergency = isPrivate;
+            return queue.add(async () => {
+                // CITADEL PURGE: Separate anonymous /public and /market data feeds from signed /private/ws listenKey endpoints.
+                // Inline Weight Calculation: Preventing stream multiplex state collisions saves connection failures.
+                // Each failure triggers a rate limit/recon query, which costs at least 2 weight units per retry cycle.
+                // Saved W_cumulative_ws = 2 weight units per handshake error avoided.
+                let gatewayURL = wsURL;
+                if (isPrivate) {
+                    gatewayURL = isTestnet ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_PRIVATE : ENGINE_CONSTANTS.BINANCE_WS_PRIVATE;
+                }
+                else {
+                    if (useStreamEndpoint) {
+                        gatewayURL = isTestnet ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL : ENGINE_CONSTANTS.BINANCE_WS_PUBLIC;
+                    }
+                    else {
+                        gatewayURL = isTestnet ? ENGINE_CONSTANTS.BINANCE_TESTNET_WS_URL : ENGINE_CONSTANTS.BINANCE_WS_MARKET;
+                    }
+                }
+                // BOLT: Use manual construction for combined/HF streams (market data) to bypass SDK multiplexing bugs.
+                // CRITICAL FIX: For PRIVATE streams (UDS), ALWAYS use SDK's native implementation.
+                // The SDK's websocketStreams.connect properly handles UDS protocol, reconnection, and message parsing.
+                // Manual WebSocket construction for UDS causes silent data frame loss in live mode (IP reputation starvation).
+                const shouldUseManualWs = (params.forceRaw || isCombined || isHF) && !isPrivate;
+                if (!isPrivate && (shouldUseManualWs || !isTestnet)) {
+                    const finalUrl = useStreamEndpoint
+                        ? `${gatewayURL}?streams=${params.stream}`
+                        : `${gatewayURL}/${params.stream}`;
+                    this.logger.log(`[BinanceClient] Connecting to gateway (Manual): ${finalUrl.substring(0, 100)}... | isHF=${isHF} | isPrivate=${isPrivate}`);
+                    const ws = new WebSocket(finalUrl, {
+                        handshakeTimeout: 15000,
+                        perMessageDeflate: false,
+                        agent: (proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined),
+                        headers: isTestnet ? {} : {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                            'Origin': 'https://www.binance.com'
+                        }
+                    });
+                    // SRE: Proactive Keep-Alive (Memory: WebSocket Keep-Alive Standard)
+                    const pingInterval = setInterval(() => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.ping();
+                        }
+                    }, 20000);
+                    if (pingInterval?.unref)
+                        pingInterval.unref();
+                    const cleanup = () => {
+                        clearInterval(pingInterval);
+                    };
+                    ws.on('message', (data) => {
+                        if (!ws._firstMsgReceived) {
+                            ws._firstMsgReceived = true;
+                            this.logger.debug(`[BinanceClient] First frame received on Manual gateway: ${params.stream?.substring(0, 30)}...`);
+                        }
+                    });
+                    ws.on('error', (err) => {
+                        const msg = err.message || '';
+                        this.logger.error(`[BinanceClient] WebSocket error for ${params.stream}: ${msg}`);
+                        if (msg.includes('429') || msg.includes('418') || msg.toLowerCase().includes('banned')) {
+                            const isHardBan = msg.includes('418') || msg.toLowerCase().includes('banned');
+                            this.logger.fatal(`[CRITICAL] WebSocket handshake failed with ${isHardBan ? 'ban' : 'rate-limit'} status (${msg}). Entering cooldown.`);
+                            const banMatch = msg.match(/banned until (\d+)/i);
+                            let until = banMatch
+                                ? parseInt(banMatch[1], 10)
+                                : Date.now() + (isHardBan ? 10 * 60 * 1000 : 60 * 1000);
+                            if (banMatch && until < 9999999999) {
+                                until *= 1000;
+                            }
+                            BinanceRequestQueue.setCooldownUntil(until);
+                            this.eventEmitter.emit('binance.api_limit_reached', {
+                                type: isHardBan ? 'BAN' : 'RATE_LIMIT',
+                                message: msg,
+                                until,
+                            });
+                        }
+                        cleanup();
+                    });
+                    ws.on('close', () => cleanup());
+                    ws.disconnect = () => {
+                        cleanup();
+                        ws.terminate();
+                    };
+                    return ws;
+                }
+                this.logger.log(`[BinanceClient] Routing WS connection to gateway: ${gatewayURL} | isPrivate=${isPrivate} | isHF=${isHF} | stream=${params.stream?.substring(0, 30)}...`);
+                const originalWsURL = client.websocketStreams.wsURL;
+                client.websocketStreams.wsURL = gatewayURL;
+                try {
+                    const ws = await originalConnect(params);
+                    if (ws && typeof ws.on === 'function') {
+                        ws.on('message', (data) => {
+                            if (!ws._firstMsgReceived) {
+                                ws._firstMsgReceived = true;
+                                this.logger.debug(`[BinanceClient] First frame received on ${isPrivate ? 'PRIVATE' : 'SDK'} stream: ${params.stream?.substring(0, 30)}...`);
+                            }
+                        });
+                    }
+                    return ws;
+                }
+                finally {
+                    client.websocketStreams.wsURL = originalWsURL;
+                }
+            }, `wsConnect:${stream.substring(0, 30)}`, isEmergency);
+        });
+        // Wrap restAPI with a Throttled Proxy to prevent startup bursts and respect rate limits
+        const originalRestApi = client.restAPI;
+        // SRE: Ensure a single queue instance per factory to maintain consistent weight tracking
+        if (!this.queue) {
+            this.queue = new BinanceRequestQueue(this.logger, this.eventEmitter, this.settingsRepository, this.sessionState, this.monitoringService);
+        }
+        const queue = this.queue;
+        client.restAPI = new Proxy(originalRestApi, {
+            get(target, prop, receiver) {
+                const value = Reflect.get(target, prop, receiver);
+                if (typeof value === 'function') {
+                    const label = prop.toString();
+                    return (...args) => {
+                        const rawFirstArg = args[0] && typeof args[0] === 'object' ? args[0] : undefined;
+                        const queuePriority = rawFirstArg?.__queuePriority === 'active_warmup' ? 'active_warmup' : undefined;
+                        let callArgs = args;
+                        let firstArg = rawFirstArg;
+                        if (rawFirstArg && '__queuePriority' in rawFirstArg) {
+                            const cleaned = { ...rawFirstArg };
+                            delete cleaned.__queuePriority;
+                            firstArg = cleaned;
+                            callArgs = [cleaned, ...args.slice(1)];
+                        }
+                        const hasSymbol = Boolean(firstArg?.symbol);
+                        // SRE: Detect emergency close orders to provide high-priority execution path
+                        let isEmergency = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(label);
+                        if (!isEmergency && ['newOrder', 'newAlgoOrder'].includes(label) && firstArg) {
+                            isEmergency = firstArg.reduceOnly === true || firstArg.closePosition === true;
+                        }
+                        // Compute weight & bulk metadata so BinanceRequestQueue accurately sheds heavy calls & reserves headroom
+                        let estimatedWeight = 1;
+                        let isBulk = false;
+                        if (label === 'currentAllOpenOrders') {
+                            estimatedWeight = hasSymbol ? 1 : 40;
+                            isBulk = !hasSymbol;
+                        }
+                        else if (label === 'currentAllAlgoOpenOrders') {
+                            estimatedWeight = hasSymbol ? 1 : 20;
+                            isBulk = !hasSymbol;
+                        }
+                        else if (label === 'positionInformationV3' || label === 'positionInformationV2') {
+                            estimatedWeight = 5;
+                            isBulk = !hasSymbol;
+                        }
+                        else if (label === 'notionalAndLeverageBrackets' || label === 'exchangeInformation') {
+                            estimatedWeight = hasSymbol ? 1 : 10;
+                            isBulk = !hasSymbol;
+                        }
+                        else if (label === 'futuresAccountBalanceV2' || label === 'futuresAccountBalanceV3') {
+                            estimatedWeight = 5;
+                        }
+                        else if (label === 'ticker24hrPriceChangeStatistics') {
+                            estimatedWeight = hasSymbol ? 1 : 40;
+                            isBulk = !hasSymbol;
+                        }
+                        else if (label === 'klineCandlestickData') {
+                            const limit = Number(firstArg?.limit || 200);
+                            estimatedWeight = limit < 100 ? 1 : (limit < 500 ? 2 : (limit <= 1000 ? 5 : 10));
+                        }
+                        else if (label === 'accountTradeList') {
+                            estimatedWeight = 5;
+                        }
+                        return queue.add(async () => {
+                            const response = await value.apply(target, callArgs);
+                            // Proactively extract weight from headers if available
+                            if (response && response.headers) {
+                                queue.updateWeightFromHeaders(response.headers, label);
+                            }
+                            return response;
+                        }, label, isEmergency, { priority: queuePriority, estimatedWeight, isBulk });
+                    };
+                }
+                return value;
+            }
+        });
+        return client;
+    }
+};
+BinanceClientFactory = BinanceClientFactory_1 = __decorate([
+    Injectable(),
+    __param(1, Inject(forwardRef(() => SessionStateService))),
+    __param(2, InjectRepository(SettingsEntity)),
+    __param(3, Optional()),
+    __metadata("design:paramtypes", [EventEmitter2,
+        SessionStateService,
+        Repository,
+        MonitoringService])
+], BinanceClientFactory);
+export { BinanceClientFactory };
+/**
+ * Centralized Request Queue for Binance USDS-M Futures API
+ * Ensures a mandatory delay between requests and monitors usage weight.
+ */
+export class BinanceRequestQueue {
+    logger;
+    eventEmitter;
+    settingsRepository;
+    sessionState;
+    monitoringService;
+    queue = [];
+    processing = false;
+    // SRE: Shared state across all queue instances to ensure process-wide IP reputation protection
+    static lastRequestTs = 0;
+    static banCooldownUntil = 0;
+    static currentWeight1m = 0;
+    static windowStartTs = Date.now();
+    static rolloverInterval = null;
+    static adaptiveDelayMs = 0;
+    static weightLimit1m = 2400;
+    // Mandatory delay between requests to prevent "Burst" penalties (50-100ms)
+    MIN_DELAY_MS = 100;
+    constructor(logger, eventEmitter, settingsRepository, sessionState, monitoringService) {
+        this.logger = logger;
+        this.eventEmitter = eventEmitter;
+        this.settingsRepository = settingsRepository;
+        this.sessionState = sessionState;
+        this.monitoringService = monitoringService;
+        this.setupRolloverCheck();
+    }
+    setupRolloverCheck() {
+        if (BinanceRequestQueue.rolloverInterval)
+            return;
+        // SRE: Background rollover check to break "shedding lock"
+        // Even if no requests are being processed, we must reset the counter
+        // at minute boundaries so other services (MarketFeed) can resume.
+        BinanceRequestQueue.rolloverInterval = setInterval(() => {
+            const now = Date.now();
+            if (this.shouldRollover(now)) {
+                this.executeRollover(now);
+            }
+        }, 5000); // Check every 5s
+        if (BinanceRequestQueue.rolloverInterval?.unref)
+            BinanceRequestQueue.rolloverInterval.unref();
+    }
+    shouldRollover(now) {
+        return Math.floor(now / 60000) > Math.floor(BinanceRequestQueue.windowStartTs / 60000);
+    }
+    static getEffectiveCooldownUntil(now = Date.now()) {
+        // Support legacy test mutations that write directly to lastRequestTs > now
+        const legacyFutureTs = BinanceRequestQueue.lastRequestTs > now ? BinanceRequestQueue.lastRequestTs : 0;
+        return Math.max(BinanceRequestQueue.banCooldownUntil, legacyFutureTs);
+    }
+    static isCurrentlyBanned(now = Date.now()) {
+        return now < BinanceRequestQueue.getEffectiveCooldownUntil(now);
+    }
+    static getCurrentWeight() {
+        return BinanceRequestQueue.currentWeight1m;
+    }
+    executeRollover(now) {
+        // SRE: Critical rollover logic. Resets counter at clock minute boundaries (00s).
+        // BOLT: Also ensure ban cooldown has elapsed before allowing weight to reset and requests to resume.
+        const cooldownUntil = BinanceRequestQueue.getEffectiveCooldownUntil(now);
+        if (now < cooldownUntil) {
+            // Silence rollover skip logs during bans to prevent post-ban log hammering.
+            return;
+        }
+        BinanceRequestQueue.banCooldownUntil = 0;
+        // Citadel: If cooldown just expired, emit an event to clear ban status in the engine
+        const wasBanned = BinanceRequestQueue.currentWeight1m === 9999;
+        if (BinanceRequestQueue.currentWeight1m > 0) {
+            this.logger.debug(`[BinanceQueue] Window rollover detected. Resetting weight: ${BinanceRequestQueue.currentWeight1m} -> 0`);
+            BinanceRequestQueue.currentWeight1m = 0;
+            BinanceRequestQueue.windowStartTs = now;
+            // BOLT: Thundering Herd Mitigation. On window rollover, we implement a phased release
+            // of the queue by keeping the adaptive delay high for the first few seconds of the new window.
+            BinanceRequestQueue.adaptiveDelayMs = 1000;
+            setTimeout(() => {
+                if (BinanceRequestQueue.currentWeight1m < (BinanceRequestQueue.weightLimit1m * 0.5)) {
+                    BinanceRequestQueue.adaptiveDelayMs = 0;
+                }
+            }, 2000);
+            // SRE: Proactively update the entire engine state so background tasks can resume immediately
+            this.eventEmitter.emit('binance.weight_update', 0);
+            if (wasBanned) {
+                this.logger.log(`[BinanceQueue] Terminal Lock lifted. System resuming normal execution.`);
+                this.eventEmitter.emit('binance.api_limit_cleared');
+            }
+        }
+        else {
+            // Just keep the window timestamp current to prevent multiple resets in the same minute
+            BinanceRequestQueue.windowStartTs = now;
+        }
+    }
+    async add(fn, label, isEmergency = false, options) {
+        // BOLT: Automatically identify infrastructure calls as emergency
+        const effectiveIsEmergency = isEmergency || ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(label);
+        // SRE: Critical guard - immediately reject non-emergency requests if currently in a hard ban cooldown.
+        // Uses dedicated banCooldownUntil so emergency calls cannot overwrite an active ban window.
+        const now = Date.now();
+        const cooldownUntil = BinanceRequestQueue.getEffectiveCooldownUntil(now);
+        if (now < cooldownUntil && !effectiveIsEmergency) {
+            const remaining = Math.ceil((cooldownUntil - now) / 1000);
+            return Promise.reject(new Error(`IP banned: Too many requests. Resuming in ${remaining}s.`));
+        }
+        const estimatedWeight = options?.estimatedWeight ?? (['currentAllOpenOrders'].includes(label) ? 40
+            : ['currentAllAlgoOpenOrders'].includes(label) ? 20
+                : ['positionInformationV3', 'positionInformationV2', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3', 'accountTradeList'].includes(label) ? 5
+                    : 1);
+        const isBulk = options?.isBulk ?? ['currentAllOpenOrders', 'currentAllAlgoOpenOrders', 'notionalAndLeverageBrackets'].includes(label);
+        return new Promise((resolve, reject) => {
+            this.queue.push({
+                fn,
+                label,
+                isEmergency: effectiveIsEmergency,
+                priority: options?.priority,
+                estimatedWeight,
+                isBulk,
+                resolve,
+                reject
+            });
+            this.process();
+        });
+    }
+    updateWeightFromHeaders(headers, label) {
+        const getHeader = (name) => {
+            return (headers && typeof headers.get === 'function')
+                ? headers.get(name)
+                : (headers ? (headers[name.toLowerCase()] || headers[name]) : null);
+        };
+        const weight = getHeader('X-MBX-USED-WEIGHT-1M');
+        const orderCount10s = getHeader('X-MBX-ORDER-COUNT-10S');
+        const orderCount1m = getHeader('X-MBX-ORDER-COUNT-1M');
+        // SRE: Proactively sync order rate limits if headers are present
+        if (orderCount10s || orderCount1m) {
+            this.eventEmitter.emit('binance.order_limit_update', { headers });
+        }
+        if (weight) {
+            const parsedWeight = parseInt(weight, 10);
+            if (!isNaN(parsedWeight) && parsedWeight >= 0) {
+                BinanceRequestQueue.currentWeight1m = parsedWeight;
+                BinanceRequestQueue.windowStartTs = Date.now();
+                // SRE: Synchronize weight back to SessionStateService on every REST response
+                this.eventEmitter.emit('binance.weight_update', BinanceRequestQueue.currentWeight1m);
+                // SRE Overwatch: Dynamic Back-off Execution Strategy
+                const usageRatio = BinanceRequestQueue.currentWeight1m / BinanceRequestQueue.weightLimit1m;
+                if (usageRatio > 0.75) {
+                    BinanceRequestQueue.adaptiveDelayMs = 1000; // Load Shedding zone
+                }
+                else if (usageRatio > 0.5) {
+                    BinanceRequestQueue.adaptiveDelayMs = 500; // Active Throttling zone
+                }
+                else {
+                    BinanceRequestQueue.adaptiveDelayMs = 0; // Normal Operation zone
+                }
+            }
+        }
+        else {
+            // BOLT: Some POST endpoints (orders) only return weight via a different header or not at all.
+            // We log it for telemetry visibility but don't reset currentWeight1m to avoid blind spots.
+            this.logger.debug(`[BinanceQueue] Weight header (X-MBX-USED-WEIGHT-1M) missing on ${label}.`);
+        }
+    }
+    static setWeightLimit(limit) {
+        if (limit > 0) {
+            BinanceRequestQueue.weightLimit1m = limit;
+        }
+    }
+    static setCooldownUntil(until) {
+        BinanceRequestQueue.banCooldownUntil = until;
+        BinanceRequestQueue.lastRequestTs = until;
+        if (until === 0)
+            BinanceRequestQueue.currentWeight1m = 0;
+    }
+    async process() {
+        if (this.processing)
+            return;
+        this.processing = true;
+        while (this.queue.length > 0) {
+            const now = Date.now();
+            // SRE: Proactive Order Rate Limit Throttling
+            const orderLimits = this.sessionState?.binanceOrderLimit;
+            if (orderLimits) {
+                const orderUsageRatio10s = orderLimits.used_10s / (orderLimits.limit_10s || 100);
+                const orderUsageRatio1m = orderLimits.used_1m / (orderLimits.limit_1m || 1000);
+                if (orderUsageRatio10s > 0.8 || orderUsageRatio1m > 0.8) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+                else if (orderUsageRatio10s > 0.5 || orderUsageRatio1m > 0.5) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            }
+            // SRE: Rolling Window Decay (In-loop check)
+            if (this.shouldRollover(now)) {
+                this.executeRollover(now);
+            }
+            const item = this.queue.shift();
+            if (!item)
+                continue;
+            const isEmergency = ['startUserDataStream', 'keepaliveUserDataStream', 'closeUserDataStream'].includes(item.label) || item.isEmergency;
+            const checkNow = Date.now();
+            const cooldownUntil = BinanceRequestQueue.getEffectiveCooldownUntil(checkNow);
+            // Reject queued non-emergency calls immediately while a ban/cooldown is active
+            if (!isEmergency && checkNow < cooldownUntil) {
+                const remaining = Math.ceil((cooldownUntil - checkNow) / 1000);
+                if (this.sessionState?.config?.track_binance_rate_limits !== false) {
+                    this.monitoringService?.recordRestCall(item.label, 0, BinanceRequestQueue.currentWeight1m, 'shed', 'IP ban cooldown active');
+                }
+                item.reject(new Error(`IP banned: Too many requests. Resuming in ${remaining}s.`));
+                continue;
+            }
+            // Apply serial pacing delay without sleeping for a 24h ban on emergency infrastructure calls
+            const baseDelay = Math.max(this.MIN_DELAY_MS, BinanceRequestQueue.adaptiveDelayMs);
+            if (baseDelay > 0) {
+                await new Promise(resolve => setTimeout(resolve, baseDelay));
+            }
+            const projectedWeight = BinanceRequestQueue.currentWeight1m + (item.estimatedWeight || 1);
+            const usageRatio = projectedWeight / BinanceRequestQueue.weightLimit1m;
+            // SRE LOAD SHEDDING: Multi-tier priority management
+            // Tier 1: EMERGENCY (110%) - UDS & reduce-only/closePosition protective orders
+            // Tier 2: CRITICAL (95%) - Strategy entries, cancels, exchangeInfo, balances
+            const isCritical = ['newOrder', 'cancelOrder', 'newAlgoOrder', 'cancelAlgoOrder', 'cancelAllOpenOrders', 'cancelAllAlgoOpenOrders', 'exchangeInformation', 'futuresAccountBalanceV2', 'futuresAccountBalanceV3'].includes(item.label);
+            // Tier 3A: HEAVY BULK AUDITS (65%) - Unscoped currentAllOpenOrders (40w), currentAllAlgoOpenOrders (20w), leverage brackets (10w)
+            const isBulkAudit = item.isBulk && ['currentAllOpenOrders', 'currentAllAlgoOpenOrders', 'notionalAndLeverageBrackets'].includes(item.label);
+            // Tier 3B: OPERATIONAL (80%) - Targeted single-symbol queries & positions
+            const isOperational = ['queryOrder', 'queryAlgoOrder', 'accountTradeList', 'positionInformationV3', 'positionInformationV2', 'currentAllOpenOrders', 'currentAllAlgoOpenOrders', 'notionalAndLeverageBrackets'].includes(item.label);
+            // Tier 4A: ACTIVE WARMUP (65%) - Exit-indicator klines for currently open positions
+            const isActiveWarmup = item.priority === 'active_warmup' && item.label === 'klineCandlestickData';
+            // Tier 4B: BACKGROUND (50%) - Discovery klines and 24h ticker sweeps
+            const isBackground = ['klineCandlestickData', 'ticker24hrPriceChangeStatistics'].includes(item.label);
+            let shed = false;
+            let shedReason = '';
+            if (!isEmergency) {
+                if (usageRatio > 1.0) {
+                    shed = true;
+                    shedReason = 'Weight limit exceeded (100%+)';
+                }
+                else if (usageRatio > 0.95 && !isCritical) {
+                    shed = true;
+                    shedReason = 'SRE Tiered Budget (Critical Zone 95%+)';
+                }
+                else if (usageRatio > 0.80 && !isCritical) {
+                    shed = true;
+                    shedReason = isOperational
+                        ? 'SRE Tiered Budget (Operational Zone 80%+)'
+                        : 'SRE Tiered Budget (Non-Critical Zone 80%+)';
+                }
+                else if (usageRatio > 0.65 && (isBulkAudit || isActiveWarmup)) {
+                    shed = true;
+                    shedReason = isBulkAudit
+                        ? 'SRE Tiered Budget (Bulk Audit Zone 65%+)'
+                        : 'SRE Tiered Budget (Active Warmup Zone 65%+)';
+                }
+                else if (usageRatio > 0.50 && isBackground && !isActiveWarmup) {
+                    shed = true;
+                    shedReason = 'SRE Tiered Budget (Background Zone 50%+)';
+                }
+            }
+            else if (usageRatio > 1.1 && BinanceRequestQueue.currentWeight1m !== 9999) {
+                // Allow emergency calls when sentinel 9999 ban marker isn't blocking infrastructure keepalive, shed only genuine >110% weight bursts
+                shed = true;
+                shedReason = 'Emergency limit exceeded (110%+)';
+            }
+            if (shed) {
+                this.logger.warn(`[BinanceQueue] SHEDDING: [${item.label}] rejected. Reason: ${shedReason} | Usage: ${(usageRatio * 100).toFixed(1)}%`);
+                if (this.sessionState?.config?.track_binance_rate_limits !== false) {
+                    this.monitoringService?.recordRestCall(item.label, 0, BinanceRequestQueue.currentWeight1m, 'shed', shedReason);
+                }
+                item.reject(new Error(`Load shedding active: ${item.label} rejected to preserve IP reputation. (${shedReason})`));
+                continue;
+            }
+            // Preserve active ban cooldown timestamp when an emergency call dispatches
+            BinanceRequestQueue.lastRequestTs = Math.max(BinanceRequestQueue.lastRequestTs, Date.now());
+            if (BinanceRequestQueue.currentWeight1m < BinanceRequestQueue.weightLimit1m * 1.2) {
+                BinanceRequestQueue.currentWeight1m += (item.estimatedWeight || 1);
+            }
+            const startTs = Date.now();
+            try {
+                this.logger.debug(`[BinanceQueue] Dispatching: ${item.label}`);
+                const result = await item.fn();
+                const duration = Date.now() - startTs;
+                const currentWeight = (BinanceRequestQueue.currentWeight1m === undefined || isNaN(BinanceRequestQueue.currentWeight1m)) ? 0 : BinanceRequestQueue.currentWeight1m;
+                const telemetryLog = `[Telemetry] ${item.label} executed | Weight: ${currentWeight}/${BinanceRequestQueue.weightLimit1m} | Depth: ${this.queue.length} | Latency: ${duration}ms`;
+                if (this.sessionState?.config?.track_binance_rate_limits !== false) {
+                    this.monitoringService?.recordRestCall(item.label, duration, currentWeight, 'ok');
+                }
+                const isQuietTelemetry = ['klineCandlestickData', 'ticker24hrPriceChangeStatistics', 'exchangeInformation'].includes(item.label);
+                if (isQuietTelemetry) {
+                    this.logger.debug(telemetryLog);
+                }
+                else {
+                    this.logger.log(telemetryLog);
+                }
+                item.resolve(result);
+            }
+            catch (error) {
+                const duration = Date.now() - startTs;
+                const status = Number(error?.status ?? error?.statusCode ?? error?.response?.status ?? 0);
+                const msg = String(error?.response?.data?.msg || error?.data?.msg || error?.message || '');
+                const code = error?.response?.data?.code ?? error?.data?.code ?? error?.code ?? -1;
+                const retryAfterRaw = error?.headers?.['retry-after'] ?? error?.response?.headers?.['retry-after'];
+                const isGeo = status === 451 || status === 403 || msg.includes('451') || code === 451 || msg.toLowerCase().includes('restricted location') || msg.toLowerCase().includes('eligibility');
+                const isBan = !isGeo && (status === 418 || msg.includes('418') || msg.toLowerCase().includes('banned'));
+                const isRateLimit = !isGeo && !isBan && (status === 429 || msg.includes('429') || code === -1003 || code === -1015 || msg.toLowerCase().includes('too many requests'));
+                if (this.sessionState?.config?.track_binance_rate_limits !== false) {
+                    this.monitoringService?.recordRestCall(item.label, duration, BinanceRequestQueue.currentWeight1m, 'error', msg);
+                }
+                // CITADEL FAIL-FAST: Detected critical IP reputation threats (429, 418, -1003) or Geo-Restriction (451)
+                if (isBan || isRateLimit || isGeo) {
+                    if (isGeo) {
+                        this.logger.error(`[CRITICAL] API request rejected due to Regional Geo-Restriction (HTTP 451). Host IP is in a blocked jurisdiction. Configure a Proxy URL or switch to Testnet/Paper mode.`);
+                    }
+                    else {
+                        this.logger.fatal(`[CRITICAL] API request failed with ${isBan ? 'BAN' : 'RATE_LIMIT'} status (${msg}). Entering Terminal Lock.`);
+                    }
+                    if (isBan) {
+                        BinanceRequestQueue.currentWeight1m = 9999;
+                    }
+                    else if (isRateLimit) {
+                        BinanceRequestQueue.currentWeight1m = BinanceRequestQueue.weightLimit1m;
+                    }
+                    let until = Date.now() + (isGeo ? 10 * 60 * 1000 : 60000);
+                    if (retryAfterRaw !== undefined && retryAfterRaw !== null) {
+                        const retrySec = parseInt(String(retryAfterRaw), 10);
+                        if (Number.isFinite(retrySec) && retrySec > 0) {
+                            until = Date.now() + retrySec * 1000;
+                        }
+                    }
+                    if (isBan) {
+                        const banMatch = msg.match(/banned until (\d+)/i);
+                        if (banMatch) {
+                            let parsedUntil = parseInt(banMatch[1], 10);
+                            if (parsedUntil < 9999999999) {
+                                parsedUntil *= 1000;
+                            }
+                            until = parsedUntil;
+                        }
+                        else if (!(retryAfterRaw && parseInt(String(retryAfterRaw), 10) > 0)) {
+                            until = Date.now() + (10 * 60 * 1000); // 10m safe fallback when 418 lacks an explicit timestamp
+                        }
+                    }
+                    BinanceRequestQueue.setCooldownUntil(until);
+                    this.eventEmitter.emit('binance.api_limit_reached', {
+                        type: isBan ? 'BAN' : (isGeo ? 'GEO_BLOCKED' : 'RATE_LIMIT'),
+                        message: isGeo ? `Regional Geo-Restriction (HTTP 451): Host IP is blocked by Binance in this region. Configure a Proxy URL or switch to Testnet/Paper mode.` : msg,
+                        until
+                    });
+                    // Purge non-emergency queue items
+                    this.queue = this.queue.filter(i => i.isEmergency);
+                }
+                item.reject(error);
+            }
+        }
+        this.processing = false;
+    }
+}

@@ -1,0 +1,231 @@
+import { Test } from "@nestjs/testing";
+import { SessionController, LimitPipe, SessionIdPipe, ModePipe } from "./session.controller";
+import { SessionService } from "./session.service";
+import { BacktestService } from "../engine/backtest.service";
+import { SmartOptimizerService } from "../engine/smart-optimizer.service";
+import { ConfigService } from "@nestjs/config";
+import { BadRequestException } from "@nestjs/common";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
+import { UpdateSessionDto } from "./dto/session.dto";
+describe("SessionController", () => {
+    let controller;
+    let sessionService;
+    beforeEach(async () => {
+        const module = await Test.createTestingModule({
+            controllers: [SessionController],
+            providers: [
+                {
+                    provide: SessionService,
+                    useValue: {
+                        startSession: jest.fn().mockResolvedValue({ id: 'test-session-id' }),
+                        pauseSession: jest.fn().mockResolvedValue({ success: true }),
+                        adoptPositionManually: jest.fn().mockResolvedValue({ success: true }),
+                        getTrade: jest.fn(),
+                        getHistory: jest.fn(),
+                        getLifetimeAnalytics: jest.fn(),
+                    },
+                },
+                {
+                    provide: BacktestService,
+                    useValue: {
+                        runBacktest: jest.fn().mockResolvedValue({ totalTrades: 0 }),
+                    },
+                },
+                {
+                    provide: SmartOptimizerService,
+                    useValue: {
+                        getTopRecommendations: jest.fn().mockReturnValue([]),
+                        clearRecommendations: jest.fn(),
+                        runOptimization: jest.fn(),
+                    },
+                },
+                {
+                    provide: ConfigService,
+                    useValue: {
+                        get: jest.fn().mockReturnValue("test-key"),
+                    },
+                },
+                {
+                    provide: "AuditLogService",
+                    useValue: {},
+                },
+            ],
+        }).compile();
+        controller = module.get(SessionController);
+        sessionService = module.get(SessionService);
+        jest.clearAllMocks();
+    });
+    describe("startSession", () => {
+        it("should instantiate SessionConfig with plainToInstance when sessionId is provided", async () => {
+            const mockReq = { ip: "127.0.0.1", headers: {} };
+            const rawConfig = { strategy_label: "Custom Strategy", scan_interval: "15m" };
+            const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+            await controller.startSession({ config: rawConfig, paper_mode: true, sessionId }, mockReq);
+            expect(sessionService.startSession).toHaveBeenCalledTimes(1);
+            const [passedConfig, passedPaperMode, passedSessionId, passedIp] = sessionService.startSession.mock.calls[0];
+            expect(passedConfig.constructor.name).toBe("SessionConfig");
+            expect(passedConfig.strategy_label).toBe("Custom Strategy");
+            expect(passedConfig.scan_interval).toBe("15m");
+            expect(passedPaperMode).toBe(true);
+            expect(passedSessionId).toBe(sessionId);
+            expect(passedIp).toBe("127.0.0.1");
+        });
+        it("should instantiate SessionConfig with plainToInstance when sessionId is not provided", async () => {
+            const mockReq = { ip: "127.0.0.1", headers: {} };
+            const rawConfig = { strategy_label: "Default Strategy" };
+            await controller.startSession({ config: rawConfig, paper_mode: false }, mockReq);
+            expect(sessionService.startSession).toHaveBeenCalledTimes(1);
+            const [passedConfig, passedPaperMode, passedSessionId] = sessionService.startSession.mock.calls[0];
+            expect(passedConfig.constructor.name).toBe("SessionConfig");
+            expect(passedConfig.strategy_label).toBe("Default Strategy");
+            expect(passedPaperMode).toBe(false);
+            expect(passedSessionId).toBeUndefined();
+        });
+    });
+    describe("getHistory", () => {
+        it("should allow undefined/no sessionId", async () => {
+            await controller.getHistory(undefined);
+            expect(sessionService.getHistory).toHaveBeenCalledWith(undefined, undefined);
+        });
+        it('should allow "all"', async () => {
+            await controller.getHistory("all");
+            expect(sessionService.getHistory).toHaveBeenCalledWith("all", undefined);
+        });
+        it("should allow valid UUID", async () => {
+            const uuid = "550e8400-e29b-41d4-a716-446655440000";
+            await controller.getHistory(uuid);
+            expect(sessionService.getHistory).toHaveBeenCalledWith(uuid, undefined);
+        });
+        it("should reject invalid sessionId format", async () => {
+            expect(() => new SessionIdPipe().transform("invalid_session_id", { type: 'query' })).toThrow(BadRequestException);
+        });
+        it("should parse and allow valid limit parameter", async () => {
+            await controller.getHistory("all", new LimitPipe(5000).transform("250", { type: 'query' }));
+            expect(sessionService.getHistory).toHaveBeenCalledWith("all", 250);
+        });
+        it("should reject invalid limit format (non-numeric, negative, or out-of-bounds)", async () => {
+            expect(() => new LimitPipe(5000).transform("abc", { type: 'query' })).toThrow(BadRequestException);
+            expect(() => new LimitPipe(5000).transform("-10", { type: 'query' })).toThrow(BadRequestException);
+            expect(() => new LimitPipe(5000).transform("0", { type: 'query' })).toThrow(BadRequestException);
+            expect(() => new LimitPipe(5000).transform("100000", { type: 'query' })).toThrow(BadRequestException);
+            expect(() => new LimitPipe(5000).transform("123456789012", { type: 'query' })).toThrow(BadRequestException);
+        });
+    });
+    describe("getLifetimeAnalytics", () => {
+        it("should allow valid modes", async () => {
+            await controller.getLifetimeAnalytics(new ModePipe().transform("paper", { type: 'query' }));
+            expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith("paper");
+            await controller.getLifetimeAnalytics(new ModePipe().transform("testnet", { type: 'query' }));
+            expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith("testnet");
+            await controller.getLifetimeAnalytics(new ModePipe().transform("live", { type: 'query' }));
+            expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith("live");
+        });
+        it("should allow undefined mode and fallback to paper", async () => {
+            await controller.getLifetimeAnalytics(new ModePipe().transform(undefined, { type: 'query' }));
+            expect(sessionService.getLifetimeAnalytics).toHaveBeenCalledWith("paper");
+        });
+        it("should reject invalid mode", async () => {
+            expect(() => new ModePipe().transform("invalid_mode", { type: 'query' })).toThrow(BadRequestException);
+        });
+    });
+    describe("getTrade", () => {
+        it("should allow valid UUID", async () => {
+            const uuid = "550e8400-e29b-41d4-a716-446655440000";
+            await controller.getTrade(uuid);
+            expect(sessionService.getTrade).toHaveBeenCalledWith(uuid);
+        });
+        it("should allow UUID v7", async () => {
+            const uuidV7 = "018f4a0a-6e3e-72c3-8e1a-56789abcdef0";
+            await controller.getTrade(uuidV7);
+            expect(sessionService.getTrade).toHaveBeenCalledWith(uuidV7);
+        });
+        it("should allow valid Binance symbol", async () => {
+            const symbol = "BTCUSDT";
+            await controller.getTrade(symbol);
+            expect(sessionService.getTrade).toHaveBeenCalledWith(symbol);
+        });
+        it("should throw BadRequestException for invalid format", async () => {
+            const invalid = "invalid_format!";
+            await expect(controller.getTrade(invalid)).rejects.toThrow(BadRequestException);
+        });
+        it("should throw BadRequestException for overly long input", async () => {
+            const longInput = "A".repeat(50);
+            await expect(controller.getTrade(longInput)).rejects.toThrow(BadRequestException);
+        });
+    });
+    describe("UpdateSessionDto Validation", () => {
+        it("should pass validation for valid nested config", async () => {
+            const dto = plainToInstance(UpdateSessionDto, {
+                config: {
+                    strategy_label: "Safe Strategy",
+                    scan_interval: "5m",
+                },
+            });
+            const errors = await validate(dto);
+            expect(errors.length).toBe(0);
+        });
+        it("should reject nested config containing XSS in strategy_label", async () => {
+            const dto = plainToInstance(UpdateSessionDto, {
+                config: {
+                    strategy_label: "<script>alert('xss')</script>",
+                },
+            });
+            const errors = await validate(dto);
+            expect(errors.length).toBeGreaterThan(0);
+            expect(JSON.stringify(errors)).toContain("Strategy label");
+        });
+        it("should reject nested config containing invalid scan_interval", async () => {
+            const dto = plainToInstance(UpdateSessionDto, {
+                config: {
+                    scan_interval: "invalid_interval",
+                },
+            });
+            const errors = await validate(dto);
+            expect(errors.length).toBeGreaterThan(0);
+            expect(JSON.stringify(errors)).toContain("scan_interval must be a valid Binance kline interval");
+        });
+    });
+    describe("pauseSession DTO Whitelist Validation", () => {
+        it("should accept valid PauseSessionDto payloads", async () => {
+            const mockReq = { ip: "127.0.0.1", headers: {} };
+            const validPayload = { paused: true, strategyLabel: "Strategy_A" };
+            await controller.pauseSession(validPayload, mockReq);
+            expect(sessionService.pauseSession).toHaveBeenCalledWith(true, "Strategy_A", "127.0.0.1", undefined);
+        });
+        it("should throw BadRequestException when pauseSession receives non-whitelisted properties", async () => {
+            const mockReq = { ip: "127.0.0.1", headers: {} };
+            const invalidPayload = { paused: true, maliciousProp: "injected" };
+            await expect(controller.pauseSession(invalidPayload, mockReq)).rejects.toThrow(BadRequestException);
+        });
+    });
+    describe("runSmartOptimization & runBacktest DTO Whitelist Validation", () => {
+        it("should throw BadRequestException when runSmartOptimization receives non-whitelisted properties", async () => {
+            const payload = {
+                iterations: 10,
+                unauthorizedProperty: "malicious_payload",
+            };
+            await expect(controller.runSmartOptimization(payload)).rejects.toThrow(BadRequestException);
+        });
+        it("should throw BadRequestException when runBacktest receives non-whitelisted properties", async () => {
+            const payload = {
+                days: 14,
+                unauthorizedProperty: "malicious_payload",
+            };
+            await expect(controller.runBacktest(payload)).rejects.toThrow(BadRequestException);
+        });
+    });
+    describe("adoptPosition DTO Whitelist Validation", () => {
+        it("should accept valid AdoptPositionDto payloads", async () => {
+            const mockReq = { ip: "127.0.0.1", headers: {} };
+            const validPayload = { symbol: "BTCUSDT", strategyLabel: "Strategy_A", initialSl: 50000, currentSl: 51000 };
+            await controller.adoptPosition(validPayload, mockReq);
+            expect(sessionService.adoptPositionManually).toHaveBeenCalledWith("BTCUSDT", "Strategy_A", 50000, 51000, "127.0.0.1", undefined);
+        });
+        it("should throw BadRequestException when adoptPosition receives non-whitelisted properties", async () => {
+            const mockReq = { ip: "127.0.0.1", headers: {} };
+            const invalidPayload = { symbol: "BTCUSDT", strategyLabel: "Strategy_A", injectedField: "malicious" };
+            await expect(controller.adoptPosition(invalidPayload, mockReq)).rejects.toThrow(BadRequestException);
+        });
+    });
+});

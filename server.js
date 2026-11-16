@@ -32,13 +32,14 @@ const SYMBOLS = [
     { symbol: 'NEARUSDT', basePrice: 5.12, vol: 88000000 },
 ];
 const prices = new Map();
-// Initialize prices
+// Initialize prices with full 120-candle warmup history (true timestamps at 5m intervals)
 const now = Date.now();
+const candleIntervalMs = 5 * 60 * 1000;
 for (const s of SYMBOLS) {
     const ohlc = [];
     let cur = s.basePrice;
-    for (let i = 20; i >= 0; i--) {
-        const t = now - i * 5 * 60 * 1000;
+    for (let i = 120; i >= 0; i--) {
+        const t = now - i * candleIntervalMs;
         const change = (Math.random() - 0.49) * 0.008;
         const o = cur;
         const c = cur * (1 + change);
@@ -307,6 +308,7 @@ async function syncLiveAccountBaseline() {
             const liveWalletBal = parseFloat(accData.totalWalletBalance || '0');
             const liveMarginBal = parseFloat(accData.totalMarginBalance || '0');
             const liveUnrealizedPnl = parseFloat(accData.totalUnrealizedProfit || '0');
+            const prevActiveBySymbol = new Map((state.activeTrades || []).map((t) => [t.symbol, t]));
             const mappedTrades = activePositions.map((p) => {
                 const amt = parseFloat(p.positionAmt);
                 const isLong = amt > 0;
@@ -314,8 +316,17 @@ async function syncLiveAccountBaseline() {
                 const mark = parseFloat(p.markPrice);
                 const pnl = parseFloat(p.unRealizedProfit);
                 const notional = Math.abs(parseFloat(p.notional || (amt * mark).toString()));
+                const existing = prevActiveBySymbol.get(p.symbol);
+                const slPrice = existing?.sl_price ?? existing?.current_sl ?? (entry * (isLong ? 1 - (state.config.sl_distance_pct || 0.8) / 100 : 1 + (state.config.sl_distance_pct || 0.8) / 100));
+                const initSl = existing?.initial_sl ?? existing?.initial_sl_price ?? slPrice;
+                const riskDist = Math.abs(entry - initSl);
+                const priceDiff = isLong ? mark - entry : entry - mark;
+                const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 0;
+                const maxRr = Math.max(Number(existing?.max_rr_achieved ?? existing?.max_rr ?? 0) || 0, liveRr, 0);
+                const minRr = Math.min(Number(existing?.min_rr_achieved ?? existing?.min_rr ?? 0) || 0, liveRr, 0);
                 return {
-                    id: `live-${p.symbol}-${p.positionSide || 'BOTH'}`,
+                    ...existing,
+                    id: existing?.id || `live-${p.symbol}-${p.positionSide || 'BOTH'}`,
                     sessionId: state.strategyId || 'default-session',
                     symbol: p.symbol,
                     side: isLong ? 'LONG' : 'SHORT',
@@ -323,15 +334,24 @@ async function syncLiveAccountBaseline() {
                     entry_price: entry,
                     current_price: mark,
                     mark_price: mark,
+                    initial_sl: initSl,
+                    initial_sl_price: initSl,
+                    sl_price: slPrice,
+                    current_sl: slPrice,
                     quantity: Math.abs(amt),
                     notional: parseFloat(notional.toFixed(2)),
                     pnl: parseFloat(pnl.toFixed(4)),
                     pnl_pct: entry > 0 ? parseFloat((((mark - entry) / entry) * (isLong ? 100 : -100)).toFixed(2)) : 0,
+                    rr: liveRr,
+                    max_rr: maxRr,
+                    max_rr_achieved: maxRr,
+                    min_rr: minRr,
+                    min_rr_achieved: minRr,
                     leverage: parseInt(p.leverage, 10) || 1,
                     liquidation_price: parseFloat(p.liquidationPrice) || 0,
                     status: 'OPEN',
-                    strategy_label: 'Binance Live Position',
-                    timestamp: p.updateTime || Date.now(),
+                    strategy_label: existing?.strategy_label || 'Binance Live Position',
+                    timestamp: existing?.timestamp || p.updateTime || Date.now(),
                     margin_type: p.marginType || 'cross',
                 };
             });
@@ -410,6 +430,20 @@ function addLog(msg, level = 'info') {
         state.logs.pop();
     broadcast({ type: 'log', ...logItem });
 }
+function resolveCfgSignalParam(cfg, sigType, baseType, key, fallback) {
+    const sp = cfg?.signal_params || {};
+    if (sp[sigType] && typeof sp[sigType] === 'object' && sp[sigType][key] !== undefined && sp[sigType][key] !== '') {
+        return sp[sigType][key];
+    }
+    const compositeKey = `${sigType}_${key}`;
+    if (sp[compositeKey] !== undefined && sp[compositeKey] !== '')
+        return sp[compositeKey];
+    if (sp[key] !== undefined && sp[key] !== '')
+        return sp[key];
+    if (cfg?.[key] !== undefined && cfg?.[key] !== '')
+        return cfg[key];
+    return fallback;
+}
 function getScannerOpportunities(cfg) {
     const targetConfig = cfg || state.config || {};
     const staticSymbols = Array.isArray(targetConfig.symbols) && targetConfig.symbols.length > 0 ? targetConfig.symbols : null;
@@ -426,7 +460,11 @@ function getScannerOpportunities(cfg) {
     }
     else {
         const discoveryMode = targetConfig.discovery_mode || 'volume';
-        if (discoveryMode === 'change_pct') {
+        const entrySide = String(targetConfig.entry_side || 'both').toLowerCase();
+        if (discoveryMode === 'loss_pct' || discoveryMode === 'losers' || (discoveryMode === 'change_pct' && entrySide === 'short')) {
+            items.sort((a, b) => a.momentum - b.momentum);
+        }
+        else if (discoveryMode === 'change_pct') {
             items.sort((a, b) => b.momentum - a.momentum);
         }
         else if (discoveryMode === 'abs_change_pct') {
@@ -438,11 +476,228 @@ function getScannerOpportunities(cfg) {
         const watchlistSize = targetConfig.watchlist_size || 25;
         items = items.slice(0, watchlistSize);
     }
+    const enabledSignals = Array.isArray(targetConfig.enabled_signals) ? targetConfig.enabled_signals : [];
+    const signalLogic = String(targetConfig.signal_logic || 'all').toLowerCase();
+    const requiredSignals = Array.isArray(targetConfig.required_signals) ? targetConfig.required_signals : [];
+    const entrySideCfg = String(targetConfig.entry_side || 'both').toLowerCase();
     let rank = 1;
     for (const item of items) {
-        const isLong = item.momentum >= 0;
-        const thresh = targetConfig.scan_pct_threshold || 1.2;
-        const fired = Math.abs(item.momentum) >= thresh;
+        const isLong = entrySideCfg === 'long' ? true : entrySideCfg === 'short' ? false : item.momentum >= 0;
+        const sideUpper = isLong ? 'LONG' : 'SHORT';
+        const thresh = Number(targetConfig.scan_pct_threshold ?? 1.2);
+        const scannerFired = Math.abs(item.momentum) >= thresh;
+        const signalsMap = {
+            momentum_pct: {
+                label: 'Momentum %',
+                value: item.momentum,
+                threshold: thresh,
+                unit: '%',
+                fired: scannerFired,
+                active: true,
+                description: scannerFired
+                    ? `Velocity ${Math.abs(item.momentum).toFixed(2)}% >= ${thresh}% threshold`
+                    : `Velocity ${Math.abs(item.momentum).toFixed(2)}% < ${thresh}% threshold`,
+            },
+        };
+        const ohlc = Array.isArray(item.ohlc_history) && item.ohlc_history.length > 0 ? item.ohlc_history : [];
+        const decimals = item.symbol.includes('DOGE') || item.symbol.includes('ADA') || item.symbol.includes('XRP') ? 4 : 2;
+        for (const sigKey of enabledSignals) {
+            const baseType = sigKey.split(':').shift() || sigKey;
+            if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
+                const refTf = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_ref_timeframe', '1d'));
+                const trigTfRaw = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_trigger_timeframe', targetConfig.kline_interval || '1h'));
+                const trigTf = trigTfRaw === 'default' || !trigTfRaw ? String(targetConfig.kline_interval || '1h') : trigTfRaw;
+                const mode = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_mode', 'closed_candle_confirm'));
+                const lookback = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_lookback', 1)) || 1;
+                const refLevelType = String(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_reference_level', 'high_low'));
+                const bufferPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_buffer_pct', 0)) || 0);
+                const maxExpPct = Math.max(0, Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'htf_breakout_max_expansion_pct', 2)) || 0);
+                const completedCandles = ohlc.length > 2 ? ohlc.slice(0, -1) : ohlc;
+                const formingCandle = ohlc[ohlc.length - 1] || { open: item.price, high: item.price * 1.002, low: item.price * 0.998, close: item.price };
+                const prevCompleted = ohlc.length >= 2 ? ohlc[ohlc.length - 2] : formingCandle;
+                let refHigh = item.price * 1.012;
+                let refLow = item.price * 0.988;
+                if (completedCandles.length > 0) {
+                    let h = -Infinity;
+                    let l = Infinity;
+                    for (const c of completedCandles) {
+                        const cH = refLevelType === 'open_close_body' ? Math.max(c.open, c.close) : refLevelType === 'close_only' ? c.close : c.high;
+                        const cL = refLevelType === 'open_close_body' ? Math.min(c.open, c.close) : refLevelType === 'close_only' ? c.close : c.low;
+                        if (cH > h)
+                            h = cH;
+                        if (cL < l)
+                            l = cL;
+                    }
+                    if (Number.isFinite(h) && Number.isFinite(l) && h > l) {
+                        refHigh = parseFloat(h.toFixed(decimals));
+                        refLow = parseFloat(l.toFixed(decimals));
+                    }
+                }
+                const evalClose = mode === 'closed_candle_confirm' ? prevCompleted.close : item.price;
+                const livePrice = item.price;
+                const liveHigh = Math.max(formingCandle.high || livePrice, livePrice);
+                const liveLow = Math.min(formingCandle.low || livePrice, livePrice);
+                const breakoutLevel = sideUpper === 'LONG'
+                    ? parseFloat((refHigh * (1 + bufferPct / 100)).toFixed(decimals))
+                    : parseFloat((refLow * (1 - bufferPct / 100)).toFixed(decimals));
+                const expansionCap = maxExpPct > 0
+                    ? parseFloat((sideUpper === 'LONG' ? refHigh * (1 + maxExpPct / 100) : refLow * (1 - maxExpPct / 100)).toFixed(decimals))
+                    : null;
+                let candleConfirmState = 'below';
+                let sigFired = false;
+                let sigRejected = false;
+                if (sideUpper === 'LONG') {
+                    if (evalClose > breakoutLevel) {
+                        candleConfirmState = 'closed_beyond';
+                        sigFired = true;
+                    }
+                    else if (liveHigh > breakoutLevel || livePrice > breakoutLevel) {
+                        candleConfirmState = 'wicked_only';
+                        sigFired = mode === 'wick_break';
+                    }
+                    if (expansionCap !== null && (livePrice > expansionCap || evalClose > expansionCap)) {
+                        sigFired = false;
+                        sigRejected = true;
+                    }
+                }
+                else {
+                    if (evalClose < breakoutLevel) {
+                        candleConfirmState = 'closed_beyond';
+                        sigFired = true;
+                    }
+                    else if (liveLow < breakoutLevel || livePrice < breakoutLevel) {
+                        candleConfirmState = 'wicked_only';
+                        sigFired = mode === 'wick_break';
+                    }
+                    if (expansionCap !== null && (livePrice < expansionCap || evalClose < expansionCap)) {
+                        sigFired = false;
+                        sigRejected = true;
+                    }
+                }
+                const tfUnit = trigTf.slice(-1);
+                const tfNum = parseInt(trigTf.slice(0, -1), 10) || 1;
+                const tfMs = tfUnit === 'm' ? tfNum * 60000 : tfUnit === 'h' ? tfNum * 3600000 : tfUnit === 'd' ? tfNum * 86400000 : 3600000;
+                const trigCloseCountdownMs = Math.max(0, tfMs - (Date.now() % tfMs));
+                signalsMap[sigKey] = {
+                    label: 'HTF Breakout',
+                    fired: sigFired,
+                    rejected: sigRejected,
+                    value: livePrice,
+                    closed_value: evalClose,
+                    threshold: breakoutLevel,
+                    ref_high: refHigh,
+                    ref_low: refLow,
+                    pattern_high: refHigh,
+                    pattern_low: refLow,
+                    buffer_pct: bufferPct,
+                    breakout_level: breakoutLevel,
+                    max_expansion_pct: maxExpPct,
+                    expansion_cap: expansionCap,
+                    live_price: livePrice,
+                    candle_high: liveHigh,
+                    candle_low: liveLow,
+                    candle_confirm_state: candleConfirmState,
+                    trig_close_countdown_ms: trigCloseCountdownMs,
+                    unit: 'price',
+                    threshold_is_price: true,
+                    ref_timeframe: refTf,
+                    trigger_timeframe: trigTf,
+                    mode,
+                    lookback,
+                    reference_level: refLevelType,
+                    description: sigRejected
+                        ? `Rejected: price ${livePrice.toFixed(decimals)} expanded > ${maxExpPct}% beyond ${refTf} level (${expansionCap?.toFixed(decimals)})`
+                        : sigFired
+                            ? `${trigTf} close (${evalClose.toFixed(decimals)}) broke ${refTf} ${sideUpper === 'LONG' ? 'high' : 'low'} (${breakoutLevel.toFixed(decimals)})`
+                            : `Monitoring ${trigTf} close (${livePrice.toFixed(decimals)}) vs prev ${refTf} ${sideUpper === 'LONG' ? 'high' : 'low'} (${breakoutLevel.toFixed(decimals)})`,
+                };
+            }
+            else if (baseType.startsWith('ema_dual') || baseType === 'ema' || baseType === 'ma') {
+                const fastPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'entry_ema_fast', resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_fast_period', 9))) || 9;
+                const slowPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'entry_ema_slow', resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_slow_period', 21))) || 21;
+                const closes = ohlc.map((c) => c.close);
+                const fastSlice = closes.slice(-Math.max(2, Math.min(fastPeriod, closes.length)));
+                const slowSlice = closes.slice(-Math.max(3, Math.min(slowPeriod, closes.length)));
+                const fastVal = fastSlice.length > 0 ? parseFloat((fastSlice.reduce((a, b) => a + b, 0) / fastSlice.length).toFixed(decimals)) : item.price;
+                const slowVal = slowSlice.length > 0 ? parseFloat((slowSlice.reduce((a, b) => a + b, 0) / slowSlice.length).toFixed(decimals)) : item.price;
+                let sigFired = sideUpper === 'LONG' ? fastVal > slowVal : fastVal < slowVal;
+                let sigRejected = false;
+                let macdFilterMeta = undefined;
+                const macdFilterEnabled = baseType.startsWith('ema_dual') && (resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_dual_macd_filter', false) === true ||
+                    resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_dual_macd_filter', false) === 'true');
+                if (macdFilterEnabled) {
+                    const mFast = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'macd_fast', 12)) || 12;
+                    const mSlow = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'macd_slow', 26)) || 26;
+                    const mSig = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'macd_signal', 9)) || 9;
+                    const mFastSlice = closes.slice(-Math.max(2, Math.min(mFast, closes.length)));
+                    const mSlowSlice = closes.slice(-Math.max(3, Math.min(mSlow, closes.length)));
+                    const mFastAvg = mFastSlice.reduce((a, b) => a + b, 0) / Math.max(1, mFastSlice.length);
+                    const mSlowAvg = mSlowSlice.reduce((a, b) => a + b, 0) / Math.max(1, mSlowSlice.length);
+                    const macdLineVal = mFastAvg - mSlowAvg;
+                    const histVal = parseFloat((macdLineVal * 0.35).toFixed(6));
+                    const expectPositive = sideUpper === 'LONG';
+                    const isAligned = expectPositive ? histVal > 0 : histVal < 0;
+                    if (sigFired && !isAligned) {
+                        sigFired = false;
+                        sigRejected = true;
+                    }
+                    macdFilterMeta = {
+                        enabled: true,
+                        mode: 'ema_filter',
+                        fast: mFast,
+                        slow: mSlow,
+                        signal: mSig,
+                        histogram: histVal,
+                        prev_histogram: parseFloat((histVal * 0.9).toFixed(6)),
+                        recent_hist: [histVal],
+                        aligned: isAligned,
+                        rejected: sigRejected,
+                        expected_sign: expectPositive ? 'positive' : 'negative',
+                        expected_label: expectPositive ? 'Green (+Hist)' : 'Red (-Hist)',
+                    };
+                }
+                signalsMap[sigKey] = {
+                    label: baseType === 'ema_dual_cross' ? 'EMA Crossover' : 'EMA Dual',
+                    fired: sigFired,
+                    rejected: sigRejected,
+                    value: fastVal,
+                    threshold: slowVal,
+                    unit: 'price',
+                    threshold_is_price: true,
+                    description: `Fast (${fastPeriod}): ${fastVal.toFixed(decimals)}, Slow (${slowPeriod}): ${slowVal.toFixed(decimals)}`,
+                    ...(macdFilterMeta ? { macd_filter: macdFilterMeta } : {}),
+                };
+            }
+            else if (!signalsMap[sigKey]) {
+                const sigFired = scannerFired && Math.abs(item.momentum) >= thresh * 1.1;
+                signalsMap[sigKey] = {
+                    label: sigKey,
+                    fired: sigFired,
+                    value: item.momentum,
+                    threshold: thresh,
+                    unit: '%',
+                    description: `${sigKey}: ${item.momentum.toFixed(2)}% vs ${thresh}%`,
+                };
+            }
+        }
+        const firedSignalsList = enabledSignals.filter(k => signalsMap[k]?.fired);
+        let signalsLogicPassed = scannerFired;
+        if (enabledSignals.length > 0) {
+            if (signalLogic === 'any') {
+                signalsLogicPassed = scannerFired && firedSignalsList.length >= 1;
+            }
+            else if (signalLogic === 'combo') {
+                const reqSet = new Set(requiredSignals);
+                const reqList = enabledSignals.filter(k => reqSet.has(k));
+                const optList = enabledSignals.filter(k => !reqSet.has(k));
+                const allReqFired = reqList.every(k => signalsMap[k]?.fired);
+                const anyOptFired = optList.length === 0 || optList.some(k => signalsMap[k]?.fired);
+                signalsLogicPassed = scannerFired && allReqFired && anyOptFired;
+            }
+            else {
+                signalsLogicPassed = scannerFired && enabledSignals.every(k => signalsMap[k]?.fired);
+            }
+        }
         opps.push({
             symbol: item.symbol,
             pct: item.momentum,
@@ -455,7 +710,6 @@ function getScannerOpportunities(cfg) {
             price: item.price,
             volume_rank: rank++,
             history: item.history,
-            ohlc_history: item.ohlc_history,
             score_breakdown: {
                 momentum: parseFloat((Math.abs(item.momentum) * 10).toFixed(1)),
                 volatility: item.volatility,
@@ -464,27 +718,15 @@ function getScannerOpportunities(cfg) {
             },
             lastUpdate: Date.now(),
             signalResult: {
-                allFired: fired,
-                firedSignals: fired ? ['momentum_pct'] : [],
-                reason: fired ? 'Momentum threshold exceeded' : 'Awaiting confirmation',
-                signals: {
-                    momentum_pct: {
-                        label: 'Momentum %',
-                        value: item.momentum,
-                        threshold: thresh,
-                        unit: '%',
-                        fired,
-                        active: true,
-                    },
-                    volume_spike: {
-                        label: 'Volume Spike',
-                        value: parseFloat((item.volume24h / 10000000).toFixed(1)),
-                        threshold: 5.0,
-                        unit: 'M',
-                        fired: item.volume24h > 200000000,
-                        active: true,
-                    },
-                },
+                allFired: signalsLogicPassed,
+                scannerFired,
+                firedSignals: enabledSignals.length > 0 ? firedSignalsList : (scannerFired ? ['momentum_pct'] : []),
+                reason: signalsLogicPassed
+                    ? 'All entry conditions satisfied'
+                    : !scannerFired
+                        ? `Velocity ${Math.abs(item.momentum).toFixed(2)}% below ${thresh}% threshold`
+                        : `Awaiting signal confirmation (${firedSignalsList.length}/${enabledSignals.length} hit)`,
+                signals: signalsMap,
             },
         });
     }
@@ -605,6 +847,7 @@ function getStatusSnapshot() {
         apiStatus: state.apiStatus,
         rateLimit: {
             used_weight_1m: 14,
+            limit: 2400,
             order_count_10s: 0,
         },
     };
@@ -622,9 +865,26 @@ setInterval(() => {
             info.history.shift();
         const lastCandle = info.ohlc_history[info.ohlc_history.length - 1];
         if (lastCandle) {
-            lastCandle.close = newPrice;
-            lastCandle.high = Math.max(lastCandle.high, newPrice);
-            lastCandle.low = Math.min(lastCandle.low, newPrice);
+            if (ts - lastCandle.time >= candleIntervalMs) {
+                const nextCandleTime = Math.floor(ts / candleIntervalMs) * candleIntervalMs;
+                info.ohlc_history.push({
+                    time: nextCandleTime,
+                    open: lastCandle.close,
+                    high: Math.max(lastCandle.close, newPrice),
+                    low: Math.min(lastCandle.close, newPrice),
+                    close: newPrice,
+                    volume: Math.floor(Math.random() * 2000 + 500),
+                });
+                if (info.ohlc_history.length > 250) {
+                    info.ohlc_history.shift();
+                }
+            }
+            else {
+                lastCandle.close = newPrice;
+                lastCandle.high = Math.max(lastCandle.high, newPrice);
+                lastCandle.low = Math.min(lastCandle.low, newPrice);
+                lastCandle.volume += Math.floor(Math.random() * 10 + 1);
+            }
         }
         const firstCandle = info.ohlc_history[0];
         info.momentum = parseFloat((((newPrice - firstCandle.open) / firstCandle.open) * 100).toFixed(2));
@@ -644,9 +904,15 @@ setInterval(() => {
             const priceDiff = isLong ? pInfo.price - trade.entry_price : trade.entry_price - pInfo.price;
             trade.pnl = parseFloat((priceDiff * trade.quantity).toFixed(2));
             trade.pnl_pct = parseFloat(((priceDiff / trade.entry_price) * 100).toFixed(2));
-            const riskDist = Math.abs(trade.entry_price - trade.sl_price);
-            trade.rr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 1.0;
-            slUsed += (riskDist * trade.quantity);
+            const initSl = trade.initial_sl ?? trade.initial_sl_price ?? trade.sl_price;
+            const riskDist = Math.abs(trade.entry_price - initSl);
+            const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 0;
+            trade.rr = liveRr;
+            trade.max_rr_achieved = Math.max(Number(trade.max_rr_achieved ?? trade.max_rr ?? 0) || 0, liveRr, 0);
+            trade.max_rr = trade.max_rr_achieved;
+            trade.min_rr_achieved = Math.min(Number(trade.min_rr_achieved ?? trade.min_rr ?? 0) || 0, liveRr, 0);
+            trade.min_rr = trade.min_rr_achieved;
+            slUsed += (Math.abs(trade.entry_price - trade.sl_price) * trade.quantity);
             // Check Stop-Loss
             if (isLong && pInfo.price <= trade.sl_price) {
                 trade.exit_price = trade.sl_price;
@@ -719,11 +985,18 @@ setInterval(() => {
                     mark_price: entryPrice,
                     last_price: entryPrice,
                     sl_price: slPrice,
+                    current_sl: slPrice,
+                    initial_sl: slPrice,
+                    initial_sl_price: slPrice,
                     tp_price: tpPrice,
                     quantity: qty,
                     pnl: 0,
                     pnl_pct: 0,
-                    rr: 1.0,
+                    rr: 0,
+                    max_rr: 0,
+                    max_rr_achieved: 0,
+                    min_rr: 0,
+                    min_rr_achieved: 0,
                     status: 'OPEN',
                     strategy_label: state.strategyLabel,
                     timestamp: ts,
@@ -785,9 +1058,12 @@ function getVariantOpportunitiesData() {
         ...variants.map((v) => {
             const hasVariantSymbols = Array.isArray(v.symbols);
             const hasVariantScannerOverride = v.watchlist_size !== undefined ||
+                v.watchlist_offset !== undefined ||
                 v.discovery_mode !== undefined ||
                 v.scan_interval !== undefined ||
-                v.global_scanner_enabled !== undefined;
+                v.global_scanner_enabled !== undefined ||
+                v.smart_watchlist_enabled !== undefined ||
+                v.smart_watchlist_sensitivity !== undefined;
             const variantSymbols = hasVariantSymbols
                 ? v.symbols
                 : (v.global_scanner_enabled === true || hasVariantScannerOverride ? [] : baseSymbols);
@@ -810,27 +1086,29 @@ function broadcastTick() {
     const { baseOpps, variantData } = getVariantOpportunitiesData();
     const topSym = baseOpps[0]?.symbol || 'BTCUSDT';
     const pInfo = prices.get(topSym);
+    const tickMsg = pInfo
+        ? JSON.stringify({
+            type: 'tick',
+            symbol: topSym,
+            price: pInfo.price,
+            time: Date.now(),
+            trades: state.activeTrades,
+        })
+        : null;
+    const scannerMsg = JSON.stringify({
+        type: 'scanner',
+        opportunities: baseOpps,
+        variant_opportunities: variantData,
+    });
     wss.clients.forEach((client) => {
         if (client.readyState !== WebSocket.OPEN)
             return;
         if (client.isActive === false)
             return;
-        // Send tick
-        if (pInfo) {
-            client.send(JSON.stringify({
-                type: 'tick',
-                symbol: topSym,
-                price: pInfo.price,
-                time: Date.now(),
-                trades: state.activeTrades,
-            }));
+        if (tickMsg) {
+            client.send(tickMsg);
         }
-        // Send scanner
-        client.send(JSON.stringify({
-            type: 'scanner',
-            opportunities: baseOpps,
-            variant_opportunities: variantData,
-        }));
+        client.send(scannerMsg);
     });
 }
 wss.on('connection', (ws) => {
@@ -1610,41 +1888,99 @@ app.patch('/session/trade/:id/config', (req, res) => {
     broadcast({ type: 'status', ...getStatusSnapshot() });
     res.json({ success: true, trade });
 });
-app.get('/session/analytics', (req, res) => {
-    const total = state.tradeHistory.length;
-    const wins = state.tradeHistory.filter(t => t.pnl > 0).length;
-    const winRate = total > 0 ? parseFloat(((wins / total) * 100).toFixed(1)) : 0;
-    res.json({
-        winRate,
+function computeSessionAnalytics(trades, startingBal = 10000) {
+    const total = trades.length;
+    if (total === 0) {
+        return {
+            winRate: 0,
+            totalTrades: 0,
+            winningTrades: 0,
+            losingTrades: 0,
+            profitFactor: 0,
+            sharpeRatio: 0,
+            sortinoRatio: 0,
+            maxDrawdown: 0,
+            avgTradeDuration: '0m',
+            dailyPnl: state.totalPnl,
+            weeklyPnl: state.totalPnl,
+            totalVolumeUsdt: 0,
+            trades: []
+        };
+    }
+    let wins = 0;
+    let grossProfit = 0;
+    let grossLoss = 0;
+    let sumReturnPct = 0;
+    let sumSquaredReturnPct = 0;
+    let downsideSumSquaredReturnPct = 0;
+    let totalDurationMs = 0;
+    let totalVolumeUsdt = 0;
+    let peakBalance = startingBal;
+    let maxDrawdownPct = 0;
+    let rollingBal = startingBal;
+    for (const t of trades) {
+        const pnl = Number(t.pnl || 0);
+        const notional = Number(t.notional || (t.entry_price && t.quantity ? t.entry_price * t.quantity : 0));
+        totalVolumeUsdt += notional;
+        const entryTs = t.entry_ts_ms || (t.entry_ts ? new Date(t.entry_ts).getTime() : 0);
+        const exitTs = t.exit_ts_ms || (t.exit_ts ? new Date(t.exit_ts).getTime() : 0);
+        if (entryTs && exitTs && exitTs > entryTs) {
+            totalDurationMs += (exitTs - entryTs);
+        }
+        const retPct = rollingBal > 0 ? (pnl / rollingBal) * 100 : 0;
+        rollingBal += pnl;
+        if (rollingBal > peakBalance)
+            peakBalance = rollingBal;
+        const dd = peakBalance > 0 ? ((peakBalance - rollingBal) / peakBalance) * 100 : 0;
+        if (dd > maxDrawdownPct)
+            maxDrawdownPct = dd;
+        sumReturnPct += retPct;
+        sumSquaredReturnPct += retPct * retPct;
+        if (pnl > 0) {
+            wins++;
+            grossProfit += pnl;
+        }
+        else if (pnl < 0) {
+            grossLoss += Math.abs(pnl);
+            downsideSumSquaredReturnPct += retPct * retPct;
+        }
+    }
+    const meanReturn = sumReturnPct / total;
+    const profitFactor = grossLoss > 0 ? parseFloat((grossProfit / grossLoss).toFixed(2)) : (grossProfit > 0 ? 100 : 0);
+    let sharpe = 0;
+    let sortino = 0;
+    if (total > 1) {
+        const variance = Math.max(0, (sumSquaredReturnPct / total) - (meanReturn * meanReturn));
+        const stdDev = Math.sqrt(variance);
+        const downsideStdDev = Math.sqrt(downsideSumSquaredReturnPct / total);
+        if (stdDev > 0)
+            sharpe = parseFloat((meanReturn / stdDev).toFixed(2));
+        if (downsideStdDev > 0)
+            sortino = parseFloat((meanReturn / downsideStdDev).toFixed(2));
+    }
+    const avgDurMin = total > 0 && totalDurationMs > 0 ? Math.round(totalDurationMs / (total * 60000)) : 0;
+    const avgTradeDuration = avgDurMin >= 60 ? `${Math.floor(avgDurMin / 60)}h ${avgDurMin % 60}m` : `${avgDurMin}m`;
+    return {
+        winRate: parseFloat(((wins / total) * 100).toFixed(1)),
         totalTrades: total,
         winningTrades: wins,
         losingTrades: total - wins,
-        profitFactor: 2.34,
-        sharpeRatio: 1.95,
-        maxDrawdown: 2.1,
-        avgTradeDuration: '24m',
+        profitFactor,
+        sharpeRatio: sharpe,
+        sortinoRatio: sortino,
+        maxDrawdown: parseFloat(maxDrawdownPct.toFixed(1)),
+        avgTradeDuration,
         dailyPnl: state.totalPnl,
         weeklyPnl: state.totalPnl,
-        totalVolumeUsdt: 125000,
-    });
+        totalVolumeUsdt: Math.round(totalVolumeUsdt),
+        trades
+    };
+}
+app.get('/session/analytics', (req, res) => {
+    res.json(computeSessionAnalytics(state.tradeHistory, state.balance || 10000));
 });
 app.get('/session/lifetime-analytics', (req, res) => {
-    const total = state.tradeHistory.length;
-    const wins = state.tradeHistory.filter(t => t.pnl > 0).length;
-    const winRate = total > 0 ? parseFloat(((wins / total) * 100).toFixed(1)) : 0;
-    res.json({
-        winRate,
-        totalTrades: total,
-        winningTrades: wins,
-        losingTrades: total - wins,
-        profitFactor: 2.34,
-        sharpeRatio: 1.95,
-        maxDrawdown: 2.1,
-        avgTradeDuration: '24m',
-        dailyPnl: state.totalPnl,
-        weeklyPnl: state.totalPnl,
-        totalVolumeUsdt: 125000,
-    });
+    res.json(computeSessionAnalytics(state.tradeHistory, state.balance || 10000));
 });
 app.post('/session/reset-paper-balance', (req, res) => {
     state.balance = 10000.0;

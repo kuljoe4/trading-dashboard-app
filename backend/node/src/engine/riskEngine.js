@@ -1,0 +1,811 @@
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var RiskEngineService_1;
+import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ENGINE_EVENTS } from './events';
+import { roundEight } from '../lib/math';
+import { ConfigValidationException } from '../lib/exceptions';
+let RiskEngineService = RiskEngineService_1 = class RiskEngineService {
+    eventEmitter;
+    logger = new Logger(RiskEngineService_1.name);
+    constructor(eventEmitter) {
+        this.eventEmitter = eventEmitter;
+    }
+    loggedExtremesMap = new Map();
+    // BOLT OPTIMIZATION: Cache for closed trade aggregates to avoid redundant O(N) scans
+    _closedStatsCache = null;
+    /**
+     * Matches whether a trade belongs to the target strategy config.
+     * Handles legacy/unlabelled trades by mapping them to the base strategy label.
+     */
+    matchesStrategyLabel(tradeLabel, targetLabel, baseLabel) {
+        if (tradeLabel === targetLabel)
+            return true;
+        const isTradeBase = !tradeLabel || tradeLabel === 'Momentum Strategy' || tradeLabel === baseLabel;
+        const isTargetBase = targetLabel === baseLabel || targetLabel === 'Momentum Strategy';
+        return isTargetBase && isTradeBase;
+    }
+    /**
+     * Check if a new trade can be entered based on risk limits
+     * Refactored for rolling windows, randomization, and spacing.
+     */
+    canEnter(activeTrades, closedTrades, balance, symbol, config, totalSlUsed, enteringCount = 0, marketScore, prospectiveRiskPct, globalSlGuardOverride) {
+        const now = Date.now();
+        const targetLabel = config.strategy_label || 'Momentum Strategy';
+        const baseLabel = config.base_strategy_label || targetLabel;
+        const isBaseStrategy = targetLabel === baseLabel || targetLabel === 'Momentum Strategy';
+        // BOLT OPTIMIZATION: Fused loop to compute strategy trade metrics and active knife count without intermediate .filter() arrays
+        let activeTradesCountForStrategy = 0;
+        let symbolTradeCount = 0;
+        let totalSlUsedForStrategy = 0;
+        let activeKnifeCount = 0;
+        for (let i = 0; i < activeTrades.length; i++) {
+            const t = activeTrades[i];
+            if (t.is_knife && t.status === 'OPEN') {
+                activeKnifeCount++;
+            }
+            const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
+            if (matchesStrategy) {
+                activeTradesCountForStrategy++;
+                totalSlUsedForStrategy += t.risk_usdt || 0;
+                if (t.symbol === symbol) {
+                    symbolTradeCount++;
+                }
+            }
+        }
+        // Dynamic max trades calculation when zero active risk auto-adjust is enabled for strategy
+        let effectiveMaxOpenTrades = config.max_open_trades ?? 5;
+        if (config.auto_adjust_max_trades_enabled) {
+            const minLimit = config.auto_adjust_max_trades_min ?? Math.min(1, config.max_open_trades ?? 5);
+            const maxLimit = config.auto_adjust_max_trades_max ?? Math.max(5, (config.max_open_trades ?? 5) + 2);
+            const step = config.auto_adjust_max_trades_step ?? 1;
+            const baseMax = config.max_open_trades ?? 5;
+            // Expansion condition: Strategy has active positions, but active risk is 0 (all positions risk-protected/breakeven)
+            if (activeTradesCountForStrategy > 0 && totalSlUsedForStrategy <= 1e-6) {
+                effectiveMaxOpenTrades = Math.min(maxLimit, Math.max(baseMax, activeTradesCountForStrategy) + step);
+            }
+            else if (totalSlUsedForStrategy > 1e-6) {
+                // Contraction condition: Active risk is non-zero, lock back to base/min limit
+                effectiveMaxOpenTrades = Math.max(minLimit, baseMax);
+            }
+        }
+        // 1. Static/Dynamic Configuration Checks
+        const maxOpenTrades = effectiveMaxOpenTrades;
+        const maxOpenTradesPerSymbol = config.max_open_trades_per_symbol ?? 1;
+        const maxTotalRiskPct = config.max_total_risk_pct ?? 5.0;
+        const totalSlGuardUsdt = config.total_sl_guard_usdt ?? 200.0;
+        // Global stop loss guard check across ALL strategies for absolute portfolio safety
+        const globalSlGuard = globalSlGuardOverride !== undefined ? globalSlGuardOverride : (config.total_sl_guard_usdt ?? 200.0);
+        if (totalSlUsed >= globalSlGuard) {
+            return { canEnter: false, reason: `Global Total SL ${Number(totalSlUsed || 0).toFixed(2)} USDT >= guard ${globalSlGuard} USDT` };
+        }
+        // Check if gated knife trade bypass applies: when allow_knife_when_gated is active and 0 active knife trades exist
+        const isKnifeGatedBypass = (config.allow_knife_when_gated ?? false) && activeKnifeCount === 0;
+        // BOLT: Include enteringCount in capacity check to prevent exceeding limits during concurrency (strategy-scoped)
+        if (!isKnifeGatedBypass && activeTradesCountForStrategy + enteringCount >= maxOpenTrades) {
+            return { canEnter: false, reason: `Strategy max open trades (${maxOpenTrades}) reached (incl. ${enteringCount} pending) for label "${targetLabel}"` };
+        }
+        if (symbolTradeCount >= maxOpenTradesPerSymbol) {
+            return { canEnter: false, reason: `Max open trades for ${symbol} (${maxOpenTradesPerSymbol}) reached for label "${targetLabel}"` };
+        }
+        const riskPerTrade = prospectiveRiskPct !== undefined ? prospectiveRiskPct : (config.risk_pct_per_trade ?? 1.0);
+        // BOLT: Fix gating bug where base strategy was gated by global active risks instead of its own
+        const slUsed = totalSlUsedForStrategy;
+        const totalRiskPct = balance > 0 ? (slUsed / balance) * 100 : 0;
+        // SRE: Tight Gating. Ensure prospective total risk (current + next entry) does not exceed ceiling.
+        if (totalRiskPct + riskPerTrade > maxTotalRiskPct + 0.0001) {
+            const nominalRisk = config.risk_pct_per_trade ?? 1.0;
+            const isScaledUp = prospectiveRiskPct !== undefined && prospectiveRiskPct > nominalRisk;
+            // Small account exception: if we are scaling up to meet MIN_NOTIONAL, and the unscaled nominal risk would fit within limits,
+            // allow the trade so small balances (such as the $14.85 balance in the logs) are not locked out from executing.
+            const allowScaleException = isScaledUp && (config.auto_scale_min_notional ?? true) && (totalRiskPct + nominalRisk <= maxTotalRiskPct + 0.0001);
+            if (!allowScaleException) {
+                return {
+                    canEnter: false,
+                    reason: `Risk ceiling reached for label "${targetLabel}": ${totalRiskPct.toFixed(2)}% + ${riskPerTrade.toFixed(2)}% prospective > ${maxTotalRiskPct}% max`
+                };
+            }
+            else {
+                this.logger.log(`[Risk Engine] Allowing min_notional scaled risk overshoot exception for "${targetLabel}": nominal ${nominalRisk.toFixed(2)}% fits, scaled is ${riskPerTrade.toFixed(2)}%`);
+            }
+        }
+        if (totalSlUsedForStrategy >= totalSlGuardUsdt) {
+            return { canEnter: false, reason: `Strategy Total SL ${Number(totalSlUsedForStrategy || 0).toFixed(2)} USDT >= guard ${totalSlGuardUsdt} USDT for label "${targetLabel}"` };
+        }
+        // 2. Frequency, Spacing & Performance Check (ULTRA-OPTIMIZED SINGLE PASS - strategy-scoped)
+        // BOLT OPTIMIZATION: Pass the raw, unfiltered arrays directly to avoid intermediate array allocations
+        return this.checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount, symbol, marketScore);
+    }
+    /**
+     * BOLT OPTIMIZATION: Consolidates Period, 24h, Spacing, and TOD Performance checks into a single O(N) pass.
+     * Avoids spread operators and array allocations to prevent stack overflow on large trade histories.
+     * Performs strategy-level filtering on-the-fly inside loops to operate with zero garbage-collection memory allocations.
+     */
+    checkFrequencyAndPerformanceLimits(activeTrades, closedTrades, config, now, enteringCount = 0, symbol = 'DUMMY', marketScore) {
+        const targetLabel = config.strategy_label || 'Momentum Strategy';
+        const baseLabel = config.base_strategy_label || targetLabel;
+        const maxTradesPeriod = config.max_trades_per_period || 0;
+        const periodMinBase = config.trades_period_min || 60;
+        const maxTrades24h = config.max_trades_24h || 0;
+        const shapingEnabled = config.frequency_shaping_enabled ?? false;
+        const minIntervalMsBase = shapingEnabled ? (config.min_trade_interval_min ?? 0) * 60 * 1000 : 0;
+        const jitterPct = shapingEnabled ? (config.trades_jitter_pct ?? 0) : 0;
+        const useTodStats = config.risk_use_tod_stats && closedTrades.length > 5;
+        const currentHour = useTodStats ? new Date().getUTCHours() : -1;
+        // BOLT: Determine mostRecentTradeTs first to calculate jitter and period window upfront.
+        // This is O(1) + O(Active) where Active is typically < 10.
+        // BOLT: If trades are currently entering, treat 'now' as the most recent trade TS to enforce spacing.
+        let mostRecentTradeTs = enteringCount > 0 ? now : 0;
+        for (let i = 0; i < activeTrades.length; i++) {
+            const t = activeTrades[i];
+            // BOLT OPTIMIZATION: On-the-fly strategy check to bypass array allocations
+            const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
+            if (!matchesStrategy)
+                continue;
+            // Include all trades with a valid entry_ts in spacing calculation
+            const entryRaw = t.entry_ts;
+            if (entryRaw) {
+                const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+                if (ts > mostRecentTradeTs)
+                    mostRecentTradeTs = ts;
+            }
+        }
+        // Find absolute most recent organic trade across ALL closed trades matching strategy.
+        // We scan the top slice of closed trades to ensure we don't miss a recent one
+        // if the list isn't perfectly sorted by entry time.
+        let foundCount = 0;
+        for (let i = 0; i < closedTrades.length; i++) {
+            const t = closedTrades[i];
+            const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
+            if (!matchesStrategy)
+                continue;
+            // Include all trades with a valid entry_ts in spacing calculation
+            const entryRaw = t.entry_ts;
+            if (entryRaw) {
+                const ts = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+                if (ts > mostRecentTradeTs)
+                    mostRecentTradeTs = ts;
+            }
+            foundCount++;
+            if (foundCount >= 20)
+                break;
+        }
+        // BOLT: Stability Guard for Jitter. If mostRecentTradeTs is 0 (first trade),
+        // use a stable anchor to prevent sin(0) from always resulting in 0 jitter.
+        const effectiveMostRecentTs = mostRecentTradeTs || 1717171717171;
+        // Apply stable jitter to the period window to prevent "stampeding".
+        // SRE: Floor effectiveMostRecentTs to 10s to ensure jitter is stable across high-frequency loop iterations (Issue 3)
+        // BOLT: Market-Aware Jitter incorporates symbol-specific offset to prevent cross-symbol stampeding.
+        // SRE: Replaced character-sum with FNV-1a for better distribution and order sensitivity.
+        let symbolHash = 0x811c9dc5;
+        for (let i = 0; i < symbol.length; i++) {
+            symbolHash ^= symbol.charCodeAt(i);
+            symbolHash = Math.imul(symbolHash, 0x01000193);
+        }
+        symbolHash = symbolHash >>> 0;
+        const jitterSeed = (Math.floor(effectiveMostRecentTs / 10000) * 10000) + (symbolHash % 10000);
+        // PERFORMANCE: Market-aware scaling. High quality signals (high score) reduce jitter for faster entry.
+        const effectiveJitterPct = (config.trades_jitter_market_aware && marketScore !== undefined)
+            ? jitterPct * Math.max(0, 1 - (marketScore / 100))
+            : jitterPct;
+        // SRE: Replaced Math.sin with a 32-bit mix hash for stable deterministic jitter on large integers.
+        const getHash = (n) => {
+            let h = n >>> 0;
+            h = Math.imul(h ^ (h >>> 16), 0x21f0aaad);
+            h = Math.imul(h ^ (h >>> 15), 0x735a2d97);
+            h = h ^ (h >>> 15);
+            return (h >>> 0) / 4294967296;
+        };
+        const jitterFactor = (effectiveJitterPct > 0 && symbol !== 'DUMMY')
+            ? 1 + (getHash(jitterSeed) * effectiveJitterPct) / 100
+            : 1;
+        const effectivePeriodMs = periodMinBase * 60 * 1000 * jitterFactor;
+        const periodStartMs = now - effectivePeriodMs;
+        const dayAgo = now - (24 * 60 * 60 * 1000);
+        let tradesIn24h = enteringCount;
+        let tradesInPeriod = enteringCount;
+        let hourTradesCount = 0;
+        let wins = 0;
+        let oldestTradeInPeriodTs = now;
+        let oldestTradeIn24hTs = now;
+        // BOLT: Manual iteration for O(1) memory overhead.
+        // Assuming closedTrades are sorted descending (most recent first).
+        const processTrade = (t, isClosed) => {
+            // Include all trades with a valid entry_ts in rolling window counts
+            const entryRaw = t.entry_ts;
+            if (!entryRaw)
+                return true;
+            const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+            if (entryTs === 0)
+                return true;
+            // BOLT: Optimization - Early exit if trade is older than 24h and we are in the closedTrades list.
+            if (isClosed && entryTs < dayAgo)
+                return false;
+            // BOLT OPTIMIZATION: On-the-fly strategy check
+            const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
+            if (!matchesStrategy)
+                return true;
+            // Track rolling 24h limit
+            if (entryTs >= dayAgo) {
+                tradesIn24h++;
+                if (entryTs < oldestTradeIn24hTs)
+                    oldestTradeIn24hTs = entryTs;
+            }
+            // Track rolling period limit
+            if (entryTs >= periodStartMs) {
+                tradesInPeriod++;
+                if (entryTs < oldestTradeInPeriodTs)
+                    oldestTradeInPeriodTs = entryTs;
+            }
+            // Track Time-of-Day stats
+            const exitRaw = t.exit_ts;
+            if (useTodStats && exitRaw) {
+                const exitTs = exitRaw instanceof Date ? exitRaw : new Date(exitRaw);
+                if (exitTs.getUTCHours() === currentHour) {
+                    hourTradesCount++;
+                    if ((t.pnl || 0) > 0)
+                        wins++;
+                }
+            }
+            return true;
+        };
+        for (let i = 0; i < activeTrades.length; i++) {
+            processTrade(activeTrades[i], false);
+        }
+        // BOLT OPTIMIZATION: Use cached closed trade stats if available for the current window.
+        // SRE: Use 5s bucketing for the timestamps in the cache key to stabilize hits during high frequency loops.
+        // Include strategy_label to prevent cache collision across different strategy variants.
+        const cacheKey = `${targetLabel}_${closedTrades.length}_${closedTrades[0]?.id || 'none'}_${currentHour}_${Math.floor(dayAgo / 5000)}_${Math.floor(periodStartMs / 5000)}`;
+        if (this._closedStatsCache && this._closedStatsCache.key === cacheKey) {
+            const s = this._closedStatsCache.stats;
+            tradesIn24h += s.tradesIn24h;
+            tradesInPeriod += s.tradesInPeriod;
+            hourTradesCount += s.hourTradesCount;
+            wins += s.wins;
+            if (s.oldestTradeIn24hTs < oldestTradeIn24hTs)
+                oldestTradeIn24hTs = s.oldestTradeIn24hTs;
+            if (s.oldestTradeInPeriodTs < oldestTradeInPeriodTs)
+                oldestTradeInPeriodTs = s.oldestTradeInPeriodTs;
+        }
+        else {
+            // Cache Miss: Perform O(N) scan over closed trades
+            const closedBase = {
+                tradesIn24h: 0,
+                tradesInPeriod: 0,
+                hourTradesCount: 0,
+                wins: 0,
+                oldestTradeIn24hTs: now,
+                oldestTradeInPeriodTs: now,
+            };
+            // Create a temporary processing function for closed trades to populate closedBase
+            const processClosed = (t) => {
+                // Include all trades with a valid entry_ts in rolling window counts
+                const entryRaw = t.entry_ts;
+                if (!entryRaw)
+                    return true;
+                const entryTs = entryRaw instanceof Date ? entryRaw.getTime() : new Date(entryRaw).getTime();
+                if (entryTs === 0)
+                    return true;
+                if (entryTs < dayAgo)
+                    return false;
+                // BOLT OPTIMIZATION: On-the-fly strategy check
+                const matchesStrategy = this.matchesStrategyLabel(t.strategy_label, targetLabel, baseLabel);
+                if (!matchesStrategy)
+                    return true;
+                if (entryTs >= dayAgo) {
+                    closedBase.tradesIn24h++;
+                    if (entryTs < closedBase.oldestTradeIn24hTs)
+                        closedBase.oldestTradeIn24hTs = entryTs;
+                }
+                if (entryTs >= periodStartMs) {
+                    closedBase.tradesInPeriod++;
+                    if (entryTs < closedBase.oldestTradeInPeriodTs)
+                        closedBase.oldestTradeInPeriodTs = entryTs;
+                }
+                const exitRaw = t.exit_ts;
+                if (useTodStats && exitRaw) {
+                    const exitTs = exitRaw instanceof Date ? exitRaw : new Date(exitRaw);
+                    if (exitTs.getUTCHours() === currentHour) {
+                        closedBase.hourTradesCount++;
+                        if ((t.pnl || 0) > 0)
+                            closedBase.wins++;
+                    }
+                }
+                return true;
+            };
+            for (let i = 0; i < closedTrades.length; i++) {
+                if (!processClosed(closedTrades[i]))
+                    break;
+            }
+            // Update Cache
+            this._closedStatsCache = { key: cacheKey, stats: closedBase };
+            // Add closedBase to running totals
+            tradesIn24h += closedBase.tradesIn24h;
+            tradesInPeriod += closedBase.tradesInPeriod;
+            hourTradesCount += closedBase.hourTradesCount;
+            wins += closedBase.wins;
+            if (closedBase.oldestTradeIn24hTs < oldestTradeIn24hTs)
+                oldestTradeIn24hTs = closedBase.oldestTradeIn24hTs;
+            if (closedBase.oldestTradeInPeriodTs < oldestTradeInPeriodTs)
+                oldestTradeInPeriodTs = closedBase.oldestTradeInPeriodTs;
+        }
+        // 4. TOD Performance Check (Pre-calculated for Adaptive Spacing)
+        let adaptiveMultiplier = 1.0;
+        let isAdaptiveTightened = false;
+        if (useTodStats && hourTradesCount >= 3) {
+            const winRate = (wins / hourTradesCount) * 100;
+            const minWinRate = config.tod_min_winrate ?? 40.0;
+            if (winRate < minWinRate) {
+                if (config.frequency_tod_integration && shapingEnabled) {
+                    adaptiveMultiplier = 2.0; // Double the interval, half the period limit
+                    isAdaptiveTightened = true;
+                }
+                else {
+                    return {
+                        canEnter: false,
+                        reason: `Historical performance for hour ${currentHour} is low (${Number(winRate || 0).toFixed(1)}% WR)`,
+                        isAdaptiveTightened,
+                        tradesInPeriod,
+                        maxTradesPeriod: Math.max(1, Math.floor(maxTradesPeriod * (isAdaptiveTightened ? 0.5 : 1.0))),
+                        tradesIn24h,
+                        maxTrades24h,
+                        mostRecentTradeTs,
+                        oldestTradeIn24hTs,
+                        oldestTradeInPeriodTs,
+                        effectivePeriodMs,
+                        jitterFactor
+                    };
+                }
+            }
+        }
+        // 1. Min Interval Spacing Check
+        const effectiveMinIntervalMs = minIntervalMsBase * adaptiveMultiplier;
+        const effectiveMaxTradesPeriod = isAdaptiveTightened
+            ? Math.max(1, Math.floor(maxTradesPeriod * 0.5))
+            : maxTradesPeriod;
+        if (effectiveMinIntervalMs > 0 && mostRecentTradeTs > 0) {
+            const elapsed = now - mostRecentTradeTs;
+            if (elapsed < effectiveMinIntervalMs) {
+                const waitMin = Math.ceil((effectiveMinIntervalMs - elapsed) / 60000);
+                const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
+                return {
+                    canEnter: false,
+                    reason: `Trade spacing active${adaptiveNote}. Wait ~${waitMin}m before next entry.`,
+                    isAdaptiveTightened,
+                    tradesInPeriod,
+                    maxTradesPeriod: effectiveMaxTradesPeriod,
+                    tradesIn24h,
+                    maxTrades24h,
+                    mostRecentTradeTs,
+                    oldestTradeIn24hTs,
+                    oldestTradeInPeriodTs,
+                    effectivePeriodMs,
+                    jitterFactor
+                };
+            }
+        }
+        // 2. Rolling Period Limit (with Jitter and Adaptive Scaling)
+        if (effectiveMaxTradesPeriod > 0 && tradesInPeriod >= effectiveMaxTradesPeriod) {
+            const nextSlotMs = oldestTradeInPeriodTs + effectivePeriodMs - now;
+            const nextSlotMin = Math.ceil(nextSlotMs / 60000);
+            const adaptiveNote = isAdaptiveTightened ? ' (Adaptive TOD Tightening)' : '';
+            return {
+                canEnter: false,
+                reason: `Max trades per period reached (${maxTradesPeriod}/${Math.round(effectivePeriodMs / 60000)}m)${adaptiveNote}. Next slot in ~${nextSlotMin}m.`,
+                isAdaptiveTightened,
+                tradesInPeriod,
+                maxTradesPeriod: effectiveMaxTradesPeriod,
+                tradesIn24h,
+                maxTrades24h,
+                mostRecentTradeTs,
+                oldestTradeIn24hTs,
+                oldestTradeInPeriodTs,
+                nextSlotTs: oldestTradeInPeriodTs + effectivePeriodMs,
+                effectivePeriodMs,
+                jitterFactor
+            };
+        }
+        // 3. Rolling 24h Limit
+        if (maxTrades24h > 0 && tradesIn24h >= maxTrades24h) {
+            const nextSlotTs = oldestTradeIn24hTs + (24 * 60 * 60 * 1000);
+            const nextSlotMs = nextSlotTs - now;
+            const nextSlotHours = Number(nextSlotMs / (60 * 60 * 1000)).toFixed(1);
+            return {
+                canEnter: false,
+                reason: `Rolling 24h limit reached (${tradesIn24h}/${maxTrades24h}). Next slot in ~${nextSlotHours}h.`,
+                isAdaptiveTightened,
+                tradesInPeriod,
+                maxTradesPeriod: effectiveMaxTradesPeriod,
+                tradesIn24h,
+                maxTrades24h,
+                mostRecentTradeTs,
+                oldestTradeIn24hTs,
+                oldestTradeInPeriodTs,
+                nextSlotTs,
+                effectivePeriodMs,
+                jitterFactor
+            };
+        }
+        return {
+            canEnter: true,
+            reason: 'OK',
+            isAdaptiveTightened,
+            tradesInPeriod,
+            maxTradesPeriod: effectiveMaxTradesPeriod,
+            tradesIn24h,
+            maxTrades24h,
+            mostRecentTradeTs,
+            oldestTradeIn24hTs,
+            oldestTradeInPeriodTs,
+            effectivePeriodMs,
+            jitterFactor
+        };
+    }
+    /**
+     * Calculate stop loss price based on SL type configuration
+     * BOLT OPTIMIZATION: Accept scalar min/max extremes instead of arrays to reduce memory churn.
+     */
+    computeSl(entryPrice, direction, config, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice) {
+        if (config.sl_type === 'trailing') {
+            const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Trailing SL type selected, defaulting to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+            this.logger.log(`[RiskEngine] ${fallbackReason}`);
+            if (this.eventEmitter) {
+                this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'info' });
+            }
+            const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' }, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
+            return { ...res, fallbackUsed: true, fallbackReason };
+        }
+        if (config.sl_type === 'supertrend') {
+            if (supertrendSlPrice === undefined || supertrendSlPrice <= 0 || isNaN(supertrendSlPrice) || !isFinite(supertrendSlPrice)) {
+                const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Supertrend stop-loss price unavailable or invalid (${supertrendSlPrice}). Falling back to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+                this.logger.warn(`[RiskEngine] ${fallbackReason}`);
+                if (this.eventEmitter) {
+                    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'warn' });
+                }
+                const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' }, minLow, maxHigh, symbol, patternLow, patternHigh, bodyLow, bodyHigh, supertrendSlPrice, macdPbcSlPrice);
+                return { ...res, fallbackUsed: true, fallbackReason };
+            }
+            const minPct = config.sl_min_pct ?? 0.3;
+            const maxPct = config.sl_max_pct ?? 3.0;
+            const action = config.sl_out_of_bounds_action || 'clamp';
+            let finalSl = supertrendSlPrice;
+            const distancePct = Math.abs(finalSl - entryPrice) / entryPrice * 100;
+            let rejected = false;
+            let reason = undefined;
+            if (distancePct < minPct) {
+                if (action === 'clamp') {
+                    const minDistance = entryPrice * (minPct / 100);
+                    finalSl = direction === 'LONG' ? entryPrice - minDistance : entryPrice + minDistance;
+                }
+                else {
+                    rejected = true;
+                    reason = `Supertrend SL distance (${distancePct.toFixed(2)}%) is below minimum of ${minPct}%`;
+                }
+            }
+            else if (distancePct > maxPct) {
+                if (action === 'clamp') {
+                    const maxDistance = entryPrice * (maxPct / 100);
+                    finalSl = direction === 'LONG' ? entryPrice - maxDistance : entryPrice + maxDistance;
+                }
+                else {
+                    rejected = true;
+                    reason = `Supertrend SL distance (${distancePct.toFixed(2)}%) exceeds maximum of ${maxPct}%`;
+                }
+            }
+            this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Supertrend SL: ${Number(finalSl || 0).toFixed(5)} (dist: ${distancePct.toFixed(2)}%)`);
+            return { slPrice: finalSl, rejected, reason };
+        }
+        if (config.sl_type === 'pct') {
+            // Simple percentage-based SL
+            const distance = entryPrice * ((config.sl_distance_pct ?? 0.8) / 100);
+            const sl = direction === 'LONG' ? entryPrice - distance : entryPrice + distance;
+            this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Pct SL: ${Number(sl || 0).toFixed(5)} (dist: ${config.sl_distance_pct}%)`);
+            return { slPrice: sl, rejected: false };
+        }
+        // SL based on lookback period extremes
+        if (config.sl_type === 'lookback_low/high') {
+            const minPct = config.sl_min_pct ?? 0.3;
+            const maxPct = config.sl_max_pct ?? 3.0;
+            const action = config.sl_out_of_bounds_action || 'clamp';
+            const minDistance = entryPrice * (minPct / 100);
+            const maxDistance = entryPrice * (maxPct / 100);
+            let structuralSl;
+            let rawDistance;
+            let usingMacdPbcSl = false;
+            const extremesAvailable = direction === 'LONG'
+                ? !(minLow === undefined || minLow === 0 || minLow === Infinity || minLow === -Infinity)
+                : !(maxHigh === undefined || maxHigh === 0 || maxHigh === Infinity || maxHigh === -Infinity);
+            if (!extremesAvailable) {
+                if (macdPbcSlPrice && macdPbcSlPrice > 0) {
+                    structuralSl = macdPbcSlPrice;
+                    rawDistance = Math.abs(entryPrice - structuralSl);
+                    usingMacdPbcSl = true;
+                    this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback extremes unavailable. Using MACD PBC SL price: ${macdPbcSlPrice} as structural SL.`);
+                }
+                else if (action === 'reject') {
+                    const reason = `Lookback extremes unavailable for ${symbol || 'Trade'} and sl_out_of_bounds_action is 'reject'. Rejecting entry.`;
+                    const nowTs = Date.now();
+                    const logKey = `lookback_unavailable_reject:${symbol || 'global'}`;
+                    const lastLogged = this.loggedExtremesMap.get(logKey) || 0;
+                    if (nowTs - lastLogged > 60000) {
+                        this.logger.warn(`[RiskEngine] ${reason}`);
+                        if (this.eventEmitter) {
+                            this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: reason, level: 'warn' });
+                        }
+                        this.loggedExtremesMap.set(logKey, nowTs);
+                    }
+                    return { slPrice: 0, rejected: true, reason };
+                }
+                else {
+                    // Fallback to percentage if lookback data not available and action is clamp
+                    const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Lookback extremes unavailable (minLow: ${minLow}, maxHigh: ${maxHigh}). Falling back to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+                    this.logger.warn(`[RiskEngine] ${fallbackReason}`);
+                    if (this.eventEmitter) {
+                        this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'warn' });
+                    }
+                    const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' }, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
+                    return { ...res, fallbackUsed: true, fallbackReason };
+                }
+            }
+            else {
+                if (direction === 'LONG') {
+                    structuralSl = minLow;
+                    rawDistance = Math.abs(entryPrice - structuralSl);
+                }
+                else {
+                    structuralSl = maxHigh;
+                    rawDistance = Math.abs(structuralSl - entryPrice);
+                }
+            }
+            if (!usingMacdPbcSl && macdPbcSlPrice && macdPbcSlPrice > 0) {
+                const macdPbcDistance = Math.abs(entryPrice - macdPbcSlPrice);
+                if (rawDistance < macdPbcDistance) {
+                    structuralSl = macdPbcSlPrice;
+                    rawDistance = macdPbcDistance;
+                    usingMacdPbcSl = true;
+                    this.logger.log(`[RiskEngine] ${symbol || 'Trade'} Lookback SL distance is less than MACD PBC SL distance (${macdPbcDistance.toFixed(5)}). Using MACD PBC SL as structural SL.`);
+                }
+            }
+            const rawDistPct = (rawDistance / entryPrice) * 100;
+            let clampType = 'RAW';
+            let finalDistance = rawDistance;
+            let rejected = false;
+            let reason;
+            if (rawDistance < minDistance) {
+                if (action === 'reject') {
+                    clampType = 'REJECT';
+                    rejected = true;
+                    reason = `Lookback SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
+                }
+                else {
+                    finalDistance = minDistance;
+                    clampType = 'MIN_CLAMP';
+                }
+            }
+            else if (rawDistance > maxDistance) {
+                if (action === 'reject') {
+                    clampType = 'REJECT';
+                    rejected = true;
+                    reason = usingMacdPbcSl
+                        ? `Lookback SL dist ${rawDistPct.toFixed(2)}% (MACD PBC) above max ${maxPct}%`
+                        : `Lookback SL dist ${rawDistPct.toFixed(2)}% above max ${maxPct}%`;
+                }
+                else {
+                    finalDistance = maxDistance;
+                    clampType = 'MAX_CLAMP';
+                }
+            }
+            const slPrice = direction === 'LONG' ? entryPrice - finalDistance : entryPrice + finalDistance;
+            this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Lookback SL Journey:
+        Entry: ${entryPrice}
+        Extreme (${direction === 'LONG' ? 'Low' : 'High'}): ${structuralSl} ${usingMacdPbcSl ? '(MACD PBC)' : ''}
+        Raw Dist: ${Number(rawDistance || 0).toFixed(5)} (${rawDistPct.toFixed(2)}%)
+        Min: ${minPct}% (${Number(minDistance || 0).toFixed(5)}), Max: ${maxPct}% (${Number(maxDistance || 0).toFixed(5)})
+
+        Action: ${action.toUpperCase()}, Result: ${clampType} -> Dist: ${Number(finalDistance || 0).toFixed(5)}
+        Final SL: ${Number(slPrice || 0).toFixed(5)}`);
+            return { slPrice, rejected, reason };
+        }
+        if (config.sl_type === 'engulfing_boundary' || config.sl_type === 'streak_extreme') {
+            // Use Body boundary for 'body' or 'close_body' modes, otherwise Range.
+            // NOTE: We still prefer the absolute 'outer' boundary (Range) for protection if it's a structural play,
+            // but if the user chose body mode, they might prefer the 'body' boundary.
+            // For now, we prioritize Range (patternLow/High) as it's the more conservative structural stop.
+            // However, we check if the specific mode-based data is available.
+            const mode = config.engulfing_mode || 'range';
+            const useBody = mode === 'body' || mode === 'close_body';
+            let structuralSl = direction === 'LONG' ? patternLow : patternHigh;
+            // If we specifically want body-based or if range is missing but body is present
+            if ((useBody && (direction === 'LONG' ? bodyLow : bodyHigh) !== undefined) || (structuralSl === undefined && (direction === 'LONG' ? bodyLow : bodyHigh) !== undefined)) {
+                structuralSl = direction === 'LONG' ? bodyLow : bodyHigh;
+            }
+            if (structuralSl === undefined || structuralSl <= 0) {
+                const fallbackReason = `[SL Strategy Fallback] ${symbol || 'Trade'}: Engulfing boundary unavailable (${config.sl_type}). Falling back to Pct SL (${config.sl_distance_pct ?? 0.8}%).`;
+                this.logger.warn(`[RiskEngine] ${fallbackReason}`);
+                if (this.eventEmitter) {
+                    this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: fallbackReason, level: 'warn' });
+                }
+                const res = this.computeSl(entryPrice, direction, { ...config, sl_type: 'pct' }, undefined, undefined, symbol, undefined, undefined, undefined, undefined, undefined, macdPbcSlPrice);
+                return { ...res, fallbackUsed: true, fallbackReason };
+            }
+            const minPct = config.sl_min_pct ?? 0.3;
+            const maxPct = config.sl_max_pct ?? 3.0;
+            const action = config.sl_out_of_bounds_action || 'clamp';
+            const minDistance = entryPrice * (minPct / 100);
+            const maxDistance = entryPrice * (maxPct / 100);
+            const rawDistance = Math.abs(entryPrice - structuralSl);
+            const rawDistPct = (rawDistance / entryPrice) * 100;
+            let finalDistance = rawDistance;
+            let rejected = false;
+            let reason;
+            if (rawDistance < minDistance) {
+                if (action === 'reject') {
+                    rejected = true;
+                    reason = `Engulfing SL dist ${rawDistPct.toFixed(2)}% below min ${minPct}%`;
+                }
+                else {
+                    finalDistance = minDistance;
+                }
+            }
+            else if (rawDistance > maxDistance) {
+                if (action === 'reject') {
+                    rejected = true;
+                    reason = `Engulfing SL dist ${rawDistPct.toFixed(2)}% above max ${maxPct}%`;
+                }
+                else {
+                    finalDistance = maxDistance;
+                }
+            }
+            const slPrice = direction === 'LONG' ? entryPrice - finalDistance : entryPrice + finalDistance;
+            this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Engulfing SL: ${Number(slPrice || 0).toFixed(5)} (dist: ${((finalDistance / entryPrice) * 100).toFixed(2)}%)`);
+            return { slPrice, rejected, reason };
+        }
+        throw new ConfigValidationException(`Unknown sl_type: ${config.sl_type}`);
+    }
+    /**
+     * Calculate position size (quantity) based on risk parameters
+     */
+    computePositionSize(balance, entryPrice, slPrice, direction, config, symbol, closedTrades = []) {
+        this.logger.debug(`[RiskEngine] ${symbol || 'Trade'} Size Check: Balance=${balance}, Entry=${entryPrice}, SL=${slPrice}, Dist=${Number(Math.abs(entryPrice - slPrice) || 0).toFixed(5)}`);
+        if (balance <= 0 || entryPrice <= 0)
+            return { qty: 0 };
+        let riskPct = config.risk_pct_per_trade ?? 1.0;
+        let martingaleActive = false;
+        let activeMultiplier = 1.0;
+        let currentConsecutiveLosses = 0;
+        let isMartingaleThresholdReset = false;
+        if (config.martingale_enabled) {
+            const strategyLabel = config.strategy_label || 'default';
+            const postResetBehavior = config.martingale_post_reset_behavior || 'wait';
+            currentConsecutiveLosses = 0;
+            for (const trade of closedTrades) {
+                if ((trade.strategy_label || 'default') === strategyLabel) {
+                    const pnl = Number(trade.pnl) || 0;
+                    if (pnl < 0) {
+                        if (trade.martingale_threshold_reset && postResetBehavior === 'restart') {
+                            break;
+                        }
+                        currentConsecutiveLosses++;
+                    }
+                    else if (pnl > 0) {
+                        break;
+                    }
+                }
+            }
+            if (currentConsecutiveLosses > 0) {
+                const multiplier = config.martingale_multiplier ?? 2.0;
+                const maxSteps = config.martingale_max_steps ?? 3;
+                const resetThreshold = config.martingale_reset_threshold_pct ?? 4.0;
+                const steps = Math.min(currentConsecutiveLosses, maxSteps);
+                activeMultiplier = Math.pow(multiplier, steps);
+                const newRiskPct = riskPct * activeMultiplier;
+                if (newRiskPct > resetThreshold) {
+                    this.logger.warn(`[RiskEngine] Martingale risk ${newRiskPct.toFixed(2)}% exceeds reset threshold ${resetThreshold.toFixed(2)}%. Resetting to base risk ${riskPct}%.`);
+                    activeMultiplier = 1.0;
+                    isMartingaleThresholdReset = true;
+                }
+                else {
+                    riskPct = newRiskPct;
+                    martingaleActive = true;
+                    this.logger.log(`[RiskEngine] Martingale active: ${currentConsecutiveLosses} consecutive losses. Multiplier=${activeMultiplier.toFixed(2)}x, New Risk=${riskPct.toFixed(2)}%`);
+                }
+            }
+        }
+        const riskAmount = balance * (riskPct / 100);
+        const slDistance = Math.abs(entryPrice - slPrice);
+        if (slDistance <= 0)
+            return { qty: 0 };
+        // qty = risk_amount / (sl_distance)
+        // For futures, adjust based on entry_price as well
+        let qty = roundEight(riskAmount / slDistance);
+        // PERFORMANCE: Implement dynamic notional scaling floor.
+        // Binance absolute minimum for Futures is 5 USDT. We use 5.01 for a safety buffer.
+        const autoScale = config.auto_scale_min_notional ?? true;
+        const MIN_NOTIONAL = 5.0;
+        const MIN_NOTIONAL_SCALED = 5.01;
+        let currentNotional = qty * entryPrice;
+        let isNominalOvershoot = false;
+        if (autoScale) {
+            if (currentNotional < MIN_NOTIONAL_SCALED) {
+                // RISK-HARDENING: Implement a 3x risk overshoot ceiling for auto-scaling.
+                // Prevents tiny accounts with tight stops from being exposed to massive unplanned drawdown.
+                const scaledQty = roundEight(MIN_NOTIONAL_SCALED / entryPrice);
+                const scaledRisk = Math.abs(entryPrice - slPrice) * scaledQty;
+                const overshootRatio = scaledRisk / riskAmount;
+                const MAX_OVERSHOOT = config.auto_scale_max_overshoot ?? 3.0;
+                if (overshootRatio > MAX_OVERSHOOT) {
+                    const reason = `Min notional $${MIN_NOTIONAL_SCALED} forces ${overshootRatio.toFixed(1)}x risk overshoot (Max ${MAX_OVERSHOOT}x).`;
+                    this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: ${reason}`);
+                    return { qty: 0, rejected: true, reason };
+                }
+                this.logger.debug(`[RiskEngine] Scaled qty up to meet MIN_NOTIONAL (${Number(currentNotional || 0).toFixed(2)} -> ${MIN_NOTIONAL_SCALED})`);
+                qty = scaledQty;
+                isNominalOvershoot = true;
+            }
+        }
+        else {
+            // SRE: Risk Hardening Logic (User Requirement 2)
+            // This is only enabled when auto-scaling is DISABLED.
+            const hardeningEnabled = config.risk_hardening_enabled ?? false;
+            if (hardeningEnabled) {
+                const maxRiskPct = config.max_single_trade_risk_pct ?? 20.0;
+                const currentRiskPct = (qty * Math.abs(entryPrice - slPrice) / balance) * 100;
+                if (currentRiskPct > maxRiskPct) {
+                    const reason = `Setup forces ${currentRiskPct.toFixed(1)}% account risk (Max ${maxRiskPct}% via Hardening). Account too small for setup.`;
+                    this.logger.warn(`[RiskEngine] ${symbol || 'Trade'} setup rejected: ${reason}`);
+                    return { qty: 0, rejected: true, reason };
+                }
+            }
+            if (currentNotional < MIN_NOTIONAL) {
+                const reason = `Trade notional ${Number(currentNotional || 0).toFixed(2)} is below minimum ${MIN_NOTIONAL} USDT.`;
+                this.logger.warn(`[RiskEngine] Trade setup discarded: ${reason}`);
+                return { qty: 0, rejected: true, reason };
+            }
+        }
+        return { qty, isNominalOvershoot, martingaleActive, activeMultiplier, consecutiveLosses: currentConsecutiveLosses, martingaleThresholdReset: isMartingaleThresholdReset };
+    }
+    /**
+     * Calculate initial Take Profit price based on exit RR sequence
+     */
+    computeTp(entryPrice, slPrice, direction, config) {
+        if (config.tp_mode === 'exp_rr_seq' || config.tp_mode === 'exp_rr_seq_switch') {
+            return null;
+        }
+        const risk = Math.abs(entryPrice - slPrice);
+        if (risk <= 0)
+            return entryPrice;
+        const initialRr = config.tp_ratio || 2;
+        const reward = risk * initialRr;
+        return direction === 'LONG'
+            ? entryPrice + reward
+            : entryPrice - reward;
+    }
+    /**
+     * Calculate Risk:Reward ratio
+     */
+    calculateRiskRewardRatio(entryPrice, slPrice, tpPrice, direction) {
+        const risk = Math.abs(entryPrice - slPrice);
+        const reward = Math.abs(tpPrice - entryPrice);
+        if (risk <= 0)
+            return 0;
+        return reward / risk;
+    }
+};
+RiskEngineService = RiskEngineService_1 = __decorate([
+    Injectable(),
+    __param(0, Optional()),
+    __param(0, Inject(EventEmitter2)),
+    __metadata("design:paramtypes", [EventEmitter2])
+], RiskEngineService);
+export { RiskEngineService };

@@ -160,8 +160,8 @@ export class ExecutionService {
       // b) Indicator Warmup / Data Starvation Check for Exit Signals
       const exitSignals = activeConfig.exit_signals || [];
       if (exitSignals.length > 0) {
-        const requiredWarmup = this.signalEngine.getRequiredWarmup(activeConfig);
         for (const exitSig of exitSignals) {
+          const requiredWarmup = this.signalEngine.getRequiredWarmupForSignal(activeConfig, exitSig, 'exit');
           const rawTf = activeConfig.signal_timeframes?.[exitSig];
           const rawExitInterval = (!rawTf || rawTf === 'default') ? (activeConfig.scan_interval || '1m') : rawTf;
           const exitInterval = this.marketFeedService.resolveInterval(rawExitInterval, activeConfig) || '1m';
@@ -677,7 +677,11 @@ export class ExecutionService {
           ? (resolvedConfig.scan_interval || '1m')
           : resolvedConfig.sl_lookback_timeframe;
         const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, resolvedConfig) || '5m';
-        const includeForming = Boolean(resolvedConfig.sl_include_forming_candle);
+        // Keep the configured lookback period explicit; this was accidentally dropped in the
+        // forming-candle refactor while its value remained referenced below.
+        const lookbackPeriod = Math.max(0, Number(resolvedConfig.sl_lookback_period ?? 20) || 0);
+        // Forming candles are included by default; opt out only with an explicit false.
+        const includeForming = resolvedConfig.sl_include_forming_candle !== false;
         let lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod, includeForming);
 
         // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles

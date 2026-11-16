@@ -91,11 +91,11 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
     tokens.push(`EMA(${period})`);
   } else if (['ema_dual', 'ema_dual_cross', 'ema_dual_close'].includes(baseType)) {
     const fast = purpose === 'exit'
-      ? p('exit_ema_fast', p('entry_ema_fast', p('ema_fast_period', 9)))
-      : p('entry_ema_fast', p('exit_ema_fast', p('ema_fast_period', 9)));
+      ? p('exit_ema_fast', 9)
+      : p('entry_ema_fast', 9);
     const slow = purpose === 'exit'
-      ? p('exit_ema_slow', p('entry_ema_slow', p('ema_slow_period', 21)))
-      : p('entry_ema_slow', p('exit_ema_slow', p('ema_slow_period', 21)));
+      ? p('exit_ema_slow', 21)
+      : p('entry_ema_slow', 21);
     tokens.push(`EMA ${fast}/${slow}`);
     const macdFilter = p('ema_dual_macd_filter', p('ema_macd_filter_enabled', false));
     if (macdFilter === true || macdFilter === 'true') {

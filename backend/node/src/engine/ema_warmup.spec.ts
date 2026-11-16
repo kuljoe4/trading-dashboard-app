@@ -39,7 +39,7 @@ describe('SignalEngineService - EMA Warmup', () => {
     expect(signalEngine.getRequiredWarmup(config as any)).toBe(120);
   });
 
-  it('should take the max period for ema_dual_cross', () => {
+  it('should calculate EMA Dual warmup independently for entry and exit', () => {
     const config = {
       enabled_signals: ['ema_dual_cross'],
       exit_signals: ['ema_dual_cross'],
@@ -51,10 +51,11 @@ describe('SignalEngineService - EMA Warmup', () => {
       }
     };
     // Max of (9, 21, 20, 50) is 50. 50 * 2 = 100
-    expect(signalEngine.getRequiredWarmup(config as any)).toBe(100);
+    expect(signalEngine.getRequiredWarmupForSignal(config as any, 'ema_dual_cross', 'entry')).toBe(42);
+    expect(signalEngine.getRequiredWarmupForSignal(config as any, 'ema_dual_cross', 'exit')).toBe(100);
   });
 
-  it('should handle missing exit params gracefully by falling back to entry params or defaults', () => {
+  it('should use independent exit defaults when exit EMA parameters are omitted', () => {
     const config = {
       enabled_signals: ['ema_dual_close'],
       exit_signals: ['ema_dual_close'],
@@ -63,8 +64,7 @@ describe('SignalEngineService - EMA Warmup', () => {
         entry_ema_slow: 35
       }
     };
-    // Max of (15, 35) is 35. 35 * 2 = 70.
-    // Exit params should fall back to 9/21. Max of (15, 35, 9, 21) is 35.
-    expect(signalEngine.getRequiredWarmup(config as any)).toBe(70);
+    expect(signalEngine.getRequiredWarmupForSignal(config as any, 'ema_dual_close', 'entry')).toBe(70);
+    expect(signalEngine.getRequiredWarmupForSignal(config as any, 'ema_dual_close', 'exit')).toBe(42);
   });
 });

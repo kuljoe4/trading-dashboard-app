@@ -487,8 +487,13 @@ export class PositionTrackerService {
     if (!trade.exit_signals_status) return false;
 
     // BOLT OPTIMIZATION: Use for...in loop instead of Object.entries to eliminate key-value entry array and tuple allocations
+    const configuredExitSignals = new Set<string>([
+      ...(config.exit_signals || []),
+      ...(config.trigger_candle_exit_enabled ? ['trigger_candle_exit'] : []),
+    ]);
     for (const key in trade.exit_signals_status) {
       if (!Object.prototype.hasOwnProperty.call(trade.exit_signals_status, key)) continue;
+      if (!configuredExitSignals.has(key)) continue;
       const sigStatus = (trade.exit_signals_status as Record<string, any>)[key];
       if (sigStatus && sigStatus.threshold_is_price && typeof sigStatus.threshold === 'number' && sigStatus.threshold > 0) {
         let signalPnl = 0;
@@ -923,11 +928,17 @@ export class PositionTrackerService {
       // BOLT OPTIMIZATION: Single-pass for...in traversal to accumulate keys and check close action without array allocations
       const actions = config.exit_signal_actions || {};
       const statusMap = trade.exit_signals_status || {};
+      const configuredExitSignals = new Set<string>([
+        ...(config.exit_signals || []),
+        ...(config.trigger_candle_exit_enabled ? ['trigger_candle_exit'] : []),
+      ]);
       const firedActiveKeys: string[] = [];
       let hasCloseAction: boolean = false;
 
       for (const k in statusMap) {
         if (!Object.prototype.hasOwnProperty.call(statusMap, k)) continue;
+        // Persisted status maps can outlive strategy edits; only configured exits may act.
+        if (!configuredExitSignals.has(k)) continue;
         const status = statusMap[k];
         if (status && status.fired && status.active) {
           firedActiveKeys.push(k);

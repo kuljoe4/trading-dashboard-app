@@ -13,6 +13,7 @@ describe('MomentumScannerService Unified Loop Optimization', () => {
     }
 
     tickerCache = {
+      getPrice: jest.fn().mockReturnValue(null),
       getTicker: jest.fn(),
       topByVolume: jest.fn(),
     }

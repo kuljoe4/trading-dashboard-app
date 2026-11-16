@@ -135,9 +135,6 @@ export class SignalEngineService {
   getRequiredWarmup(config: SessionConfig): number {
     if ((!config.enabled_signals || config.enabled_signals.length === 0) && (!config.exit_signals || config.exit_signals.length === 0)) return 0;
 
-    const cached = this.warmupCache.get(config);
-    if (cached !== undefined) return cached;
-
     let maxReq = 0;
     const params: any = config.signal_params || {};
 
@@ -251,11 +248,10 @@ export class SignalEngineService {
       processSignal('trigger_candle_exit');
     }
 
-    this.warmupCache.set(config, maxReq);
     return maxReq;
   }
 
-  public getRequiredWarmupForSignal(config: SessionConfig, signalType: string): number {
+  public getRequiredWarmupForSignal(config: SessionConfig, signalType: string, purpose: 'entry' | 'exit' = 'entry'): number {
     let baseType = signalType;
     let handler = this.signalHandlers[signalType];
     if (!handler) {
@@ -277,16 +273,25 @@ export class SignalEngineService {
     } else if (baseType === 'ma') {
       return parseInt(String(resolveParam(signalType, baseType, 'ma_period', '20')), 10) + 1;
     } else if (baseType === 'ema' || baseType === 'ema_cross' || baseType === 'ema_price_cross' || baseType === 'ema_close') {
-      const exitPeriodVal = resolveParam(signalType, baseType, 'exit_ema_period', null);
-      const entryPeriodVal = resolveParam(signalType, baseType, 'entry_ema_period', null);
-      const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
-      const exitPeriod = parseInt(String(exitPeriodVal || basePeriodVal), 10);
-      const entryPeriod = parseInt(String(entryPeriodVal || basePeriodVal), 10);
-      return Math.max(exitPeriod, entryPeriod) * 2;
+      const periodKey = purpose === 'exit' ? 'exit_ema_period' : 'entry_ema_period';
+      const periodVal = resolveParam(signalType, baseType, periodKey, resolveParam(signalType, baseType, 'ema_period', '12'));
+      return parseInt(String(periodVal || '12'), 10) * 2;
     } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close' || baseType === 'ema_dual') {
-      const entryFastVal = resolveParam(signalType, baseType, 'entry_ema_fast', '9');
-      const entrySlowVal = resolveParam(signalType, baseType, 'entry_ema_slow', '21');
-      return Math.max(parseInt(String(entryFastVal), 10), parseInt(String(entrySlowVal), 10)) * 2;
+      const fastKey = purpose === 'exit' ? 'exit_ema_fast' : 'entry_ema_fast';
+      const slowKey = purpose === 'exit' ? 'exit_ema_slow' : 'entry_ema_slow';
+      const fastVal = resolveParam(signalType, baseType, fastKey, '9');
+      const slowVal = resolveParam(signalType, baseType, slowKey, '21');
+      const fast = parseInt(String(fastVal || '9'), 10);
+      const slow = parseInt(String(slowVal || '21'), 10);
+      let required = Math.max(fast, slow) * 2;
+      const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);
+      if (macdFilter === true || macdFilter === 'true') {
+        const macdFast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
+        const macdSlow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
+        const macdSignal = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
+        required = Math.max(required, (Math.max(macdFast, macdSlow) + macdSignal) * 2);
+      }
+      return required;
     } else if (baseType === 'engulfing') {
       const lookback = parseInt(String(resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1')), 10);
       return lookback + 1;
@@ -306,7 +311,8 @@ export class SignalEngineService {
       const n = parseInt(String(resolveParam(signalType, baseType, 'trigger_candle_exit_n', 0)), 10) || 0;
       return n + 2;
     }
-    return this.getRequiredWarmup(config);
+    // Unknown/unregistered signals must not inherit another signal's global warmup.
+    return 0;
   }
 
   checkEntry(
@@ -368,27 +374,7 @@ export class SignalEngineService {
 
     const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
 
-    // Warm-up check for technical indicators (applied to both entry and exit signal evaluations to ensure mathematical convergence)
-    const requiredWarmup = this.getRequiredWarmup(config);
-    if (candles.length < requiredWarmup) {
-      return {
-        allFired: false,
-        firedSignals: [],
-        reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
-        details: minimal ? undefined : {
-          warmup: {
-            fired: false,
-            value: candles.length,
-            threshold: requiredWarmup,
-            unit: 'candles',
-            metric: 'Warmup',
-            description: 'Waiting for mathematical convergence',
-            insufficientData: true,
-            evaluated_at_ms: evaluatedAtMs,
-          }
-        }
-      };
-    }
+    // Each signal is warmed independently on its own configured timeframe and purpose-specific parameters.
 
     // BOLT OPTIMIZATION: Avoid array/object allocations when minimal mode is active
     const firedSignals: string[] = minimal ? [] : [];
@@ -433,12 +419,15 @@ export class SignalEngineService {
         if (signalInterval === 'default') {
           signalInterval = interval;
         }
-        const signalCandles = passedCandles || ((signalInterval !== interval)
-          ? this.klineStore.getRawCandles(symbol, signalInterval)
-          : candles);
+        // Backtests pass a bounded historical candle slice explicitly. Keep that deterministic
+        // simulation input rather than mixing it with live KlineStore data. Live evaluations do not
+        // pass candles and therefore always read the configured signal timeframe independently.
+        const signalCandles = passedCandles
+          ? passedCandles
+          : (signalInterval === interval ? candles : this.klineStore.getRawCandles(symbol, signalInterval));
 
-        const sigReqWarmup = this.getRequiredWarmupForSignal(config, signalType);
-        if (signalInterval !== interval && signalCandles.length < sigReqWarmup) {
+        const sigReqWarmup = this.getRequiredWarmupForSignal(config, signalType, purpose);
+        if (signalCandles.length < sigReqWarmup) {
           failedSignals.push(signalType);
           if (!minimal) {
             details[signalType] = {
@@ -447,7 +436,7 @@ export class SignalEngineService {
               threshold: sigReqWarmup,
               unit: 'candles',
               metric: baseSignalType,
-              description: `Timeframe ${signalInterval} warm-up in progress (${signalCandles.length}/${sigReqWarmup})`,
+              description: `Signal warm-up in progress on ${signalInterval} (${signalCandles.length}/${sigReqWarmup} candles)`,
               insufficientData: true,
               timeframe: signalInterval,
               candleCount: signalCandles.length,
@@ -1005,12 +994,16 @@ export class SignalEngineService {
       const signalTypeKey = signalType || arguments[7] || 'ema_dual';
       const baseType = 'ema_dual';
 
-      const fastVal = purpose === 'exit'
-        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', '9'))
-        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', '9'));
-      const slowVal = purpose === 'exit'
-        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', '21'))
-        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', '21'));
+      const fastVal = this.resolveSignalParam(
+        params, signalTypeKey, baseType,
+        purpose === 'exit' ? 'exit_ema_fast' : 'entry_ema_fast',
+        '9'
+      );
+      const slowVal = this.resolveSignalParam(
+        params, signalTypeKey, baseType,
+        purpose === 'exit' ? 'exit_ema_slow' : 'entry_ema_slow',
+        '21'
+      );
 
       const fastPeriod = parseInt(String(fastVal || '9'), 10) || 9;
       const slowPeriod = parseInt(String(slowVal || '21'), 10) || 21;
@@ -1146,12 +1139,16 @@ export class SignalEngineService {
       const signalTypeKey = signalType || arguments[7] || 'ema_dual_cross';
       const baseType = 'ema_dual_cross';
 
-      const fastVal = purpose === 'exit'
-        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', '9'))
-        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', '9'));
-      const slowVal = purpose === 'exit'
-        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', '21'))
-        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', '21'));
+      const fastVal = this.resolveSignalParam(
+        params, signalTypeKey, baseType,
+        purpose === 'exit' ? 'exit_ema_fast' : 'entry_ema_fast',
+        '9'
+      );
+      const slowVal = this.resolveSignalParam(
+        params, signalTypeKey, baseType,
+        purpose === 'exit' ? 'exit_ema_slow' : 'entry_ema_slow',
+        '21'
+      );
 
       const fastPeriod = parseInt(String(fastVal || '9'), 10) || 9;
       const slowPeriod = parseInt(String(slowVal || '21'), 10) || 21;
@@ -1331,12 +1328,16 @@ export class SignalEngineService {
       const signalTypeKey = signalType || arguments[7] || 'ema_dual_close';
       const baseType = 'ema_dual_close';
 
-      const fastVal = purpose === 'exit'
-        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', '9'))
-        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_fast', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_fast', '9'));
-      const slowVal = purpose === 'exit'
-        ? this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', '21'))
-        : this.resolveSignalParam(params, signalTypeKey, baseType, 'entry_ema_slow', this.resolveSignalParam(params, signalTypeKey, baseType, 'exit_ema_slow', '21'));
+      const fastVal = this.resolveSignalParam(
+        params, signalTypeKey, baseType,
+        purpose === 'exit' ? 'exit_ema_fast' : 'entry_ema_fast',
+        '9'
+      );
+      const slowVal = this.resolveSignalParam(
+        params, signalTypeKey, baseType,
+        purpose === 'exit' ? 'exit_ema_slow' : 'entry_ema_slow',
+        '21'
+      );
 
       const fastPeriod = parseInt(String(fastVal || '9'), 10) || 9;
       const slowPeriod = parseInt(String(slowVal || '21'), 10) || 21;

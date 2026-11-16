@@ -2499,8 +2499,9 @@ export class OrderManagerService {
           }
         }
 
-        const signalTf = (config.signal_timeframes?.[exitSignal] && config.signal_timeframes?.[exitSignal] !== 'default')
-          ? config.signal_timeframes[exitSignal]
+        const configuredSignalTf = config.signal_timeframes?.[exitSignal];
+        const signalTf = (configuredSignalTf && configuredSignalTf !== 'default')
+          ? configuredSignalTf
           : (interval || config.scan_interval || '1m');
 
         let requiredDelaySec = delaySec;
@@ -2510,9 +2511,11 @@ export class OrderManagerService {
         }
 
         const exitCandles = this.klineStore ? this.klineStore.getRawCandles(symbol, signalTf) : [];
-        const requiredWarmup = typeof this.signalEngine?.getRequiredWarmup === 'function'
-          ? (this.signalEngine.getRequiredWarmup(config) || 0)
-          : 0;
+        const requiredWarmup = typeof this.signalEngine?.getRequiredWarmupForSignal === 'function'
+          ? (this.signalEngine.getRequiredWarmupForSignal(config, exitSignal, 'exit') || 0)
+          : (typeof this.signalEngine?.getRequiredWarmup === 'function'
+            ? (this.signalEngine.getRequiredWarmup(config) || 0)
+            : 0);
         const isWarmingUp = requiredWarmup > 0 && exitCandles.length < requiredWarmup;
 
         const detail = consolidatedResult.details ? consolidatedResult.details[exitSignal] : null;

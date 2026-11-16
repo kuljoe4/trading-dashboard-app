@@ -681,40 +681,59 @@ export class MarketFeedService {
     return tfs;
   }
 
-  private getRequiredWarmupForSymbol(config: SessionConfig | null | undefined, symbol?: string): number {
+  private getRequiredWarmupForSymbol(config: SessionConfig | null | undefined, symbol?: string, interval?: string): number {
     if (!config) return 100;
-    let requiredWarmup = this.signalEngine.getRequiredWarmup(config) || 50;
+
+    const getConfigWarmup = (candidate: SessionConfig): number => {
+      const signals: Array<{ type: string; purpose: 'entry' | 'exit' }> = [
+        ...(candidate.enabled_signals || []).map(type => ({ type, purpose: 'entry' as const })),
+        ...(candidate.exit_signals || []).map(type => ({ type, purpose: 'exit' as const })),
+      ];
+      if (candidate.trigger_candle_exit_enabled && !(candidate.exit_signals || []).includes('trigger_candle_exit')) {
+        signals.push({ type: 'trigger_candle_exit', purpose: 'exit' });
+      }
+
+      let max = 0;
+      for (const signal of signals) {
+        const rawTf = candidate.signal_timeframes?.[signal.type] || candidate.scan_interval || '1m';
+        const resolvedTf = this.resolveInterval(rawTf, candidate) || '1m';
+        if (interval && resolvedTf !== interval) continue;
+        max = Math.max(max, this.signalEngine.getRequiredWarmupForSignal(candidate, signal.type, signal.purpose));
+      }
+      return max;
+    };
+
+    let requiredWarmup = getConfigWarmup(config);
+    if (!interval && requiredWarmup === 0) requiredWarmup = 50;
+
     if (config.strategy_variants) {
       for (const variant of config.strategy_variants) {
         if ((variant as any).enabled !== false) {
-          const variantWarmup = this.signalEngine.getRequiredWarmup({
+          const variantConfig = {
             ...config,
             ...variant,
-            signal_params: {
-              ...(config?.signal_params || {}),
-              ...(variant?.signal_params || {}),
-            },
-          } as SessionConfig);
-          if (variantWarmup > requiredWarmup) requiredWarmup = variantWarmup;
+            signal_params: { ...(config.signal_params || {}), ...(variant.signal_params || {}) },
+            signal_timeframes: { ...(config.signal_timeframes || {}), ...(variant.signal_timeframes || {}) },
+          } as SessionConfig;
+          requiredWarmup = Math.max(requiredWarmup, getConfigWarmup(variantConfig));
         }
       }
     }
+
     if (symbol && this.sessionState?.activeTrades) {
       for (const trade of this.sessionState.activeTrades) {
         if (trade.symbol === symbol && trade.strategy_config) {
-          const tradeWarmup = this.signalEngine.getRequiredWarmup({
+          const tradeConfig = {
             ...config,
             ...trade.strategy_config,
-            signal_params: {
-              ...(config?.signal_params || {}),
-              ...(trade.strategy_config?.signal_params || {}),
-            },
-          } as SessionConfig);
-          if (tradeWarmup > requiredWarmup) requiredWarmup = tradeWarmup;
+            signal_params: { ...(config.signal_params || {}), ...(trade.strategy_config.signal_params || {}) },
+            signal_timeframes: { ...(config.signal_timeframes || {}), ...(trade.strategy_config.signal_timeframes || {}) },
+          } as SessionConfig;
+          requiredWarmup = Math.max(requiredWarmup, getConfigWarmup(tradeConfig));
         }
       }
     }
-    return requiredWarmup;
+    return Math.max(requiredWarmup, interval ? 0 : 50);
   }
 
   private async executeWatchlistUpdate(config: SessionConfig) {
@@ -1633,7 +1652,7 @@ export class MarketFeedService {
       return;
     }
 
-    const requiredWarmup = Math.max(this.getRequiredWarmupForSymbol(this.sessionState.config, symbol), 20);
+    const requiredWarmup = Math.max(this.getRequiredWarmupForSymbol(this.sessionState.config, symbol, resolvedInterval), 20);
     const isActiveTrade = (this.sessionState.activeTrades || []).some(t => t.symbol === symbol);
 
     // IN-FLIGHT DEDUPLICATION: Avoid duplicate concurrent REST requests for the same symbol & interval

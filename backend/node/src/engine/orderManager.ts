@@ -2499,8 +2499,10 @@ export class OrderManagerService {
           }
         }
 
-        const signalTf = (config.signal_timeframes?.[exitSignal] && config.signal_timeframes?.[exitSignal] !== 'default')
-          ? config.signal_timeframes[exitSignal]
+        const baseExitSignal = exitSignal.replace(/_(?:cross|close)$/, '');
+        const configuredSignalTf = config.signal_timeframes?.[exitSignal] || config.signal_timeframes?.[baseExitSignal];
+        const signalTf = (configuredSignalTf && configuredSignalTf !== 'default')
+          ? configuredSignalTf
           : (interval || config.scan_interval || '1m');
 
         let requiredDelaySec = delaySec;

@@ -542,7 +542,11 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
   // Evaluation Timeframe Debug Table Data Construction (kept before journeyMilestones for TDZ test invariant)
   const timeframeDebugItems = useMemo(() => {
-    const enabled = strategyConfig.enabled_signals || [];
+    const enabled = [
+      ...(strategyConfig.enabled_signals || []),
+      ...(strategyConfig.exit_signals || []),
+      ...(strategyConfig.trigger_candle_exit_enabled ? ['trigger_candle_exit'] : []),
+    ];
     const scanTf = strategyConfig.scan_interval || '1m';
     const items = [];
 
@@ -570,10 +574,31 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           : (knownCandleCount !== null ? `${knownCandleCount} bars` : (isEvaluated ? 'Engine Synced' : 'Standby'))
     });
 
-    for (const sig of enabled) {
-      const rawTf = (strategyConfig.signal_timeframes || {})[sig];
+    if (strategyConfig.sl_lookback_timeframe && strategyConfig.sl_lookback_timeframe !== 'default') {
+      const slTf = strategyConfig.sl_lookback_timeframe;
+      const slPeriod = Number(strategyConfig.sl_lookback_period || 20);
+      items.push({
+        key: 'sl_lookback',
+        label: 'SL Lookback Range',
+        tf: slTf,
+        candles: knownCandleCount,
+        required: slPeriod,
+        isWarming: false,
+        statusMsg: `${slPeriod} bars`
+      });
+    }
+
+    const uniqueSigs = Array.from(new Set(enabled));
+    for (const sig of uniqueSigs) {
+      let baseSig = sig;
+      const lastUnderscore = sig.lastIndexOf('_');
+      if (lastUnderscore > 0) {
+        const potentialBase = sig.substring(0, lastUnderscore);
+        baseSig = potentialBase;
+      }
+      const rawTf = (strategyConfig.signal_timeframes || {})[sig] || (strategyConfig.signal_timeframes || {})[baseSig];
       const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
-      const sigDetail = signalResult.signals?.[sig] || {};
+      const sigDetail = signalResult.signals?.[sig] || signalResult.signals?.[baseSig] || {};
 
       const isWarming = sigDetail.insufficientData === true;
       const candles = typeof sigDetail.candleCount === 'number'
@@ -1359,13 +1384,26 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
     setIsBatchSyncing(true);
     try {
-      const timeframes = new Set();
-      const enabled = strategyConfig.enabled_signals || [];
       const scanTf = strategyConfig.scan_interval || '1m';
-      timeframes.add(scanTf);
+      const timeframes = new Set([scanTf]);
+      const enabled = [
+        ...(strategyConfig.enabled_signals || []),
+        ...(strategyConfig.exit_signals || []),
+        ...(strategyConfig.trigger_candle_exit_enabled ? ['trigger_candle_exit'] : []),
+      ];
+
+      if (strategyConfig.sl_lookback_timeframe && strategyConfig.sl_lookback_timeframe !== 'default') {
+        timeframes.add(strategyConfig.sl_lookback_timeframe);
+      }
 
       for (const sig of enabled) {
-        const rawTf = (strategyConfig.signal_timeframes || {})[sig];
+        let baseSig = sig;
+        const lastUnderscore = sig.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+          const potentialBase = sig.substring(0, lastUnderscore);
+          baseSig = potentialBase;
+        }
+        const rawTf = (strategyConfig.signal_timeframes || {})[sig] || (strategyConfig.signal_timeframes || {})[baseSig];
         const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
         timeframes.add(tf);
       }

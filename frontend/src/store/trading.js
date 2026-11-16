@@ -399,6 +399,7 @@ const defaultConfig = {
   sl_distance_pct: CONFIG_LIMITS.SL_DISTANCE_DEFAULT,
   sl_lookback_timeframe: '5m',
   sl_lookback_period: 5,
+  sl_include_forming_candle: false,
   sl_min_pct: 0.3,
   sl_max_pct: 3,
   trading_mode: localStorage.getItem('global_trading_mode') || 'paper',

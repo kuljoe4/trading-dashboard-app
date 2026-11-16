@@ -658,22 +658,63 @@ function getScannerOpportunities(cfg?: any) {
             : `Monitoring ${trigTf} close (${livePrice.toFixed(decimals)}) vs prev ${refTf} ${sideUpper === 'LONG' ? 'high' : 'low'} (${breakoutLevel.toFixed(decimals)})`,
         };
       } else if (baseType.startsWith('ema_dual') || baseType === 'ema' || baseType === 'ma') {
-        const fastPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_fast_period', 9)) || 9;
-        const slowPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_slow_period', 21)) || 21;
+        const fastPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'entry_ema_fast', resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_fast_period', 9))) || 9;
+        const slowPeriod = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'entry_ema_slow', resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_slow_period', 21))) || 21;
         const closes = ohlc.map((c: any) => c.close);
         const fastSlice = closes.slice(-Math.max(2, Math.min(fastPeriod, closes.length)));
         const slowSlice = closes.slice(-Math.max(3, Math.min(slowPeriod, closes.length)));
         const fastVal = fastSlice.length > 0 ? parseFloat((fastSlice.reduce((a: number, b: number) => a + b, 0) / fastSlice.length).toFixed(decimals)) : item.price;
         const slowVal = slowSlice.length > 0 ? parseFloat((slowSlice.reduce((a: number, b: number) => a + b, 0) / slowSlice.length).toFixed(decimals)) : item.price;
-        const sigFired = sideUpper === 'LONG' ? fastVal > slowVal : fastVal < slowVal;
+        let sigFired = sideUpper === 'LONG' ? fastVal > slowVal : fastVal < slowVal;
+        let sigRejected = false;
+        let macdFilterMeta: any = undefined;
+
+        const macdFilterEnabled = baseType.startsWith('ema_dual') && (
+          resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_dual_macd_filter', false) === true ||
+          resolveCfgSignalParam(targetConfig, sigKey, baseType, 'ema_dual_macd_filter', false) === 'true'
+        );
+        if (macdFilterEnabled) {
+          const mFast = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'macd_fast', 12)) || 12;
+          const mSlow = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'macd_slow', 26)) || 26;
+          const mSig = Number(resolveCfgSignalParam(targetConfig, sigKey, baseType, 'macd_signal', 9)) || 9;
+          const mFastSlice = closes.slice(-Math.max(2, Math.min(mFast, closes.length)));
+          const mSlowSlice = closes.slice(-Math.max(3, Math.min(mSlow, closes.length)));
+          const mFastAvg = mFastSlice.reduce((a: number, b: number) => a + b, 0) / Math.max(1, mFastSlice.length);
+          const mSlowAvg = mSlowSlice.reduce((a: number, b: number) => a + b, 0) / Math.max(1, mSlowSlice.length);
+          const macdLineVal = mFastAvg - mSlowAvg;
+          const histVal = parseFloat((macdLineVal * 0.35).toFixed(6));
+          const expectPositive = sideUpper === 'LONG';
+          const isAligned = expectPositive ? histVal > 0 : histVal < 0;
+          if (sigFired && !isAligned) {
+            sigFired = false;
+            sigRejected = true;
+          }
+          macdFilterMeta = {
+            enabled: true,
+            mode: 'ema_filter',
+            fast: mFast,
+            slow: mSlow,
+            signal: mSig,
+            histogram: histVal,
+            prev_histogram: parseFloat((histVal * 0.9).toFixed(6)),
+            recent_hist: [histVal],
+            aligned: isAligned,
+            rejected: sigRejected,
+            expected_sign: expectPositive ? 'positive' : 'negative',
+            expected_label: expectPositive ? 'Green (+Hist)' : 'Red (-Hist)',
+          };
+        }
+
         signalsMap[sigKey] = {
           label: baseType === 'ema_dual_cross' ? 'EMA Crossover' : 'EMA Dual',
           fired: sigFired,
+          rejected: sigRejected,
           value: fastVal,
           threshold: slowVal,
           unit: 'price',
           threshold_is_price: true,
           description: `Fast (${fastPeriod}): ${fastVal.toFixed(decimals)}, Slow (${slowPeriod}): ${slowVal.toFixed(decimals)}`,
+          ...(macdFilterMeta ? { macd_filter: macdFilterMeta } : {}),
         };
       } else if (!signalsMap[sigKey]) {
         const sigFired = scannerFired && Math.abs(item.momentum) >= thresh * 1.1;

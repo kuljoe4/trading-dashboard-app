@@ -604,29 +604,23 @@ export const MacdFilterStrip = React.memo(function MacdFilterStrip({ macdFilter,
 
   const isEmaFilter = macdFilter.mode === 'ema_filter';
   const histNum = macdFilter.histogram;
-  const isPositive = Number.isFinite(histNum) ? histNum > 0 : macdFilter.expectedSign === 'positive';
-  const isNegative = Number.isFinite(histNum) ? histNum < 0 : macdFilter.expectedSign === 'negative';
-  const histFlashed = Boolean(changeInfo?.histChanged || changeInfo?.alignedChanged);
+  const hasHistNum = Number.isFinite(histNum);
+  const expectPositive = macdFilter.expectedSign !== 'negative';
+  const isHistGreen = hasHistNum
+    ? histNum >= 0
+    : (macdFilter.aligned ? expectPositive : !expectPositive);
 
-  const histColorClass = histFlashed
-    ? changeInfo.toneClass
-    : isPositive
-      ? 'text-green'
-      : isNegative
-        ? 'text-red'
-        : 'text-dim';
+  const histColorClass = isHistGreen ? 'text-green' : 'text-red';
+  const histColorLabel = isHistGreen ? 'Hist. Green' : 'Hist. Red';
 
-  const statusColorClass = macdFilter.rejected
-    ? 'text-purple-400'
-    : macdFilter.aligned
-      ? 'text-green'
-      : 'text-amber';
+  const statusColorClass = macdFilter.aligned
+    ? 'text-green'
+    : macdFilter.rejected
+      ? 'text-purple-400'
+      : 'text-red';
 
-  const statusLabel = macdFilter.rejected
-    ? 'Blocked'
-    : macdFilter.aligned
-      ? 'Aligned'
-      : `Wait ${macdFilter.expectedSign === 'negative' ? '−' : '+'}`;
+  const statusLabel = macdFilter.aligned ? 'Aligned' : 'Not aligned';
+  void changeInfo;
 
   return (
     <div
@@ -637,16 +631,12 @@ export const MacdFilterStrip = React.memo(function MacdFilterStrip({ macdFilter,
         {isEmaFilter ? 'MACD filter' : 'MACD hist'}
       </span>
       <span className="truncate font-semibold">
-        {macdFilter.histogramText && macdFilter.histogramText !== '---' && (
-          <>
-            <span className={cn('transition-colors duration-300', histColorClass)}>
-              {macdFilter.histogramText}
-            </span>
-            <span className="text-dim"> · </span>
-          </>
-        )}
         <span className={cn('transition-colors duration-300', statusColorClass)}>
           {statusLabel}
+        </span>
+        <span className="text-dim"> · </span>
+        <span className={cn('transition-colors duration-300', histColorClass)}>
+          {histColorLabel}
         </span>
       </span>
     </div>

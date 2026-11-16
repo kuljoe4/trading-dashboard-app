@@ -4154,6 +4154,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         sl_distance_pct: CONFIG_LIMITS.SL_DISTANCE_DEFAULT,
         sl_lookback_timeframe: '5m',
         sl_lookback_period: 5,
+        sl_include_forming_candle: false,
         sl_min_pct: 0.3,
         sl_max_pct: 3,
         trading_mode: 'paper',
@@ -6053,11 +6054,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {cfg.sl_type === 'pct' ? (
                   renderField('Distance %', 'sl_distance_pct', 'number', null, { min: CONFIG_LIMITS.SL_DISTANCE_MIN, max: CONFIG_LIMITS.SL_DISTANCE_MAX, step: 0.1 })
                 ) : (
-                  <div className="grid grid-cols-2 gap-4">
-                    <Tooltip content="Number of completed candles to look back for High/Low stop loss. Set to 0 to use the current (forming) candle's High/Low.">
-                      {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 0 })}
-                    </Tooltip>
-                    {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
+                  <div className="flex flex-col gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <Tooltip content="Number of completed candles to look back for High/Low stop loss. Set to 0 to use the current (forming) candle's High/Low.">
+                        {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 0 })}
+                      </Tooltip>
+                      {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
+                    </div>
+                    <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                      <div className="flex flex-col text-left">
+                        <span className="text-[10px] font-black text-dim uppercase tracking-widest">Include Forming Candle in SL Lookback</span>
+                        <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">When enabled, incorporates the actively forming candle's wick into High/Low extremes. When disabled, uses completed candles only to avoid intrabar wick false breakouts.</p>
+                      </div>
+                      <Toggle
+                        value={Boolean(cfg.sl_include_forming_candle)}
+                        onChange={(v) => setField('sl_include_forming_candle', v)}
+                      />
+                    </div>
                   </div>
                 )}
                 {cfg.sl_type !== 'pct' && renderField('Max Allowed SL %', 'sl_pct_limit', 'number', null, { min: 0.1, step: 0.1 })}

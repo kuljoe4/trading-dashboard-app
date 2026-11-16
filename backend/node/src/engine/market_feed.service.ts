@@ -639,7 +639,13 @@ export class MarketFeedService {
     ];
     if (sc.signal_timeframes) {
       for (const sig of activeSignals) {
-        const tf = sc.signal_timeframes[sig];
+        let baseSig = sig;
+        const lastUnderscore = sig.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+          const potentialBase = sig.substring(0, lastUnderscore);
+          baseSig = potentialBase;
+        }
+        const tf = sc.signal_timeframes[sig] || sc.signal_timeframes[baseSig];
         const resolvedTf = this.resolveInterval(tf, sc);
         if (resolvedTf) tfs.add(resolvedTf);
       }
@@ -1065,7 +1071,8 @@ export class MarketFeedService {
           for (const interval of intervals) {
             const oldIntervals = prevWatchlist.get(symbol);
             const rawCandles = this.klineStore.getRawCandles(symbol, interval);
-            const needsWarmup = !rawCandles || rawCandles.length < requiredWarmup;
+            const isSynthOnly = typeof (this.klineStore as any).isSynthesizedOnly === 'function' ? (this.klineStore as any).isSynthesizedOnly(symbol, interval) : false;
+            const needsWarmup = isSynthOnly || !rawCandles || rawCandles.length < requiredWarmup;
             if ((!oldIntervals || !oldIntervals.has(interval) || needsWarmup) && !this.isBackfillShortHistory(symbol, interval)) {
               const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
               if (!alreadyQueued) {
@@ -1626,22 +1633,8 @@ export class MarketFeedService {
       return;
     }
 
-    const requiredWarmup = this.getRequiredWarmupForSymbol(this.sessionState.config, symbol);
+    const requiredWarmup = Math.max(this.getRequiredWarmupForSymbol(this.sessionState.config, symbol), 20);
     const isActiveTrade = (this.sessionState.activeTrades || []).some(t => t.symbol === symbol);
-
-    // DOWNSAMPLING OPTIMIZATION: Only synthesize from 1m cache when 1m buffer mathematically covers requiredWarmup HTF buckets
-    if (resolvedInterval !== '1m') {
-      const source1m = this.klineStore.getRawCandles(symbol, '1m');
-      const targetMs = this.parseIntervalToMs(resolvedInterval);
-      const maxPossibleFrom1m = source1m && targetMs > 0 ? Math.floor((source1m.length * 60 * 1000) / targetMs) : 0;
-      if (source1m && source1m.length >= Math.min(50, requiredWarmup) && maxPossibleFrom1m >= requiredWarmup) {
-        const synthesized = this.klineStore.synthesizeHigherInterval(symbol, resolvedInterval, '1m');
-        if (synthesized && synthesized.length >= requiredWarmup) {
-          this.logger.debug(`[MarketFeed] Synthesized ${synthesized.length} ${resolvedInterval} candles for ${symbol} from 1m cache (0 REST calls).`);
-          return;
-        }
-      }
-    }
 
     // IN-FLIGHT DEDUPLICATION: Avoid duplicate concurrent REST requests for the same symbol & interval
     const inFlightKey = `${symbol}_${resolvedInterval}`;
@@ -1652,8 +1645,8 @@ export class MarketFeedService {
     }
 
     const backfillTask = (async () => {
-      // ARCHITECTURAL OPTIMIZATION: Try loading from local DB first to eliminate redundant REST calls.
-      let existingCandles = await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
+      const isSynthOnly = typeof (this.klineStore as any).isSynthesizedOnly === 'function' ? (this.klineStore as any).isSynthesizedOnly(symbol, resolvedInterval) : false;
+      let existingCandles = isSynthOnly ? [] : await this.klineStore.getRecentCandles(symbol, resolvedInterval, requiredWarmup);
 
       if (existingCandles.length < requiredWarmup) {
          this.logger.debug(`[MarketFeed] Low local memory cache for ${symbol} ${resolvedInterval}. Checking database...`);
@@ -1683,11 +1676,9 @@ export class MarketFeedService {
       }
 
       if (existingCandles.length > 0) {
-        // BOLT OPTIMIZATION: Retrieve the last (most recent) candle in chronological order.
-        // If the most recent candle is fresh, skip backfill to avoid endless REST/DB thrashing.
         const lastCandle = existingCandles[existingCandles.length - 1];
         const intervalMs = this.parseIntervalToMs(resolvedInterval);
-        const isFresh = (lastCandle.time + intervalMs) >= (Date.now() - (intervalMs * 2));
+        const isFresh = (Date.now() - lastCandle.time) < (intervalMs * 1.5);
 
         if (isFresh && existingCandles.length >= requiredWarmup) {
           this.logger.debug(`Skipping kline backfill for ${symbol} ${resolvedInterval}: Already have ${existingCandles.length}/${requiredWarmup} candles and data is fresh.`);
@@ -1777,5 +1768,12 @@ export class MarketFeedService {
       }
     }
     return symbols;
+  }
+
+  public async ensureKlinesAvailable(symbol: string, interval: string, minCandles: number = 20): Promise<void> {
+    const resolvedInterval = this.resolveInterval(interval, this.sessionState.config) || interval;
+    const cacheKey = `${symbol}:${resolvedInterval}`;
+    this.lastBackfillAttemptMap.delete(cacheKey);
+    await this.backfillKlines(symbol, resolvedInterval);
   }
 }

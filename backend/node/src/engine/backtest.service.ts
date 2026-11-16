@@ -770,9 +770,8 @@ export class BacktestService {
       if (rawPeriod === 0) {
         extreme = direction === 'LONG' ? currentCandle.low : currentCandle.high;
       } else {
-        const lookbackPeriod = Math.min(currentIndex + 1, rawPeriod);
         extreme = currentCandle.close;
-        const startIdx = Math.max(0, currentIndex + 1 - lookbackPeriod);
+        const startIdx = Math.max(0, currentIndex - rawPeriod);
         for (let idx = startIdx; idx <= currentIndex; idx++) {
           if (direction === 'LONG') {
             if (candles[idx].low < extreme) extreme = candles[idx].low;

@@ -26,6 +26,8 @@ export class KlineStoreService {
 
   // DOWNSAMPLING OPTIMIZATION: Metadata cache to make downsampling lazy & O(1) during the same tick
   private readonly synthMeta = new Map<string, { last1mTime: number; last1mClose: number }>();
+  // Track which symbol_interval keys contain only 1m-synthesized candles (never seeded by native REST/DB/WS)
+  private readonly synthesizedKeys = new Set<string>();
   private readonly lastUpdatedMap = new Map<string, number>();
   private lastPersistErrLogTs = 0;
   private static readonly DEFAULT_TTL_MS = 30 * 60 * 1000; // 30 minutes TTL for unmonitored candle buffers
@@ -43,15 +45,29 @@ export class KlineStoreService {
   getMaxCandles(): number {
     return this.MAX_CANDLES;
   }
+
+  isSynthesizedOnly(symbol: string, interval: string): boolean {
+    const effectiveInterval = (!interval || interval === 'default') ? '1m' : interval;
+    return this.synthesizedKeys.has(`${symbol}_${effectiveInterval}`);
+  }
+
+  getNativeCandleCount(symbol: string, interval: string): number {
+    const effectiveInterval = (!interval || interval === 'default') ? '1m' : interval;
+    const key = `${symbol}_${effectiveInterval}`;
+    if (this.synthesizedKeys.has(key)) return 0;
+    return this.klines.get(key)?.length ?? 0;
+  }
+
   private static readonly EMPTY_ARRAY: Candle[] = [];
 
   async upsertCandle(symbol: string, interval: string, kline: any) {
     const key = `${symbol}_${interval}`;
     this.lastUpdatedMap.set(key, Date.now());
     let existing = this.klines.get(key);
-    if (!existing) {
+    if (!existing || this.synthesizedKeys.has(key)) {
       existing = [];
       this.klines.set(key, existing);
+      this.synthesizedKeys.delete(key);
     }
 
     // BOLT OPTIMIZATION: Parse kline data into local variables first to avoid premature object allocation
@@ -131,16 +147,43 @@ export class KlineStoreService {
 
   /**
    * Synchronizes the forming (latest) candle's close, high, and low with the live ticker price
-   * across all cached intervals for a symbol. Ensures signal engine and exit conditions always
-   * evaluate against the freshest real-time price even between WebSocket kline frames or during Light Sleep.
+   * across all cached intervals for a symbol. Also rolls over to a new forming candle bucket when
+   * wall-clock time crosses an interval boundary between WebSocket kline frames so completed candle
+   * lookbacks never become falsely stale.
    */
   syncLivePrice(symbol: string, price: number): void {
     if (!symbol || !Number.isFinite(price) || price <= 0) return;
     const prefix = `${symbol}_`;
+    const now = Date.now();
     for (const [key, candles] of this.klines.entries()) {
       if (!key.startsWith(prefix) || !candles || candles.length === 0) continue;
       const last = candles[candles.length - 1];
       if (!last) continue;
+
+      const interval = key.slice(prefix.length);
+      if (last.time > 1000000000000 && interval) {
+        const intervalMs = this.parseIntervalToMs(interval);
+        if (intervalMs > 0) {
+          const currentBucketTime = Math.floor(now / intervalMs) * intervalMs;
+          if (currentBucketTime > last.time && (currentBucketTime - last.time) <= intervalMs * 2) {
+            const openPrice = last.close > 0 ? last.close : price;
+            candles.push({
+              time: currentBucketTime,
+              open: openPrice,
+              high: Math.max(openPrice, price),
+              low: Math.min(openPrice, price),
+              close: price,
+              volume: 0,
+            });
+            if (candles.length > this.MAX_CANDLES) {
+              candles.shift();
+            }
+            this.lastUpdatedMap.set(key, now);
+            continue;
+          }
+        }
+      }
+
       last.close = price;
       if (price > last.high) last.high = price;
       if (price < last.low) last.low = price;
@@ -189,12 +232,18 @@ export class KlineStoreService {
     }
 
     const synthesized = Array.from(buckets.values()).sort((a, b) => a.time - b.time);
+    // Drop unaligned leading partial bucket so a partial 1m tail never masquerades as a full completed HTF candle
+    if (synthesized.length > 1 && sourceCandles[0].time > synthesized[0].time) {
+      synthesized.shift();
+    }
+
     const targetKey = `${symbol}_${targetInterval}`;
     const existingNative = this.klines.get(targetKey);
+    const hasNative = Boolean(existingNative && existingNative.length > 0 && !this.synthesizedKeys.has(targetKey));
     const last1m = sourceCandles[sourceCandles.length - 1];
 
-    // Do not clobber richer native REST/DB candles with fewer synthesized buckets (e.g., 200 1m = 4 1h candles vs 25 native 1h)
-    if (existingNative && existingNative.length > synthesized.length) {
+    // Never clobber native REST/DB/WS candles with fewer synthesized buckets
+    if (hasNative && existingNative && existingNative.length >= synthesized.length) {
       if (last1m) {
         this.updateHTFTailFrom1m(existingNative, targetInterval, last1m);
         this.synthMeta.set(targetKey, {
@@ -206,6 +255,7 @@ export class KlineStoreService {
     }
 
     this.klines.set(targetKey, synthesized);
+    this.synthesizedKeys.add(targetKey);
 
     // Track metadata for lazy freshness validation
     if (last1m) {
@@ -226,11 +276,12 @@ export class KlineStoreService {
 
   /**
    * BOLT OPTIMIZATION: Provides direct access to the internal candle array.
-   * Synthesizes higher intervals lazily on demand when requested.
+   * Synthesizes higher intervals lazily on demand only when native candles are absent.
    */
   getRawCandles(symbol: string, interval: string): Candle[] {
     const key = `${symbol}_${interval}`;
     let candles = this.klines.get(key);
+    const isNative = Boolean(candles && candles.length > 0 && !this.synthesizedKeys.has(key));
     if (candles && candles.length > 0) {
       this.lastUpdatedMap.set(key, Date.now());
     }
@@ -243,23 +294,26 @@ export class KlineStoreService {
         this.lastUpdatedMap.set(source1mKey, Date.now());
         const last1m = source1m[source1m.length - 1];
         const meta = this.synthMeta.get(key);
+        const is1mUpdated = !meta || meta.last1mTime !== last1m.time || meta.last1mClose !== last1m.close;
 
-        // If candles already exist natively with full history (e.g. >= 50 candles), do NOT clobber them!
-        // Instead, perform an O(1) tail update of the latest HTF candle from the newest 1m tick.
-        if (candles && candles.length >= 50) {
-          this.updateHTFTailFrom1m(candles, interval, last1m);
+        // If native candles exist, never overwrite them with 1m synthesis; only tail-update when 1m advances
+        if (isNative && candles) {
+          if (is1mUpdated) {
+            this.updateHTFTailFrom1m(candles, interval, last1m);
+            this.synthMeta.set(key, { last1mTime: last1m.time, last1mClose: last1m.close });
+          }
           return candles;
         }
 
         // Check if synthesized cache is missing or stale
-        if (!candles || !meta || meta.last1mTime !== last1m.time || meta.last1mClose !== last1m.close) {
+        if (!candles || is1mUpdated) {
           const synthesized = this.synthesizeHigherInterval(symbol, interval, '1m');
           if (!candles || synthesized.length >= candles.length) {
             candles = synthesized;
             this.lastUpdatedMap.set(key, Date.now());
-          } else {
-            // Keep native candles and update tail
+          } else if (is1mUpdated) {
             this.updateHTFTailFrom1m(candles, interval, last1m);
+            this.synthMeta.set(key, { last1mTime: last1m.time, last1mClose: last1m.close });
           }
         }
       }
@@ -274,11 +328,10 @@ export class KlineStoreService {
     const bucketTime = Math.floor(last1m.time / targetMs) * targetMs;
     const lastHTF = candles[candles.length - 1];
 
-    if (bucketTime === lastHTF.time) {
+    if (bucketTime === lastHTF.time && last1m.time >= lastHTF.time) {
       if (last1m.high > lastHTF.high) lastHTF.high = last1m.high;
       if (last1m.low < lastHTF.low) lastHTF.low = last1m.low;
       lastHTF.close = last1m.close;
-      lastHTF.volume += last1m.volume;
     } else if (bucketTime > lastHTF.time) {
       // New HTF bucket started
       candles.push({
@@ -352,10 +405,11 @@ export class KlineStoreService {
     symbol: string,
     interval: string,
     period: number,
+    includeForming: boolean = true,
   ): { minLow: number; maxHigh: number; reason?: string } {
     const effectiveInterval = (!interval || interval === 'default') ? '1m' : interval;
     const key = `${symbol}_${effectiveInterval}`;
-    const candles = this.klines.get(key) || [];
+    const candles = this.getRawCandles(symbol, effectiveInterval);
     if (candles.length > 0) {
       this.lastUpdatedMap.set(key, Date.now());
     }
@@ -380,12 +434,13 @@ export class KlineStoreService {
     const endIdx = candles.length - 1;
     const startIdx = Math.max(0, endIdx - period);
     const targetCandle = candles[endIdx - 1];
+    const formingCandle = candles[endIdx];
 
     const expectedIntervalMs = this.parseIntervalToMs(effectiveInterval);
 
     // BOLT OPTIMIZATION: Try stable cache FIRST before any O(N) loops.
-    // Since completed candles are immutable, the gap detection and extremes result remains static.
-    // We only need to check freshness dynamically (which is O(1) time comparison).
+    // Completed candles [startIdx .. endIdx - 1] are immutable, so their extremes remain static
+    // while the live forming candle (candles[endIdx]) is merged in O(1) on read.
     const stableKey = `${symbol}:${effectiveInterval}:${period}`;
     const stable = this.hlStableCache.get(stableKey);
 
@@ -394,7 +449,14 @@ export class KlineStoreService {
         return { minLow: 0, maxHigh: 0, reason: stable.reason };
       }
       if (this.isLookbackStale(targetCandle, expectedIntervalMs, symbol, effectiveInterval)) {
+        this.hlStableCache.delete(stableKey);
         return { minLow: 0, maxHigh: 0, reason: 'stale_data' };
+      }
+      if (includeForming && formingCandle) {
+        return {
+          minLow: Math.min(stable.minLow, formingCandle.low),
+          maxHigh: Math.max(stable.maxHigh, formingCandle.high),
+        };
       }
       return { minLow: stable.minLow, maxHigh: stable.maxHigh };
     }
@@ -433,7 +495,7 @@ export class KlineStoreService {
               `[KlineStoreService] Auto-repaired ${missingCount} missing candle(s) for ${symbol} (${effectiveInterval}) around time ${prevCandle.time}.`,
             );
             // Re-evaluate since array length changed
-            return this.getLookbackExtremes(symbol, interval, period);
+            return this.getLookbackExtremes(symbol, interval, period, includeForming);
           }
         }
 
@@ -454,7 +516,7 @@ export class KlineStoreService {
       if (candle.high > maxHigh) maxHigh = candle.high;
     }
 
-    // Maintain stable cache
+    // Maintain stable cache for completed candles only
     this.hlStableCache.set(stableKey, {
       time: targetCandle.time,
       minLow,
@@ -469,6 +531,13 @@ export class KlineStoreService {
         if (next.done) break;
         this.hlStableCache.delete(next.value);
       }
+    }
+
+    if (includeForming && formingCandle) {
+      return {
+        minLow: Math.min(minLow, formingCandle.low),
+        maxHigh: Math.max(maxHigh, formingCandle.high),
+      };
     }
 
     return { minLow, maxHigh };
@@ -499,6 +568,7 @@ export class KlineStoreService {
     // Keep only the last N candles
     const trimmed = candles.slice(-this.MAX_CANDLES);
     this.klines.set(key, trimmed);
+    this.synthesizedKeys.delete(key);
     this.lastUpdatedMap.set(key, Date.now());
     this.invalidateSymbolIntervalCaches(symbol, interval);
     this.logger.verbose(`Seeded ${trimmed.length} candles for ${symbol}/${interval}`);
@@ -530,6 +600,7 @@ export class KlineStoreService {
 
         const key = `${symbol}_${interval}`;
         this.klines.set(key, candles);
+        this.synthesizedKeys.delete(key);
         this.lastUpdatedMap.set(key, Date.now());
         this.invalidateSymbolIntervalCaches(symbol, interval);
         return candles.length;
@@ -610,6 +681,7 @@ export class KlineStoreService {
     for (const key of Array.from(this.klines.keys())) {
       if (!activeKeys.has(key)) {
         this.klines.delete(key);
+        this.synthesizedKeys.delete(key);
         this.synthMeta.delete(key);
         this.lastUpdatedMap.delete(key);
         pruned++;
@@ -655,6 +727,7 @@ export class KlineStoreService {
       const lastUpdated = this.lastUpdatedMap.get(key) ?? (candles.length > 0 ? candles[candles.length - 1].time : 0);
       if (now - lastUpdated > ttlMs) {
         this.klines.delete(key);
+        this.synthesizedKeys.delete(key);
         this.synthMeta.delete(key);
         this.lastUpdatedMap.delete(key);
         evictedPairKeys.add(key);
@@ -684,6 +757,7 @@ export class KlineStoreService {
    */
   clear() {
     this.klines.clear();
+    this.synthesizedKeys.clear();
     this.hlStableCache.clear();
     this.synthMeta.clear();
     this.lastUpdatedMap.clear();

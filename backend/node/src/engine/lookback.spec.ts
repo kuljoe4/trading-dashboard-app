@@ -18,34 +18,41 @@ describe('Lookback SL Logic', () => {
   });
 
   describe('KlineStoreService.getLookbackExtremes', () => {
-    it('should exclude the current (incomplete) candle and use only completed ones', async () => {
+    it('should include the current (forming) candle + N completed candles by default, and exclude forming when includeForming is false', async () => {
       const symbol = 'BTCUSDT';
       const interval = '1m';
       const candles: any[] = [
         [1000, 10, 12, 6, 11, 0, 0, 100], // index 0, Low: 6
         [2000, 11, 13, 9, 12, 0, 0, 100], // index 1, Low: 9
         [3000, 12, 14, 10, 13, 0, 0, 100], // index 2, Low: 10
-        [4000, 13, 15, 11, 14, 0, 0, 100], // index 3, Low: 11
-        [5000, 14, 16, 7, 15, 0, 0, 100],  // index 4, Low: 7 (Current candle)
+        [4000, 13, 15, 11, 14, 0, 0, 100], // index 3, Low: 11 (1 prev completed)
+        [5000, 14, 16, 7, 15, 0, 0, 100],  // index 4, Low: 7 (Forming candle)
       ];
 
       for (const c of candles) {
         await klineStore.upsertCandle(symbol, interval, c);
       }
 
-      // Period = 3. Expected indices for completed candles: [4-3-1, 4-1] = [0, 4) -> 1, 2, 3
-      // Wait, let's re-calculate.
-      // candles.length = 5. period = 3.
-      // startIdx = max(0, 5 - 3 - 1) = 1.
-      // endIdx = 5 - 1 = 4.
-      // Scan indices: 1, 2, 3.
-      // Lows: 9, 10, 11.
-      // MinLow should be 9.
-      const result = klineStore.getLookbackExtremes(symbol, interval, 3);
+      // Period = 1 (default includeForming = true): aggregates index 3 (Low: 11) + forming index 4 (Low: 7) => minLow: 7, maxHigh: 16
+      const period1Result = klineStore.getLookbackExtremes(symbol, interval, 1);
+      expect(period1Result.minLow).toBe(7);
+      expect(period1Result.maxHigh).toBe(16);
 
-      expect(result.minLow).toBe(9);
-      expect(result.minLow).not.toBe(7); // Current candle low is 7
-      expect(result.minLow).not.toBe(6); // index 0 low is 6, outside period 3
+      // Period = 3 (default includeForming = true): aggregates indices 1, 2, 3 + forming index 4 => minLow: 7 (forming), not 6 (index 0)
+      const resultWithForming = klineStore.getLookbackExtremes(symbol, interval, 3);
+      expect(resultWithForming.minLow).toBe(7);
+      expect(resultWithForming.minLow).not.toBe(6);
+
+      // Live tick update on forming candle updates getLookbackExtremes immediately without stale cache poisoning
+      await klineStore.upsertCandle(symbol, interval, [5000, 14, 18, 6.5, 15, 0, 0, 120]);
+      const resultAfterTick = klineStore.getLookbackExtremes(symbol, interval, 3);
+      expect(resultAfterTick.minLow).toBe(6.5);
+      expect(resultAfterTick.maxHigh).toBe(18);
+
+      // When includeForming = false (used by breakout_hl signal), excludes forming candle (index 4) and uses only indices 1, 2, 3
+      const completedOnly = klineStore.getLookbackExtremes(symbol, interval, 3, false);
+      expect(completedOnly.minLow).toBe(9);
+      expect(completedOnly.minLow).not.toBe(6.5);
     });
 
     it('should detect a time gap in consecutive completed candles and return fallback 0', async () => {

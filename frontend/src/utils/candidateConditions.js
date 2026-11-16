@@ -721,7 +721,20 @@ export function buildMacdFilterModel({
   const scopedParams = (params[sigKey] && typeof params[sigKey] === 'object')
     ? params[sigKey]
     : (params[baseType] && typeof params[baseType] === 'object' ? params[baseType] : {});
-  const resolveParam = (k, defVal) => (scopedParams[k] ?? params[k] ?? strategyConfig?.[k] ?? defVal);
+  const suffix = sigKey !== baseType && sigKey.startsWith(baseType) ? sigKey.substring(baseType.length) : '';
+  const resolveParam = (k, defVal) => {
+    if (scopedParams[k] !== undefined) return scopedParams[k];
+    if (suffix) {
+      if (params[`${k}${suffix}`] !== undefined) return params[`${k}${suffix}`];
+      if (k.startsWith(baseType) && params[`${sigKey}${k.substring(baseType.length)}`] !== undefined) {
+        return params[`${sigKey}${k.substring(baseType.length)}`];
+      }
+      if (k.startsWith('ema_dual') && params[`${sigKey}${k.substring('ema_dual'.length)}`] !== undefined) {
+        return params[`${sigKey}${k.substring('ema_dual'.length)}`];
+      }
+    }
+    return params[k] ?? strategyConfig?.[k] ?? defVal;
+  };
 
   const isEmaDual = baseType === 'ema_dual' || baseType === 'ema_dual_cross' || baseType === 'ema_dual_close';
   const desc = String(signalDetail?.description || '');
@@ -741,7 +754,10 @@ export function buildMacdFilterModel({
     const parsedHist = matchHist ? Number(matchHist[1]) : null;
     const aligned = parsedHist !== null
       ? (expectPositive ? parsedHist > 0 : parsedHist < 0)
-      : Boolean(signalDetail?.fired);
+      : (rejectedByMacd ? false : Boolean(signalDetail?.fired));
+    const isHistGreen = parsedHist !== null
+      ? parsedHist >= 0
+      : (aligned ? expectPositive : !expectPositive);
 
     return {
       enabled: true,
@@ -751,7 +767,7 @@ export function buildMacdFilterModel({
       signal: sig,
       histogram: Number.isFinite(parsedHist) ? parsedHist : null,
       prevHistogram: null,
-      histogramText: Number.isFinite(parsedHist) ? formatHistNumber(parsedHist) : (aligned ? (expectPositive ? '+Aligned' : '-Aligned') : 'Pending'),
+      histogramText: Number.isFinite(parsedHist) ? formatHistNumber(parsedHist) : (isHistGreen ? 'Hist. Green' : 'Hist. Red'),
       recentHist: Number.isFinite(parsedHist) ? [parsedHist] : [],
       aligned,
       rejected: rejectedByMacd,
@@ -763,7 +779,7 @@ export function buildMacdFilterModel({
           label: `MACD(${fast}/${slow}/${sig}) ${expectPositive ? '> 0 (Green)' : '< 0 (Red)'}`,
           passed: aligned,
           rejected: rejectedByMacd,
-          value: Number.isFinite(parsedHist) ? formatHistNumber(parsedHist) : (rejectedByMacd ? 'Blocked' : aligned ? 'Aligned' : 'Waiting'),
+          value: Number.isFinite(parsedHist) ? formatHistNumber(parsedHist) : (isHistGreen ? 'Hist. Green' : 'Hist. Red'),
         },
       ],
     };

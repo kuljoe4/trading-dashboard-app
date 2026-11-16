@@ -179,6 +179,7 @@ const sessionConfigAllowedKeys = [
   'sl_distance_pct',
   'sl_lookback_period',
   'sl_lookback_timeframe',
+  'sl_include_forming_candle',
   'sl_pct_limit',
   'sl_min_pct',
   'sl_max_pct',

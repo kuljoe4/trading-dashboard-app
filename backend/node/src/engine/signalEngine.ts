@@ -225,9 +225,9 @@ export class SignalEngineService {
         const lookback = parseInt(String(lookbackVal), 10);
         maxReq = Math.max(maxReq, lookback + 1);
       } else if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
-        // HTF breakout loads its reference and trigger candles independently.
-        // Applying this trigger-timeframe warmup here can short-circuit the
-        // handler before it returns its own timeframe-specific diagnostics.
+        const lookbackVal = resolveParam(signalType, baseType, 'htf_breakout_lookback', config.htf_breakout_lookback || 5);
+        const lookback = parseInt(String(lookbackVal), 10) || 5;
+        maxReq = Math.max(maxReq, lookback + 2);
       } else if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
         const nVal = resolveParam(signalType, baseType, 'trigger_candle_exit_n', 0);
         const n = parseInt(String(nVal), 10) || 0;
@@ -253,6 +253,60 @@ export class SignalEngineService {
 
     this.warmupCache.set(config, maxReq);
     return maxReq;
+  }
+
+  public getRequiredWarmupForSignal(config: SessionConfig, signalType: string): number {
+    let baseType = signalType;
+    let handler = this.signalHandlers[signalType];
+    if (!handler) {
+      const lastUnderscore = signalType.lastIndexOf('_');
+      if (lastUnderscore > 0) {
+        const potentialBase = signalType.substring(0, lastUnderscore);
+        if (this.signalHandlers[potentialBase]) {
+          baseType = potentialBase;
+        }
+      }
+    }
+    const params: any = config.signal_params || {};
+    const resolveParam = (sigType: string, bType: string, key: string, fallback: any) => {
+      return this.resolveSignalParam(params, sigType, bType, key, fallback);
+    };
+
+    if (baseType === 'momentum_pct' || baseType === 'breakout_hl') {
+      return Math.max(config.scan_lookback || 3, 1) + 1;
+    } else if (baseType === 'ma') {
+      return parseInt(String(resolveParam(signalType, baseType, 'ma_period', '20')), 10) + 1;
+    } else if (baseType === 'ema' || baseType === 'ema_cross' || baseType === 'ema_price_cross' || baseType === 'ema_close') {
+      const exitPeriodVal = resolveParam(signalType, baseType, 'exit_ema_period', null);
+      const entryPeriodVal = resolveParam(signalType, baseType, 'entry_ema_period', null);
+      const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
+      const exitPeriod = parseInt(String(exitPeriodVal || basePeriodVal), 10);
+      const entryPeriod = parseInt(String(entryPeriodVal || basePeriodVal), 10);
+      return Math.max(exitPeriod, entryPeriod) * 2;
+    } else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close' || baseType === 'ema_dual') {
+      const entryFastVal = resolveParam(signalType, baseType, 'entry_ema_fast', '9');
+      const entrySlowVal = resolveParam(signalType, baseType, 'entry_ema_slow', '21');
+      return Math.max(parseInt(String(entryFastVal), 10), parseInt(String(entrySlowVal), 10)) * 2;
+    } else if (baseType === 'engulfing') {
+      const lookback = parseInt(String(resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1')), 10);
+      return lookback + 1;
+    } else if (baseType === 'macd_impulse' || baseType === 'macd_fade' || baseType === 'macd_pbc') {
+      const fast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
+      const slow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
+      const signal = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
+      return (Math.max(fast, slow) + signal) * 2;
+    } else if (baseType === 'supertrend') {
+      return parseInt(String(resolveParam(signalType, baseType, 'supertrend_period', '10')), 10) * 5;
+    } else if (baseType === 'knife_catch') {
+      return parseInt(String(resolveParam(signalType, baseType, 'knife_lookback', '3')), 10) + 1;
+    } else if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
+      const lookback = parseInt(String(resolveParam(signalType, baseType, 'htf_breakout_lookback', config.htf_breakout_lookback || 5)), 10) || 5;
+      return lookback + 2;
+    } else if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
+      const n = parseInt(String(resolveParam(signalType, baseType, 'trigger_candle_exit_n', 0)), 10) || 0;
+      return n + 2;
+    }
+    return this.getRequiredWarmup(config);
   }
 
   checkEntry(
@@ -375,13 +429,33 @@ export class SignalEngineService {
       }
 
       try {
-        let signalInterval = config.signal_timeframes?.[signalType] || interval;
+        let signalInterval = config.signal_timeframes?.[signalType] || config.signal_timeframes?.[baseSignalType] || interval;
         if (signalInterval === 'default') {
           signalInterval = interval;
         }
         const signalCandles = passedCandles || ((signalInterval !== interval)
           ? this.klineStore.getRawCandles(symbol, signalInterval)
           : candles);
+
+        const sigReqWarmup = this.getRequiredWarmupForSignal(config, signalType);
+        if (signalInterval !== interval && signalCandles.length < sigReqWarmup) {
+          failedSignals.push(signalType);
+          if (!minimal) {
+            details[signalType] = {
+              fired: false,
+              value: signalCandles.length,
+              threshold: sigReqWarmup,
+              unit: 'candles',
+              metric: baseSignalType,
+              description: `Timeframe ${signalInterval} warm-up in progress (${signalCandles.length}/${sigReqWarmup})`,
+              insufficientData: true,
+              timeframe: signalInterval,
+              candleCount: signalCandles.length,
+              evaluated_at_ms: evaluatedAtMs,
+            };
+          }
+          continue;
+        }
 
         const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal, signalType, trade);
         const fired = typeof result === 'boolean' ? result : result.fired;
@@ -509,8 +583,8 @@ export class SignalEngineService {
 
     const current = candles[candles.length - 1];
 
-    // BOLT OPTIMIZATION: Use centralized KlineStore extremes which implements stable caching.
-    const { minLow, maxHigh } = this.klineStore.getLookbackExtremes(symbol, interval, lookback);
+    // BOLT OPTIMIZATION: Use centralized KlineStore extremes which implements stable caching (completed candles only for breakout comparison).
+    const { minLow, maxHigh } = this.klineStore.getLookbackExtremes(symbol, interval, lookback, false);
 
     const isLong = side === 'LONG';
     const target = isLong ? minLow : maxHigh; // Target for EXIT is the opposite side of the range

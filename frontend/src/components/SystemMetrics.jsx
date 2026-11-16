@@ -1,14 +1,129 @@
 import React from 'react';
 import { Drawer } from 'vaul';
-import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2, Copy, Check, Info, X, Filter, Database, Server } from 'lucide-react';
+import { Activity, Zap, Leaf, ShieldAlert, Cpu, Rocket, Search, CheckCircle2, Copy, Check, Info, X, Filter, Database, Server, Globe, Radio, RefreshCw, Clock, ShieldX } from 'lucide-react';
 import { cn, PulseDot, Tooltip, Btn, VisuallyHidden } from './ui/primitives';
+import { healthAPI, sessionAPI } from '../api/client';
+import { useTradingStore } from '../store/trading';
+
+const SignalBars = React.memo(({ latency }) => {
+  if (latency === null || latency === undefined) {
+    return (
+      <div className="flex items-end gap-0.5 h-3 opacity-30 shrink-0" title="Latency Unknown">
+        <div className="w-0.5 h-1 bg-dim rounded-xs" />
+        <div className="w-0.5 h-1.5 bg-dim rounded-xs" />
+        <div className="w-0.5 h-2 bg-dim rounded-xs" />
+        <div className="w-0.5 h-2.5 bg-dim rounded-xs" />
+      </div>
+    );
+  }
+
+  const bars = latency < 60 ? 4 : latency < 120 ? 3 : latency < 250 ? 2 : 1;
+  const barColor = latency < 120 ? "bg-green shadow-[0_0_4px_rgba(34,197,94,0.6)]" : latency < 250 ? "bg-amber shadow-[0_0_4px_rgba(245,158,11,0.6)]" : "bg-red shadow-[0_0_4px_rgba(239,68,68,0.6)]";
+
+  return (
+    <div className="flex items-end gap-0.5 h-3 shrink-0" title={`Latency: ${latency}ms`}>
+      <div className={cn("w-0.5 rounded-xs transition-all", bars >= 1 ? barColor : "bg-white/10", "h-1")} />
+      <div className={cn("w-0.5 rounded-xs transition-all", bars >= 2 ? barColor : "bg-white/10", "h-1.5")} />
+      <div className={cn("w-0.5 rounded-xs transition-all", bars >= 3 ? barColor : "bg-white/10", "h-2")} />
+      <div className={cn("w-0.5 rounded-xs transition-all", bars >= 4 ? barColor : "bg-white/10", "h-2.5")} />
+    </div>
+  );
+});
+SignalBars.displayName = 'SignalBars';
+
+// Shared singleton probe state so Sidebar + MobileHealthBar do not duplicate /health/binance calls
+const sharedHealthState = {
+  data: null,
+  lastProbeTs: null,
+  loading: false,
+  inFlight: null,
+  subscribers: new Set(),
+  pollTimer: null,
+};
+
+function notifyHealthSubscribers() {
+  const snapshot = {
+    healthData: sharedHealthState.data,
+    lastProbeTs: sharedHealthState.lastProbeTs,
+    probeLoading: sharedHealthState.loading,
+  };
+  sharedHealthState.subscribers.forEach(cb => cb(snapshot));
+}
+
+async function runSharedHealthProbe(fresh = false) {
+  if (sharedHealthState.inFlight) return sharedHealthState.inFlight;
+  sharedHealthState.loading = true;
+  notifyHealthSubscribers();
+  sharedHealthState.inFlight = (async () => {
+    try {
+      const res = await healthAPI.getBinanceHealth(fresh);
+      if (res && res.data) {
+        sharedHealthState.data = res.data;
+        sharedHealthState.lastProbeTs = Date.now();
+      }
+    } catch (err) {
+      console.warn('Failed to fetch Binance health probe:', err);
+    } finally {
+      sharedHealthState.loading = false;
+      sharedHealthState.inFlight = null;
+      notifyHealthSubscribers();
+    }
+  })();
+  return sharedHealthState.inFlight;
+}
+
+function useSharedBinanceHealth() {
+  const [state, setState] = React.useState(() => ({
+    healthData: sharedHealthState.data,
+    lastProbeTs: sharedHealthState.lastProbeTs,
+    probeLoading: sharedHealthState.loading,
+  }));
+
+  React.useEffect(() => {
+    sharedHealthState.subscribers.add(setState);
+    if (!sharedHealthState.data && !sharedHealthState.inFlight) {
+      runSharedHealthProbe(false);
+    }
+    if (!sharedHealthState.pollTimer) {
+      sharedHealthState.pollTimer = setInterval(() => {
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+          runSharedHealthProbe(false);
+        }
+      }, 120000);
+    }
+    return () => {
+      sharedHealthState.subscribers.delete(setState);
+      if (sharedHealthState.subscribers.size === 0 && sharedHealthState.pollTimer) {
+        clearInterval(sharedHealthState.pollTimer);
+        sharedHealthState.pollTimer = null;
+      }
+    };
+  }, []);
+
+  return { ...state, fetchHealth: runSharedHealthProbe };
+}
+
+function formatBanCountdown(ms) {
+  if (ms <= 0) return { text: 'Lifted', expired: true };
+  const totalSecs = Math.floor(ms / 1000);
+  const days = Math.floor(totalSecs / (24 * 3600));
+  const hours = Math.floor((totalSecs % (24 * 3600)) / 3600);
+  const mins = Math.floor((totalSecs % 3600) / 60);
+  const secs = totalSecs % 60;
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0 || days > 0) parts.push(`${hours}h`);
+  parts.push(`${mins}m`);
+  parts.push(`${secs}s`);
+  return { text: parts.join(' '), expired: false };
+}
 
 export const SystemMetric = ({ icon: Icon, label, value, colorClass, compact = false }) => (
-  <div className={cn("flex items-center gap-2", compact ? "px-2" : "gap-3")}>
+  <div className={cn("flex items-center gap-2", compact ? "px-1.5 gap-1.5" : "gap-3")}>
     <Icon size={compact ? 12 : 14} className={cn("shrink-0", colorClass || "text-dim")} />
-    <div className={cn("flex items-baseline gap-2 min-w-0", compact ? "text-[10px]" : "flex-1 justify-between text-[11px]")}>
+    <div className={cn("flex items-baseline gap-1.5 min-w-0", compact ? "text-[10px]" : "flex-1 justify-between text-[11px]")}>
       {!compact && <span className="text-dim font-bold uppercase tracking-wider truncate">{label}</span>}
-      <span className={cn("font-mono font-bold shrink-0", colorClass || "text-text")}>{value}</span>
+      <span className={cn("font-mono font-bold shrink-0 tabular-nums", colorClass || "text-text")}>{value}</span>
     </div>
   </div>
 );
@@ -60,13 +175,35 @@ const LoopVisualizer = ({ pipeline }) => {
   );
 };
 
-export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStatus, gateState, isEcoMode, activeTrades = [], config = {}, compact = false }) => {
+export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, apiStatus, wsStatus, gateState, isEcoMode, activeTrades = [], config = {}, compact = false }) => {
   const [copiedDiag, setCopiedDiag] = React.useState(false);
   const [isMobileDiagOpen, setIsMobileDiagOpen] = React.useState(false);
   const [selectedEndpoint, setSelectedEndpoint] = React.useState('all');
   const [selectedStatus, setSelectedStatus] = React.useState('all');
+  const [now, setNow] = React.useState(() => Date.now());
+  const { healthData, lastProbeTs, probeLoading, fetchHealth } = useSharedBinanceHealth();
+
+  const banUntilMs = apiStatus?.banUntil
+    ? new Date(apiStatus.banUntil).getTime()
+    : (healthData?.ip_status?.ban_until ? Number(healthData.ip_status.ban_until) : null);
+  const isBanned = apiStatus?.isBanned || healthData?.ip_status?.is_banned || false;
+  const isGeoBlocked = apiStatus?.isGeoBlocked || healthData?.geo_restricted || false;
+
+  React.useEffect(() => {
+    if (!banUntilMs && !isBanned) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [banUntilMs, isBanned]);
+
+  const msRemaining = banUntilMs ? Math.max(0, banUntilMs - now) : 0;
+  const banCountdown = formatBanCountdown(msRemaining);
+
+  const liveLatency = healthData?.live?.latency_ms ?? null;
+  const testnetLatency = healthData?.testnet?.latency_ms ?? null;
+  const pingColor = liveLatency === null ? "text-dim" : liveLatency < 80 ? "text-green" : liveLatency < 180 ? "text-amber" : "text-red";
 
   const app = monitoring?.application || {};
+  const udsStatus = healthData?.uds_status || app.exchange_uds_status || (wsStatus === 'live' ? 'CONNECTED' : 'DISCONNECTED');
   const breakdown = app.api_requests_breakdown || {};
   const rawLogs = app.rest_telemetry_logs || [];
   const cacheMetrics = app.cache_metrics || { hit_ratio_pct: 100, hits_total: 0, misses_total: 0, breakdown: {} };
@@ -126,8 +263,8 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
   }, [app, breakdown, rawLogs, filteredLogs, cacheMetrics, resourceFootprints, recommendations, rateLimit, wsStatus, config, activeTrades]);
 
   return (
-  <div className={cn("flex items-center gap-4 overflow-hidden", compact ? "justify-center" : "flex-col w-full")}>
-    <div className="flex items-center gap-2">
+  <div className={cn("flex items-center overflow-hidden", compact ? "justify-between w-full gap-2" : "flex-col w-full gap-4")}>
+    <div className={cn("flex items-center gap-2 shrink-0", !compact && "w-full justify-between")}>
       <div className={cn("flex items-center gap-2 overflow-hidden", compact ? "" : "p-3 bg-background/40 rounded-xl border border-border/50")}>
         <PulseDot
           color={
@@ -252,7 +389,81 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
 
     <>
       {!compact && (
-        <div className="w-full mt-4 pt-4 border-t border-border/50 flex flex-col gap-4">
+        <div className="w-full mt-2 pt-3 border-t border-border/50 flex flex-col gap-3">
+           {/* Consolidated Binance Connectivity & Latency Strip (migrated from ApiHealthWidget) */}
+           <div className={cn(
+             "bg-surface/50 border rounded-xl p-2.5 flex flex-col gap-2 font-mono text-[9px]",
+             (isBanned || isGeoBlocked) ? "border-red/40 bg-red/5" : "border-border/50"
+           )}>
+             <div className="flex items-center justify-between gap-1">
+               <span className="text-[8px] font-black text-dim uppercase tracking-widest flex items-center gap-1">
+                 <Globe size={10} className="text-accent" /> Binance Edge
+               </span>
+               <div className="flex items-center gap-1.5">
+                 <span className={cn("text-[8px] font-black uppercase", udsStatus === 'CONNECTED' ? "text-green" : "text-red")}>
+                   UDS {udsStatus === 'CONNECTED' ? 'LIVE' : 'OFF'}
+                 </span>
+                 <Tooltip content="Probe fresh Live & Testnet REST latency">
+                   <button
+                     type="button"
+                     onClick={() => fetchHealth(true)}
+                     disabled={probeLoading}
+                     aria-label="Probe Fresh"
+                     className="p-1 rounded border border-border/50 hover:border-accent/40 text-dim hover:text-accent transition-colors cursor-pointer"
+                   >
+                     <RefreshCw size={9} className={cn(probeLoading && "animate-spin text-accent")} />
+                   </button>
+                 </Tooltip>
+               </div>
+             </div>
+
+             <div className="grid grid-cols-2 gap-2 text-[9px]">
+               <div className="flex items-center justify-between gap-1 bg-background/50 px-2 py-1 rounded-lg border border-border/30">
+                 <span className="text-dim">Live</span>
+                 <div className="flex items-center gap-1">
+                   <SignalBars latency={liveLatency} />
+                   <span className={cn("font-bold tabular-nums", pingColor)}>
+                     {liveLatency !== null ? `${liveLatency}ms` : '---'}
+                   </span>
+                 </div>
+               </div>
+               <div className="flex items-center justify-between gap-1 bg-background/50 px-2 py-1 rounded-lg border border-border/30">
+                 <span className="text-dim">Testnet</span>
+                 <span className="font-bold text-text tabular-nums">
+                   {testnetLatency !== null ? `${testnetLatency}ms` : '---'}
+                 </span>
+               </div>
+             </div>
+
+             {(isBanned || isGeoBlocked || banUntilMs) && (
+               <div className="flex items-center justify-between gap-1.5 px-2 py-1 rounded-lg bg-red/15 border border-red/30 text-red text-[8.5px]">
+                 <span className="flex items-center gap-1 font-bold truncate">
+                   <ShieldX size={10} className="shrink-0" />
+                   {isGeoBlocked ? 'Geo-Blocked' : !banCountdown.expired ? `Ban: ${banCountdown.text}` : 'Ban Lifted'}
+                 </span>
+                 {isBanned && (
+                   <button
+                     type="button"
+                     onClick={async () => {
+                       try {
+                         await sessionAPI.clearBan();
+                         useTradingStore.setState(st => ({
+                           apiStatus: { ...st.apiStatus, isBanned: false, isRateLimited: false, banUntil: null }
+                         }));
+                         fetchHealth(true);
+                       } catch (e) {
+                         console.error('Failed to clear ban:', e);
+                       }
+                     }}
+                     className="px-1.5 py-0.5 rounded bg-red/20 border border-red/30 font-black uppercase text-[7.5px] hover:bg-red/30 cursor-pointer shrink-0"
+                   >
+                     Clear
+                   </button>
+                 )}
+               </div>
+             )}
+           </div>
+
            <div className="text-[9px] text-dim font-black uppercase tracking-[0.2em] mb-1">Pipeline Health</div>
            <LoopVisualizer pipeline={app.loop_pipeline} />
 
@@ -391,7 +602,14 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
       )}
 
       {compact && (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1 text-[10px] font-mono shrink-0">
+            <SignalBars latency={liveLatency} />
+            <span className={cn("font-bold tabular-nums", pingColor)}>
+              {liveLatency !== null ? `${liveLatency}ms` : '---'}
+            </span>
+          </div>
+          <div className="w-px h-3 bg-border/50" />
           <SystemMetric
             icon={Zap}
             label="REST"
@@ -400,8 +618,9 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
             compact={compact}
           />
           <div className="w-px h-3 bg-border/50" />
-          <div className="flex items-center gap-2">
-             <PulseDot color={app.exchange_uds_status === 'CONNECTED' ? "bg-green" : "bg-red"} />
+          <div className="flex items-center gap-1.5 shrink-0">
+             <span className={cn("text-[9px] font-mono font-bold uppercase hidden xs:inline", udsStatus === 'CONNECTED' ? "text-green" : "text-red")}>UDS</span>
+             <PulseDot color={udsStatus === 'CONNECTED' ? "bg-green" : "bg-red"} />
              <button
                type="button"
                onClick={() => setIsMobileDiagOpen(true)}
@@ -439,28 +658,93 @@ export const SystemMetrics = ({ monitoring, rateLimit, rateLimitLastSync, wsStat
               </VisuallyHidden>
             </div>
 
-            <div className="p-4 overflow-y-auto flex flex-col gap-4 text-xs">
-              <div className="flex items-center justify-between p-3 bg-surface/50 border border-border/60 rounded-xl">
+            <div className="p-4 overflow-y-auto flex flex-col gap-3.5 text-xs">
+              <div className="flex items-center justify-between gap-2 p-3 bg-surface/50 border border-border/60 rounded-xl flex-wrap">
                 <div className="flex items-center gap-2">
                   <PulseDot color={wsStatus === 'live' ? "bg-green" : "bg-amber"} />
                   <span className="font-bold uppercase tracking-wider text-[11px]">{wsStatus === 'live' ? 'WebSocket Live' : 'WebSocket Offline'}</span>
                 </div>
-                <Btn variant="ghost" onClick={handleCopyDiagnostics} className="px-2 py-1 text-[10px] font-bold border border-accent/30 bg-accent/10 text-accent flex items-center gap-1.5">
-                  {copiedDiag ? <Check size={11} className="text-green" /> : <Copy size={11} />}
-                  {copiedDiag ? "Copied Snippet" : "Copy Diag Snippet"}
-                </Btn>
+                <div className="flex items-center gap-1.5">
+                  <Btn variant="ghost" onClick={() => fetchHealth(true)} disabled={probeLoading} className="px-2 py-1 text-[10px] font-bold border border-border/60 bg-surface text-text flex items-center gap-1">
+                    <RefreshCw size={10} className={cn(probeLoading && "animate-spin text-accent")} />
+                    Probe Fresh
+                  </Btn>
+                  <Btn variant="ghost" onClick={handleCopyDiagnostics} className="px-2 py-1 text-[10px] font-bold border border-accent/30 bg-accent/10 text-accent flex items-center gap-1.5">
+                    {copiedDiag ? <Check size={11} className="text-green" /> : <Copy size={11} />}
+                    {copiedDiag ? "Copied Snippet" : "Copy Diag Snippet"}
+                  </Btn>
+                </div>
               </div>
 
+              {(isBanned || isGeoBlocked || banUntilMs) && (
+                <div className="p-3 bg-red/15 border border-red/40 rounded-xl flex items-center justify-between gap-2 font-mono text-red">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Clock size={14} className="shrink-0" />
+                    <span className="font-bold text-[10.5px] uppercase truncate">
+                      {isGeoBlocked ? 'Geo-Blocked (451)' : !banCountdown.expired ? `IP Ban Cooldown: ${banCountdown.text}` : 'IP Cooldown Completed'}
+                    </span>
+                  </div>
+                  {isBanned && (
+                    <Btn
+                      size="sm"
+                      variant="outline"
+                      onClick={async () => {
+                        try {
+                          await sessionAPI.clearBan();
+                          useTradingStore.setState(st => ({
+                            apiStatus: { ...st.apiStatus, isBanned: false, isRateLimited: false, banUntil: null }
+                          }));
+                          fetchHealth(true);
+                        } catch (e) {
+                          console.error('Failed to clear ban:', e);
+                        }
+                      }}
+                      className="text-[9px] py-0.5 px-2 border-red/30 hover:bg-red/20 text-red shrink-0"
+                    >
+                      Clear Lock
+                    </Btn>
+                  )}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-2 font-mono">
-                <div className="p-3 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
+                <div className="p-2.5 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
+                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider flex items-center gap-1">
+                    <Globe size={10} className="text-accent" /> Live REST Ping
+                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className={cn("text-sm font-black", pingColor)}>{liveLatency !== null ? `${liveLatency} ms` : '---'}</span>
+                    <SignalBars latency={liveLatency} />
+                  </div>
+                </div>
+                <div className="p-2.5 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
+                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider flex items-center gap-1">
+                    <Radio size={10} className="text-accent" /> Account Stream
+                  </span>
+                  <span className={cn("text-sm font-black", udsStatus === 'CONNECTED' ? "text-green" : "text-red")}>
+                    {udsStatus === 'CONNECTED' ? 'Zero-Weight UDS' : 'Offline'}
+                  </span>
+                </div>
+                <div className="p-2.5 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
+                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider">Testnet Ping</span>
+                  <span className="text-sm font-black text-text">{testnetLatency !== null ? `${testnetLatency} ms` : '---'}</span>
+                </div>
+                <div className="p-2.5 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
                   <span className="text-[9px] font-bold text-dim uppercase tracking-wider">API Weight 1M</span>
                   <span className="text-sm font-black text-text">{rateLimit?.used_weight_1m ?? 0} / {rateLimit?.limit ?? 2400}</span>
                 </div>
-                <div className="p-3 bg-surface/30 border border-border/50 rounded-xl flex flex-col gap-1">
-                  <span className="text-[9px] font-bold text-dim uppercase tracking-wider">Cache Hit Ratio</span>
-                  <span className="text-sm font-black text-green">{cacheMetrics.hit_ratio_pct}%</span>
-                </div>
               </div>
+
+              <div className="p-2.5 bg-surface/30 border border-border/50 rounded-xl flex items-center justify-between font-mono">
+                <span className="text-[9px] font-bold text-dim uppercase tracking-wider">Cache Hit Ratio</span>
+                <span className="text-xs font-black text-green">{cacheMetrics.hit_ratio_pct}%</span>
+              </div>
+
+              {lastProbeTs && (
+                <div className="text-[9.5px] font-mono text-dim/70 text-right">
+                  Last Probe: {new Date(lastProbeTs).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </div>
+              )}
 
               <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
                 <span className="text-[10px] font-black text-dim uppercase tracking-widest">Pipeline Health</span>

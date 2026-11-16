@@ -183,7 +183,7 @@ const LogEntry = React.memo(({ log }) => {
   return (
     <>
       <div
-        className="flex items-start gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-4 w-full"
+        className="flex items-start gap-2.5 text-[11px] font-mono border-b border-border/40 py-1.5 hover:bg-white/[0.02] transition-colors group/entry pr-1 w-full min-w-0"
         style={{ contentVisibility: 'auto', containIntrinsicSize: '32px' }}
       >
         <div
@@ -211,7 +211,7 @@ const LogEntry = React.memo(({ log }) => {
           </time>
           <div className="flex-1 min-w-0">
             <span className={cn(
-              "transition-colors break-words break-all inline",
+              "transition-colors break-words [overflow-wrap:anywhere] inline",
               shouldTruncate && !isExpanded && "line-clamp-2",
               logLevel === 'warn' ? "text-amber font-black" :
               logLevel === 'error' ? "text-red font-black" :

@@ -133,7 +133,7 @@ export class TradingSessionService implements OnApplicationShutdown {
           this.loggedCandidateDropMap.set(dropKey, now + dropCooldownMs);
 
           const preReason = typeof (this.momentumScanner as any)?.getPreFilterReason === 'function'
-            ? (this.momentumScanner as any).getPreFilterReason(sym)
+            ? (this.momentumScanner as any).getPreFilterReason(sym, label)
             : undefined;
           const reasonText = preReason?.reason
             || `dropped from top-${ENGINE_CONSTANTS.SCANNER_MAX_RESULTS} watchlist cutoff`;
@@ -210,9 +210,12 @@ export class TradingSessionService implements OnApplicationShutdown {
           const hasVariantSymbols = Array.isArray(v.symbols);
           const hasVariantScannerOverride =
             v.watchlist_size !== undefined ||
+            v.watchlist_offset !== undefined ||
             v.discovery_mode !== undefined ||
             v.scan_interval !== undefined ||
-            v.global_scanner_enabled !== undefined;
+            v.global_scanner_enabled !== undefined ||
+            v.smart_watchlist_enabled !== undefined ||
+            v.smart_watchlist_sensitivity !== undefined;
 
           // If variant explicitly provides symbols (including [] for discovery), use them.
           // If variant overrides scanner config without specifying symbols, avoid leaking base static symbols.
@@ -255,6 +258,26 @@ export class TradingSessionService implements OnApplicationShutdown {
       mv: config.scan_min_volume_usdt,
       sm: config.scan_mode,
       ws: config.watchlist_size,
+      wo: config.watchlist_offset,
+      swe: config.smart_watchlist_enabled,
+      sws: config.smart_watchlist_sensitivity,
+      sw: config.scanner_weights,
+      slt: config.sl_type,
+      sld: config.sl_distance_pct,
+      slm: config.sl_max_pct,
+      slo: config.sl_out_of_bounds_action,
+      slr: config.reject_entry_if_sl_exceeds_max,
+      sltf: config.sl_lookback_timeframe,
+      slp: config.sl_lookback_period,
+      elb: config.engulfing_lookback,
+      tpr: config.tp_ratio,
+      htfb: config.htf_ema_cross_boost_enabled,
+      htfi: config.htf_ema_cross_interval,
+      htfc: config.htf_ema_cross_count,
+      htff: config.htf_ema_fast_period,
+      htfs: config.htf_ema_slow_period,
+      htfm: config.htf_ema_cross_max_boost,
+      htfr: config.htf_ema_cross_rr_weight,
       es: config.entry_side,
       ex: config.excluded_symbols,
       sym: config.symbols,
@@ -1186,6 +1209,7 @@ export class TradingSessionService implements OnApplicationShutdown {
       score: roundTo(o.score, 1),
       history: o.history,
       ohlc_history: o.ohlc_history,
+      candle_count: o.candle_count,
       signalResult: o.signalResult,
       breakout_rank: o.breakout_rank,
       score_breakdown: o.score_breakdown ? {

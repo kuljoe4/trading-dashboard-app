@@ -19,7 +19,7 @@ const NAV_ITEMS = [
 ]
 
 export const Sidebar = ({ selected }) => {
-  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, rateLimitLastSync, gateState, isEcoMode, isSyncing, sessionActive, activeTrades, config } = useTradingStore()
+  const { wsStatus, sidebarCollapsed: collapsed, toggleSidebar, monitoring, rateLimit, rateLimitLastSync, apiStatus, gateState, isEcoMode, isSyncing, sessionActive, activeTrades, config } = useTradingStore()
   const [isHovered, setIsHovered] = React.useState(false)
   const isExpanded = !collapsed || isHovered
 
@@ -144,7 +144,7 @@ export const Sidebar = ({ selected }) => {
           "mt-auto pt-6 border-t border-border/50 shrink-0",
           !isExpanded ? "px-0" : "px-2"
         )}>
-          <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} rateLimitLastSync={rateLimitLastSync} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} activeTrades={activeTrades} config={config} compact={!isExpanded} />
+          <SystemMetrics monitoring={monitoring} rateLimit={rateLimit} rateLimitLastSync={rateLimitLastSync} apiStatus={apiStatus} wsStatus={wsStatus} gateState={gateState} isEcoMode={isEcoMode} activeTrades={activeTrades} config={config} compact={!isExpanded} />
         </div>
       </div>
 
@@ -163,15 +163,16 @@ export const Sidebar = ({ selected }) => {
 }
 
 export const MobileHealthBar = () => {
-  const { healthEnabled, monitoring, rateLimit, rateLimitLastSync, wsStatus, gateState, isEcoMode, activeTrades, config } = useTradingStore()
+  const { healthEnabled, monitoring, rateLimit, rateLimitLastSync, apiStatus, wsStatus, gateState, isEcoMode, activeTrades, config } = useTradingStore()
   if (!healthEnabled) return null
 
   return (
-    <div className="lg:hidden bg-surface/30 px-4 py-3 border-b border-border/40">
+    <div className="lg:hidden bg-surface/40 px-2.5 py-1 border-b border-border/40 min-h-[28px] flex items-center justify-center">
       <SystemMetrics
         monitoring={monitoring}
         rateLimit={rateLimit}
         rateLimitLastSync={rateLimitLastSync}
+        apiStatus={apiStatus}
         wsStatus={wsStatus}
         gateState={gateState}
         isEcoMode={isEcoMode}
@@ -201,7 +202,7 @@ export const BottomNav = ({ selected }) => {
         </div>
       )}
       <MobileHealthBar />
-      <div className="flex justify-around items-center h-16">
+      <div className="flex justify-around items-center h-14">
         {[
           { path: '/', label: 'Cockpit', icon: LayoutDashboard },
           { path: '/trades', label: 'Trades', icon: Briefcase },

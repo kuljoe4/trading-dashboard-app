@@ -16,6 +16,7 @@ export interface Opportunity {
   is_smart_candidate?: boolean; // Discovered via event-driven Smart Watchlist
   history?: number[]; // Recent close prices for sparkline
   ohlc_history?: Candle[]; // Full OHLC for detailed visualization
+  candle_count?: number; // Real klineStore buffer length for UI warmup diagnostics
   sl_dist_pct?: number;
   prospect_rr?: number;
   score_breakdown?: {
@@ -69,32 +70,43 @@ export class MomentumScannerService {
     ts: number;
   }>();
 
+  private buildReasonKey(symbol: string, strategyLabel?: string): string {
+    return strategyLabel ? `${strategyLabel}::${symbol}` : symbol;
+  }
+
   private recordPreFilterReason(
     symbol: string,
     code: 'sl_bounds' | 'entry_side' | 'momentum_below' | 'insufficient_candles' | 'invalid_price' | 'missing_filters',
     reason: string,
     pct?: number,
     slDistPct?: number,
+    strategyLabel?: string,
   ) {
     if (!symbol) return;
-    if (this.lastPreFilterReasons.size >= 250 && !this.lastPreFilterReasons.has(symbol)) {
+    const key = this.buildReasonKey(symbol, strategyLabel);
+    if (this.lastPreFilterReasons.size >= 500 && !this.lastPreFilterReasons.has(key)) {
       const oldestKey = this.lastPreFilterReasons.keys().next().value;
       if (oldestKey) this.lastPreFilterReasons.delete(oldestKey);
     }
-    this.lastPreFilterReasons.set(symbol, {
+    const payload = {
       code,
       reason,
       pct,
       slDistPct,
       ts: Date.now(),
-    });
+    };
+    this.lastPreFilterReasons.set(key, payload);
+    if (strategyLabel) {
+      this.lastPreFilterReasons.set(symbol, payload);
+    }
   }
 
-  public getPreFilterReason(symbol: string) {
-    const entry = this.lastPreFilterReasons.get(symbol);
+  public getPreFilterReason(symbol: string, strategyLabel?: string) {
+    const key = strategyLabel ? this.buildReasonKey(symbol, strategyLabel) : symbol;
+    const entry = this.lastPreFilterReasons.get(key) ?? (strategyLabel ? this.lastPreFilterReasons.get(symbol) : undefined);
     if (!entry) return undefined;
     if (Date.now() - entry.ts > 5 * 60 * 1000) {
-      this.lastPreFilterReasons.delete(symbol);
+      this.lastPreFilterReasons.delete(key);
       return undefined;
     }
     return entry;
@@ -210,8 +222,9 @@ export class MomentumScannerService {
           // Also include volume-based or change-pct-based leaders
           const discoveryMode = config.discovery_mode || 'volume';
           const topSymbols = discoveryMode === 'change_pct' ? this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-            : discoveryMode === 'abs_change_pct' ? this.tickerCache.topByAbsChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-              : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
+            : discoveryMode === 'loss_pct' ? this.tickerCache.topByLossPct(Math.floor(watchlistSize / 2), combinedExcluded)
+              : discoveryMode === 'abs_change_pct' ? this.tickerCache.topByAbsChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+                : this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
           const topLen = topSymbols.length;
           for (let i = 0; i < topLen; i++) {
             const t = topSymbols[i];
@@ -222,8 +235,9 @@ export class MomentumScannerService {
         } else {
           const discoveryMode = config.discovery_mode || 'volume';
           const topSymbols = discoveryMode === 'change_pct' ? this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
-            : discoveryMode === 'abs_change_pct' ? this.tickerCache.topByAbsChangePct(watchlistSize + offset, combinedExcluded)
-              : this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
+            : discoveryMode === 'loss_pct' ? this.tickerCache.topByLossPct(watchlistSize + offset, combinedExcluded)
+              : discoveryMode === 'abs_change_pct' ? this.tickerCache.topByAbsChangePct(watchlistSize + offset, combinedExcluded)
+                : this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
           for (let i = offset; i < topSymbols.length; i++) {
             const t = topSymbols[i];
             if (t && t.symbol && t.symbol.toUpperCase().endsWith('USDT') && !activeExcluded.has(t.symbol)) {
@@ -316,7 +330,7 @@ export class MomentumScannerService {
     // before performing any calculations.
     const filters = this.marketFeed.getSymbolFilters(symbol);
     if (!filters) {
-      this.recordPreFilterReason(symbol, 'missing_filters', `missing exchange symbol filters`);
+      this.recordPreFilterReason(symbol, 'missing_filters', `missing exchange symbol filters`, undefined, undefined, config.strategy_label);
       return null;
     }
 
@@ -336,6 +350,7 @@ export class MomentumScannerService {
               volume_24h: Number(tickerData?.volume_24h || 0),
               score: 50,
               direction: 'LONG',
+              candle_count: candles.length,
               sl_dist_pct: config.sl_distance_pct || 0.8,
               prospect_rr: config.tp_ratio || 2.0,
             },
@@ -344,7 +359,7 @@ export class MomentumScannerService {
         }
       }
       const warmReason = `insufficient ${interval} candles (${candles.length}/${lookback + 1})`;
-      this.recordPreFilterReason(symbol, 'insufficient_candles', warmReason);
+      this.recordPreFilterReason(symbol, 'insufficient_candles', warmReason, undefined, undefined, config.strategy_label);
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} skipped: insufficient candles (${candles.length} < ${lookback + 1}) for interval ${interval}`,
@@ -357,7 +372,7 @@ export class MomentumScannerService {
     const previousPrice = candles[candles.length - 1 - lookback].close;
 
     if (!this.isValidPrice(currentPrice) || !this.isValidPrice(previousPrice)) {
-      this.recordPreFilterReason(symbol, 'invalid_price', `invalid candle prices on ${interval}`);
+      this.recordPreFilterReason(symbol, 'invalid_price', `invalid candle prices on ${interval}`, undefined, undefined, config.strategy_label);
       this.logger.verbose(
         `Skipping scan for ${symbol} due invalid candle prices current=${currentPrice} previous=${previousPrice}`,
       );
@@ -367,7 +382,7 @@ export class MomentumScannerService {
     // Calculate simple momentum
     const momentumPct = this.calculateMomentum(currentPrice, previousPrice);
     if (!Number.isFinite(momentumPct)) {
-      this.recordPreFilterReason(symbol, 'invalid_price', `non-finite momentum on ${interval}`);
+      this.recordPreFilterReason(symbol, 'invalid_price', `non-finite momentum on ${interval}`, undefined, undefined, config.strategy_label);
       this.logger.verbose(
         `Skipping scan for ${symbol} due invalid momentum current=${currentPrice} previous=${previousPrice}`,
       );
@@ -382,6 +397,8 @@ export class MomentumScannerService {
         'momentum_below',
         `momentum ${momentumPct.toFixed(2)}% cooled below ±${threshold}% threshold (${interval})`,
         momentumPct,
+        undefined,
+        config.strategy_label,
       );
       if (config.debug_mode) {
         this.logger.debug(
@@ -394,22 +411,36 @@ export class MomentumScannerService {
     // Determine direction based on momentum
     const direction = momentumPct >= 0 ? 'LONG' : 'SHORT';
 
-    // Enforce configured entry_side ('both' | 'long' | 'short')
+    // Enforce configured entry_side ('both' | 'long' | 'short') without scanning opposite-side moves as attempted trades
     const allowedSide = (config.entry_side || 'both').toLowerCase();
     if (!isExplicitSymbol && allowedSide === 'long' && direction !== 'LONG') {
-      this.recordPreFilterReason(symbol, 'entry_side', `${direction} disallowed by entry_side=${config.entry_side}`, momentumPct);
+      this.recordPreFilterReason(
+        symbol,
+        'entry_side',
+        `${interval} momentum dipped ${momentumPct.toFixed(2)}% (awaiting LONG bias; entry_side=${config.entry_side})`,
+        momentumPct,
+        undefined,
+        config.strategy_label,
+      );
       if (config.debug_mode) {
         this.logger.debug(
-          `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
+          `[Scanner Diagnostic] ${symbol} skipped: ${interval} momentum ${momentumPct.toFixed(2)}% is negative in long-only mode`,
         );
       }
       return null;
     }
     if (!isExplicitSymbol && allowedSide === 'short' && direction !== 'SHORT') {
-      this.recordPreFilterReason(symbol, 'entry_side', `${direction} disallowed by entry_side=${config.entry_side}`, momentumPct);
+      this.recordPreFilterReason(
+        symbol,
+        'entry_side',
+        `${interval} momentum bounced +${momentumPct.toFixed(2)}% (awaiting SHORT bias; entry_side=${config.entry_side})`,
+        momentumPct,
+        undefined,
+        config.strategy_label,
+      );
       if (config.debug_mode) {
         this.logger.debug(
-          `[Scanner Diagnostic] ${symbol} skipped: direction ${direction} disallowed by entry_side=${config.entry_side}`,
+          `[Scanner Diagnostic] ${symbol} skipped: ${interval} momentum +${momentumPct.toFixed(2)}% is positive in short-only mode`,
         );
       }
       return null;
@@ -427,7 +458,7 @@ export class MomentumScannerService {
     const slCheck = this.checkSlBounds(symbol, displayPrice || currentPrice, direction, config, candles);
     if (!isExplicitSymbol && slCheck.rejected) {
       const slReason = `prospective SL ${slCheck.slDistPct.toFixed(2)}% > max ${config.sl_max_pct ?? 3.0}%`;
-      this.recordPreFilterReason(symbol, 'sl_bounds', slReason, momentumPct, slCheck.slDistPct);
+      this.recordPreFilterReason(symbol, 'sl_bounds', slReason, momentumPct, slCheck.slDistPct, config.strategy_label);
       if (config.debug_mode) {
         this.logger.debug(
           `[Scanner Diagnostic] ${symbol} pre-filtered: prospective SL distance ${slCheck.slDistPct.toFixed(2)}% exceeds sl_max_pct ${config.sl_max_pct || 3.0}% (Reason: ${slCheck.reason})`,
@@ -436,6 +467,7 @@ export class MomentumScannerService {
       return null;
     }
 
+    this.lastPreFilterReasons.delete(this.buildReasonKey(symbol, config.strategy_label));
     this.lastPreFilterReasons.delete(symbol);
 
     // 2. Calculate HTF (4H default) EMA Dual Cross historical performance ranking score using prospective candidate SL distance
@@ -462,6 +494,7 @@ export class MomentumScannerService {
         volume_24h: Number(tickerData?.volume_24h || 0),
         score,
         direction,
+        candle_count: candles.length,
         sl_dist_pct: slCheck.slDistPct,
         prospect_rr: prospectRr,
         score_breakdown: {

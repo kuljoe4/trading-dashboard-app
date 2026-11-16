@@ -546,7 +546,6 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   }), [opp, strategyConfig, activeTrade, closedTrades, isPaused, gateState, gateReason, nowMs]);
 
   const isInPos = model.mode === 'in_position';
-  const posMeta = model.positionMeta;
   const hasCandidate = model.symbol && model.symbol !== '---';
   const compositeDial = model.compositeDial || { dialZone: 'watching', dialStatus: 'Watching', dialOverText: '100% to go' };
 

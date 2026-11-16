@@ -81,6 +81,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
     priceChangeDir: priceChangeDir,
     priceChangeTs: priceChanged ? Date.now() : (prev?.priceChangeTs || 0),
     volume_rank: source.volume_rank ? parseInt(String(source.volume_rank), 10) : undefined,
+    candle_count: source.candle_count != null ? toNumber(source.candle_count) : undefined,
     history: Array.isArray(source.history) ? source.history.map(v => toNumber(v)) : undefined,
     ohlc_history: Array.isArray(source.ohlc_history) ? source.ohlc_history.map(c => {
       const candle = getObjectSource(c);
@@ -177,6 +178,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
 
   res._fingerprint = f;
   if (prev) {
+    if (res.candle_count == null && prev.candle_count != null) res.candle_count = prev.candle_count;
     if (!res.history || res.history.length === 0) res.history = prev.history;
     if (!res.ohlc_history || res.ohlc_history.length === 0) res.ohlc_history = prev.ohlc_history;
     if (!res.score_breakdown) res.score_breakdown = prev.score_breakdown;

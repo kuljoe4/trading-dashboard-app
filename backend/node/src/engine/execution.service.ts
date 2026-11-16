@@ -25,6 +25,7 @@ export class ExecutionService {
   private readonly logger = new Logger(ExecutionService.name);
   // BOLT: Mode-aware cooldowns to ensure Live mode failures don't block Paper mode testing
   private entryCooldowns: Map<string, number> = new Map();
+  private entryCooldownReasons: Map<string, string> = new Map();
   private consecutiveFailures: Map<string, number> = new Map();
   private loggedAntiWhipsawMap: Map<string, number> = new Map();
   private loggedEntrySkipMap: Map<string, number> = new Map();
@@ -76,10 +77,15 @@ export class ExecutionService {
     private readonly marketFeedService: MarketFeedService,
   ) {}
 
-  public setCooldown(symbol: string, mode: string, minutes: number, strategyLabel?: string) {
+  public setCooldown(symbol: string, mode: string, minutes: number, strategyLabel?: string, reason?: string) {
     if (!Number.isFinite(minutes) || minutes <= 0) return;
     const key = strategyLabel ? `${mode}:${strategyLabel}:${symbol}` : `${mode}:${symbol}`;
     this.entryCooldowns.set(key, Date.now() + minutes * 60 * 1000);
+    if (reason) {
+      this.entryCooldownReasons.set(key, reason);
+    } else {
+      this.entryCooldownReasons.delete(key);
+    }
   }
 
   private getTimeframeMs(tf: string): number {
@@ -347,16 +353,19 @@ export class ExecutionService {
         const cooldownExpiry = this.entryCooldowns.get(cooldownKey);
         if (cooldownExpiry && now < cooldownExpiry) {
           const remSec = Math.ceil((cooldownExpiry - now) / 1000);
-          this.logger.debug(`${opp.symbol}: Entry skipped (${mode}) - symbol is in cooldown for ${remSec}s`);
+          const triggerReason = this.entryCooldownReasons.get(cooldownKey);
+          const msgSuffix = triggerReason ? ` — ${triggerReason}` : '';
+          this.logger.debug(`${opp.symbol}: Entry skipped (${mode}) - symbol is in cooldown for ${remSec}s${msgSuffix}`);
           this.emitEntrySkipLog(
             opp.symbol,
-            opp.strategy_label || config.strategy_label || strategyLabel || 'Momentum Strategy',
+            strategyLabel || opp.strategy_label || config.strategy_label || 'Momentum Strategy',
             'cooldown',
-            `cooldown active (${remSec}s remaining)`,
+            `cooldown active (${remSec}s remaining${msgSuffix})`,
           );
           continue;
         } else if (cooldownExpiry) {
           this.entryCooldowns.delete(cooldownKey);
+          this.entryCooldownReasons.delete(cooldownKey);
         }
 
         const sc = symbolConfigMap?.get(opp.symbol);
@@ -388,11 +397,16 @@ export class ExecutionService {
         const scopedCooldownExpiry = this.entryCooldowns.get(scopedCooldownKey);
         if (scopedCooldownExpiry && now < scopedCooldownExpiry) {
           const remSec = Math.ceil((scopedCooldownExpiry - now) / 1000);
-          this.logger.debug(`${opp.symbol} (${currentStrategyLabel}): Entry skipped (${mode}) - strategy interval cooldown active for ${remSec}s`);
-          this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'scoped_cooldown', `strategy interval cooldown (${remSec}s remaining)`);
+          const triggerReason = this.entryCooldownReasons.get(scopedCooldownKey);
+          const reasonLabel = triggerReason
+            ? `cooldown active (${remSec}s remaining — ${triggerReason})`
+            : `strategy interval cooldown (${remSec}s remaining)`;
+          this.logger.debug(`${opp.symbol} (${currentStrategyLabel}): Entry skipped (${mode}) - ${reasonLabel}`);
+          this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, triggerReason ? 'cooldown' : 'scoped_cooldown', reasonLabel);
           continue;
         } else if (scopedCooldownExpiry) {
           this.entryCooldowns.delete(scopedCooldownKey);
+          this.entryCooldownReasons.delete(scopedCooldownKey);
         }
 
         // Fast-fail resource optimization: Skip entries if this strategy is paused
@@ -734,9 +748,9 @@ export class ExecutionService {
 
         if (sizeResult.qty <= 0) {
           if (sizeResult.rejected) {
-             const rejectMsg = `[Execution] Entry skipped for ${opp.symbol}: ${sizeResult.reason}`;
+             const rejectMsg = `[Execution] ${opp.symbol} (${currentStrategyLabel}): Entry skipped - ${sizeResult.reason}`;
              this.logger.warn(rejectMsg);
-             this.eventEmitter.emit(ENGINE_EVENTS.LOG_MESSAGE, { msg: rejectMsg, level: 'warn' });
+             this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'risk_size_rejected', sizeResult.reason || 'position sizing rejected', 'warn');
              this.broadcastService.broadcast('alert', {
                 level: 'warn',
                 title: 'Entry Rejected',
@@ -991,17 +1005,28 @@ export class ExecutionService {
 
             if (isCircuitOpen) {
               this.logger.warn(`${opp.symbol}: Entry blocked (${mode}) due to global circuit breaker (${result.status}). Error: ${result.error}`);
+              this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'circuit_open', `entry blocked by global circuit breaker (${result.error || result.status})`, 'warn');
             } else {
-              const cooldownKey = `${mode}:${opp.symbol}`;
-              const failures = (this.consecutiveFailures.get(cooldownKey) || 0) + 1;
-              this.consecutiveFailures.set(cooldownKey, failures);
+              const failureKey = `${mode}:${currentStrategyLabel}:${opp.symbol}`;
+              const failures = (this.consecutiveFailures.get(failureKey) || 0) + 1;
+              this.consecutiveFailures.set(failureKey, failures);
 
               let cooldownMinutes = 5;
               if (failures === 2) cooldownMinutes = 15;
               else if (failures >= 3) cooldownMinutes = 60;
 
-              this.entryCooldowns.set(cooldownKey, Date.now() + cooldownMinutes * 60 * 1000);
-              this.logger.warn(`${opp.symbol}: Entry failed (${mode}) with status ${result.status}. Consecutive failures: ${failures}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
+              const failReason = String(result.error || result.status || 'Order rejected by exchange').slice(0, 140);
+              this.entryCooldowns.set(failureKey, Date.now() + cooldownMinutes * 60 * 1000);
+              this.entryCooldownReasons.set(failureKey, `prior entry failed: ${failReason}`);
+              this.logger.warn(`${opp.symbol} (${currentStrategyLabel}): Entry failed (${mode}) with status ${result.status}. Consecutive failures: ${failures}. Cooling down for ${cooldownMinutes}m. Error: ${result.error}`);
+              this.emitEntrySkipLog(
+                opp.symbol,
+                currentStrategyLabel,
+                'entry_failed',
+                `entry failed (${failReason}); cooling down ${cooldownMinutes}m`,
+                'warn',
+                5000,
+              );
 
               this.broadcastService.broadcast('alert', {
                 level: 'warn',
@@ -1015,7 +1040,11 @@ export class ExecutionService {
           // Reset consecutive failures on success
           if (result.status === ExecutionStatus.SUCCESS) {
             const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
+            const successKey = `${mode}:${currentStrategyLabel}:${opp.symbol}`;
+            this.consecutiveFailures.delete(successKey);
+            this.entryCooldownReasons.delete(successKey);
             this.consecutiveFailures.delete(`${mode}:${opp.symbol}`);
+            this.entryCooldownReasons.delete(`${mode}:${opp.symbol}`);
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -1024,7 +1053,18 @@ export class ExecutionService {
           // Also cooldown on exceptions to avoid tight-looping on unexpected errors
           const cooldownMinutes = 2;
           const mode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
-          this.entryCooldowns.set(`${mode}:${opp.symbol}`, Date.now() + cooldownMinutes * 60 * 1000);
+          const errKey = `${mode}:${currentStrategyLabel}:${opp.symbol}`;
+          const shortErr = errMsg.slice(0, 140);
+          this.entryCooldowns.set(errKey, Date.now() + cooldownMinutes * 60 * 1000);
+          this.entryCooldownReasons.set(errKey, `prior exception: ${shortErr}`);
+          this.emitEntrySkipLog(
+            opp.symbol,
+            currentStrategyLabel,
+            'entry_exception',
+            `entry exception (${shortErr}); cooling down ${cooldownMinutes}m`,
+            'warn',
+            5000,
+          );
         } finally {
           this.positionTracker.setEntering(opp.symbol, false);
           // SRE: Release the entry pipeline lock

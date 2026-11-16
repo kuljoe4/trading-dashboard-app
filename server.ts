@@ -482,7 +482,7 @@ function getScannerOpportunities(cfg?: any) {
   } else {
     const discoveryMode = targetConfig.discovery_mode || 'volume';
     const entrySide = String(targetConfig.entry_side || 'both').toLowerCase();
-    if (discoveryMode === 'losers' || (discoveryMode === 'change_pct' && entrySide === 'short')) {
+    if (discoveryMode === 'loss_pct' || discoveryMode === 'losers' || (discoveryMode === 'change_pct' && entrySide === 'short')) {
       items.sort((a, b) => a.momentum - b.momentum);
     } else if (discoveryMode === 'change_pct') {
       items.sort((a, b) => b.momentum - a.momentum);
@@ -1070,9 +1070,12 @@ function getVariantOpportunitiesData() {
       const hasVariantSymbols = Array.isArray(v.symbols);
       const hasVariantScannerOverride =
         v.watchlist_size !== undefined ||
+        v.watchlist_offset !== undefined ||
         v.discovery_mode !== undefined ||
         v.scan_interval !== undefined ||
-        v.global_scanner_enabled !== undefined;
+        v.global_scanner_enabled !== undefined ||
+        v.smart_watchlist_enabled !== undefined ||
+        v.smart_watchlist_sensitivity !== undefined;
 
       const variantSymbols = hasVariantSymbols
         ? v.symbols

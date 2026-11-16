@@ -586,9 +586,10 @@ export function buildStrategyNarrative({
   const warmingItems = timeframeDebugItems.filter(i => i.isWarming);
   if (warmingItems.length > 0 && strategyActiveTrades.length === 0) {
     const first = warmingItems[0];
+    const progressSuffix = first.candles != null && first.required != null ? `: ${first.candles}/${first.required}` : '';
     return {
       tone: 'warning',
-      headline: `Warming ${warmingItems.length} candle buffer${warmingItems.length > 1 ? 's' : ''} (${first.label} ${first.tf}: ${first.candles}/${first.required})`,
+      headline: `Warming ${warmingItems.length} candle buffer${warmingItems.length > 1 ? 's' : ''} (${first.label} ${first.tf}${progressSuffix})`,
       detail: 'Historical candles are still populating; technical evaluation unlocks automatically once buffers complete.',
       when: `Stream ${streamAgeSec}s`,
     };

@@ -229,7 +229,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
   const content = (
     <div
       className={cn(
-        "bg-surface border border-border rounded-xl hover:border-border-hover hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col items-start min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none",
+        "bg-surface border border-border rounded-xl hover:border-border-hover hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col items-start h-full w-full min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none",
         compact
           ? "p-2.5 min-h-[48px] md:min-h-[56px]"
           : "p-3.5 md:p-4 min-h-[64px] md:min-h-[76px]"
@@ -243,8 +243,8 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
       <div className="flex flex-col items-start self-start w-full gap-1">
-        <div className="flex items-center gap-1.5 w-full">
-          <div className={cn("text-dim tracking-wider uppercase font-bold leading-snug flex-1", compact ? "text-[8.5px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">
+        <div className="flex items-center gap-1.5 w-full min-w-0">
+          <div className={cn("text-dim tracking-wider uppercase font-bold leading-snug flex-1 min-w-0 truncate", compact ? "text-[8.5px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">
             {label}
           </div>
           {tooltipText && <Info size={compact ? 9 : 11} className="text-dim/40 group-hover:text-accent group-focus-visible:text-accent transition-colors shrink-0 cursor-help" />}
@@ -831,8 +831,8 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         aria-label={`${title} Header (${isScrolled ? 'Collapsed' : 'Expanded'})`}
         tabIndex={0}
         className={cn(
-          "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset py-2 px-2.5 sm:px-3.5 [overflow-anchor:none] transition-[background-color,border-color,box-shadow,border-radius] duration-200",
-          hasSplitStickyMetrics ? "mb-0" : "mb-3 lg:mb-4",
+          "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset py-1.5 sm:py-2 px-2.5 sm:px-3.5 [overflow-anchor:none] transition-[background-color,border-color,box-shadow,border-radius] duration-200",
+          hasSplitStickyMetrics ? "mb-0" : "mb-2 lg:mb-4",
           hasSplitStickyMetrics && !isScrolled ? "rounded-t-2xl" : "rounded-2xl",
           sticky && "sticky top-0 backdrop-blur-xl border-b",
           sticky && isScrolled
@@ -841,14 +841,14 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         )}
       >
         {/* ROW 1: Brand / Title / Navigation & Action Controls */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 relative w-full min-h-[36px]">
+        <div className="flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[30px] sm:min-h-[36px] min-w-0">
           {/* Left Side: Title, Icon and Badges */}
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             {backAction && (
               <button
                 onClick={backAction}
                 aria-label="Go back"
-                className="p-1.5 hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                className="p-1 sm:p-1.5 hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
               >
                 <ChevronLeft size={14} className="text-dim group-hover:text-text" />
               </button>
@@ -873,7 +873,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
                   </div>
                 </div>
                 {subTitle && (
-                  <div className="flex items-center gap-2 min-w-0 transition-opacity duration-200">
+                  <div className="hidden sm:flex items-center gap-2 min-w-0 transition-opacity duration-200">
                     <p className="text-[9px] text-dim font-bold uppercase tracking-widest truncate opacity-80">
                       {subTitle}
                     </p>
@@ -918,7 +918,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
       {hasSplitStickyMetrics && metricsStripContent && (
         <div
           className={cn(
-            "relative w-full mb-3 lg:mb-4 py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
+            "relative w-full mb-2 lg:mb-4 py-1 sm:py-1.5 px-2.5 sm:px-3.5 rounded-b-2xl border-b border-border/20 bg-background/60 transition-opacity duration-200 [overflow-anchor:none]",
             showDropdown ? "z-30" : "z-10",
             isScrolled ? "opacity-0 pointer-events-none" : "opacity-100"
           )}

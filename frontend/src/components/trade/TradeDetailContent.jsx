@@ -1632,8 +1632,12 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
         }
       })
 
+      const initialSlVal = Number(trade?.sl_price ?? trade?.current_sl ?? 0);
+      const nextSlVal = Number(formSl);
+      const slChanged = formSl !== '' && Number.isFinite(nextSlVal) && Math.abs(nextSlVal - initialSlVal) > 1e-12;
+
       const payload = {
-        current_sl: Number(formSl),
+        ...(slChanged ? { current_sl: nextSlVal } : {}),
         live_rr_sequence,
         exit_rr_sequence,
         strategy_config: {

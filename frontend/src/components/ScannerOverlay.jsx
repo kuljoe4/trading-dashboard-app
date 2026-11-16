@@ -211,7 +211,7 @@ export const DiscoveryModeDropdown = React.memo(({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const normalizedMode = discoveryMode === 'pct_change' ? 'change_pct' : discoveryMode;
+  const normalizedMode = discoveryMode === 'pct_change' ? 'change_pct' : discoveryMode === 'loss_pct' ? 'losers' : discoveryMode;
   const activeOption = DISCOVERY_MODES.find(m => m.id === normalizedMode) || DISCOVERY_MODES[0];
 
   const buttonLabel = isPureStatic
@@ -279,7 +279,7 @@ export const DiscoveryModeDropdown = React.memo(({
             )}
 
             {DISCOVERY_MODES.map(m => {
-              const isSelected = !isPureStatic && (discoveryMode === m.id || (m.id === 'change_pct' && discoveryMode === 'pct_change'));
+              const isSelected = !isPureStatic && (normalizedMode === m.id || discoveryMode === m.id);
               return (
                 <button
                   key={m.id}
@@ -373,7 +373,7 @@ export const StrategyWatchlistPicker = React.memo(({ symbol, effectiveStrategyLa
   const isInActive = activeSymbols.includes(symbol);
 
   return (
-    <div className={cn("relative inline-flex items-center shrink-0", isOpen ? "z-40" : "z-0")} ref={dropdownRef}>
+    <div className={cn("relative inline-flex items-center shrink-0 align-middle", isOpen ? "z-40" : "z-0")} ref={dropdownRef}>
       <button
         type="button"
         onClick={(e) => {
@@ -382,8 +382,8 @@ export const StrategyWatchlistPicker = React.memo(({ symbol, effectiveStrategyLa
           else addToWatchlist(symbol, activeStrategyLabel);
         }}
         className={cn(
-          "rounded-l-md text-[10px] font-mono font-bold flex items-center gap-1 transition-all cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent border border-r-0",
-          compact ? "p-1" : "px-2 py-1",
+          "h-[22px] rounded-l-md text-[10px] font-mono font-bold inline-flex items-center justify-center gap-1 leading-none transition-all cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent border border-r-0",
+          compact ? "w-[22px] px-0" : "px-2",
           isInActive
             ? "text-accent bg-accent/20 border-accent/40"
             : "bg-surface border-border text-dim hover:text-text hover:border-accent/40"
@@ -401,8 +401,8 @@ export const StrategyWatchlistPicker = React.memo(({ symbol, effectiveStrategyLa
           setIsOpen(!isOpen);
         }}
         className={cn(
-          "rounded-r-md text-[10px] font-mono font-bold flex items-center justify-center transition-all cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent border",
-          compact ? "p-1" : "px-1.5 py-1",
+          "h-[22px] rounded-r-md text-[10px] font-mono font-bold inline-flex items-center justify-center leading-none transition-all cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent border",
+          compact ? "w-[18px] px-0" : "px-1.5",
           isInActive
             ? "text-accent bg-accent/25 border-accent/40 hover:bg-accent/35"
             : "bg-surface border-border text-dim hover:text-text hover:border-accent/40"
@@ -632,7 +632,7 @@ const ScannerRow = React.memo(({ opp, i, config, isInPosition, isMonitored, effe
         </div>
 
         <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1 md:flex-none overflow-hidden">
-          <span className="text-[11.5px] md:text-[12.5px] font-bold font-mono truncate shrink-0 max-w-[84px] sm:max-w-none">
+          <span className="text-[11.5px] md:text-[12.5px] font-bold font-mono truncate min-w-0">
             {opp.symbol.replace("USDT", "")}
           </span>
           {isInPosition && <InPosBadge className="shrink-0 scale-90" />}
@@ -790,9 +790,12 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
     const hasVariantSymbols = Array.isArray(variant.symbols);
     const hasVariantScannerOverride =
       variant.watchlist_size !== undefined ||
+      variant.watchlist_offset !== undefined ||
       variant.discovery_mode !== undefined ||
       variant.scan_interval !== undefined ||
-      variant.global_scanner_enabled !== undefined;
+      variant.global_scanner_enabled !== undefined ||
+      variant.smart_watchlist_enabled !== undefined ||
+      variant.smart_watchlist_sensitivity !== undefined;
 
     const variantSymbols = hasVariantSymbols
       ? variant.symbols
@@ -870,7 +873,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
   const handleSelectDiscoveryMode = React.useCallback((modeId) => {
     setDiscoveryMode(modeId);
     if (modeId === 'all') return;
-    const targetMode = modeId === 'change_pct' ? 'pct_change' : modeId;
+    const targetMode = modeId === 'losers' ? 'loss_pct' : modeId === 'pct_change' ? 'change_pct' : modeId;
     if (isVariant) {
       const updatedVariants = (config?.strategy_variants || []).map(v =>
         v.strategy_label === effectiveStrategyLabel ? { ...v, discovery_mode: targetMode } : v
@@ -955,7 +958,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       results = results
         .sort((a, b) => side === 'short' ? (a.pct || 0) - (b.pct || 0) : (b.pct || 0) - (a.pct || 0))
         .slice(0, 15);
-    } else if (discoveryMode === 'losers') {
+    } else if (discoveryMode === 'losers' || discoveryMode === 'loss_pct') {
       results = results
         .sort((a, b) => (a.pct || 0) - (b.pct || 0))
         .slice(0, 15);
@@ -1009,7 +1012,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
   }, [strategyConfig?.single_symbol_configs]);
 
   return (
-    <div className="flex flex-col h-full min-h-[480px] sm:min-h-[580px] w-full max-w-full min-w-0 bg-surface text-text overflow-hidden">
+    <div className="flex flex-col flex-1 h-full min-h-0 w-full max-w-full min-w-0 bg-surface text-text overflow-hidden">
       {/* ==================== FIXED ROW 1: STRATEGY SWITCHER, DISCOVERY MENU DROPDOWN, COUNTER & CLOSE ==================== */}
       <div className="px-2.5 sm:px-3 py-1 border-b border-border bg-surface flex items-center justify-between gap-1.5 sm:gap-2 shrink-0 h-[38px] min-h-[38px] relative z-30 w-full max-w-full min-w-0">
         {/* Left: Status Dot, Title, Strategy Switcher Dropdown & Discovery Mode Dropdown */}
@@ -1205,7 +1208,7 @@ export const ScannerOverlay = React.memo(({ onClose, selectedStrategyLabel }) =>
       </div>
 
       {/* ==================== SCROLLABLE BODY (NON-STICKY WATCHLIST BAR + CANDIDATE ROWS) ==================== */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden no-scrollbar min-h-0 pb-6 overscroll-contain relative z-0 w-full max-w-full min-w-0" data-vaul-no-drag>
+      <div className="flex-1 overflow-y-auto overflow-x-hidden touch-pan-y no-scrollbar min-h-0 pb-6 overscroll-contain relative z-0 w-full max-w-full min-w-0" data-vaul-no-drag>
         {/* Non-Sticky Target Strategy & Watchlist Summary Strip (scrolls away cleanly on mobile) */}
         <div className="border-b border-border/50 bg-background/20 w-full max-w-full min-w-0">
           <div className="flex items-center justify-between px-2.5 sm:px-3.5 py-1 min-h-[30px] gap-2 w-full max-w-full min-w-0">

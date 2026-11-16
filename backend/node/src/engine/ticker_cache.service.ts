@@ -22,6 +22,7 @@ export class TickerCacheService {
   private hasReceivedFirstData = false;
   private _topByVolumeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private _topByChangeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
+  private _topByLossCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private _topByAbsChangeCache: Map<string, { data: Ticker[]; timestamp: number }> = new Map();
   private readonly TOP_VOLUME_CACHE_TTL_MS = 300000;
   private readonly TOP_VOLUME_CACHE_MAX_KEYS = 12;
@@ -257,6 +258,53 @@ export class TickerCacheService {
     return result;
   }
 
+  topByLossPct(n: number, excluded: string[] = []): Ticker[] {
+    const cacheKey = this.getCacheKey(n, excluded);
+    const cached = this._topByLossCache.get(cacheKey);
+    const now = Date.now();
+
+    if (cached && (now - cached.timestamp < this.TOP_VOLUME_CACHE_TTL_MS)) {
+      return cached.data;
+    }
+
+    const hasExclusions = excluded && excluded.length > 0;
+    const excludedSet = hasExclusions ? new Set(excluded) : null;
+    const all = this.getLatestTickers();
+    this.logger.verbose(`topByLossPct requested ${n} symbols. Cache size: ${all.length}. Cache miss - recomputing.`);
+
+    const mapped: { ticker: Ticker; change: number }[] = [];
+    const len = all.length;
+    for (let i = 0; i < len; i++) {
+      const t = all[i];
+      if (!excludedSet?.has(t.symbol) && t.price && t.open_24h && t.open_24h > 0) {
+        const change = ((t.price - t.open_24h) / t.open_24h) * 100;
+        mapped.push({ ticker: t, change });
+      }
+    }
+
+    mapped.sort((a, b) => a.change - b.change);
+
+    const resultLen = Math.min(n, mapped.length);
+    const result: Ticker[] = new Array(resultLen);
+    for (let i = 0; i < resultLen; i++) {
+      result[i] = mapped[i].ticker;
+    }
+
+    if (!this._topByLossCache.has(cacheKey) && this._topByLossCache.size >= this.TOP_VOLUME_CACHE_MAX_KEYS) {
+      const firstKey = this._topByLossCache.keys().next().value;
+      if (firstKey !== undefined) {
+        this._topByLossCache.delete(firstKey);
+      }
+    }
+
+    this._topByLossCache.set(cacheKey, {
+      data: result,
+      timestamp: now
+    });
+
+    return result;
+  }
+
   topByAbsChangePct(n: number, excluded: string[] = []): Ticker[] {
     // BOLT OPTIMIZATION: Use zero-allocation cache key generator
     const cacheKey = this.getCacheKey(n, excluded);
@@ -316,6 +364,7 @@ export class TickerCacheService {
     this.tickers.clear();
     this._topByVolumeCache.clear();
     this._topByChangeCache.clear();
+    this._topByLossCache.clear();
     this._topByAbsChangeCache.clear();
     this.latestTickersCache = null; // Invalidate cache on clear
     this.logger.verbose('TickerCache cleared');

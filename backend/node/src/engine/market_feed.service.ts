@@ -841,16 +841,18 @@ export class MarketFeedService {
               // Ensure we also include the standard top volume or change-pct symbols to avoid missing established liquidity
               const discoveryMode = config.discovery_mode || 'volume';
               const topSymbols = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-                : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
-                  : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
+                : discoveryMode === 'loss_pct' ? await this.tickerCache.topByLossPct(Math.floor(watchlistSize / 2), combinedExcluded)
+                  : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(Math.floor(watchlistSize / 2), combinedExcluded)
+                    : await this.tickerCache.topByVolume(Math.floor(watchlistSize / 2), combinedExcluded);
               const volumeSymbols = topSymbols.map(t => t.symbol);
 
               symbols = Array.from(new Set([...symbols, ...volumeSymbols])).filter(s => !activeExcludedSet.has(s));
             } else {
               const discoveryMode = config.discovery_mode || 'volume';
               const top = discoveryMode === 'change_pct' ? await this.tickerCache.topByChangePct(watchlistSize + offset, combinedExcluded)
-                : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(watchlistSize + offset, combinedExcluded)
-                  : await this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
+                : discoveryMode === 'loss_pct' ? await this.tickerCache.topByLossPct(watchlistSize + offset, combinedExcluded)
+                  : discoveryMode === 'abs_change_pct' ? await this.tickerCache.topByAbsChangePct(watchlistSize + offset, combinedExcluded)
+                    : await this.tickerCache.topByVolume(watchlistSize + offset, combinedExcluded);
               const slicedTop = top.slice(offset);
 
               // COMPLIANCE: Filter by getSymbolFilters() to exclude non-crypto symbols (Gold, Equities)
@@ -890,9 +892,11 @@ export class MarketFeedService {
                 const scOffset = sc.watchlist_offset || 0;
                 const scTop = effectiveDiscoveryMode === 'change_pct'
                   ? await this.tickerCache.topByChangePct(effectiveWatchlistSize + scOffset, combinedExcluded)
-                  : effectiveDiscoveryMode === 'abs_change_pct'
-                    ? await this.tickerCache.topByAbsChangePct(effectiveWatchlistSize + scOffset, combinedExcluded)
-                    : await this.tickerCache.topByVolume(effectiveWatchlistSize + scOffset, combinedExcluded);
+                  : effectiveDiscoveryMode === 'loss_pct'
+                    ? await this.tickerCache.topByLossPct(effectiveWatchlistSize + scOffset, combinedExcluded)
+                    : effectiveDiscoveryMode === 'abs_change_pct'
+                      ? await this.tickerCache.topByAbsChangePct(effectiveWatchlistSize + scOffset, combinedExcluded)
+                      : await this.tickerCache.topByVolume(effectiveWatchlistSize + scOffset, combinedExcluded);
                 scSymbols = scTop
                   .slice(scOffset)
                   .map((t: any) => t.symbol)

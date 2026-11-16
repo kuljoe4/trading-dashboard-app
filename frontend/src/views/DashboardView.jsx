@@ -37,7 +37,6 @@ import { Sidebar, BottomNav } from '../components/Navigation'
 import { lazyWithRetry } from '../lib/lazy'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { useNow } from '../hooks/useNow'
-import { ApiHealthWidget } from '../components/ApiHealthWidget'
 
 const TemporalRiskGrid = React.memo(() => {
   const { config, gateState, gateReason, isAdaptiveTightened, configSyncing, patchConfig, tradesInPeriod, maxTradesPeriod, tradesIn24h, maxTrades24h, effectivePeriodMs, nextSlotTs } = useTradingStore(state => ({
@@ -144,14 +143,35 @@ const ScannerOverlay = lazyWithRetry(() => import('../components/ScannerOverlay'
 const StrategyDetailView = lazyWithRetry(() => import('./StrategyDetailView'))
 
 // --- Observable Periodic Revenue Bar Chart (Daily, Weekly, Monthly) ---
-const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) => {
+const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000, config = {} }) => {
   const [timeframe, setTimeframe] = useState('7D'); // '7D' (Daily), '4W' (Weekly), '6M' (Monthly), '1Y' (Monthly)
+  const [selectedStrategy, setSelectedStrategy] = useState('ALL');
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [isChartExpanded, setIsChartExpanded] = useState(false);
 
-  const periodicData = useMemo(() => {
+  const strategyOptions = useMemo(() => {
+    const labels = new Set();
+    if (config?.strategy_label) labels.add(config.strategy_label);
+    if (Array.isArray(config?.strategy_variants)) {
+      for (const v of config.strategy_variants) {
+        if (v?.strategy_label && v.enabled !== false) labels.add(v.strategy_label);
+      }
+    }
+    for (const t of (tradeHistory || [])) {
+      if (t?.strategy_label) labels.add(t.strategy_label);
+    }
+    return Array.from(labels);
+  }, [config?.strategy_label, config?.strategy_variants, tradeHistory]);
+
+  const filteredHistory = useMemo(() => {
     const trades = tradeHistory || [];
+    if (selectedStrategy === 'ALL') return trades;
+    return trades.filter(t => (t?.strategy_label || config?.strategy_label || 'Momentum Strategy') === selectedStrategy);
+  }, [tradeHistory, selectedStrategy, config?.strategy_label]);
+
+  const periodicData = useMemo(() => {
+    const trades = filteredHistory;
     const now = new Date();
     const buckets = [];
 
@@ -246,7 +266,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
     if (maxVal === 0) maxVal = 500; // baseline scale
 
     return { buckets, maxVal };
-  }, [tradeHistory, timeframe]);
+  }, [filteredHistory, timeframe]);
 
   const { buckets, maxVal } = periodicData;
   // BOLT OPTIMIZATION: Fused totalRevenue calculation
@@ -258,7 +278,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
 
   // Period Quick Badges (Today, 7D, 30D)
   const periodBadges = useMemo(() => {
-    const trades = tradeHistory || [];
+    const trades = filteredHistory;
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const sevenDaysAgo = now.getTime() - (7 * 24 * 60 * 60 * 1000);
@@ -281,7 +301,7 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
     }
 
     return { today, d7, d30 };
-  }, [tradeHistory]);
+  }, [filteredHistory]);
 
   return (
     <div className="bg-surface border border-border rounded-2xl p-4 sm:p-5 md:p-6 shadow-md shadow-black/20 flex flex-col gap-3 sm:gap-4 overflow-hidden w-full">
@@ -324,6 +344,24 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
         </div>
 
         <div className="flex items-center gap-2 shrink-0 ml-auto">
+          {strategyOptions.length > 0 && (
+            <select
+              aria-label="Filter periodic performance by strategy"
+              value={selectedStrategy}
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                setSelectedStrategy(e.target.value);
+                setSelectedIndex(null);
+              }}
+              className="hidden sm:block h-7 px-2 rounded-lg bg-background/70 border border-border/50 text-[10px] font-mono font-bold text-text focus:outline-none focus:border-accent max-w-[160px] truncate cursor-pointer"
+            >
+              <option value="ALL">All Strategies</option>
+              {strategyOptions.map(label => (
+                <option key={label} value={label}>{label}</option>
+              ))}
+            </select>
+          )}
           <div className={cn(
             "p-1.5 rounded-lg border border-border/40 bg-surface/50 text-dim group-hover:text-accent group-hover:border-accent/40 transition-all",
             isChartExpanded && "text-accent border-accent/40 bg-accent/5 rotate-180"
@@ -343,9 +381,29 @@ const MonthlyRevenueChart = React.memo(({ tradeHistory = [], balance = 10000 }) 
             transition={{ duration: 0.3 }}
             className="overflow-hidden flex flex-col gap-4 pt-2 border-t border-border/20"
           >
-            {/* Multi-Horizon Granularity Controls */}
+            {/* Multi-Horizon Granularity & Strategy Filter Controls */}
             <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-[9px] text-dim font-black uppercase tracking-widest">Timeframe Horizon:</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[9px] text-dim font-black uppercase tracking-widest">Timeframe Horizon:</span>
+                {strategyOptions.length > 0 && (
+                  <select
+                    aria-label="Filter periodic performance by strategy"
+                    value={selectedStrategy}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      setSelectedStrategy(e.target.value);
+                      setSelectedIndex(null);
+                    }}
+                    className="sm:hidden h-7 px-2 rounded-lg bg-background/70 border border-border/50 text-[10px] font-mono font-bold text-text focus:outline-none focus:border-accent max-w-[160px] truncate cursor-pointer"
+                  >
+                    <option value="ALL">All Strategies</option>
+                    {strategyOptions.map(label => (
+                      <option key={label} value={label}>{label}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
               <div className="flex items-center gap-1 sm:gap-1.5 bg-background/50 border border-border/40 p-1 rounded-xl overflow-x-auto no-scrollbar shrink-0">
                 {[
                   { id: '7D', shortLabel: '7D', fullLabel: '7 Days' },
@@ -2158,7 +2216,6 @@ export function DashboardView({ initialStrategy }) {
 
         <div aria-live="polite">
           <BanBanner apiStatus={apiStatus} />
-          <ApiHealthWidget className="mb-3" />
           {agreementRequired && (
             <motion.div
               initial={{ opacity: 0, y: -20 }}
@@ -2233,7 +2290,7 @@ export function DashboardView({ initialStrategy }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-2.5">
             <StatCard
               compact={!globalMetricsExpanded}
               label="Account Balance"
@@ -2563,9 +2620,9 @@ export function DashboardView({ initialStrategy }) {
           </AnimatePresence>
         </div>
 
-        {/* Compact Secondary Drawers: Periodic P&L + Collapsible Session Logs */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-          <MonthlyRevenueChart tradeHistory={tradeHistory} balance={balance} />
+        {/* Full-Width Secondary Drawers: Periodic P&L + Collapsible Session Logs */}
+        <div className="flex flex-col gap-3 w-full">
+          <MonthlyRevenueChart tradeHistory={tradeHistory} balance={balance} config={config} />
 
           <div className="bg-surface border border-border rounded-xl px-3 py-2.5 sm:px-3.5 shadow-sm flex flex-col gap-2.5 overflow-hidden w-full">
             <div

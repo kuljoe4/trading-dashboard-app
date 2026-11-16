@@ -4647,10 +4647,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
                 {renderField('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
-                <Tooltip content="Determines how candidate symbols are selected from Binance 24h market rankings: Top Volume (liquidity-focused), Top Price Change % (momentum gainers/losers), or Top Absolute Movement (volatile movers).">
+                <Tooltip content="Determines how candidate symbols are selected from Binance 24h market rankings: Top Volume (liquidity-focused), Top Gainers % (rising 24h momentum), Top Losers % (falling 24h momentum), or Top Absolute Movement (volatile movers).">
                   {renderField('Discovery Mode', 'discovery_mode', 'text', [
                     { value: 'volume', label: 'Top 24h Volume' },
-                    { value: 'change_pct', label: 'Top 24h Price Change %' },
+                    { value: 'change_pct', label: 'Top 24h Gainers (%)' },
+                    { value: 'loss_pct', label: 'Top 24h Losers (%)' },
                     { value: 'abs_change_pct', label: 'Top Absolute Movement (Gainers & Losers)' }
                   ])}
                 </Tooltip>

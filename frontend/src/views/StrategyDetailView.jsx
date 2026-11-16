@@ -163,7 +163,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [activeTab, setActiveTab] = useState('pipeline') // 'pipeline' | 'decisions' | 'performance'
   const [rulesMobileSection, setRulesMobileSection] = useState('all') // 'all' | 'entry' | 'exit' | 'risk'
   const [showAllStaticSymbols, setShowAllStaticSymbols] = useState(false)
-  const [showWarmupDebug, setShowWarmupDebug] = useState(false)
+  const [showWarmupDebug, setShowWarmupDebug] = useState(null)
   const [showScannerPreview, setShowScannerPreview] = useState(false)
   const [showComplianceNotes, setShowComplianceNotes] = useState(false)
   const [expandedReasonIds, setExpandedReasonIds] = useState({})
@@ -201,9 +201,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     const hasVariantSymbols = Array.isArray(variant.symbols);
     const hasVariantScannerOverride =
       variant.watchlist_size !== undefined ||
+      variant.watchlist_offset !== undefined ||
       variant.discovery_mode !== undefined ||
       variant.scan_interval !== undefined ||
-      variant.global_scanner_enabled !== undefined;
+      variant.global_scanner_enabled !== undefined ||
+      variant.smart_watchlist_enabled !== undefined ||
+      variant.smart_watchlist_sensitivity !== undefined;
 
     const variantSymbols = hasVariantSymbols
       ? variant.symbols
@@ -342,13 +345,6 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       if (activeT) {
         const snapshotOpp = entrySnapshotOpportunity(activeT);
         if (snapshotOpp) return snapshotOpp;
-        return {
-          symbol: activeT.symbol,
-          pct: 0,
-          dir: activeT.direction?.toLowerCase() || 'long',
-          close: activeT.current_price || activeT.entry_price || 0,
-          signalResult: { allFired: true, firedSignals: strategyConfig.enabled_signals || [] }
-        };
       }
       return { symbol: selectedFocusSymbol, pct: 0, dir: '---', signalResult: { allFired: false, firedSignals: [] } };
     }
@@ -357,16 +353,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     if (strategyActiveTrades[0]) {
       const snapshotOpp = entrySnapshotOpportunity(strategyActiveTrades[0]);
       if (snapshotOpp) return snapshotOpp;
-      return {
-        symbol: strategyActiveTrades[0].symbol,
-        pct: 0,
-        dir: strategyActiveTrades[0].direction?.toLowerCase() || 'long',
-        close: strategyActiveTrades[0].current_price || strategyActiveTrades[0].entry_price || 0,
-        signalResult: { allFired: true, firedSignals: strategyConfig.enabled_signals || [] }
-      };
     }
     return { symbol: '---', pct: 0, dir: '---' };
-  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyTrades, strategyConfig.enabled_signals]);
+  }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyTrades]);
 
   const bestOpp = focusedOpp;
   const diagnosticStrategyConfig = useMemo(() => (
@@ -511,17 +500,27 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     const items = [];
 
     const hasCand = bestOpp.symbol && bestOpp.symbol !== '---';
-    const ohlcLen = bestOpp.ohlc_history?.length || bestOpp.history?.length || 0;
-    const reqScanWarmup = 50;
-    const scannerWarming = ohlcLen > 0 && ohlcLen < reqScanWarmup;
+    // ohlc_history/history are intentionally sliced to SPARKLINE_HISTORY_LEN (20) by the backend for bandwidth savings;
+    // never treat the 20-bar UI sparkline as klineStore depth. Use explicit candle_count when provided.
+    const knownCandleCount = typeof bestOpp.candle_count === 'number' && Number.isFinite(bestOpp.candle_count)
+      ? bestOpp.candle_count
+      : null;
+    const reqScanWarmup = Math.max(2, Number(strategyConfig.scan_lookback || 1) + 1);
+    const scannerWarming = knownCandleCount !== null && knownCandleCount < reqScanWarmup;
+    const isEvaluated = Boolean(hasCand && (bestOpp.signalResult || (bestOpp.ohlc_history?.length || bestOpp.history?.length || 0) > 0 || knownCandleCount !== null));
+
     items.push({
       key: 'scanner',
       label: 'Scanner Velocity',
       tf: scanTf,
-      candles: ohlcLen > 0 ? ohlcLen : null,
-      required: reqScanWarmup,
+      candles: knownCandleCount,
+      required: scannerWarming ? reqScanWarmup : null,
       isWarming: scannerWarming,
-      statusMsg: scannerWarming ? `${ohlcLen}/${reqScanWarmup}` : (ohlcLen > 0 ? `${ohlcLen} bars` : (hasCand ? 'Engine Synced' : 'Standby'))
+      statusMsg: !hasCand
+        ? 'Standby'
+        : scannerWarming
+          ? `${knownCandleCount}/${reqScanWarmup}`
+          : (knownCandleCount !== null ? `${knownCandleCount} bars` : (isEvaluated ? 'Engine Synced' : 'Standby'))
     });
 
     for (const sig of enabled) {
@@ -529,13 +528,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       const tf = (!rawTf || rawTf === 'default') ? scanTf : rawTf;
       const sigDetail = signalResult.signals?.[sig] || {};
 
-      const isWarming = sigDetail.insufficientData === true || (typeof sigDetail.value === 'number' && typeof sigDetail.threshold === 'number' && sigDetail.insufficientData);
-      const candles = sigDetail.insufficientData && typeof sigDetail.value === 'number'
-        ? sigDetail.value
-        : (ohlcLen > 0 ? ohlcLen : null);
-      const required = sigDetail.insufficientData && typeof sigDetail.threshold === 'number'
-        ? sigDetail.threshold
-        : 100;
+      const isWarming = sigDetail.insufficientData === true;
+      const candles = typeof sigDetail.candleCount === 'number'
+        ? sigDetail.candleCount
+        : (!isWarming && tf === scanTf && knownCandleCount !== null ? knownCandleCount : null);
+      const required = isWarming && typeof sigDetail.requiredCandles === 'number'
+        ? sigDetail.requiredCandles
+        : null;
 
       items.push({
         key: sig,
@@ -543,8 +542,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         tf,
         candles,
         required,
-        isWarming: Boolean(isWarming),
-        statusMsg: isWarming && candles !== null ? `${candles}/${required}` : (candles !== null ? `${candles} bars` : (hasCand ? 'Engine Synced' : 'Standby'))
+        isWarming,
+        statusMsg: !hasCand
+          ? 'Standby'
+          : isWarming
+            ? (candles !== null && required !== null ? `${candles}/${required}` : 'Warming')
+            : (candles !== null ? `${candles} bars` : (isEvaluated ? 'Engine Synced' : 'Standby'))
       });
     }
 
@@ -552,6 +555,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, [strategyConfig, bestOpp, signalResult]);
 
   const anyWarming = useMemo(() => timeframeDebugItems.some(i => i.isWarming), [timeframeDebugItems]);
+  const isWarmupOpen = showWarmupDebug === null ? anyWarming : showWarmupDebug;
 
   // 6-Milestone Interactive Journey Map Specification
   const journeyMilestones = useMemo(() => {
@@ -704,6 +708,40 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   // Stable fallback timestamp so entries don't drift on 1s timer ticks
   const stableFallbackTs = lastScanTs || lastAuthoritativeUpdateTs;
 
+  // Track latest Stage 3 cooldown/anti-whipsaw/skip blocks per symbol so Stage 2 doesn't contradict Stage 3 with ALLOWED
+  const activeStage3BlockBySymbol = useMemo(() => {
+    const map = new Map();
+    const otherStrategyLabels = [
+      config?.strategy_label,
+      ...((config?.strategy_variants || []).map(v => v?.strategy_label)),
+    ].filter(lbl => lbl && lbl !== stratName);
+
+    for (let i = 0; i < (logs || []).length; i++) {
+      const log = logs[i];
+      const msg = typeof log.message === 'string' ? log.message : (typeof log.msg === 'string' ? log.msg : '');
+      if (!msg) continue;
+      if (!msg.includes('Entry skipped') && !msg.includes('Entry Rejected') && !msg.includes('Anti-Whipsaw')) continue;
+      const isStrategyLog = msg.includes(`(${stratName})`) || msg.includes(stratName);
+      const isOtherStrategyLog = !isStrategyLog && otherStrategyLabels.some(lbl => msg.includes(`(${lbl})`));
+      if (isOtherStrategyLog) continue;
+
+      const symMatch = msg.match(/\b([A-Z0-9]{2,12}USDT)\b/);
+      if (!symMatch) continue;
+      const sym = symMatch[1];
+      const logTs = log.ts_ms || (log.timestamp ? new Date(log.timestamp).getTime() : (log.ts ? new Date(log.ts).getTime() : 0));
+      if (!logTs) continue;
+
+      const remMatch = msg.match(/\((\d+)s remaining/i);
+      const expiresAt = remMatch ? logTs + Number(remMatch[1]) * 1000 : logTs + 90_000;
+      const existing = map.get(sym);
+      if (!existing || logTs > existing.logTs) {
+        const cleaned = msg.replace(/\[(Decision|Anti-Whipsaw|Execution)\]\s*/g, '').trim();
+        map.set(sym, { logTs, expiresAt, reason: cleaned });
+      }
+    }
+    return map;
+  }, [logs, stratName, config?.strategy_label, config?.strategy_variants]);
+
   // Aggregated Strategy Reasons & Causal Decision Log
   const liveStrategyReasons = useMemo(() => {
     const list = [];
@@ -816,18 +854,34 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           details: { firedSignals: fired.map(formatSignalLabel), missingSignals: missing.map(formatSignalLabel), formula: conditionFormula }
         });
       } else {
+        const stage3Block = activeStage3BlockBySymbol.get(opp.symbol);
+        const nowCheck = lastAuthoritativeUpdateTs || stableFallbackTs || Date.now();
+        const hasActiveSkip = stage3Block && (nowCheck < stage3Block.expiresAt || stage3Block.logTs >= candTs - 15_000);
+        const isStage3Blocked = isStrategyPaused
+          || (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK')
+          || Boolean(hasActiveSkip);
+        const blockCause = isStrategyPaused
+          ? 'Strategy automation paused'
+          : (effectiveGate && effectiveGate !== 'ACTIVE' && effectiveGate !== 'OK')
+            ? `Risk gate ${effectiveGate}: ${effectiveReason || 'blocked'}`
+            : (stage3Block?.reason || 'Execution gate active');
+
         list.push({
           id: `cand-fired-${opp.symbol}`,
-          outcome: 'allowed',
+          outcome: isStage3Blocked ? 'waiting' : 'allowed',
           isRoutine: false,
           stageNum: '2',
           stage: '2. Signals',
           symbol: opp.symbol,
           direction: candDir,
-          title: `Entry Formula Allowed (${candDir})`,
-          reason: `All required conditions matched [${conditionFormula}] on ${strategyConfig.scan_interval || '5m'}; routed to risk engine.`,
+          title: isStage3Blocked
+            ? `Signals Matched (${candDir}) — Held by Stage 3`
+            : `Entry Formula Allowed (${candDir})`,
+          reason: isStage3Blocked
+            ? `Stage 2 conditions matched [${conditionFormula}] on ${strategyConfig.scan_interval || '5m'}, held at Stage 3 (${blockCause}).`
+            : `All required conditions matched [${conditionFormula}] on ${strategyConfig.scan_interval || '5m'}; routed to risk engine.`,
           timestamp: candTs,
-          details: { formula: conditionFormula, firedSignals: (sigRes.firedSignals || []).map(formatSignalLabel), prospectiveSlPct: opp.sl_dist_pct ? `${opp.sl_dist_pct.toFixed(2)}%` : undefined }
+          details: { formula: conditionFormula, firedSignals: (sigRes.firedSignals || []).map(formatSignalLabel), prospectiveSlPct: opp.sl_dist_pct ? `${opp.sl_dist_pct.toFixed(2)}%` : undefined, ...(isStage3Blocked ? { stage3Hold: blockCause } : {}) }
         });
       }
     });
@@ -941,7 +995,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   }, [
     stratName, stratGate.updatedAt, proximityLeaderboard, strategyScannerResults, strategyConfig,
     isStrategyPaused, effectiveGate, effectiveReason, strategyActiveTrades,
-    staticSymbols, stableFallbackTs, conditionFormula
+    staticSymbols, stableFallbackTs, conditionFormula, activeStage3BlockBySymbol, lastAuthoritativeUpdateTs
   ]);
 
   // Memoize closed trades & log regex parsing separately from high-frequency scanner ticks
@@ -1011,7 +1065,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       let isRoutine = false;
 
       if (msg.includes('Candidate removed') || msg.includes('dropped from top-N watchlist')) {
-        outcome = 'rejected';
+        const isHardReject = msg.includes('prospective SL') || msg.includes('SL dist') || msg.includes('sl_bounds');
+        outcome = isHardReject ? 'rejected' : 'waiting';
+        isRoutine = !isHardReject;
         stageNum = '1';
         stage = '1. Discovery';
         const parenMatch = msg.match(/Candidate removed\s*\(([^;)]+)/i);
@@ -1268,9 +1324,9 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     const seen = new Set();
     const out = [];
     for (const t of strategyActiveTrades) {
-      if (!seen.has(t.symbol)) {
+      if (t.entry_signal_snapshot?.signalResult && !seen.has(t.symbol)) {
         seen.add(t.symbol);
-        out.push({ symbol: t.symbol, focusKey: `trade:${t.id}`, tag: 'In Pos', tone: 'text-green', priority: 1 });
+        out.push({ symbol: t.symbol, focusKey: `trade:${t.id}`, tag: 'Entry', tone: 'text-green', priority: 1 });
       }
     }
     for (const t of strategyTrades) {
@@ -1601,18 +1657,18 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               <div className="flex items-center justify-between lg:justify-end gap-3 text-[11px] font-mono text-dim shrink-0 pt-1.5 lg:pt-0 border-t border-border/20 lg:border-t-0">
                 <button
                   type="button"
-                  onClick={() => setShowWarmupDebug(!showWarmupDebug)}
+                  onClick={() => setShowWarmupDebug(prev => !(prev === null ? anyWarming : prev))}
                   className={cn(
                     "min-h-[34px] sm:min-h-0 flex items-center gap-1.5 cursor-pointer hover:text-text transition-colors whitespace-nowrap",
                     anyWarming ? "text-amber font-semibold" : "text-dim"
                   )}
-                  aria-expanded={showWarmupDebug}
+                  aria-expanded={isWarmupOpen}
                 >
                   <Clock size={12} className={anyWarming ? "text-amber" : "text-accent"} />
                   <span>
                     Buffers: {timeframeDebugItems.filter(i => !i.isWarming).length}/{timeframeDebugItems.length} Ready
                   </span>
-                  <ChevronDown size={12} className={cn("transition-transform duration-150", showWarmupDebug && "rotate-180")} />
+                  <ChevronDown size={12} className={cn("transition-transform duration-150", isWarmupOpen && "rotate-180")} />
                 </button>
                 <span className="text-border hidden lg:inline" aria-hidden="true">|</span>
                 <button
@@ -1631,11 +1687,13 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               </div>
             </div>
 
-            {/* Expandable Warmup Strip (Auto-highlighted when warming, collapsed cleanly when ready) */}
-            {(showWarmupDebug || anyWarming) && (
+            {/* Expandable Warmup Strip (Auto-highlighted when warming, always collapsible by user) */}
+            {isWarmupOpen && (
               <div className="px-3 py-2.5 sm:px-3.5 bg-background/40 border-b border-border/30 grid grid-cols-1 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-3 font-mono text-[11px]">
                 {timeframeDebugItems.map(item => {
-                  const pct = item.required > 0 && typeof item.candles === 'number' ? Math.min(100, Math.round((item.candles / item.required) * 100)) : null;
+                  const pct = item.isWarming && item.required > 0 && typeof item.candles === 'number'
+                    ? Math.min(100, Math.round((item.candles / item.required) * 100))
+                    : null;
                   const isSyncingThis = syncingTfMap[item.tf];
                   return (
                     <div key={item.key} className="flex items-center justify-between sm:justify-start gap-2 sm:pr-3 sm:border-r sm:border-border/30 sm:last:border-r-0">
@@ -1778,7 +1836,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               <CandidateConditionsGauge
                 opp={bestOpp}
                 strategyConfig={diagnosticStrategyConfig}
-                activeTrade={!bestOpp?.isEntrySnapshot && focusedActiveTrade && focusedActiveTrade.symbol === bestOpp?.symbol ? focusedActiveTrade : null}
+                activeTrade={null}
                 closedTrades={tradeHistory}
                 isPaused={isStrategyPaused}
                 gateState={effectiveGate}

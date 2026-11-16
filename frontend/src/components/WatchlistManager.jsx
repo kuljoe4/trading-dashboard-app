@@ -450,7 +450,7 @@ export const WatchlistManager = React.memo(({
 
   return (
     <div className={cn(
-      "bg-surface/70 border border-border/70 rounded-2xl p-3 sm:p-4 transition-all shadow-sm",
+      "w-full max-w-full min-w-0 overflow-hidden bg-surface/70 border border-border/70 rounded-2xl p-3 sm:p-4 transition-all shadow-sm",
       isLocked && "border-amber/30 bg-amber/[0.02]",
       className
     )}>
@@ -492,24 +492,24 @@ export const WatchlistManager = React.memo(({
       )}
 
       {/* Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2.5 pb-3 border-b border-border/40">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-border/40 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center text-accent shrink-0">
             <Eye size={15} />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-black uppercase tracking-wider text-text">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+              <span className="text-xs font-black uppercase tracking-wider text-text truncate">
                 {activeVariantIdx >= 0 ? `${activeTab} Watchlist` : 'Static Watchlist'}
               </span>
               <span className={cn(
-                "px-2 py-0.5 rounded-full text-[9px] font-mono font-black border",
+                "px-2 py-0.5 rounded-full text-[9px] font-mono font-black border shrink-0 whitespace-nowrap",
                 maxLimit > 0 && symbols.length >= maxLimit ? "bg-amber/10 border-amber/30 text-amber" : "bg-accent/10 border-accent/30 text-accent"
               )}>
                 {symbols.length}{maxLimit > 0 ? ` / ${maxLimit} Max` : ' (Unlimited)'}
               </span>
             </div>
-            <p className="text-[9.5px] text-dim font-medium leading-none mt-0.5">
+            <p className="text-[9.5px] text-dim font-medium leading-tight mt-0.5 truncate">
               {activeStrategyConfig.global_scanner_enabled === false
                 ? "Static mode: strictly evaluating monitored symbols below"
                 : "Strict symbol routing & dynamic scanner market discovery"}
@@ -518,7 +518,7 @@ export const WatchlistManager = React.memo(({
         </div>
 
         {/* Status Indicators & Fast Actions */}
-        <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+        <div className="flex items-center gap-1.5 w-full sm:w-auto min-w-0 flex-wrap">
           {/* Import Scanner Symbols Action Button */}
           <Tooltip content="Import symbols from Global Scanner into any strategy static watchlist with persistent sync">
             <button
@@ -860,7 +860,7 @@ export const WatchlistManager = React.memo(({
             </p>
           </div>
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-1.5 sm:gap-2 min-w-0 max-w-full">
             {symbols.map((sym) => {
               const opp = scannerResults.find(r => r?.symbol === sym) || POPULAR_MARKET_PAIRS.find(p => p.symbol === sym);
               const inPosition = activeTradeSymbols.has(sym);
@@ -872,7 +872,7 @@ export const WatchlistManager = React.memo(({
                 <div
                   key={sym}
                   className={cn(
-                    "flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-xl border transition-all shadow-sm",
+                    "flex items-center gap-2 pl-2.5 pr-1.5 py-1.5 rounded-xl border transition-all shadow-sm max-w-full min-w-0",
                     inPosition
                       ? "bg-accent/10 border-accent/40 text-text"
                       : "bg-surface border-border/70 hover:border-accent/40 text-text"
@@ -932,8 +932,8 @@ export const WatchlistManager = React.memo(({
           </div>
         )}
 
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
+        <div className="flex items-center gap-2 w-full min-w-0">
+          <div className="relative flex-1 min-w-0">
             <input
               ref={inputRef}
               type="text"
@@ -951,7 +951,7 @@ export const WatchlistManager = React.memo(({
                   setIsDropdownOpen(false);
                 }
               }}
-              className="w-full bg-background/40 border border-border/60 rounded-xl px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim/40 focus:border-accent focus-visible:ring-1 focus-visible:ring-accent outline-none transition-colors"
+              className="w-full min-w-0 bg-background/40 border border-border/60 rounded-xl px-3 py-1.5 text-xs font-mono text-text placeholder:text-dim/40 focus:border-accent focus-visible:ring-1 focus-visible:ring-accent outline-none transition-colors"
             />
             {search && (
               <button
@@ -969,7 +969,7 @@ export const WatchlistManager = React.memo(({
             disabled={!search}
             onClick={() => handleAddSymbol(search)}
             className={cn(
-              "flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition-colors border outline-none focus-visible:ring-2 focus-visible:ring-accent",
+              "flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold font-mono transition-colors border outline-none focus-visible:ring-2 focus-visible:ring-accent shrink-0",
               search
                 ? "bg-accent text-background font-black border-accent hover:bg-accent/90 cursor-pointer"
                 : "bg-surface border-border text-dim/40 cursor-not-allowed"

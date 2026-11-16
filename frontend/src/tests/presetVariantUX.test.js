@@ -108,4 +108,21 @@ test('Presets & Variant UX Verification', async (t) => {
     assert.match(configModalContent, /<span>Update<\/span>/);
     assert.match(configModalContent, />\s*Save As\s*</);
   });
+
+  await t.test('7. Base & Variant saving prevents double-flattening corruption, recursive variant nesting, and stale overwrite', () => {
+    // flattenConfig tracks __flattened and avoids re-multiplying slippage/weights or clobbering edited signal_params_*
+    assert.match(configModalContent, /const isAlreadyFlattened = config\.__flattened === true/);
+    assert.match(configModalContent, /if \(!isAlreadyFlattened \|\| flattened\[`signal_params_\$\{k\}`\] === undefined\)/);
+    assert.match(configModalContent, /delete c\.__flattened;/);
+
+    // saveVariantChanges, promoteVariantToBase, and toggleVariant strip nested strategy_variants via isNestedVariant = true
+    assert.match(configModalContent, /const sanitizedVariant = coerceAndSanitizeConfig\(cfg, true\);/);
+    assert.match(configModalContent, /coerceAndSanitizeConfig\(\{ \.\.\.p\.config, strategy_label: p\.name \}, true\)/);
+
+    // ConfigModal signals merged root payloads and DashboardView preserves edit/variant state on error
+    assert.match(configModalContent, /_isMergedRootConfig: true/);
+    assert.match(dashboardViewContent, /const isMergedRootConfig = newConfig\._isMergedRootConfig === true;/);
+    assert.match(dashboardViewContent, /delete newConfig\._isMergedRootConfig;/);
+  });
 });
+

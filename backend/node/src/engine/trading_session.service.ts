@@ -579,6 +579,21 @@ export class TradingSessionService implements OnApplicationShutdown {
     if (this.mainLoopInterval) clearInterval(this.mainLoopInterval);
     if (this.hotLoopInterval) clearInterval(this.hotLoopInterval);
 
+    // Flush active trades' latest peak RR / mark_price to DB before shutdown
+    if (this.onTradeUpdate) {
+      const active = this.positionTracker.activeList();
+      const bal = this.getBalance();
+      for (const t of active) {
+        try {
+          await this.onTradeUpdate(t, bal);
+        } catch (err: any) {
+          this.logger.warn(
+            `Failed to flush open trade ${t.symbol} on shutdown: ${err?.message || err}`,
+          );
+        }
+      }
+    }
+
     // Stop lifecycle (WS connections, streams) without closing trades
     await this.sessionLifecycle.stop(
       this.binanceClient,

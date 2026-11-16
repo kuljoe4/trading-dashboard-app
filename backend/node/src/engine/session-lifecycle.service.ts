@@ -279,8 +279,12 @@ export class SessionLifecycleService {
     if (open.length > 0) {
       await this.progress(`Resuming ${open.length} active trades...`);
       for (const t of open) {
+        const prevMaxRr = Number(t.max_rr_achieved || 0);
         this.positionTracker.addTrade(t);
         this.sessionState.updateStatsOnEntry(t.id, t.strategy_label);
+        if (Number(t.max_rr_achieved || 0) > prevMaxRr) {
+          this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade: t });
+        }
       }
     }
     this.sessionState.setActiveTrades(this.positionTracker.activeList());

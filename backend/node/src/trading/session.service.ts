@@ -95,6 +95,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       qty: number;
       status: string;
       pnl: number;
+      max_rr_achieved: number;
       lastSavedTs: number;
     }
   >();
@@ -398,9 +399,15 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           trade.status !== lastState.status ||
           Number(trade.pnl || 0) !== lastState.pnl;
 
+        const currentMaxRr = Number(trade.max_rr_achieved || 0);
+        const prevSavedMaxRr = Number(lastState.max_rr_achieved || 0);
+        const peakRrIncreased =
+          currentMaxRr > prevSavedMaxRr &&
+          typeof this.tradeRepository.update === 'function';
+
         const timeElapsed = Date.now() - lastState.lastSavedTs;
         if (!criticalChanged) {
-          if (timeElapsed < 60000) {
+          if (!peakRrIncreased && timeElapsed < 60000) {
             // Skip database write for routine tick update
             return;
           }
@@ -457,6 +464,7 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
             qty: Number(trade.qty || 0),
             status: trade.status,
             pnl: Number(trade.pnl || 0),
+            max_rr_achieved: Number(trade.max_rr_achieved || 0),
             lastSavedTs: Date.now(),
           });
         }
@@ -2333,24 +2341,40 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
 
         let rrSequenceIndex = -1;
         let maxRrAchieved = 0;
+        const markPriceVal = parseFloat(exPos.markPrice || "0") || entryPrice;
+        const unitRisk = Math.abs(entryPrice - initialSl);
+        if (unitRisk > 0) {
+          if (activeSl > 0) {
+            const slReward = direction === "LONG" ? activeSl - entryPrice : entryPrice - activeSl;
+            if (slReward > 0) maxRrAchieved = Math.max(maxRrAchieved, slReward / unitRisk);
+          }
+          if (markPriceVal > 0) {
+            const liveReward = direction === "LONG" ? markPriceVal - entryPrice : entryPrice - markPriceVal;
+            if (liveReward > 0) maxRrAchieved = Math.max(maxRrAchieved, liveReward / unitRisk);
+          }
+        }
         if (activeSl > 0 && config) {
           const tempTrade = {
             symbol: exPos.symbol,
             direction,
             entry_price: entryPrice,
             initial_sl: initialSl,
+            current_sl: activeSl,
+            mark_price: markPriceVal,
             rr_sequence_index: -1,
-            max_rr_achieved: 0,
+            max_rr_achieved: roundEight(maxRrAchieved),
           } as Trade;
           rrSequenceIndex = this.tradingSessionService.reconcileMilestoneFromSl(
             tempTrade,
             activeSl,
             config,
           );
-          maxRrAchieved = tempTrade.max_rr_achieved;
+          maxRrAchieved = roundEight(Math.max(maxRrAchieved, Number(tempTrade.max_rr_achieved || 0)));
           this.logger.log(
             `[Reconciliation] Adopted ${exPos.symbol} reconciled milestone index: ${rrSequenceIndex}, peak RR: ${maxRrAchieved}`,
           );
+        } else {
+          maxRrAchieved = roundEight(maxRrAchieved);
         }
 
         let finalStopOrderId = slId;

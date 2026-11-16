@@ -54,18 +54,35 @@ export class EngineBroadcasterService {
    */
   public serializeStrategyGateStates(): Record<string, any> {
     const map = this.sessionState.strategyGateStates;
-    if (!map || map.size === 0) return EMPTY_OBJECT;
+    const switchMap = this.positionTracker?.peakRrSwitchHits;
+    const hasMap = !!(map && map.size > 0);
+    const hasSwitch = !!(switchMap && switchMap.size > 0);
+    if (!hasMap && !hasSwitch) return EMPTY_OBJECT;
 
     const res: Record<string, any> = {};
-    for (const [k, v] of map.entries()) {
-      res[k] = {
-        gateState: v?.gateState || null,
-        gateReason: v?.gateReason || null,
-        isAdaptiveTightened: v?.isAdaptiveTightened || false,
-        peakRrSwitchHits: this.positionTracker?.peakRrSwitchHits?.get(k) || 0,
-      };
+    if (hasMap) {
+      for (const [k, v] of map.entries()) {
+        res[k] = {
+          gateState: v?.gateState || null,
+          gateReason: v?.gateReason || null,
+          isAdaptiveTightened: v?.isAdaptiveTightened || false,
+          peakRrSwitchHits: switchMap?.get(k) || 0,
+        };
+      }
     }
-    return res;
+    if (hasSwitch) {
+      for (const [k, hits] of switchMap.entries()) {
+        if (!res[k] && hits > 0) {
+          res[k] = {
+            gateState: null,
+            gateReason: null,
+            isAdaptiveTightened: false,
+            peakRrSwitchHits: hits,
+          };
+        }
+      }
+    }
+    return Object.keys(res).length > 0 ? res : EMPTY_OBJECT;
   }
 
   /**

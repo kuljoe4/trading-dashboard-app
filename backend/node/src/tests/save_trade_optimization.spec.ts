@@ -274,4 +274,49 @@ describe('SaveTradeOptimization', () => {
     expect(mockQueryRunner.commitTransaction).toHaveBeenCalledTimes(1);
     expect(mockQueryRunner.release).toHaveBeenCalledTimes(1);
   });
+
+  it('should immediately persist max_rr_achieved increases via lightweight tradeRepository.update when available', async () => {
+    mockTradeRepo.update = jest.fn().mockResolvedValue({ affected: 1 });
+
+    const openTradeInitial = {
+      id: 'trade-104',
+      symbol: 'AVAXUSDT',
+      direction: 'LONG',
+      entry_price: 40,
+      qty: 10,
+      current_sl: 38,
+      initial_sl: 38,
+      rr_sequence_index: -1,
+      status: 'OPEN',
+      pnl: 0,
+      max_rr_achieved: 0.5,
+      mark_price: 41,
+      sessionId: 'sess-1',
+    };
+
+    await service.saveTradeAtomic(openTradeInitial, 10000);
+    expect(mockTradeRepo.save).toHaveBeenCalledTimes(1);
+    mockTradeRepo.save.mockClear();
+
+    // Peak RR increases from 0.5R to 1.2R within the 60s window without SL ratchet
+    const openTradeNewPeak = {
+      ...openTradeInitial,
+      mark_price: 42.4,
+      last_price: 42.4,
+      max_rr_achieved: 1.2,
+    };
+
+    await service.saveTradeAtomic(openTradeNewPeak, 10000);
+
+    // Must use lightweight targeted column UPDATE immediately without full-entity save
+    expect(mockTradeRepo.update).toHaveBeenCalledTimes(1);
+    expect(mockTradeRepo.update).toHaveBeenCalledWith(
+      'trade-104',
+      expect.objectContaining({
+        max_rr_achieved: 1.2,
+        mark_price: 42.4,
+      }),
+    );
+    expect(mockTradeRepo.save).not.toHaveBeenCalled();
+  });
 });

@@ -99,4 +99,92 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
       'Live Risk and Peak RR cards should show subValue details when global metrics are expanded'
     );
   });
+
+  test('ConfigModal enforces mobile keyboard ergonomics, full-screen mobile sheet, Presets order after Risk, and compact Presets layout', () => {
+    const configModalSource = fs.readFileSync(path.join(__dirname, '../components/ConfigModal.jsx'), 'utf-8');
+
+    assert.ok(
+      configModalSource.includes('window.visualViewport') &&
+      configModalSource.includes('stepFocusedField') &&
+      configModalSource.includes('dismissMobileKeyboard') &&
+      configModalSource.includes('↑ Prev') &&
+      configModalSource.includes('↓ Next') &&
+      configModalSource.includes('height: `${vvHeight}px`, maxHeight: `${vvHeight}px`'),
+      'ConfigModal must bind visualViewport height on mobile keyboards and provide Prev/Next/Done accessory controls'
+    );
+
+    assert.ok(
+      configModalSource.includes('text-base sm:text-xs') &&
+      configModalSource.includes("const resolvedInputMode = attrs?.inputMode ?? (type === 'number' ? 'decimal' : undefined);") &&
+      configModalSource.includes('inputMode={resolvedInputMode}'),
+      'ConfigModal ConfigField inputs must use >=16px text-base on mobile to prevent iOS Safari zoom and set numeric inputMode'
+    );
+
+    assert.ok(
+      configModalSource.includes('overflow-x-auto no-scrollbar snap-x') &&
+      !configModalSource.includes('isMoreOpen'),
+      'SectionTabs must render all tabs in a single horizontally scrollable strip without the brittle portal More dropdown'
+    );
+
+    assert.match(
+      configModalSource,
+      /id:\s*'risk'[\s\S]*?id:\s*'presets'[\s\S]*?id:\s*'env'/,
+      'SectionTabs must position Presets immediately after Risk'
+    );
+
+    assert.ok(
+      dashboardViewSource.includes('h-[100dvh] sm:h-[88dvh]') &&
+      dashboardViewSource.includes('inset-0 sm:inset-auto'),
+      'DashboardView ConfigModal drawer must render edge-to-edge full-screen (100dvh) on mobile and centered dialog on sm+ viewports'
+    );
+
+    assert.ok(
+      configModalSource.includes('pb-2 sm:pb-3 overscroll-contain') &&
+      !configModalSource.includes('pb-24 md:pb-24'),
+      'ConfigModal scroll container must eliminate wasted pb-24 bottom dead space'
+    );
+
+    assert.ok(
+      configModalSource.includes("window.location.hash = '#/settings'"),
+      'ConfigModal Env tab missing-keys warning must bridge cleanly to System Settings'
+    );
+
+    assert.ok(
+      configModalSource.includes('scrollBodyRef') &&
+      configModalSource.includes('resetOuterScroll') &&
+      configModalSource.includes('vvOffsetTop') &&
+      configModalSource.includes('onOuterScrollGuard') &&
+      configModalSource.includes('onNativeSelectChange') &&
+      !configModalSource.includes('scrollIntoView('),
+      'ConfigModal must isolate field/tab scrolling to scrollBodyRef & listRef, track visualViewport.offsetTop, and lock outer overflow-hidden containers against header clipping'
+    );
+
+    const primitivesSource = fs.readFileSync(path.join(__dirname, '../components/ui/primitives.jsx'), 'utf-8');
+    assert.ok(
+      primitivesSource.includes('shrink-0 animate-in fade-in') &&
+      primitivesSource.includes('w-[min(20rem,calc(100vw-2rem))]'),
+      'ModalAlertTicker must prevent flex shrinking and clamp dropdown width on narrow mobile viewports'
+    );
+  });
+
+  test('SettingsView enforces unified Cockpit layout, mobileOneRow ViewHeader, KPI readiness strip, category tabs, and anti-zoom inputs', () => {
+    const settingsSource = fs.readFileSync(path.join(__dirname, '../views/SettingsView.jsx'), 'utf-8');
+
+    assert.ok(
+      settingsSource.includes('max-w-[1160px]') &&
+      settingsSource.includes('mobileOneRow') &&
+      settingsSource.includes('SETTINGS_CATEGORIES'),
+      'SettingsView must match Cockpit container width, single-row mobile ViewHeader, and category navigation'
+    );
+
+    assert.ok(
+      settingsSource.includes('grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2.5'),
+      'SettingsView overview strip must align 4 equal-height KPI tiles across breakpoints'
+    );
+
+    assert.ok(
+      settingsSource.includes('min-h-[44px] text-base sm:text-sm'),
+      'SettingsView inputs/selects must enforce 44px mobile touch targets and 16px+ font-size'
+    );
+  });
 });

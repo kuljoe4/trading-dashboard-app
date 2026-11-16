@@ -307,23 +307,42 @@ const Chip = React.forwardRef(({ active, onClick, children, activeClass = "borde
 Chip.displayName = 'Chip'
 
 const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs }) => {
-  // BOLT-PERF: Local-Sync pattern. Maintains local state for rapid typing to avoid
-  // expensive full-modal re-renders on every keystroke. Syncs to parent on blur or enter.
+  // BOLT-PERF: Local-Sync pattern with debounced idle commit + iOS blur safety.
+  // Maintains instant local state while typing and commits safely on pause, blur, or Enter.
   const [localValue, setLocalValue] = useState(value ?? '');
+  const isFocusedRef = useRef(false);
+  const commitTimerRef = useRef(null);
 
   useEffect(() => {
-    setLocalValue(value ?? '');
+    if (!isFocusedRef.current) {
+      setLocalValue(value ?? '');
+    }
   }, [value]);
 
-  const commit = () => {
-    const val = type === 'number' ? Number(localValue) : localValue;
+  useEffect(() => () => {
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+  }, []);
+
+  const commit = React.useCallback((rawVal) => {
+    const candidate = rawVal !== undefined ? rawVal : localValue;
+    const val = type === 'number' ? Number(candidate) : candidate;
+    if (type === 'number' && (candidate === '' || Number.isNaN(val))) return;
     if (val !== value) {
       onChange(name, val);
     }
-  };
+  }, [localValue, name, onChange, type, value]);
 
   const handleChange = (e) => {
-    setLocalValue(e.target.value);
+    const nextRaw = e.target.value;
+    setLocalValue(nextRaw);
+    if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+    // Avoid overwriting mid-decimal typing like "2." or "-"; commit cleanly once settled
+    const isPartialNumeric = type === 'number' && (nextRaw === '' || /[.\-]$/.test(nextRaw));
+    if (!isPartialNumeric) {
+      commitTimerRef.current = setTimeout(() => {
+        commit(nextRaw);
+      }, 280);
+    }
   };
 
   const handleSelectChange = (e) => {
@@ -331,12 +350,15 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
     onChange(name, val);
   };
 
+  const resolvedInputMode = attrs?.inputMode ?? (type === 'number' ? 'decimal' : undefined);
+  const resolvedEnterKeyHint = attrs?.enterKeyHint ?? (type === 'number' || type === 'text' ? 'next' : undefined);
+
   return (
-    <div className="flex flex-col gap-1 group/field">
-      <div className="flex justify-between items-center">
-        <label htmlFor={id} className="text-[9px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors">{label}</label>
-        {error && <span role="alert" className="text-[9px] text-red font-bold uppercase">{error}</span>}
-        {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase">{warning}</span>}
+    <div className="flex flex-col gap-1 group/field min-w-0">
+      <div className="flex justify-between items-center gap-2">
+        <label htmlFor={id} className="text-[10px] sm:text-[9px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors truncate">{label}</label>
+        {error && <span role="alert" className="text-[9px] text-red font-bold uppercase shrink-0">{error}</span>}
+        {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase shrink-0">{warning}</span>}
       </div>
       {Array.isArray(opts) ? (
         <select
@@ -344,7 +366,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           value={localValue ?? ''}
           {...attrs}
           onChange={handleSelectChange}
-          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          className="bg-surface border border-border rounded-xl sm:rounded-lg px-3 py-2 sm:py-1.5 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none w-full"
         >
           {opts.map((o) => {
             const val = typeof o === 'string' ? o : o?.value;
@@ -356,12 +378,34 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
         <input
           id={id}
           type={type}
+          inputMode={resolvedInputMode}
+          enterKeyHint={resolvedEnterKeyHint}
+          autoCapitalize={type === 'text' && attrs?.autoCapitalize === undefined ? 'none' : attrs?.autoCapitalize}
+          autoCorrect={type === 'text' && attrs?.autoCorrect === undefined ? 'off' : attrs?.autoCorrect}
           value={localValue ?? ''}
           {...attrs}
+          onFocus={(e) => {
+            isFocusedRef.current = true;
+            attrs?.onFocus?.(e);
+          }}
           onChange={handleChange}
-          onBlur={(e) => { commit(); attrs.onBlur?.(e); }}
-          onKeyDown={(e) => { if (e.key === 'Enter') commit(); }}
-          className="bg-surface border border-border rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          onBlur={(e) => {
+            isFocusedRef.current = false;
+            if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+            commit(e.target.value);
+            attrs?.onBlur?.(e);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+              commit(e.currentTarget.value);
+              if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                e.currentTarget.blur();
+              }
+            }
+            attrs?.onKeyDown?.(e);
+          }}
+          className="bg-surface border border-border rounded-xl sm:rounded-lg px-3 py-2 sm:py-1.5 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none w-full tabular-nums"
         />
       )}
     </div>
@@ -468,7 +512,7 @@ const ExitSignalCard = React.memo(({
                       id={`tf-${layerKey}`}
                       value={tfValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-base sm:text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-9 sm:h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                     >
                       <option value="default">Default</option>
                       <option value="1m">1m</option>
@@ -524,6 +568,7 @@ const ExitSignalCard = React.memo(({
                       <div className="flex items-center gap-1">
                         <input
                           type="number"
+                          inputMode="numeric"
                           min="0"
                           placeholder="0h"
                           value={Math.floor((Number(delayValue) || 0) / 3600) || ''}
@@ -532,11 +577,12 @@ const ExitSignalCard = React.memo(({
                             const m = Math.floor(((Number(delayValue) || 0) % 3600) / 60);
                             onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                           }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-14 sm:w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                         />
                         <span className="text-dim font-bold">:</span>
                         <input
                           type="number"
+                          inputMode="numeric"
                           min="0"
                           max="59"
                           placeholder="0m"
@@ -546,13 +592,14 @@ const ExitSignalCard = React.memo(({
                             const m = parseInt(e.target.value) || 0;
                             onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                           }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-14 sm:w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                         />
                       </div>
                     ) : (
-                      <div className="relative flex items-center h-7">
+                      <div className="relative flex items-center h-9 sm:h-7">
                         <input
                           type="number"
+                          inputMode="numeric"
                           min="1"
                           max="1000"
                           placeholder="1"
@@ -561,7 +608,7 @@ const ExitSignalCard = React.memo(({
                             const val = Math.max(1, parseInt(e.target.value) || 1);
                             onUpdateLayer(layerKey, 'delay', `${val}c`);
                           }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-7 w-full pr-6 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-full pr-6 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                           aria-label="Number of candles delay"
                         />
                         <span className="absolute right-2 text-[8px] font-bold text-dim/60 font-mono pointer-events-none">c</span>
@@ -577,7 +624,7 @@ const ExitSignalCard = React.memo(({
                       value={actionValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
                       className={cn(
-                        "border rounded-lg px-1.5 py-1 text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-7 text-center focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        "border rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-9 sm:h-7 text-center focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
                         actionValue === 'lock_sl'
                           ? "bg-purple/10 border-purple/30 text-purple focus:border-purple"
                           : "bg-red/10 border-red/30 text-red focus:border-red"
@@ -678,7 +725,7 @@ const EntrySignalCard = React.memo(({
                       id={`tf-${layerKey}`}
                       value={tfValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-0.5 text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                      className="bg-surface border border-border/40 rounded-lg px-2 py-0.5 text-base sm:text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-9 sm:h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                     >
                       <option value="default">Default</option>
                       <option value="1m">1m</option>
@@ -764,7 +811,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               setIsOpen(false);
             }
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-base sm:text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
         />
         {value && (
           <Tooltip content="Clear Input">
@@ -836,7 +883,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
             setName(e.target.value);
             setIsUserEdited(true);
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-base sm:text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         {name && (
           <Tooltip content="Clear Preset Name">
@@ -954,7 +1001,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
             onKeyDown={(e) => { if (e.key === 'Escape') { setSearchTerm(''); setIsOpen(false); } }}
             aria-label="Search symbols to add to watchlist"
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-8 py-3 text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+            className="w-full bg-surface border border-border rounded-xl pl-10 pr-8 py-3 text-base sm:text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm ? (
             <Tooltip content="Clear Search">
@@ -1122,7 +1169,7 @@ const ListInput = React.memo(({ id, value, onChange, placeholder }) => {
       onChange={handleChange}
       onBlur={handleBlur}
       onKeyDown={(e) => { if (e.key === 'Enter') handleBlur(); }}
-      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-base sm:text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
     />
   );
 })
@@ -1133,11 +1180,11 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     active={active}
     onClick={() => onClick(id)}
     className={cn(
-      "flex items-center gap-1 sm:gap-2 relative transition-all duration-200 px-1.5 py-1 sm:px-3.5 sm:py-2 rounded-md sm:rounded-xl text-[10px] xs:text-[11px] sm:text-xs font-bold shrink-0 min-w-0",
+      "flex items-center gap-1 relative transition-all duration-200 min-h-[30px] px-2 sm:px-3 py-0.5 rounded-lg text-[11px] sm:text-xs font-bold shrink-0 snap-center cursor-pointer",
       active
-        ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
-        : "border-border text-dim hover:border-dim/50 hover:text-text",
-      hasError && !active && "border-red/40"
+        ? "bg-accent text-white font-black border-accent shadow-[0_2px_10px_rgba(var(--accent-rgb),0.3)]"
+        : "border-border/70 bg-background/40 text-dim hover:border-dim/50 hover:text-text",
+      hasError && !active && "border-red/50 text-red/90"
     )}
     role="tab"
     aria-selected={active}
@@ -1146,114 +1193,56 @@ const SectionTab = React.memo(({ id, label, icon: Icon, active, onClick, hasErro
     id={`config-tab-${id}`}
     tabIndex={active ? 0 : -1}
   >
-    <Icon size={12} className={cn("shrink-0 sm:w-3.5 sm:h-3.5", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
-    <span className="whitespace-nowrap truncate">{label}</span>
+    <Icon size={12} className={cn("shrink-0", active ? "text-white" : "text-dim", hasError && !active && "text-red")} />
+    <span className="whitespace-nowrap">{label}</span>
     {hasError && !active && (
-      <span className="absolute -top-1 -right-1 flex h-2 w-2">
-        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
-        <span className="relative inline-flex rounded-full h-2 w-2 bg-red"></span>
-      </span>
+      <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" aria-hidden="true" />
     )}
   </Chip>
 ))
 SectionTab.displayName = 'SectionTab'
 
-const SectionTabs = React.memo(({ section, onSectionChange, errors, isMoreOpen, setIsMoreOpen, modalRef }) => {
-  const dropdownRef = useRef(null);
-  const triggerBtnRef = useRef(null);
-  const [menuCoords, setMenuCoords] = useState({ top: 0, left: 0 });
+const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
+  const listRef = useRef(null);
 
-  const primaryTabs = useMemo(() => [
+  const allTabs = useMemo(() => [
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
     { id: 'risk', label: 'Risk', icon: ShieldCheck },
-    { id: 'presets', label: 'Presets', icon: FolderOpen }
-  ], []);
-
-  const secondaryTabs = useMemo(() => [
+    { id: 'presets', label: 'Presets', icon: FolderOpen },
     { id: 'env', label: 'Env', icon: Briefcase },
-    { id: 'smart', label: 'Smart Auto', icon: Sparkles },
+    { id: 'smart', label: 'Smart', icon: Sparkles },
     { id: 'backtest', label: 'Backtest', icon: TrendingUp }
   ], []);
-
-  const allTabs = useMemo(() => [...primaryTabs, ...secondaryTabs], [primaryTabs, secondaryTabs]);
 
   const tabHasError = React.useCallback((tabId) => {
     return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
   }, [errors]);
 
-  const isSecondaryActive = useMemo(() => {
-    return secondaryTabs.some(t => t.id === section);
-  }, [secondaryTabs, section]);
-
-  const activeSecondaryTab = useMemo(() => {
-    return secondaryTabs.find(t => t.id === section);
-  }, [secondaryTabs, section]);
-
-  const secondaryHasError = useMemo(() => {
-    return secondaryTabs.some(t => tabHasError(t.id));
-  }, [secondaryTabs, tabHasError]);
-
-  const updateCoords = React.useCallback(() => {
-    if (triggerBtnRef.current && modalRef?.current) {
-      const btnRect = triggerBtnRef.current.getBoundingClientRect();
-      const modalRect = modalRef.current.getBoundingClientRect();
-      const dropdownWidth = 192;
-      const left = Math.max(8, Math.min(modalRect.width - dropdownWidth - 8, btnRect.right - modalRect.left - dropdownWidth));
-      const top = btnRect.bottom - modalRect.top + 8;
-      setMenuCoords({ top, left });
-    }
-  }, [modalRef]);
-
+  // Keep active tab centered horizontally inside the tab strip without triggering vertical ancestor scroll
   useEffect(() => {
-    if (isMoreOpen) {
-      updateCoords();
-      const handleScrollOrResize = () => updateCoords();
-      window.addEventListener('resize', handleScrollOrResize);
-      window.addEventListener('scroll', handleScrollOrResize, true);
-      return () => {
-        window.removeEventListener('resize', handleScrollOrResize);
-        window.removeEventListener('scroll', handleScrollOrResize, true);
-      };
-    }
-  }, [isMoreOpen, updateCoords]);
-
-  // Close dropdown on outside click or escape
-  useEffect(() => {
-    const handleOutsideClick = (e) => {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(e.target) &&
-        triggerBtnRef.current &&
-        !triggerBtnRef.current.contains(e.target)
-      ) {
-        setIsMoreOpen(false);
+    const container = listRef.current;
+    const el = document.getElementById(`config-tab-${section}`);
+    if (container && el) {
+      try {
+        const targetLeft = el.offsetLeft - (container.clientWidth - el.offsetWidth) / 2;
+        if (typeof container.scrollTo === 'function') {
+          container.scrollTo({ left: Math.max(0, targetLeft), behavior: 'smooth' });
+        } else {
+          container.scrollLeft = Math.max(0, targetLeft);
+        }
+      } catch {
+        // Ignore in jsdom/non-DOM environments
       }
-    };
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && isMoreOpen) {
-        setIsMoreOpen(false);
-      }
-    };
-    if (isMoreOpen) {
-      document.addEventListener('mousedown', handleOutsideClick);
-      document.addEventListener('keydown', handleKeyDown);
     }
-    return () => {
-      document.removeEventListener('mousedown', handleOutsideClick);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isMoreOpen, setIsMoreOpen]);
+  }, [section]);
 
   const handleKeyDownNav = (e) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       const currentIndex = allTabs.findIndex(t => t.id === section);
-      let nextIndex;
-      if (e.key === 'ArrowRight') {
-        nextIndex = (currentIndex + 1) % allTabs.length;
-      } else {
-        nextIndex = (currentIndex - 1 + allTabs.length) % allTabs.length;
-      }
+      const nextIndex = e.key === 'ArrowRight'
+        ? (currentIndex + 1) % allTabs.length
+        : (currentIndex - 1 + allTabs.length) % allTabs.length;
       onSectionChange(allTabs[nextIndex].id);
 
       setTimeout(() => {
@@ -1265,15 +1254,15 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors, isMoreOpen, 
 
   return (
     <div
-      className="flex items-center gap-1 sm:gap-2 px-1 py-1.5 sm:px-3 sm:py-2.5 overflow-x-auto no-scrollbar outline-none relative z-40 w-full"
+      ref={listRef}
+      className="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 sm:px-3.5 overflow-x-auto no-scrollbar snap-x snap-proximity outline-none relative z-40 w-full"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
       onKeyDown={handleKeyDownNav}
       tabIndex={-1}
     >
-      {/* Primary Navigation Tabs */}
-      {primaryTabs.map((tab) => (
+      {allTabs.map((tab) => (
         <SectionTab
           key={tab.id}
           {...tab}
@@ -1282,129 +1271,10 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors, isMoreOpen, 
           hasError={tabHasError(tab.id)}
         />
       ))}
-
-      {/* Overflow "More" Icon Trigger Dropdown */}
-      <div className="relative shrink-0 ml-auto">
-        <Tooltip content="More strategy sections (Env, Smart Auto, Backtest)">
-          <button
-            ref={triggerBtnRef}
-            type="button"
-            id="config-tab-more"
-            onClick={() => {
-              if (!isMoreOpen) updateCoords();
-              setIsMoreOpen(!isMoreOpen);
-            }}
-            aria-expanded={isMoreOpen}
-            aria-haspopup="true"
-            aria-controls="more-tabs-dropdown"
-            aria-label="More configuration options menu"
-            className={cn(
-              "flex items-center gap-1 sm:gap-2 px-1.5 py-1 sm:px-3.5 sm:py-2 rounded-md sm:rounded-xl border text-[10px] xs:text-[11px] sm:text-xs font-bold tracking-wider transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none relative cursor-pointer shrink-0 ml-auto",
-              isSecondaryActive
-                ? "bg-accent text-white font-black border-accent shadow-[0_4px_16px_rgba(var(--accent-rgb),0.4)] scale-102 ring-2 ring-accent/30"
-                : "border-border text-dim hover:border-dim/50 hover:text-text"
-            )}
-          >
-            <MoreVertical size={12} className={cn("shrink-0 sm:w-3.5 sm:h-3.5", isSecondaryActive ? "text-white" : "text-dim")} />
-            <span className="hidden xs:inline whitespace-nowrap">
-              {activeSecondaryTab ? activeSecondaryTab.label : 'More'}
-            </span>
-
-            {/* Error dot on icon trigger if any secondary tab has an error */}
-            {secondaryHasError && !isSecondaryActive && (
-              <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-red"></span>
-              </span>
-            )}
-          </button>
-        </Tooltip>
-
-        {modalRef?.current && createPortal(
-          <AnimatePresence>
-            {isMoreOpen && (
-              <>
-                <motion.div
-                  key="more-menu-backdrop"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute inset-0 bg-black/75 backdrop-blur-md z-50 cursor-pointer pointer-events-auto"
-                  onClick={() => setIsMoreOpen(false)}
-                />
-                <motion.div
-                  key="more-menu-dropdown"
-                  id="more-tabs-dropdown"
-                  ref={dropdownRef}
-                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                  transition={{ duration: 0.15, ease: "easeOut" }}
-                  style={{
-                    position: 'absolute',
-                    top: `${menuCoords.top}px`,
-                    left: `${menuCoords.left}px`,
-                    zIndex: 60,
-                  }}
-                  className="w-48 bg-[#181a20] border border-border/80 rounded-xl shadow-2xl p-1.5 flex flex-col gap-1 pointer-events-auto"
-                  role="menu"
-                  aria-orientation="vertical"
-                  aria-labelledby="config-tab-more"
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <div className="px-2 py-1 text-[8px] font-black uppercase text-dim tracking-widest border-b border-border/30 mb-1">
-                    More Sections
-                  </div>
-                  {secondaryTabs.map((tab) => {
-                    const Icon = tab.icon;
-                    const isActive = section === tab.id;
-                    const hasErr = tabHasError(tab.id);
-
-                    return (
-                      <button
-                        key={tab.id}
-                        id={`config-tab-${tab.id}`}
-                        type="button"
-                        role="tab"
-                        aria-selected={isActive}
-                        aria-controls={`config-panel-${tab.id}`}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSectionChange(tab.id);
-                          setIsMoreOpen(false);
-                        }}
-                        className={cn(
-                          "w-full flex items-center justify-between px-3 py-2 rounded-lg text-[11px] font-bold transition-all text-left focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer",
-                          isActive
-                            ? "bg-accent/15 text-accent font-black"
-                            : "text-dim hover:text-text hover:bg-white/5"
-                        )}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon size={13} className={isActive ? "text-accent" : "text-dim"} />
-                          <span>{tab.label}</span>
-                        </div>
-
-                        {hasErr && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" />
-                        )}
-                      </button>
-                    );
-                  })}
-                </motion.div>
-              </>
-            )}
-          </AnimatePresence>,
-          modalRef.current
-        )}
-      </div>
     </div>
   );
 })
-SectionTabs.displayName = 'SectionTabs'
+SectionTabs.displayName = 'SectionTabs';
 
 const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePreset }) => {
   const [iterations, setIterations] = useState(15);
@@ -1509,11 +1379,11 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2 border-t border-border/40">
           <div>
             <label htmlFor="smart-iterations" className="text-[9px] text-dim font-black uppercase tracking-widest block mb-1">Randomized Variations</label>
-            <select
+              <select
               id="smart-iterations"
               value={iterations}
               onChange={(e) => setIterations(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
             >
               <option value={10}>10 Variations (Fast)</option>
               <option value={15}>15 Variations (Recommended)</option>
@@ -1528,7 +1398,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
               id="smart-days"
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
             >
               <option value={7}>7 Days (1 Week)</option>
               <option value={14}>14 Days (2 Weeks)</option>
@@ -1542,11 +1412,12 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
             <input
               id="smart-balance"
               type="number"
+              inputMode="decimal"
               min={10}
               step={1000}
               value={startingBalance}
               onChange={(e) => setStartingBalance(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent"
             />
           </div>
 
@@ -1555,10 +1426,12 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
             <input
               id="smart-symbols"
               type="text"
+              autoCapitalize="characters"
+              autoCorrect="off"
               placeholder="BTCUSDT, ETHUSDT..."
               value={symbolsText}
               onChange={(e) => setSymbolsText(e.target.value)}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent"
             />
           </div>
         </div>
@@ -1905,7 +1778,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               id="backtest-days"
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
             >
               <option value={7}>7 Days (1 Week)</option>
               <option value={14}>14 Days (2 Weeks)</option>
@@ -1920,11 +1793,12 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
             <input
               id="backtest-balance"
               type="number"
+              inputMode="decimal"
               min={10}
               step={100}
               value={startingBalance}
               onChange={(e) => setStartingBalance(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent"
             />
           </div>
 
@@ -1933,12 +1807,14 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
             <input
               id="backtest-symbols"
               type="text"
+              autoCapitalize="characters"
+              autoCorrect="off"
               placeholder="BTCUSDT, ETHUSDT..."
               disabled={useGlobalScanner}
               value={symbolText}
               onChange={(e) => setSymbolSearchText(e.target.value)}
               className={cn(
-                "w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono font-bold text-text outline-none focus:border-accent",
+                "w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent",
                 useGlobalScanner && "opacity-50 cursor-not-allowed"
               )}
             />
@@ -2193,32 +2069,32 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-2 sm:p-4 bg-black/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200">
       <div
         role="dialog"
         aria-labelledby="save-preset-modal-title"
         aria-modal="true"
-        className="w-full max-w-md bg-surface border border-border/80 rounded-2xl p-5 shadow-2xl flex flex-col gap-4 relative animate-in zoom-in-95 duration-200"
+        className="w-full max-w-md bg-surface border border-border/80 rounded-2xl p-3.5 sm:p-5 shadow-2xl flex flex-col gap-3 relative my-auto animate-in zoom-in-95 duration-200"
       >
         <div className="flex items-center justify-between pb-2 border-b border-border/40">
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-lg bg-accent/15 text-accent">
-              <Save size={16} />
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="p-1.5 rounded-lg bg-accent/15 text-accent shrink-0">
+              <Save size={15} />
             </span>
-            <h3 id="save-preset-modal-title" className="text-base font-bold text-text">Save As New Preset</h3>
+            <h3 id="save-preset-modal-title" className="text-sm sm:text-base font-bold text-text truncate">Save As New Preset</h3>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close dialog"
-            className="p-1 text-dim hover:text-text rounded-lg hover:bg-white/5 transition-colors cursor-pointer"
+            className="min-h-[36px] min-w-[36px] flex items-center justify-center text-dim hover:text-text rounded-lg hover:bg-white/5 transition-colors cursor-pointer shrink-0"
           >
             <X size={16} />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
             <label htmlFor="save-new-preset-input" className="text-xs font-semibold text-dim">
               Preset Name
             </label>
@@ -2233,7 +2109,7 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
               }}
               placeholder="e.g. Scalp Alpha 1m"
               className={cn(
-                "w-full bg-background border rounded-xl px-3.5 py-2.5 text-sm font-medium text-text focus:outline-none transition-colors",
+                "w-full min-h-[42px] bg-background border rounded-xl px-3.5 py-2 text-base sm:text-sm font-medium text-text focus:outline-none transition-colors",
                 error ? "border-red focus:border-red" : "border-border focus:border-accent"
               )}
             />
@@ -2241,9 +2117,9 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
           </div>
 
           {configSummary && (
-            <div className="bg-background/60 border border-border/40 rounded-xl p-3 flex flex-col gap-1 text-[11px] text-dim">
+            <div className="bg-background/60 border border-border/40 rounded-xl p-2.5 flex flex-col gap-0.5 text-[11px] text-dim">
               <span className="font-semibold text-text uppercase tracking-wider text-[10px]">Strategy Overview</span>
-              <div className="flex items-center gap-2 flex-wrap font-mono mt-0.5 text-text/90">
+              <div className="flex items-center gap-1.5 flex-wrap font-mono text-text/90">
                 <span className="px-1.5 py-0.5 rounded bg-surface border border-border/40 text-[10px] font-bold">{configSummary.mode}</span>
                 <span>·</span>
                 <span>{configSummary.interval}</span>
@@ -2266,10 +2142,10 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
           )}
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/30">
-            <Btn type="button" variant="ghost" onClick={onClose} className="px-4 py-2 text-xs font-semibold">
+            <Btn type="button" variant="ghost" onClick={onClose} className="h-9 px-3.5 text-xs font-semibold">
               Cancel
             </Btn>
-            <Btn type="submit" variant="primary" className="px-5 py-2 text-xs font-bold bg-accent text-white">
+            <Btn type="submit" variant="primary" className="h-9 px-4 text-xs font-bold bg-accent text-white">
               Save Preset
             </Btn>
           </div>
@@ -2299,8 +2175,9 @@ const PresetItem = React.memo(React.forwardRef(({
   onRevert,
   onDuplicate
 }, ref) => {
+  const [manualExpanded, setManualExpanded] = useState(false);
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
-  const isExpanded = isLoaded || isEditingVariant;
+  const isExpanded = manualExpanded || isEditingVariant;
 
   let modeColor = "bg-dim";
   let modeLabel = "Paper";
@@ -2313,16 +2190,16 @@ const PresetItem = React.memo(React.forwardRef(({
         ? preset.config.exit_rr_sequence[preset.config.exit_rr_sequence.length - 1]
         : 2.0;
 
-  const diffs = (isExpanded && isDirty && currentCfg) ? computePresetDiff(currentCfg, preset.config) : [];
+  const diffs = (isExpanded && isLoaded && isDirty && currentCfg) ? computePresetDiff(currentCfg, preset.config) : [];
 
   return (
     <motion.div
       ref={ref}
       layout
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ duration: 0.2, ease: "easeInOut" }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.16, ease: "easeInOut" }}
       className={cn(
         "flex flex-col border-b border-border/40 hover:bg-white/[0.02] transition-all relative overflow-hidden group/preset",
         isSelected && "bg-accent/[0.06] border-accent/30",
@@ -2332,7 +2209,7 @@ const PresetItem = React.memo(React.forwardRef(({
       )}
     >
       <div
-        className="flex items-center justify-between gap-2.5 sm:gap-4 px-3 sm:px-4 py-3 sm:py-4 cursor-pointer"
+        className="flex items-center justify-between gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3 cursor-pointer"
         onClick={(e) => {
           if (e.target.closest('button') || e.target.closest('input')) return;
           if (onToggleSelect && (isSelected || e.metaKey || e.ctrlKey)) {
@@ -2356,12 +2233,12 @@ const PresetItem = React.memo(React.forwardRef(({
                "w-4 h-4 rounded border flex items-center justify-center transition-all",
                isSelected ? "bg-accent border-accent text-black font-bold" : "border-border/60 hover:border-accent/40"
              )}>
-               {isSelected && <Check size={11} className="stroke-[3]" />}
+               {isSelected && <Check size={10} className="stroke-[3]" />}
              </div>
            </button>
         )}
 
-        <div className="flex-1 min-w-0 flex items-center gap-2.5 sm:gap-3">
+        <div className="flex-1 min-w-0 flex items-center gap-2 sm:gap-2.5">
           {/* Status dots */}
           <div className="flex items-center gap-1 shrink-0">
             <span className={cn("w-2 h-2 rounded-full", modeColor)} title={`Mode: ${modeLabel}`} />
@@ -2373,10 +2250,10 @@ const PresetItem = React.memo(React.forwardRef(({
             )}
           </div>
 
-          <div className="flex flex-col min-w-0 flex-1">
-             <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1 leading-snug">
+             <div className="flex items-center gap-1.5 min-w-0">
                 <span className={cn(
-                  "text-xs sm:text-sm font-bold truncate tracking-tight transition-colors",
+                  "text-xs sm:text-[13px] font-bold truncate tracking-tight transition-colors min-w-0 leading-snug",
                   isVariant ? "text-violet-200 group-hover/preset:text-violet-100" : "text-text group-hover/preset:text-accent"
                 )}>
                   {preset.name}
@@ -2384,52 +2261,44 @@ const PresetItem = React.memo(React.forwardRef(({
 
                 {/* Variant Color-Coded Badge */}
                 {isVariant && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40 flex items-center gap-1 shrink-0">
-                    <Layers size={10} className="text-violet-400" />
-                    {variantIndex !== undefined && variantIndex >= 0 ? `Variant #${variantIndex + 1}` : 'Variant'}
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-300 border border-violet-500/40 flex items-center gap-1 shrink-0 leading-none">
+                    <Layers size={9} className="text-violet-400 hidden sm:inline" />
+                    {variantIndex !== undefined && variantIndex >= 0 ? (
+                      <>
+                        <span className="sm:hidden">V{variantIndex + 1}</span>
+                        <span className="hidden sm:inline">{`Variant #${variantIndex + 1}`}</span>
+                      </>
+                    ) : 'Variant'}
                   </span>
                 )}
 
                 {isEditingVariant && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/30 text-violet-200 border border-violet-400 shrink-0">
-                    Editing Now
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-violet-500/30 text-violet-200 border border-violet-400 shrink-0 leading-none">
+                    Editing
                   </span>
                 )}
 
                 {/* Active Base Badge */}
                 {isLoaded && !isVariant && (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent/20 text-accent border border-accent/40 shrink-0">
-                    Active Base
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent/20 text-accent border border-accent/40 shrink-0 leading-none">
+                    <span className="sm:hidden">Base</span>
+                    <span className="hidden sm:inline">Active Base</span>
                   </span>
                 )}
 
-                {isExpanded && isDirty && (
-                  <span className="text-[10px] text-amber font-bold tracking-tight">
-                     {diffs.length} unsaved changes
-                  </span>
+                {isLoaded && isDirty && !isVariant && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber shrink-0 sm:hidden" title="Modified" />
                 )}
              </div>
 
-             <div className="text-[11px] text-dim font-mono tracking-tight mt-0.5 truncate flex items-center gap-1.5 flex-wrap">
-               <span>{preset.config.scan_interval || '1m'}</span>
-               <span>·</span>
-               <span>{preset.config.risk_pct_per_trade}% risk</span>
-               <span>·</span>
-               <span>SL {preset.config.sl_distance_pct}%</span>
-               {tpRatio ? (
-                 <>
-                   <span>·</span>
-                   <span>TP {Number(tpRatio).toFixed(1)}R</span>
-                 </>
-               ) : null}
-               <span className="hidden xs:inline opacity-40">·</span>
-               <span className="hidden xs:inline text-[10px] text-dim/80">{modeLabel}</span>
+             <div className="text-[10.5px] text-dim font-mono tracking-tight truncate leading-snug">
+               {`${preset.config.scan_interval || '1m'} · ${preset.config.risk_pct_per_trade}% · SL ${preset.config.sl_distance_pct}%${tpRatio ? ` · ${Number(tpRatio).toFixed(1)}R` : ''} · ${modeLabel}`}
              </div>
           </div>
         </div>
 
-        {/* Right Actions: Responsive and Touch Friendly */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        {/* Right Actions: Compact & Zero-Overlap on Narrow Screens */}
+        <div className="flex items-center gap-1.5 shrink-0">
           {isVariant ? (
             <div className="flex items-center gap-1.5">
               <button
@@ -2438,20 +2307,22 @@ const PresetItem = React.memo(React.forwardRef(({
                   e.stopPropagation();
                   onEditVariant?.(preset, variantIndex);
                 }}
-                className="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-600/20 hover:bg-violet-600/30 text-violet-200 border border-violet-500/40 transition-all flex items-center gap-1 cursor-pointer"
+                className="h-8 px-2.5 sm:px-3 rounded-lg text-[11px] font-bold bg-violet-600/20 hover:bg-violet-600/30 text-violet-200 border border-violet-500/40 transition-all flex items-center gap-1 cursor-pointer"
                 title="Edit this variant's parameters without altering base strategy"
               >
-                <Edit3 size={12} className="text-violet-400" />
-                <span className="hidden xs:inline">Edit Variant</span>
-                <span className="xs:hidden">Edit</span>
+                <Edit3 size={11} className="text-violet-400 shrink-0" />
+                <span className="hidden sm:inline">Edit Variant</span>
+                <span className="sm:hidden">Edit</span>
               </button>
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
-                className="px-2 sm:px-2.5 py-1.5 rounded-lg border border-border/60 text-xs font-medium text-dim hover:text-red hover:border-red/40 transition-colors"
+                aria-label={`Remove variant ${preset.name}`}
+                className="h-8 px-2.5 rounded-lg border border-border/60 text-[11px] font-medium text-dim hover:text-red hover:border-red/40 transition-colors cursor-pointer"
                 title="Remove from active variants"
               >
-                Remove
+                <span className="hidden sm:inline">Remove</span>
+                <X size={12} className="sm:hidden" />
               </button>
             </div>
           ) : (
@@ -2459,16 +2330,17 @@ const PresetItem = React.memo(React.forwardRef(({
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onToggleVariant(e, preset); }}
-                className="px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 text-xs font-bold text-text hover:border-accent hover:text-accent hover:bg-accent/5 transition-all cursor-pointer"
+                className="h-8 px-2.5 sm:px-3 rounded-lg border border-border/80 text-[11px] font-bold text-text hover:border-accent hover:text-accent hover:bg-accent/5 transition-all cursor-pointer whitespace-nowrap"
                 title="Add as secondary trading variant"
               >
-                + Variant
+                <span className="hidden sm:inline">+ Variant</span>
+                <span className="sm:hidden">+ Var</span>
               </button>
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); onLoad(preset); }}
                 className={cn(
-                  "hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer",
+                  "hidden sm:inline-flex h-8 items-center px-3 rounded-lg text-[11px] font-bold transition-all cursor-pointer",
                   isLoaded ? "bg-accent/15 text-accent border border-accent/40" : "text-dim hover:text-text hover:bg-white/5 border border-transparent"
                 )}
                 title="Load as primary base strategy"
@@ -2477,6 +2349,18 @@ const PresetItem = React.memo(React.forwardRef(({
               </button>
             </div>
           )}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setManualExpanded(prev => !prev); }}
+            aria-label={isExpanded ? `Collapse ${preset.name} actions` : `Expand ${preset.name} actions`}
+            aria-expanded={isExpanded}
+            className={cn(
+              "h-8 w-8 flex items-center justify-center rounded-lg border border-transparent text-dim hover:text-text hover:bg-white/5 transition-all cursor-pointer shrink-0",
+              isExpanded && "bg-white/5 text-accent rotate-180"
+            )}
+          >
+            <ChevronDown size={14} />
+          </button>
         </div>
       </div>
 
@@ -2487,14 +2371,14 @@ const PresetItem = React.memo(React.forwardRef(({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="px-3 sm:px-4 pb-4 flex flex-col gap-3.5 overflow-hidden bg-background/20 border-t border-border/20 pt-3"
+            className="px-3 sm:px-4 pb-3 flex flex-col gap-2.5 overflow-hidden bg-background/20 border-t border-border/20 pt-2.5"
           >
-            {isDirty && diffs.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            {isLoaded && isDirty && diffs.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                  {diffs.map((d, i) => (
-                    <div key={i} className="bg-background/60 border border-border/40 rounded-xl p-2.5 flex flex-col gap-1">
-                       <span className="text-[11px] text-dim">{d.label}</span>
-                       <div className="text-xs font-mono tracking-tight flex items-center gap-2">
+                    <div key={i} className="bg-background/60 border border-border/40 rounded-lg p-2 flex flex-col gap-0.5">
+                       <span className="text-[10px] text-dim">{d.label}</span>
+                       <div className="text-[11px] font-mono tracking-tight flex items-center gap-1.5">
                          <span className="text-dim/80">{d.old}</span>
                          <span className="text-dim/40">→</span>
                          <span className="text-amber font-semibold">{d.new}</span>
@@ -2504,20 +2388,20 @@ const PresetItem = React.memo(React.forwardRef(({
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/20">
+            <div className="flex flex-wrap items-center gap-1.5">
                {isVariant ? (
                  <>
                    <Btn
                      variant="primary"
                      onClick={() => onEditVariant?.(preset, variantIndex)}
-                     className="px-3.5 py-1.5 text-xs bg-violet-600 hover:bg-violet-500 text-white font-bold flex items-center gap-1.5"
+                     className="h-8 px-3 text-[11px] bg-violet-600 hover:bg-violet-500 text-white font-bold flex items-center gap-1"
                    >
-                     <Edit3 size={13} /> Edit Variant Parameters
+                     <Edit3 size={12} /> Edit Variant
                    </Btn>
                    <Btn
                      variant="ghost"
                      onClick={() => onLoad(preset)}
-                     className="px-3.5 py-1.5 text-xs border border-border text-dim hover:text-text font-bold"
+                     className="h-8 px-3 text-[11px] border border-border text-dim hover:text-text font-bold"
                      title="Make this variant your main base strategy"
                    >
                      Promote to Base
@@ -2525,19 +2409,21 @@ const PresetItem = React.memo(React.forwardRef(({
                  </>
                ) : (
                  <>
-                   <Btn
-                     variant="primary"
-                     onClick={() => onSave(preset.name)}
-                     className="px-3.5 py-1.5 text-xs bg-accent text-white font-bold"
-                   >
-                     Update preset
-                   </Btn>
+                   {isLoaded && (
+                     <Btn
+                       variant="primary"
+                       onClick={() => onSave(preset.name)}
+                       className="h-8 px-3 text-[11px] bg-accent text-white font-bold"
+                     >
+                       Update preset
+                     </Btn>
+                   )}
                    <Btn
                      variant="ghost"
                      onClick={() => onLoad(preset)}
-                     className="px-3.5 py-1.5 text-xs border border-border text-dim hover:text-text font-bold"
+                     className="h-8 px-3 text-[11px] border border-border text-dim hover:text-text font-bold"
                    >
-                     Load as Base
+                     {isLoaded ? 'Reload Base' : 'Load as Base'}
                    </Btn>
                  </>
                )}
@@ -2545,16 +2431,16 @@ const PresetItem = React.memo(React.forwardRef(({
                <Btn
                  variant="ghost"
                  onClick={() => onSaveAsNew(preset)}
-                 className="px-3.5 py-1.5 text-xs border border-border text-dim hover:text-accent font-bold flex items-center gap-1"
+                 className="h-8 px-2.5 text-[11px] border border-border text-dim hover:text-accent font-bold flex items-center gap-1"
                >
-                 <Copy size={12} /> Save as new
+                 <Copy size={11} /> Save as new
                </Btn>
 
                {isLoaded && isDirty && (
                  <Btn
                    variant="ghost"
                    onClick={onRevert}
-                   className="px-3.5 py-1.5 text-xs text-amber hover:text-amber-300 font-bold"
+                   className="h-8 px-2.5 text-[11px] text-amber hover:text-amber-300 font-bold"
                  >
                    Revert
                  </Btn>
@@ -2565,7 +2451,7 @@ const PresetItem = React.memo(React.forwardRef(({
                <Btn
                  variant="ghost"
                  onClick={onDuplicate}
-                 className="px-3.5 py-1.5 text-xs text-dim hover:text-text hidden md:flex font-bold"
+                 className="h-8 px-2.5 text-[11px] text-dim hover:text-text hidden md:flex font-bold"
                >
                  Duplicate
                </Btn>
@@ -2574,7 +2460,7 @@ const PresetItem = React.memo(React.forwardRef(({
                  variant="ghost"
                  disabled={sessionActive}
                  onClick={(e) => onDelete(e, preset.name)}
-                 className={cn("px-3.5 py-1.5 text-xs font-bold", sessionActive ? "text-dim/30 cursor-not-allowed" : "text-red hover:bg-red/10")}
+                 className={cn("h-8 px-2.5 text-[11px] font-bold", sessionActive ? "text-dim/30 cursor-not-allowed" : "text-red hover:bg-red/10")}
                >
                  Delete
                </Btn>
@@ -2593,18 +2479,26 @@ const flattenConfig = (config) => {
   try {
     const params = typeof config.signal_params === 'string' ? JSON.parse(config.signal_params || '{}') : config.signal_params || {};
     const weights = config.scanner_weights || { momentum: 0.5, volatility: 0.3, trend: 0.2 };
+    const isAlreadyFlattened = config.__flattened === true || (
+      config.scanner_weights_momentum !== undefined &&
+      config.scanner_weights_volatility !== undefined &&
+      config.scanner_weights_trend !== undefined
+    );
 
     const flattened = {
       ...config,
+      __flattened: true,
       trading_mode: config.trading_mode || (config.paper_mode ? 'paper' : 'live'),
       discovery_mode: config.discovery_mode || 'volume',
-      scanner_weights_momentum: weights.momentum * 100,
-      scanner_weights_volatility: weights.volatility * 100,
-      scanner_weights_trend: weights.trend * 100,
+      scanner_weights_momentum: isAlreadyFlattened ? Number(config.scanner_weights_momentum) : (weights.momentum * 100),
+      scanner_weights_volatility: isAlreadyFlattened ? Number(config.scanner_weights_volatility) : (weights.volatility * 100),
+      scanner_weights_trend: isAlreadyFlattened ? Number(config.scanner_weights_trend) : (weights.trend * 100),
       live_rr_sequence: Array.isArray(config.live_rr_sequence) ? config.live_rr_sequence : [1.0, 2.0, 4.0],
       exit_rr_sequence: Array.isArray(config.exit_rr_sequence) ? config.exit_rr_sequence : [0.0, 1.0, 2.0],
       trailing_guard_buffer_pct: config.trailing_guard_buffer_pct !== undefined ? config.trailing_guard_buffer_pct : CONFIG_LIMITS.TRAILING_GUARD_DEFAULT,
-      slippage_warning_threshold: config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1),
+      slippage_warning_threshold: isAlreadyFlattened
+        ? (config.slippage_warning_threshold !== undefined ? Number(config.slippage_warning_threshold) : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1))
+        : (config.slippage_warning_threshold !== undefined ? config.slippage_warning_threshold * 100 : (CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT * 100 || 0.1)),
       leverage: config.leverage !== undefined ? Number(config.leverage) : CONFIG_LIMITS.LEVERAGE_DEFAULT,
       slippage_abort_threshold: config.slippage_abort_threshold !== undefined ? Number(config.slippage_abort_threshold) : (CONFIG_LIMITS.SLIPPAGE_ABORT_DEFAULT || 0.05),
       hibernation_mode: config.hibernation_mode || 'adaptive',
@@ -2672,9 +2566,11 @@ const flattenConfig = (config) => {
       htf_ema_cross_rr_weight: config.htf_ema_cross_rr_weight !== undefined ? config.htf_ema_cross_rr_weight : 1.5,
     };
 
-    // Dynamically map all params (including suffixes) directly to flattened keys
+    // Dynamically map params without overwriting live UI edits on already-flattened configs
     Object.keys(params).forEach(k => {
-      flattened[`signal_params_${k}`] = params[k];
+      if (!isAlreadyFlattened || flattened[`signal_params_${k}`] === undefined) {
+        flattened[`signal_params_${k}`] = params[k];
+      }
     });
 
     // Populate active signal schema defaults and resolve alias fallbacks
@@ -2716,6 +2612,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
   try {
     const flat = flattenConfig(rawConfig);
     const c = { ...flat, strategy_label: (flat.strategy_label || '').trim(), discovery_mode: flat.discovery_mode || 'volume' };
+    delete c.__flattened;
 
     // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
     const sp = {};
@@ -2724,7 +2621,6 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
         const paramKey = k.substring('signal_params_'.length);
         const val = flat[k];
         if (val !== undefined && val !== null) {
-          // If the parameter is supposed to be boolean, parse as boolean, otherwise coerce to number or string
           if (val === 'true' || val === true) {
             sp[paramKey] = true;
           } else if (val === 'false' || val === false) {
@@ -2877,41 +2773,264 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const isResuming = isThrottled || wsStatus !== 'live' || isSyncingOnResume;
   const showResumingFeedback = sessionActive && isResuming;
-  // UX-MOBILE: Ensure inputs scroll into view when keyboard is active
-  const handleInputFocus = React.useCallback((e) => {
-    requestAnimationFrame(() => {
-      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    });
+  // UX-MOBILE: Virtual-keyboard-aware viewport + isolated scrollBody centering + outer scroll lock + Prev/Next/Done stepper
+  const [isInputFocused, setIsInputFocused] = useState(false);
+  const [vvHeight, setVvHeight] = useState(null);
+  const [vvOffsetTop, setVvOffsetTop] = useState(0);
+  const blurCheckTimerRef = useRef(null);
+  const modalRef = React.useRef(null);
+  const scrollBodyRef = React.useRef(null);
+
+  const resetOuterScroll = React.useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const root = modalRef.current;
+    if (root) {
+      if (root.scrollTop !== 0) root.scrollTop = 0;
+      if (root.scrollLeft !== 0) root.scrollLeft = 0;
+      let ancestor = root.parentElement;
+      while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+        if (ancestor.scrollTop !== 0) ancestor.scrollTop = 0;
+        if (ancestor.scrollLeft !== 0) ancestor.scrollLeft = 0;
+        if (ancestor.getAttribute?.('role') === 'dialog' || ancestor.hasAttribute?.('data-vaul-drawer')) {
+          break;
+        }
+        ancestor = ancestor.parentElement;
+      }
+    }
+    if (window.innerWidth < 768 && (window.scrollY !== 0 || window.scrollX !== 0 || document.documentElement.scrollTop !== 0 || document.body.scrollTop !== 0)) {
+      window.scrollTo(0, 0);
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }
   }, []);
 
-  const [cfg, setCfg] = useState(() => {
-    const savedDraft = sessionStorage.getItem('config_draft');
-    if (savedDraft) {
+  const scrollFieldIntoBody = React.useCallback((target) => {
+    resetOuterScroll();
+    const container = scrollBodyRef.current;
+    if (!target || !container || !container.contains(target)) return;
+    const containerRect = container.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const padding = 14;
+    const isComfortablyVisible =
+      targetRect.top >= containerRect.top + padding &&
+      targetRect.bottom <= containerRect.bottom - padding;
+    if (!isComfortablyVisible) {
+      const offsetWithinScroll = targetRect.top - containerRect.top;
+      const desiredTop = Math.max(0, container.scrollTop + offsetWithinScroll - Math.max(24, (container.clientHeight - targetRect.height) * 0.35));
+      if (typeof container.scrollTo === 'function') {
+        container.scrollTo({ top: desiredTop, behavior: 'smooth' });
+      } else {
+        container.scrollTop = desiredTop;
+      }
+    }
+  }, [resetOuterScroll]);
+
+  const handleInputFocus = React.useCallback((e) => {
+    const target = e?.target;
+    if (!target) return;
+    requestAnimationFrame(() => {
       try {
-        const parsed = JSON.parse(savedDraft);
-        if (parsed && (parsed.strategy_label === initialConfig?.strategy_label || (!parsed.strategy_label && !initialConfig?.strategy_label))) {
-          return parsed;
+        scrollFieldIntoBody(target);
+      } catch {}
+    });
+    // Re-clamp outer containers and re-center inside scrollBody after mobile keyboard / dropdown animation settles
+    setTimeout(() => {
+      resetOuterScroll();
+      if (document.activeElement === target) {
+        try {
+          scrollFieldIntoBody(target);
+        } catch {}
+      }
+    }, 220);
+  }, [resetOuterScroll, scrollFieldIntoBody]);
+
+  useEffect(() => {
+    const root = modalRef.current;
+    if (!root) return;
+
+    const dialogAncestor = root.closest?.('[role="dialog"], [data-vaul-drawer]') || root.parentElement;
+
+    const isEditableTarget = (el) => {
+      if (!el) return false;
+      const tag = el.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+    };
+
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+    const handleViewportResize = () => {
+      if (!vv) return;
+      const isSmallScreen = window.innerWidth < 768;
+      if (!isSmallScreen) {
+        setVvHeight(null);
+        setVvOffsetTop(0);
+        return;
+      }
+      const heightDiff = Math.round(window.innerHeight - vv.height);
+      const offsetTop = Math.max(0, Math.round(vv.offsetTop || 0));
+      const viewportShrunkOrPanned = heightDiff > 90 || offsetTop > 2;
+      const clampedHeight = Math.max(240, Math.min(Math.round(vv.height), Math.max(240, window.innerHeight - offsetTop)));
+      setVvHeight(viewportShrunkOrPanned ? clampedHeight : null);
+      setVvOffsetTop(offsetTop);
+      requestAnimationFrame(resetOuterScroll);
+    };
+
+    const onFocusIn = (e) => {
+      if (isEditableTarget(e.target)) {
+        if (blurCheckTimerRef.current) clearTimeout(blurCheckTimerRef.current);
+        setIsInputFocused(true);
+        handleInputFocus(e);
+        setTimeout(handleViewportResize, 80);
+      }
+    };
+
+    const onFocusOut = () => {
+      if (blurCheckTimerRef.current) clearTimeout(blurCheckTimerRef.current);
+      blurCheckTimerRef.current = setTimeout(() => {
+        const active = document.activeElement;
+        const stillFocused = isEditableTarget(active) && root.contains(active);
+        setIsInputFocused(stillFocused);
+        if (!stillFocused) {
+          resetOuterScroll();
+          handleViewportResize();
         }
-      } catch (e) {
-        console.error('[ConfigModal] Failed to parse draft:', e);
+      }, 120);
+    };
+
+    // Native <select> pickers on mobile can pan visualViewport / raise outer containers without blurring after selection
+    const onNativeSelectChange = (e) => {
+      if (e.target?.tagName === 'SELECT') {
+        if (typeof window !== 'undefined' && window.innerWidth < 768) {
+          setTimeout(() => {
+            if (document.activeElement === e.target && typeof e.target.blur === 'function') {
+              e.target.blur();
+            }
+            resetOuterScroll();
+            handleViewportResize();
+          }, 60);
+        } else {
+          resetOuterScroll();
+        }
+      }
+    };
+
+    const onOuterScrollGuard = (e) => {
+      const target = e.target;
+      if (target && target !== scrollBodyRef.current && !scrollBodyRef.current?.contains(target)) {
+        if (target === root || target === root.parentElement || target === dialogAncestor) {
+          if (target.scrollTop !== 0) target.scrollTop = 0;
+          if (target.scrollLeft !== 0) target.scrollLeft = 0;
+        }
+      }
+    };
+
+    const onWindowScrollGuard = () => {
+      if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        resetOuterScroll();
+      }
+    };
+
+    root.addEventListener('focusin', onFocusIn);
+    root.addEventListener('focusout', onFocusOut);
+    root.addEventListener('change', onNativeSelectChange);
+    root.addEventListener('scroll', onOuterScrollGuard, true);
+    if (dialogAncestor && dialogAncestor !== root) {
+      dialogAncestor.addEventListener('scroll', onOuterScrollGuard, true);
+    }
+    window.addEventListener('scroll', onWindowScrollGuard, { passive: true });
+
+    if (vv) {
+      vv.addEventListener('resize', handleViewportResize);
+      vv.addEventListener('scroll', handleViewportResize);
+    }
+
+    return () => {
+      root.removeEventListener('focusin', onFocusIn);
+      root.removeEventListener('focusout', onFocusOut);
+      root.removeEventListener('change', onNativeSelectChange);
+      root.removeEventListener('scroll', onOuterScrollGuard, true);
+      if (dialogAncestor && dialogAncestor !== root) {
+        dialogAncestor.removeEventListener('scroll', onOuterScrollGuard, true);
+      }
+      window.removeEventListener('scroll', onWindowScrollGuard);
+      if (blurCheckTimerRef.current) clearTimeout(blurCheckTimerRef.current);
+      if (vv) {
+        vv.removeEventListener('resize', handleViewportResize);
+        vv.removeEventListener('scroll', handleViewportResize);
+      }
+    };
+  }, [handleInputFocus, resetOuterScroll]);
+
+  const stepFocusedField = React.useCallback((direction) => {
+    const root = modalRef.current;
+    if (!root) return;
+    const focusables = Array.from(root.querySelectorAll('input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled])'))
+      .filter(el => el.offsetParent !== null);
+    if (focusables.length === 0) return;
+    const currentIdx = focusables.indexOf(document.activeElement);
+    const nextIdx = currentIdx === -1
+      ? 0
+      : (currentIdx + direction + focusables.length) % focusables.length;
+    const nextEl = focusables[nextIdx];
+    nextEl?.focus();
+    if (nextEl?.tagName === 'INPUT' && typeof nextEl.select === 'function') {
+      try { nextEl.select(); } catch {}
+    }
+  }, []);
+
+  const dismissMobileKeyboard = React.useCallback(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    setIsInputFocused(false);
+    setTimeout(resetOuterScroll, 60);
+  }, [resetOuterScroll]);
+
+  const [initialDraftRestored] = useState(() => {
+    if (isEdit || initialEditingVariantIndex !== null) return false;
+    const savedDraft = sessionStorage.getItem('config_draft');
+    if (!savedDraft) return false;
+    try {
+      const parsed = JSON.parse(savedDraft);
+      return !!(parsed && (parsed.strategy_label === initialConfig?.strategy_label || (!parsed.strategy_label && !initialConfig?.strategy_label)));
+    } catch {
+      return false;
+    }
+  });
+
+  const [cfg, setCfg] = useState(() => {
+    if (!isEdit && initialEditingVariantIndex === null) {
+      const savedDraft = sessionStorage.getItem('config_draft');
+      if (savedDraft) {
+        try {
+          const parsed = JSON.parse(savedDraft);
+          if (parsed && (parsed.strategy_label === initialConfig?.strategy_label || (!parsed.strategy_label && !initialConfig?.strategy_label))) {
+            return flattenConfig(parsed);
+          }
+        } catch (e) {
+          console.error('[ConfigModal] Failed to parse draft:', e);
+        }
       }
     }
     return flattenConfig(initialConfig);
   });
 
+  const [isDirty, setIsDirty] = useState(initialDraftRestored);
+  const isDirtyRef = useRef(isDirty);
   useEffect(() => {
-    if (initialConfig) {
+    isDirtyRef.current = isDirty;
+  }, [isDirty]);
+
+  useEffect(() => {
+    setEditingVariantIdx(initialEditingVariantIndex ?? null);
+    setBaseConfigBackup(initialEditingVariantIndex !== null && baseConfig ? flattenConfig(baseConfig) : null);
+    if (initialConfig && !isDirtyRef.current) {
       setCfg(flattenConfig(initialConfig));
     }
-  }, [initialConfig, initialEditingVariantIndex]);
+  }, [initialConfig, initialEditingVariantIndex, baseConfig]);
 
   useEffect(() => {
     fetchLifetimeAnalytics(cfg?.paper_mode ? 'paper' : 'live');
   }, [fetchLifetimeAnalytics, cfg?.paper_mode]);
-  const [isDirty, setIsDirty] = useState(() => {
-    const savedDraft = sessionStorage.getItem('config_draft');
-    return !!savedDraft;
-  });
 
   const [section, setSection] = useState(initialEditingVariantIndex !== null ? 'strategy' : (isEdit ? 'presets' : 'scan'))
   const [presetLoaded, setPresetLoaded] = useState(false)
@@ -2925,10 +3044,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [testnetConfigured, setTestnetConfigured] = useState(false)
   const [liveConfigured, setLiveConfigured] = useState(false)
   const [modeWarning, setModeWarning] = useState(null)
-  const [loadedPresetName, setLoadedPresetName] = useState(() => sessionStorage.getItem('loaded_preset_name'));
+  const [loadedPresetName, setLoadedPresetName] = useState(() => {
+    if (initialEditingVariantIndex !== null) {
+      return baseConfig?.strategy_label || null;
+    }
+    const stored = sessionStorage.getItem('loaded_preset_name');
+    if (isEdit) {
+      return stored && stored === initialConfig?.strategy_label ? stored : null;
+    }
+    if (stored && (!initialConfig?.strategy_label || initialConfig.strategy_label === stored)) {
+      return stored;
+    }
+    return null;
+  });
   const [presetToDelete, setPresetToDelete] = useState(null);
   const [presetSearch, setPresetSearch] = useState('');
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [libraryExpanded, setLibraryExpanded] = useState(false);
   const [recentExpanded, setRecentExpanded] = useState(false);
   const [selectedPresetNames, setSelectedPresetNames] = useState(new Set());
@@ -2956,8 +3086,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState(null);
   const [openSectionId, setOpenSectionId] = useState(null);
-
-  const modalRef = React.useRef(null);
 
   // Auto-focus container on mount for accessible keyboard navigation
   useEffect(() => {
@@ -3011,15 +3139,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [presets, presetSearch, presetTabFilter, cfg.strategy_variants, recentlyUsedNames]);
 
 
-  // Use a debounced effect for sessionStorage to avoid heavy stringify on every keystroke
+  // Persist uncommitted New Session drafts only when dirty so opening/closing never leaves phantom drafts
   useEffect(() => {
+    if (!isDirty || isEdit || editingVariantIdx !== null) return;
     const timer = setTimeout(() => {
       sessionStorage.setItem('config_draft', JSON.stringify(cfg));
       if (loadedPresetName) sessionStorage.setItem('loaded_preset_name', loadedPresetName);
       else sessionStorage.removeItem('loaded_preset_name');
     }, 1000);
     return () => clearTimeout(timer);
-  }, [cfg, loadedPresetName]);
+  }, [cfg, loadedPresetName, isDirty, isEdit, editingVariantIdx]);
 
   const validate = React.useCallback((c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
@@ -3124,6 +3253,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (Array.isArray(rawData)) {
         const validPresets = rawData.filter(p => p && typeof p === 'object' && typeof p.name === 'string');
         setPresets(validPresets);
+        if (isEdit && initialEditingVariantIndex === null && initialConfig?.strategy_label) {
+          const matching = validPresets.find(p => p.name === initialConfig.strategy_label);
+          if (matching) {
+            setLoadedPresetName(prev => prev || matching.name);
+          }
+        }
         console.log(`[ConfigModal] Loaded ${validPresets.length} presets.`);
       } else {
         const msg = typeof res?.data === 'string' && (res.data.includes('<!DOCTYPE') || res.data.includes('<html'))
@@ -3496,6 +3631,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       ? cfg.strategy_label.trim()
       : (presetName || loadedPresetName || generatedPresetName || initialConfig?.strategy_label || 'Base Strategy');
     const c = { ...cfg, strategy_label: rawLabel };
+    delete c.__flattened;
 
     // Dynamically reconstruct the signal_params map from any flat keys prefix-matched with signal_params_
     const sp = {};
@@ -3583,7 +3719,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (c.slippage_warning_threshold !== undefined) {
       c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
     }
-    c.strategy_variants = (cfg.strategy_variants || []).map((v) => {
+    c.strategy_variants = (cfg.strategy_variants || []).filter(Boolean).map((v) => {
       return coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' }, true);
     });
 
@@ -3595,7 +3731,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     });
 
     return c;
-  }, [cfg, presetName, loadedPresetName, generatedPresetName, editingVariantIdx, baseConfigBackup]);
+  }, [cfg, presetName, loadedPresetName, generatedPresetName, editingVariantIdx, baseConfigBackup, initialConfig?.strategy_label]);
 
   const savePreset = React.useCallback(async (explicitName) => {
     // SRE name-resolution helper: cleanly resolves the preset name with strict precedence.
@@ -3802,16 +3938,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (!validate(cfg)) return;
 
     const base = baseConfigBackup || cfg;
-    const currentVariants = [...(base.strategy_variants || [])];
-    const sanitizedVariant = coerceAndSanitizeConfig(cfg);
+    const currentVariants = [...(base.strategy_variants || [])].filter(Boolean);
+    const sanitizedVariant = coerceAndSanitizeConfig(cfg, true);
     delete sanitizedVariant.strategy_variants;
 
     const variantLabel = cfg.strategy_label || (editingVariantIdx !== null ? `Variant ${editingVariantIdx + 1}` : 'Variant');
     sanitizedVariant.strategy_label = variantLabel;
 
     if (editingVariantIdx !== null && editingVariantIdx >= 0 && editingVariantIdx < currentVariants.length) {
-      currentVariants[editingVariantIdx] = sanitizedVariant;
-    } else if (editingVariantIdx !== null) {
       currentVariants[editingVariantIdx] = sanitizedVariant;
     } else {
       currentVariants.push(sanitizedVariant);
@@ -3852,13 +3986,15 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const promoteVariantToBase = React.useCallback(() => {
     const base = baseConfigBackup || cfg;
-    const currentVariants = [...(base.strategy_variants || [])];
-    const variantLabel = cfg.strategy_label;
+    const currentVariants = [...(base.strategy_variants || [])].filter(Boolean);
+    const variantLabel = cfg.strategy_label || 'Promoted Strategy';
 
-    const remainingVariants = currentVariants.filter((v, i) => i !== editingVariantIdx && v.strategy_label !== variantLabel);
+    const remainingVariants = currentVariants
+      .filter((v, i) => i !== editingVariantIdx && v.strategy_label !== variantLabel)
+      .map(v => coerceAndSanitizeConfig(v, true));
 
     const newBaseConfig = {
-      ...coerceAndSanitizeConfig(cfg),
+      ...coerceAndSanitizeConfig(cfg, true),
       strategy_label: variantLabel,
       strategy_variants: remainingVariants
     };
@@ -3867,6 +4003,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setBaseConfigBackup(null);
     setEditingVariantIdx(null);
     setLoadedPresetName(variantLabel);
+    setPresetName(variantLabel);
     setIsDirty(true);
 
     addAlert({
@@ -4294,7 +4431,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     setField('strategy_variants', exists
       ? variants.filter((v) => v.strategy_label !== p.name)
-      : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name })])
+      : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true)])
   }, [cfg.strategy_variants, loadedPresetName, cfg.strategy_label, setField, addAlert]);
 
   const clearAllVariants = React.useCallback(() => {
@@ -4355,11 +4492,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   ), [cfg, errors, setField, handleInputFocus]);
 
   return (
-    <div ref={modalRef} tabIndex={-1} className="flex flex-col flex-1 min-h-0 h-full bg-surface text-text overflow-hidden relative outline-none">
-      <div className="sticky top-0 z-40 bg-surface/90 backdrop-blur-md border-b border-border relative">
-        <div className="py-3 px-4 flex justify-between items-center relative z-20">
-          <div className="min-w-0 flex-1 mr-4">
-             <div className="text-md font-black tracking-tight truncate uppercase flex items-center gap-2">
+    <div
+      ref={modalRef}
+      tabIndex={-1}
+      style={{
+        ...(vvHeight ? { height: `${vvHeight}px`, maxHeight: `${vvHeight}px` } : {}),
+        ...(vvOffsetTop > 0 ? { transform: `translateY(${vvOffsetTop}px)` } : {})
+      }}
+      className="flex flex-col flex-1 min-h-0 h-full bg-surface text-text overflow-hidden relative outline-none"
+    >
+      <div className="relative z-40 bg-surface/95 backdrop-blur-md border-b border-border shrink-0">
+        <div className="px-2.5 sm:px-4 py-1 sm:py-2 flex justify-between items-center relative z-20 transition-all">
+          <div className="min-w-0 flex-1 mr-2">
+             <div className="text-xs sm:text-sm font-black tracking-tight truncate uppercase flex items-center gap-1.5">
                <span className="truncate">
                  {editingVariantIdx !== null
                    ? `Variant #${editingVariantIdx + 1}: ${cfg.strategy_label || 'Variant'}`
@@ -4367,25 +4512,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                </span>
                {editingVariantIdx !== null ? (
                  <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-violet-500/20 text-violet-300 border border-violet-500/40 shrink-0 flex items-center gap-1">
-                   <Layers size={9} /> Variant #{editingVariantIdx + 1}
+                   <Layers size={9} /> V{editingVariantIdx + 1}
                  </span>
                ) : loadedPresetName ? (
                  <span className={cn(
-                   "text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase border shrink-0",
+                   "text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase border shrink-0 hidden sm:inline-flex",
                    isDirty
                      ? "bg-amber/15 border-amber/40 text-amber"
                      : "bg-accent/15 border-accent/40 text-accent"
                  )}>
-                   {isDirty ? "Preset (Modified)" : "Preset"}
+                   {isDirty ? "Modified" : "Preset"}
                  </span>
                ) : (
-                 <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-surface border border-border text-dim shrink-0">
-                   Custom Draft
+                 <span className="text-[8.5px] px-1.5 py-0.5 rounded font-black tracking-widest uppercase bg-surface border border-border text-dim shrink-0 hidden sm:inline-flex">
+                   Draft
                  </span>
                )}
                {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
              </div>
-             <div className="text-[9px] text-dim font-bold uppercase tracking-widest flex items-center gap-1.5 truncate">
+             <div className={cn("text-[9px] text-dim font-bold uppercase tracking-widest items-center gap-1.5 truncate", isInputFocused ? "hidden" : "hidden sm:flex")}>
                {editingVariantIdx !== null ? (
                  <span className="text-violet-400 font-semibold truncate flex items-center gap-1">
                    Base Preserved: {baseConfigBackup?.strategy_label || loadedPresetName || 'Main Strategy'}
@@ -4408,7 +4553,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    <span className="opacity-40">/</span>
                    <span className="truncate">
                      {loadedPresetName
-                       ? `Preset: "${loadedPresetName}"${cfg.strategy_label && cfg.strategy_label !== loadedPresetName ? ` (Target: ${cfg.strategy_label})` : ''}`
+                       ? `Preset: "${loadedPresetName}"${cfg.strategy_label && cfg.strategy_label !== loadedPresetName ? ` (${cfg.strategy_label})` : ''}`
                        : (cfg.strategy_label ? `Strategy: ${cfg.strategy_label}` : 'Orchestration Center')}
                    </span>
                  </>
@@ -4416,19 +4561,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
              </div>
           </div>
           <Tooltip content="Close Configuration">
-            <button type="button" onClick={onClose} aria-label="Close Configuration" className="p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"><X size={16} className="text-dim" /></button>
+            <button type="button" onClick={onClose} aria-label="Close Configuration" className="min-h-[30px] min-w-[30px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center hover:bg-white/5 rounded-lg transition-colors shrink-0 cursor-pointer"><X size={15} className="text-dim" /></button>
           </Tooltip>
         </div>
-        <SectionTabs section={section} onSectionChange={setSection} errors={errors} isMoreOpen={isMoreOpen} setIsMoreOpen={setIsMoreOpen} modalRef={modalRef} />
+        <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
 
-        {/* Ultra-Dense, High-Clarity Sub-Header Ribbon across other tabs */}
-        {section !== 'presets' && (
+        {/* Ultra-Dense, High-Clarity Sub-Header Ribbon across other tabs (auto-collapses while keyboard is active) */}
+        {section !== 'presets' && (!isInputFocused && (
           editingVariantIdx !== null ? (
-            <div className="px-3 sm:px-4 py-1.5 bg-violet-950/35 border-t border-b border-violet-500/30 flex items-center justify-between gap-2 text-xs transition-all relative z-30 animate-in fade-in duration-150">
+            <div className="px-3 sm:px-4 py-1 bg-violet-950/35 border-t border-b border-violet-500/30 flex items-center justify-between gap-2 text-xs transition-all relative z-30 animate-in fade-in duration-150">
               {/* Left: Indicator, Variant Badge, and Full Strategy Name */}
               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                 <span className="p-0.5 rounded bg-violet-500/20 text-violet-300 shrink-0">
-                  <Layers size={12} />
+                  <Layers size={11} />
                 </span>
                 <span className="text-[10px] font-black uppercase text-violet-300 bg-violet-500/20 px-1.5 py-0.2 rounded border border-violet-500/30 shrink-0">
                   V{editingVariantIdx + 1}
@@ -4450,7 +4595,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               {/* Right: Quick Ultra-Compact Actions */}
-              <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              <div className="flex items-center gap-1 shrink-0 ml-auto">
                 {isDirty && presets.some(p => p.name === cfg.strategy_label) && (
                   <button
                     type="button"
@@ -4459,23 +4604,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     className="px-2 py-1 rounded-lg text-[11px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0"
                     title={`Update preset "${cfg.strategy_label}" in database`}
                   >
-                    <RefreshCw size={11} className={cn(isSaving && "animate-spin")} />
+                    <RefreshCw size={10} className={cn(isSaving && "animate-spin")} />
                     <span>Update</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={saveVariantChanges}
-                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-violet-600 hover:bg-violet-500 text-white shadow-xs flex items-center gap-1 transition-all cursor-pointer active:scale-95 shrink-0"
+                  className="px-2 py-1 rounded-lg text-[11px] font-bold bg-violet-600 hover:bg-violet-500 text-white shadow-xs flex items-center gap-1 transition-all cursor-pointer active:scale-95 shrink-0"
                   title="Save changes to this variant in active session"
                 >
-                  <Check size={11} />
+                  <Check size={10} />
                   <span>Save Variant</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleOpenSaveAsNew(null)}
-                  className="px-2 py-1 rounded-lg text-[11px] font-bold text-violet-200 hover:text-white border border-violet-500/30 hover:bg-white/5 transition-colors cursor-pointer shrink-0"
+                  className="px-2 py-1 rounded-lg text-[11px] font-bold text-violet-200 hover:text-white border border-violet-500/30 hover:bg-white/5 transition-colors cursor-pointer shrink-0 hidden sm:inline-flex"
                   title="Save this variant as a new preset in library"
                 >
                   Save As
@@ -4501,19 +4646,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           ) : (
             (loadedPresetName || cfg.strategy_label) && (
               <div className={cn(
-                "px-3 sm:px-4 py-1.5 border-t border-b flex items-center justify-between gap-2 text-xs transition-all relative z-30",
+                "px-3 sm:px-4 py-1 border-t border-b flex items-center justify-between gap-2 text-xs transition-all relative z-30",
                 isDirty
                   ? "bg-amber-950/20 border-amber-500/30 text-amber-200"
                   : "bg-surface/80 backdrop-blur-md border-border/60 text-text/90"
               )}>
                 {/* Left: Dot/Status, Strategy Name (Full Width on Mobile), and Status Pill */}
-                <div className="flex items-center gap-2 min-w-0 flex-1">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
                   <span className={cn(
                     "w-2 h-2 rounded-full shrink-0",
                     isDirty ? "bg-amber-400 animate-pulse" : "bg-accent"
                   )} />
                   <span
-                    className="font-mono font-bold text-xs truncate text-text min-w-0 flex-1"
+                    className="font-mono font-bold text-[11px] sm:text-xs truncate text-text min-w-0 flex-1"
                     title={loadedPresetName || cfg.strategy_label}
                   >
                     {loadedPresetName || cfg.strategy_label || 'Custom Strategy'}
@@ -4536,7 +4681,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 {/* Right: Quick Update and Save As Actions */}
-                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                <div className="flex items-center gap-1 shrink-0 ml-auto">
                   {isDirty && (
                     <button
                       type="button"
@@ -4549,10 +4694,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         }
                       }}
                       disabled={isSaving}
-                      className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0"
+                      className="px-2 py-1 rounded-lg text-[11px] font-bold bg-accent text-white hover:bg-accent/90 transition-all flex items-center gap-1 cursor-pointer shadow-xs active:scale-95 shrink-0"
                       title={loadedPresetName ? `Update preset "${loadedPresetName}" in database` : 'Update strategy preset'}
                     >
-                      <RefreshCw size={11} className={cn(isSaving && "animate-spin")} />
+                      <RefreshCw size={10} className={cn(isSaving && "animate-spin")} />
                       <span>Update</span>
                     </button>
                   )}
@@ -4568,11 +4713,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
             )
           )
-        )}
+        ))}
       </div>
       <ModalAlertTicker />
 
-      <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-3 pt-3 md:px-4 md:pt-4 pb-24 md:pb-24 overscroll-contain" data-vaul-no-drag>
+      <div ref={scrollBodyRef} className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-2.5 pt-1.5 sm:px-4 sm:pt-2.5 pb-2 sm:pb-3 overscroll-contain" data-vaul-no-drag>
         {section === 'scan' && (
           <div
             id="config-panel-scan"
@@ -5393,7 +5538,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                 }
                                 setField('signal_timeframes', updated);
                               }}
-                              className="bg-background border border-border rounded-lg pl-3 pr-8 py-1 text-[11px] font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover h-8 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                              className="bg-background border border-border rounded-lg pl-3 pr-8 py-1 text-base sm:text-[11px] font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover min-h-[40px] sm:min-h-[32px] h-auto sm:h-8 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                             >
                               <option value="default">Default ({cfg.scan_interval || 'Default'})</option>
                               <option value="1m">1m</option>
@@ -5718,20 +5863,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {sequence.map(([live, exit], i) => (
                     <div key={i} className="flex items-center gap-3">
                       <div className="relative flex-1">
-                        <input type="number" step="0.1" value={live} onChange={(e) => {
+                        <input type="number" inputMode="decimal" step="0.1" value={live} onChange={(e) => {
                           const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
                           next[i] = Number(e.target.value);
                           setField('live_rr_sequence', next);
-                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                       </div>
                       <ArrowRight size={14} className="text-dim/20 shrink-0" />
                       <div className="relative flex-1">
-                        <input type="number" step="0.1" value={exit} onChange={(e) => {
+                        <input type="number" inputMode="decimal" step="0.1" value={exit} onChange={(e) => {
                           const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
                           next[i] = Number(e.target.value);
                           setField('exit_rr_sequence', next);
-                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
                         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                       </div>
                       <Tooltip content="Remove Milestone">
@@ -5792,20 +5937,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                             {swSeq.map(([live, exit], i) => (
                               <div key={i} className="flex items-center gap-3">
                                 <div className="relative flex-1">
-                                  <input type="number" step="0.1" value={live} onChange={(e) => {
+                                  <input type="number" inputMode="decimal" step="0.1" value={live} onChange={(e) => {
                                     const next = [...liveSw];
                                     next[i] = Number(e.target.value);
                                     setField('switched_live_rr_sequence', next);
-                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
                                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                                 </div>
                                 <ArrowRight size={14} className="text-dim/20 shrink-0" />
                                 <div className="relative flex-1">
-                                  <input type="number" step="0.1" value={exit} onChange={(e) => {
+                                  <input type="number" inputMode="decimal" step="0.1" value={exit} onChange={(e) => {
                                     const next = [...exitSw];
                                     next[i] = Number(e.target.value);
                                     setField('switched_exit_rr_sequence', next);
-                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
+                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
                                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                                 </div>
                                 <Tooltip content="Remove Switched Milestone">
@@ -6101,9 +6246,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                    {(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).map((w, i) => (
                      <div key={i} className="flex gap-2 p-3 bg-surface/50 border border-border rounded-xl items-center shadow-sm">
-                       <input type="text" value={w?.start || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], start: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
+                       <input type="text" value={w?.start || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], start: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-center focus:border-accent outline-none" />
                        <span className="text-dim/40 font-mono text-[10px]">to</span>
-                       <input type="text" value={w?.end || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], end: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-center focus:border-accent outline-none" />
+                       <input type="text" value={w?.end || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], end: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-center focus:border-accent outline-none" />
                        <Tooltip content="Remove Window">
                         <button type="button" onClick={() => setField('trading_windows', (Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
                        </Tooltip>
@@ -6152,9 +6297,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               )}
               {modeWarning && (
-                <div className="mt-4 p-3 bg-orange/10 border border-orange/30 rounded-lg flex items-start gap-3 animate-in slide-in-from-top">
-                  <XCircle size={16} className="text-orange mt-0.5 flex-shrink-0" />
-                  <div className="text-xs text-orange">{modeWarning}</div>
+                <div className="mt-4 p-3 bg-orange/10 border border-orange/30 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 animate-in slide-in-from-top">
+                  <div className="flex items-start gap-2.5">
+                    <XCircle size={16} className="text-orange mt-0.5 flex-shrink-0" />
+                    <div className="text-xs text-orange">{modeWarning}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { onClose?.(); window.location.hash = '#/settings'; }}
+                    className="px-3 py-1.5 rounded-lg bg-orange/15 hover:bg-orange/25 border border-orange/30 text-[11px] font-bold text-orange whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+                  >
+                    Open Settings →
+                  </button>
                 </div>
               )}
             </CollapsibleSection>
@@ -6207,69 +6361,94 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           <div id="config-panel-presets"
             role="tabpanel"
             aria-labelledby="config-tab-presets"
-            className="flex flex-col gap-0 animate-in fade-in duration-300 -mx-3 md:-mx-4 -mt-3"
+            className="flex flex-col gap-0 animate-in fade-in duration-200 -mx-2.5 sm:-mx-4 -mt-1.5 sm:-mt-2.5"
           >
-            {/* Top Bar */}
-            <div className="flex flex-col gap-3.5 px-3 sm:px-4 pt-4 pb-3">
-               <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                     <span className="text-lg sm:text-xl font-bold text-text tracking-tight">
-                        Presets
-                     </span>
-                     <span className="text-[11px] sm:text-xs text-dim font-medium px-2 py-0.5 rounded-md bg-surface border border-border/50">
-                        {Array.isArray(presets) ? presets.length : 0} saved
-                     </span>
-                     {(cfg.strategy_variants?.length || 0) > 0 && (
-                        <span className="text-[11px] sm:text-xs font-bold text-violet-400 px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/30 flex items-center gap-1">
-                           <Layers size={11} /> {cfg.strategy_variants.length} active
-                        </span>
-                     )}
+            {/* Sticky Presets Toolbar + Inline Filter Nav */}
+            <div className="sticky top-0 z-20 bg-surface/95 backdrop-blur-md flex flex-col gap-2 px-3 sm:px-4 pt-2.5 pb-2 border-b border-border/40">
+               <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                  <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                    <div className="relative flex-1 min-w-0">
+                      <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
+                      <input
+                         ref={presetSearchInputRef}
+                         type="text"
+                         placeholder="Search presets by name or mode... (/)"
+                         value={presetSearch}
+                         onChange={(e) => setPresetSearch(e.target.value)}
+                         className="w-full bg-background/70 border border-border/70 hover:border-border rounded-lg h-9 sm:h-8.5 pl-8 pr-7 text-base sm:text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
+                      />
+                      {presetSearch && (
+                         <button
+                            type="button"
+                            onClick={() => setPresetSearch('')}
+                            aria-label="Clear search"
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-dim hover:text-text rounded-md transition-colors"
+                         >
+                            <X size={11} />
+                         </button>
+                      )}
+                    </div>
+                    <button
+                       type="button"
+                       onClick={() => handleOpenSaveAsNew(null)}
+                       className="h-9 sm:h-8.5 px-3 rounded-lg bg-accent hover:bg-accent/90 text-white text-[11px] font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
+                    >
+                       <Plus size={12} />
+                       <span className="hidden sm:inline">Save as Preset</span>
+                       <span className="sm:hidden">Save</span>
+                    </button>
+                    <button
+                       type="button"
+                       onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
+                       className={cn(
+                          "h-9 sm:h-8.5 px-2.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer shrink-0",
+                          openSectionId === 'presets_tools'
+                             ? "bg-accent/10 border-accent/40 text-accent"
+                             : "border-border/70 text-dim hover:text-text hover:bg-background/60"
+                       )}
+                    >
+                       Tools
+                    </button>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                     <button
-                        type="button"
-                        onClick={() => handleOpenSaveAsNew(null)}
-                        className="px-3 py-1.5 rounded-xl bg-accent hover:bg-accent/90 text-white text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
-                     >
-                        <Plus size={13} />
-                        <span className="hidden xs:inline">Save as Preset</span>
-                        <span className="xs:hidden">Save</span>
-                     </button>
-                     <button
-                        type="button"
-                        onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
-                        className={cn(
-                           "px-3 py-1.5 rounded-xl border text-xs font-bold transition-colors cursor-pointer",
-                           openSectionId === 'presets_tools'
-                              ? "bg-accent/10 border-accent/40 text-accent"
-                              : "border-border/70 text-dim hover:text-text hover:bg-surface"
-                        )}
-                     >
-                        Tools
-                     </button>
-                  </div>
-               </div>
 
-               {/* Responsive Search Bar (Desktop, Tablet, Mobile) */}
-               <div className="relative w-full">
-                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none" />
-                  <input
-                     type="text"
-                     placeholder="Search presets by name or mode... (/)"
-                     value={presetSearch}
-                     onChange={(e) => setPresetSearch(e.target.value)}
-                     className="w-full bg-surface/70 border border-border/70 hover:border-border rounded-xl h-9 sm:h-10 pl-9 pr-9 text-xs sm:text-sm font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-surface focus:outline-none transition-all"
-                  />
-                  {presetSearch && (
-                     <button
-                        type="button"
-                        onClick={() => setPresetSearch('')}
-                        aria-label="Clear search"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-dim hover:text-text rounded-md transition-colors"
-                     >
-                        <X size={13} />
-                     </button>
-                  )}
+                  {/* Single-Row Filter Strip (merges onto same row on sm+ desktop to maximize vertical preset space) */}
+                  <div className="flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar shrink-0">
+                    <div className="flex items-center gap-1">
+                      {[
+                         { id: 'all', label: 'All', count: Array.isArray(presets) ? presets.length : 0 },
+                         { id: 'live', label: 'Live' },
+                         { id: 'testnet', label: 'Testnet' },
+                         { id: 'paper', label: 'Paper' },
+                         { id: 'variants', label: 'Variants', count: (cfg.strategy_variants || []).length, isVariantTab: true }
+                      ].map(f => (
+                         <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => setPresetTabFilter(f.id)}
+                            className={cn(
+                               "h-7 px-2.5 text-[11px] font-bold rounded-md transition-all whitespace-nowrap flex items-center gap-1 shrink-0 cursor-pointer",
+                               presetTabFilter === f.id
+                                  ? f.isVariantTab
+                                     ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
+                                     : "bg-accent/15 text-accent border border-accent/30"
+                                  : "text-dim hover:text-text hover:bg-surface/50 border border-transparent"
+                            )}
+                         >
+                            <span>{f.label}</span>
+                            {f.count !== undefined && (
+                               <span className={cn(
+                                  "text-[9px] px-1 rounded font-bold leading-tight",
+                                  presetTabFilter === f.id
+                                     ? (f.isVariantTab ? "bg-violet-500/40 text-violet-100" : "bg-accent/30 text-white")
+                                     : "bg-background/60 border border-border/40 text-dim"
+                               )}>
+                                  {f.count}
+                               </span>
+                            )}
+                         </button>
+                      ))}
+                    </div>
+                  </div>
                </div>
 
                {/* Tools expansion */}
@@ -6281,61 +6460,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                        exit={{ opacity: 0, height: 0 }}
                        className="overflow-hidden"
                      >
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 pb-2">
-                          <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="h-9 border border-border hover:border-accent text-xs font-bold"><Copy size={13} className="mr-1.5"/> Copy active</Btn>
-                          <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="h-9 border border-border hover:border-accent text-xs font-bold"><ClipboardPaste size={13} className="mr-1.5"/> Paste active</Btn>
-                          <Btn variant="ghost" onClick={handleExportToFile} className="h-9 border border-border hover:border-accent text-xs font-bold"><Download size={13} className="mr-1.5"/> Export JSON</Btn>
-                          <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-xl text-xs font-bold cursor-pointer text-text hover:text-accent transition-colors h-9">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 py-1.5">
+                          <Btn variant="ghost" onClick={handleCopyActiveToClipboard} className="h-8 border border-border hover:border-accent text-[11px] font-bold"><Copy size={11} className="mr-1"/> Copy active</Btn>
+                          <Btn variant="ghost" onClick={handlePasteActiveFromClipboard} className="h-8 border border-border hover:border-accent text-[11px] font-bold"><ClipboardPaste size={11} className="mr-1"/> Paste active</Btn>
+                          <Btn variant="ghost" onClick={handleExportToFile} className="h-8 border border-border hover:border-accent text-[11px] font-bold"><Download size={11} className="mr-1"/> Export JSON</Btn>
+                          <label className="relative flex items-center justify-center border border-border hover:border-accent rounded-lg text-[11px] font-bold cursor-pointer text-text hover:text-accent transition-colors h-8">
                             <input type="file" accept=".json" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer" />
-                            <Upload size={13} className="mr-1.5"/> Import File
+                            <Upload size={11} className="mr-1"/> Import File
                           </label>
                         </div>
                      </motion.div>
                   )}
                </AnimatePresence>
-
-               {/* Filters — Responsive, horizontally scrollable on mobile */}
-               <div className="flex items-center gap-1.5 border-b border-border/40 pb-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0">
-                  {[
-                     { id: 'all', label: 'All', count: Array.isArray(presets) ? presets.length : 0 },
-                     { id: 'live', label: 'Live' },
-                     { id: 'testnet', label: 'Testnet' },
-                     { id: 'paper', label: 'Paper' },
-                     { id: 'variants', label: 'Variants', count: (cfg.strategy_variants || []).length, isVariantTab: true }
-                  ].map(f => (
-                     <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => setPresetTabFilter(f.id)}
-                        className={cn(
-                           "px-3 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer",
-                           presetTabFilter === f.id
-                              ? f.isVariantTab
-                                 ? "bg-violet-500/20 text-violet-300 border border-violet-500/40"
-                                 : "bg-accent/15 text-accent border border-accent/30"
-                              : "text-dim hover:text-text hover:bg-surface/50 border border-transparent"
-                        )}
-                     >
-                        <span>{f.label}</span>
-                        {f.count !== undefined && (
-                           <span className={cn(
-                              "text-[10px] px-1.5 py-0.2 rounded-full font-bold",
-                              presetTabFilter === f.id
-                                 ? (f.isVariantTab ? "bg-violet-500/40 text-violet-100" : "bg-accent/30 text-white")
-                                 : "bg-surface border border-border/50 text-dim"
-                           )}>
-                              {f.count}
-                           </span>
-                        )}
-                     </button>
-                  ))}
-               </div>
             </div>
 
             {/* Presets List */}
             <div className="flex flex-col">
                {filteredPresets.length === 0 ? (
-                  <div className="py-12 px-4 text-center text-dim text-xs sm:text-sm flex flex-col items-center gap-2">
+                  <div className="py-6 px-4 text-center text-dim text-xs flex flex-col items-center gap-1.5">
                      <p>No presets found matching your filter or search.</p>
                      {presetSearch && (
                         <button
@@ -6390,56 +6532,58 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             </div>
 
             {/* In-flow Variants & Batch Summary Bar — Docked in content, never overlaps sticky modal footer */}
-            <div className="mt-4 px-3 sm:px-4 pb-2">
+            {(!isInputFocused || selectedPresetNames.size > 0) && (
+            <div className="mt-2.5 px-3 sm:px-4 pb-2">
                {selectedPresetNames.size > 0 ? (
-                  <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-surface border border-accent/40 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                  <div className="p-2.5 rounded-xl bg-surface border border-accent/40 shadow-lg flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                            <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
-                           <span className="text-xs sm:text-sm font-bold text-text">
+                           <span className="text-xs font-bold text-text">
                               {selectedPresetNames.size} preset{selectedPresetNames.size === 1 ? '' : 's'} selected
                            </span>
                         </div>
                         <button
                            type="button"
                            onClick={() => setSelectedPresetNames(new Set())}
-                           className="text-xs font-semibold text-dim hover:text-text sm:hidden px-2 py-1"
+                           className="text-xs font-semibold text-dim hover:text-text sm:hidden px-2 py-0.5"
                         >
                            Clear
                         </button>
                      </div>
-                     <div className="flex items-center gap-2 flex-wrap">
+                     <div className="flex items-center gap-1.5 flex-wrap">
                         <button
                            type="button"
                            onClick={() => setSelectedPresetNames(new Set())}
-                           className="text-xs font-semibold text-dim hover:text-text hidden sm:inline-block px-3 py-1.5"
+                           className="text-xs font-semibold text-dim hover:text-text hidden sm:inline-block px-2 py-1"
                         >
                            Clear
                         </button>
                         <Btn
                            variant="primary"
                            onClick={() => {
+                              const currentBaseLabel = loadedPresetName || cfg.strategy_label;
                               const newVariants = [...(cfg.strategy_variants || [])];
                               Array.from(selectedPresetNames).forEach(name => {
-                                 if (!newVariants.some(v => v.strategy_label === name)) {
+                                 if (name !== currentBaseLabel && !newVariants.some(v => v.strategy_label === name)) {
                                     const p = presets.find(x => x.name === name);
                                     if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
-                                       newVariants.push(p.config);
+                                       newVariants.push(coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true));
                                     }
                                  }
                               });
-                              setCfg(prev => ({ ...prev, strategy_variants: newVariants }));
+                              setField('strategy_variants', newVariants);
                               setSelectedPresetNames(new Set());
                               addAlert({ level: 'success', title: 'Variants Updated', message: `Added selected presets to active variants.` });
                            }}
-                           className="flex-1 sm:flex-none px-4 py-2 bg-accent hover:bg-accent/90 text-white text-xs font-bold"
+                           className="flex-1 sm:flex-none h-8 px-3 bg-accent hover:bg-accent/90 text-white text-[11px] font-bold"
                         >
                            Set as variants
                         </Btn>
                         <Btn
                            variant="ghost"
                            onClick={handleExportSelectedPresets}
-                           className="px-3 py-2 border border-border/70 hover:border-accent/40 text-text text-xs font-bold"
+                           className="h-8 px-3 border border-border/70 hover:border-accent/40 text-text text-[11px] font-bold"
                         >
                            Export
                         </Btn>
@@ -6447,31 +6591,29 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                            variant="ghost"
                            onClick={handleDeleteSelectedPresets}
                            disabled={sessionActive}
-                           className={cn("px-3 py-2 text-xs font-bold", sessionActive ? "text-red/40 cursor-not-allowed" : "text-red hover:bg-red/10")}
+                           className={cn("h-8 px-3 text-[11px] font-bold", sessionActive ? "text-red/40 cursor-not-allowed" : "text-red hover:bg-red/10")}
                         >
                            {sessionActive ? "Delete (locked)" : "Delete"}
                         </Btn>
                      </div>
                   </div>
                ) : (
-                  <div className="p-3 sm:p-3.5 rounded-xl bg-surface/50 border border-border/50 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs text-dim">
-                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="p-1 rounded-md bg-violet-500/15 text-violet-400 shrink-0">
-                           <Layers size={13} />
-                        </span>
+                  <div className="px-3 py-2 rounded-lg bg-background/50 border border-border/50 flex items-center justify-between gap-2 text-[11px] text-dim flex-wrap">
+                     <div className="flex items-center gap-1.5 flex-wrap">
+                        <Layers size={12} className="text-violet-400 shrink-0" />
                         <span className="font-medium text-text/80">
-                           Variants: <strong className="text-violet-400 font-bold">{(cfg.strategy_variants || []).length}</strong> / {CONFIG_LIMITS.MAX_VARIANTS}
+                           Variants: <strong className="text-violet-400 font-bold">{(cfg.strategy_variants || []).length}</strong>/{CONFIG_LIMITS.MAX_VARIANTS}
                         </span>
-                        <span className="hidden xs:inline text-dim/40">·</span>
-                        <span className="text-[11px] text-dim">
-                           Combined risk: <strong className="text-text font-bold">{((cfg.strategy_variants || []).reduce((acc, v) => acc + (Number(v.risk_pct_per_trade) || 0), 0)).toFixed(1)}%</strong> of {cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}% cap
+                        <span className="text-dim/40">·</span>
+                        <span className="text-dim">
+                           Combined: <strong className="text-text font-bold">{((cfg.strategy_variants || []).reduce((acc, v) => acc + (Number(v.risk_pct_per_trade) || 0), 0)).toFixed(1)}%</strong>/{cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}%
                         </span>
                      </div>
                      {(cfg.strategy_variants || []).length > 0 && (
                         <button
                            type="button"
                            onClick={clearAllVariants}
-                           className="text-xs font-bold text-red hover:text-red-400 transition-colors cursor-pointer self-end sm:self-center"
+                           className="text-[11px] font-bold text-red hover:text-red-400 transition-colors cursor-pointer"
                         >
                            Clear variants
                         </button>
@@ -6479,6 +6621,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
                )}
             </div>
+            )}
 
             <ConfirmationModal
                 isOpen={!!presetToDelete}
@@ -6502,15 +6645,44 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         )}
       </div>
 
-      <div className="p-3 border-t border-border bg-surface flex flex-col sm:flex-row gap-3 sticky bottom-0 items-stretch sm:items-center">
-        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
-           <Btn variant="ghost" onClick={onClose} className="flex-1 sm:flex-initial min-w-[70px] h-9 py-1.5 px-3 text-xs">Cancel</Btn>
-           {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5 flex-1 sm:flex-initial h-9 py-1.5 px-3 text-xs">Reset</Btn>}
-           <div className="flex gap-1.5 items-center">
+      <div className="p-1.5 sm:p-2 border-t border-border bg-surface/95 backdrop-blur-md flex flex-col gap-1.5 sticky bottom-0 shrink-0 z-30">
+        {/* Mobile Keyboard Accessory Bar: Prev / Next field stepper + Done dismissal while typing */}
+        {isInputFocused && (
+          <div className="flex sm:hidden items-center justify-between gap-2 pb-1 border-b border-border/40">
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onPointerDown={(e) => { e.preventDefault(); stepFocusedField(-1); }}
+                className="h-7 px-2.5 rounded-lg bg-background border border-border text-xs font-semibold text-text/90 active:scale-95 transition-transform cursor-pointer"
+              >
+                ↑ Prev
+              </button>
+              <button
+                type="button"
+                onPointerDown={(e) => { e.preventDefault(); stepFocusedField(1); }}
+                className="h-7 px-2.5 rounded-lg bg-background border border-border text-xs font-semibold text-text/90 active:scale-95 transition-transform cursor-pointer"
+              >
+                ↓ Next
+              </button>
+            </div>
+            <button
+              type="button"
+              onPointerDown={(e) => { e.preventDefault(); dismissMobileKeyboard(); }}
+              className="h-7 px-3 rounded-lg bg-accent/15 border border-accent/35 text-xs font-bold text-accent active:scale-95 transition-transform cursor-pointer"
+            >
+              Done
+            </button>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className={cn("items-center gap-1.5 shrink-0", isInputFocused ? "hidden sm:flex" : "flex")}>
+             <Btn variant="ghost" onClick={onClose} className="h-9 px-2.5 sm:px-3 text-xs shrink-0">Cancel</Btn>
+             {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5 h-9 px-2.5 sm:px-3 text-xs shrink-0">Reset</Btn>}
              <Tooltip content="Copy Configuration to Clipboard">
                <CopyButton
                   getValue={() => JSON.stringify(buildConfigToSave(), null, 2)}
-                  className="w-9 h-9 flex items-center justify-center border border-border rounded-lg hover:bg-white/5 transition-all"
+                  className="w-9 h-9 flex items-center justify-center border border-border rounded-lg hover:bg-white/5 transition-all shrink-0"
                />
              </Tooltip>
              <Tooltip content="Paste Configuration from Clipboard">
@@ -6518,36 +6690,41 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   variant="ghost"
                   onClick={handlePasteConfig}
                   aria-label="Paste Configuration from Clipboard"
-                  className="w-9 h-9 p-0 flex items-center justify-center border border-border rounded-lg hover:bg-accent/5 hover:border-accent/40 transition-all"
+                  className="w-9 h-9 p-0 flex items-center justify-center border border-border rounded-lg hover:bg-accent/5 hover:border-accent/40 transition-all shrink-0"
                 >
                   <ClipboardPaste size={14} className="text-dim group-hover:text-accent" />
                 </Btn>
              </Tooltip>
-           </div>
+          </div>
+          <Btn
+            variant="primary"
+            loading={loading}
+            disabled={loading || (!isEdit && apiStatus?.isBanned)}
+            onPointerDown={() => {
+              if (document.activeElement instanceof HTMLElement && modalRef.current?.contains(document.activeElement)) {
+                document.activeElement.blur();
+              }
+            }}
+            onClick={() => {
+              if (!isEdit && apiStatus?.isBanned) {
+                addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
+                return;
+              }
+              if (validate(cfg)) {
+                 onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true });
+                 sessionStorage.removeItem('config_draft');
+                 setIsDirty(false);
+              }
+            }}
+            className={cn(
+              "flex-1 h-9 py-1.5 px-3 sm:px-4 flex items-center justify-center gap-1.5 text-xs font-bold whitespace-nowrap",
+              !isEdit && apiStatus?.isBanned && "opacity-50 cursor-not-allowed"
+            )}
+          >
+            {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : 'Start Session')}
+            {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-white/80 animate-pulse" />}
+          </Btn>
         </div>
-        <Btn
-          variant="primary"
-          loading={loading}
-          disabled={loading || (!isEdit && apiStatus?.isBanned)}
-          onClick={() => {
-            if (!isEdit && apiStatus?.isBanned) {
-              addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
-              return;
-            }
-            if (validate(cfg)) {
-               onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded });
-               sessionStorage.removeItem('config_draft');
-               setIsDirty(false);
-            }
-          }}
-          className={cn(
-            "w-full sm:w-auto sm:flex-[1.5] h-9 py-1.5 px-4 flex items-center justify-center gap-2 text-xs",
-            !isEdit && apiStatus?.isBanned && "opacity-50 cursor-not-allowed"
-          )}
-        >
-          {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : 'Start Session')}
-          {isDirty && <span className="w-1 h-1 rounded-full bg-accent animate-pulse" />}
-        </Btn>
       </div>
 
       <AnimatePresence>
@@ -6593,7 +6770,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     onChange={(e) => handlePasteAreaChange(e.target.value)}
                     placeholder='{ "strategy_label": "Scalp Momentum", ... }'
                     className={cn(
-                      "w-full h-48 bg-background border rounded-xl p-3 text-xs font-mono focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all resize-none",
+                      "w-full h-48 bg-background border rounded-xl p-3 text-base sm:text-xs font-mono focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all resize-none",
                       pasteError ? "border-red/40 focus:border-red focus-visible:ring-red" : pasteValue.trim() ? "border-green/40 focus:border-green focus-visible:ring-green" : "border-border focus:border-accent focus-visible:ring-accent"
                     )}
                     autoFocus

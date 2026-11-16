@@ -1,3 +1,8 @@
+jest.mock('@nestjs/typeorm', () => ({
+  InjectRepository: () => () => {},
+  getRepositoryToken: (e: any) => e?.name || String(e),
+}));
+
 import { PositionTrackerService } from './positionTracker';
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { Trade } from '../models/Trade';
@@ -180,6 +185,76 @@ describe('Peak RR Resumption and Hydration Tests', () => {
       const tickSerialized = engineBroadcaster.serializeTickTrade(trade, defaultConfig, 105, 5, 0.5);
       expect(tickSerialized.max_rr).toBe(2.5);
       expect(tickSerialized.max_rr_achieved).toBe(2.5);
+    });
+
+    it('serializes hydrated peakRrSwitchHits in serializeStrategyGateStates even before strategyGateStates is populated', () => {
+      mockSessionState.config = {
+        strategy_label: 'Momentum Strategy',
+        tp_mode: 'exp_rr_seq_switch',
+        peak_rr_switch_threshold: 3.0,
+        peak_rr_switch_count: 1,
+        live_rr_sequence: [1.5, 2.5],
+        exit_rr_sequence: [0, 1.0],
+        switched_live_rr_sequence: [2.0, 4.0],
+        switched_exit_rr_sequence: [1.0, 2.5],
+      };
+      mockSessionState.strategyGateStates = new Map();
+
+      const resumedTrade: Trade = {
+        id: 't-switch-1',
+        symbol: 'BTCUSDT',
+        strategy_label: 'Momentum Strategy',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90,
+        current_sl: 110,
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: '3.20000000' as any,
+        rr_sequence_index: 1,
+      } as any;
+
+      positionTracker.addTrade(resumedTrade);
+
+      expect(positionTracker.peakRrSwitchHits.get('Momentum Strategy')).toBe(1);
+      expect(positionTracker.tradePeakRrSwitchHandled.has('t-switch-1')).toBe(true);
+      // Milestone index 1 in switched_live_rr_sequence is 4.0R, so max_rr_achieved floors to 4.0R
+      expect(resumedTrade.max_rr_achieved).toBe(4.0);
+
+      const serializedGates = engineBroadcaster.serializeStrategyGateStates();
+      expect(serializedGates['Momentum Strategy']?.peakRrSwitchHits).toBe(1);
+    });
+
+    it('hydrates peakRrSwitchHits during reconcileMilestoneFromSl when SL lock proves switch threshold was crossed', () => {
+      const switchConfig: SessionConfig = {
+        strategy_label: 'Momentum Strategy',
+        tp_mode: 'exp_rr_seq_switch',
+        peak_rr_switch_threshold: 2.0,
+        peak_rr_switch_count: 1,
+        live_rr_sequence: [1.0, 2.0],
+        exit_rr_sequence: [0.0, 0.5],
+        switched_live_rr_sequence: [1.5, 3.0],
+        switched_exit_rr_sequence: [0.5, 2.0],
+      } as any;
+
+      const trade: Trade = {
+        id: 't-recon-switch',
+        symbol: 'SOLUSDT',
+        strategy_label: 'Momentum Strategy',
+        direction: 'LONG',
+        entry_price: 100,
+        initial_sl: 90, // Risk = 10
+        current_sl: 120, // Locked 2.0R profit => hits peak_rr_switch_threshold (2.0R) and matches switched_exit_rr_sequence[1] = 2.0R
+        qty: 1,
+        status: 'OPEN',
+        max_rr_achieved: 0,
+        rr_sequence_index: -1,
+      } as any;
+
+      const idx = positionTracker.reconcileMilestoneFromSl(trade, 120, switchConfig);
+      expect(positionTracker.peakRrSwitchHits.get('Momentum Strategy')).toBe(1);
+      expect(idx).toBe(1);
+      expect(trade.max_rr_achieved).toBe(3.0);
     });
   });
 });

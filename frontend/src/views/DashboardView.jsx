@@ -1890,12 +1890,16 @@ export function DashboardView({ initialStrategy }) {
     try {
       let finalConfig = newConfig;
       const wasPresetLoaded = newConfig._presetLoaded;
+      const isMergedRootConfig = newConfig._isMergedRootConfig === true;
       delete newConfig._presetLoaded;
+      delete newConfig._isMergedRootConfig;
 
       let activeVariantIndex = editingVariantIndex;
 
-      if (activeVariantIndex !== null) {
-        // If newConfig is already the full merged root config from ConfigModal, preserve it directly
+      if (isMergedRootConfig) {
+        finalConfig = newConfig;
+      } else if (activeVariantIndex !== null) {
+        // Fallback merge when an unmerged single-variant payload is passed
         if (Array.isArray(newConfig.strategy_variants) && newConfig.strategy_variants.length > 0 && newConfig.strategy_label === config.strategy_label) {
           finalConfig = newConfig;
         } else {
@@ -1933,6 +1937,7 @@ export function DashboardView({ initialStrategy }) {
         addAlert({ level: 'success', title: 'Session Started', message: `Engine active with "${finalConfig.strategy_label}".` });
       }
       setShowConfig(false)
+      setIsEditMode(false)
       setEditingVariantIndex(null)
       await fetchSessions()
     } catch (e) {
@@ -1945,8 +1950,6 @@ export function DashboardView({ initialStrategy }) {
       setLoading(false)
       setSyncing(false)
       useTradingStore.setState({ configSyncing: false });
-      setIsEditMode(false)
-      setEditingVariantIndex(null)
     }
   }, [config, isEditMode, strategyId, editingVariantIndex, updateConfig, setSessionActive, addAlert, fetchSessions, setSyncing]);
 
@@ -2712,27 +2715,24 @@ export function DashboardView({ initialStrategy }) {
       )}
 
       {/* Modals & Drawers */}
-        <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false} noBodyStyles>
+        <Drawer.Root open={showConfig} onOpenChange={setShowConfig} repositionInputs={false} dismissible={false} noBodyStyles>
           <Drawer.Portal>
             <Drawer.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100]" />
-            <Drawer.Content className="bg-background border border-border/80 flex flex-col rounded-t-[28px] sm:rounded-2xl fixed inset-x-0 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 bottom-0 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-3xl lg:max-w-4xl h-[90dvh] sm:h-[86dvh] max-h-[92vh] sm:max-h-[88vh] overflow-hidden my-auto">
-              <div className="p-2 bg-background rounded-t-[28px] sm:hidden flex flex-col items-center shrink-0 border-b border-border/20">
-                <div className="w-10 h-1 bg-border/60 rounded-full" />
-                <VisuallyHidden>
-                  <Drawer.Title>Configuration</Drawer.Title>
-                  <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
-                </VisuallyHidden>
-              </div>
+            <Drawer.Content className="bg-background border-0 sm:border sm:border-border/80 flex flex-col rounded-none sm:rounded-2xl fixed inset-0 sm:inset-auto sm:left-1/2 sm:-translate-x-1/2 sm:top-1/2 sm:-translate-y-1/2 z-[101] focus:outline-none shadow-2xl w-full max-w-full sm:max-w-3xl lg:max-w-4xl h-[100dvh] sm:h-[88dvh] max-h-none sm:max-h-[88vh] overflow-hidden">
+              <VisuallyHidden>
+                <Drawer.Title>Configuration</Drawer.Title>
+                <Drawer.Description>Form to configure trading strategy parameters</Drawer.Description>
+              </VisuallyHidden>
               <div className="flex-1 overflow-hidden min-h-0 flex flex-col">
                 <Suspense fallback={<LoadingFallback />}>
                   {modalConfig && (
                     <ConfigModal
-                      key={isEditMode ? (selectedConfig?.id || strategyId || (editingVariantIndex !== null ? `variant-${editingVariantIndex}` : 'edit')) : 'new'}
+                      key={isEditMode ? `edit-${strategyId || selectedConfig?.id || 'session'}-${editingVariantIndex ?? 'base'}` : 'new'}
                       initialConfig={modalConfig}
                       baseConfig={config}
                       initialEditingVariantIndex={editingVariantIndex}
                       onSave={handleConfigSave}
-                      onClose={() => { setShowConfig(false); setEditingVariantIndex(null); }}
+                      onClose={() => { setShowConfig(false); setIsEditMode(false); setEditingVariantIndex(null); }}
                       isEdit={isEditMode}
                       loading={loading}
                     />

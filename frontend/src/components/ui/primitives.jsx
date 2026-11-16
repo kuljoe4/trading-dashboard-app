@@ -996,7 +996,7 @@ export const ModalAlertTicker = React.memo(() => {
   const activeAlert = alerts[alertIndex % alerts.length];
 
   return (
-    <div className="relative flex items-center justify-center min-w-0 w-full px-4 py-2 border-b border-border/10 bg-surface/20 z-20 animate-in fade-in">
+    <div className={cn("relative flex items-center justify-center min-w-0 w-full px-4 py-2 border-b border-border/10 bg-surface/20 shrink-0 animate-in fade-in", showDropdown ? "z-50" : "z-30")}>
       <div className="relative w-full max-w-[540px]">
         <div
           onClick={() => setShowDropdown(!showDropdown)}
@@ -1061,7 +1061,7 @@ export const ModalAlertTicker = React.memo(() => {
         {showDropdown && (
           <>
             <div className="fixed inset-0 z-40 cursor-default" onClick={(e) => { e.stopPropagation(); setShowDropdown(false); }} />
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-80 max-h-64 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-surface/95 border border-border/80 shadow-2xl rounded-2xl p-3 w-[min(20rem,calc(100vw-2rem))] max-h-56 overflow-y-auto no-scrollbar z-50 animate-in fade-in slide-in-from-top-2 pointer-events-auto">
               <div className="flex justify-between items-center mb-2 pb-1.5 border-b border-border/30">
                 <span className="text-[9px] font-black uppercase tracking-widest text-dim">Recent Alerts ({alerts.length})</span>
                 <button

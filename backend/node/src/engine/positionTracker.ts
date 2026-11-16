@@ -64,6 +64,8 @@ export class PositionTrackerService {
     this.pendingRisk.clear();
     this.closingSymbols.clear();
     this.rrSequenceIndex.clear();
+    this.peakRrSwitchHits.clear();
+    this.tradePeakRrSwitchHandled.clear();
     this.dirtyTrailingSymbols.clear();
     this.ratchetBackoffMap.clear();
     this._totalRisk = 0;
@@ -291,17 +293,72 @@ export class PositionTrackerService {
     }
   }
 
+  private resolveTradeStrategyConfig(trade: Trade, config?: SessionConfig): SessionConfig | undefined {
+    const baseConfig = config || (this.sessionState as any)?.config;
+    const tradeCfg = trade?.strategy_config;
+    if (!baseConfig && !tradeCfg) return undefined;
+    const stratLabel = trade?.strategy_label || tradeCfg?.strategy_label || baseConfig?.strategy_label || 'Momentum Strategy';
+    const matchedVariant = Array.isArray(baseConfig?.strategy_variants)
+      ? baseConfig.strategy_variants.find((v: any) => v && v.strategy_label === stratLabel)
+      : undefined;
+    return {
+      ...(baseConfig || {}),
+      ...(matchedVariant || {}),
+      ...(tradeCfg || {}),
+      strategy_label: stratLabel,
+    } as SessionConfig;
+  }
+
+  public hydratePeakRrSwitchState(trade: Trade, config?: SessionConfig): void {
+    if (!trade || (trade.status && trade.status !== 'OPEN')) return;
+    const activeConfig = this.resolveTradeStrategyConfig(trade, config);
+    if (!activeConfig) return;
+
+    if (
+      activeConfig.tp_mode === 'exp_rr_seq_switch' &&
+      activeConfig.peak_rr_switch_threshold &&
+      activeConfig.peak_rr_switch_threshold > 0
+    ) {
+      const tradeKey = trade.id || trade.symbol;
+      const maxRr = Number(trade.max_rr_achieved || 0);
+      if (tradeKey && maxRr >= activeConfig.peak_rr_switch_threshold && !this.tradePeakRrSwitchHandled.has(tradeKey)) {
+        const stratLabel = trade.strategy_label || activeConfig.strategy_label || 'Momentum Strategy';
+        const currentHits = this.peakRrSwitchHits.get(stratLabel) || 0;
+        this.peakRrSwitchHits.set(stratLabel, currentHits + 1);
+        this.tradePeakRrSwitchHandled.add(tradeKey);
+        this.logger.log(
+          `[Milestone Switch] Hydrated peak RR switch hit for ${trade.symbol} (${maxRr}R >= ${activeConfig.peak_rr_switch_threshold}R). Strategy ${stratLabel} switch hit count: ${currentHits + 1}`,
+        );
+      }
+    }
+  }
+
   /**
-   * SRE/DATA: Hydrate and sanitize max_rr_achieved from DB state, milestone index, SL lock, or live price.
+   * SRE/DATA: Hydrate and sanitize max_rr_achieved from DB state, milestone index, SL lock, or live price,
+   * and restore in-memory peakRrSwitchHits / tradePeakRrSwitchHandled across restarts and session resumptions.
    */
   public hydrateMaxRr(trade: Trade, config?: SessionConfig): void {
     const rawVal = Number(trade.max_rr_achieved);
     let maxRr = !isNaN(rawVal) && isFinite(rawVal) ? rawVal : 0;
 
-    const activeConfig = config || trade.strategy_config;
-    const liveRrSeq = (trade.live_rr_sequence && trade.live_rr_sequence.length > 0)
+    const activeConfig = this.resolveTradeStrategyConfig(trade, config);
+    const stratLabel = trade.strategy_label || activeConfig?.strategy_label || 'Momentum Strategy';
+    let liveRrSeq = (trade.live_rr_sequence && trade.live_rr_sequence.length > 0)
       ? trade.live_rr_sequence
       : (activeConfig?.live_rr_sequence || []);
+
+    if (
+      (!trade.live_rr_sequence || trade.live_rr_sequence.length === 0) &&
+      activeConfig?.tp_mode === 'exp_rr_seq_switch' &&
+      activeConfig.peak_rr_switch_threshold &&
+      activeConfig.switched_live_rr_sequence?.length
+    ) {
+      const existingHits = this.peakRrSwitchHits.get(stratLabel) || 0;
+      const wouldQualifyForSwitch = maxRr >= activeConfig.peak_rr_switch_threshold;
+      if (existingHits + (wouldQualifyForSwitch ? 1 : 0) >= (activeConfig.peak_rr_switch_count || 1)) {
+        liveRrSeq = activeConfig.switched_live_rr_sequence;
+      }
+    }
 
     // 1. Floor from milestone index if valid
     const seqIndex = trade.rr_sequence_index ?? -1;
@@ -334,6 +391,23 @@ export class PositionTrackerService {
     }
 
     trade.max_rr_achieved = roundEight(maxRr);
+
+    // 4. Restore Dynamic RR Switch state if trade has reached or exceeded switch threshold
+    this.hydratePeakRrSwitchState(trade, activeConfig);
+
+    // 5. Re-floor against switched_live_rr_sequence if switch is now active
+    if (
+      (!trade.live_rr_sequence || trade.live_rr_sequence.length === 0) &&
+      activeConfig?.tp_mode === 'exp_rr_seq_switch' &&
+      activeConfig.switched_live_rr_sequence?.length &&
+      seqIndex >= 0 &&
+      (this.peakRrSwitchHits.get(stratLabel) || 0) >= (activeConfig.peak_rr_switch_count || 1)
+    ) {
+      const switchedMilestoneRr = Number(activeConfig.switched_live_rr_sequence[seqIndex]) || 0;
+      if (switchedMilestoneRr > trade.max_rr_achieved) {
+        trade.max_rr_achieved = roundEight(switchedMilestoneRr);
+      }
+    }
   }
 
   addTrade(trade: Trade): void {
@@ -1027,8 +1101,9 @@ export class PositionTrackerService {
   removeTrade(symbol: string): void {
     const existing = this.trades.get(symbol);
     if (existing) {
-      if (this.tradePeakRrSwitchHandled.has(existing.id)) {
-        this.tradePeakRrSwitchHandled.delete(existing.id);
+      const tradeKey = existing.id || existing.symbol;
+      if (this.tradePeakRrSwitchHandled.has(tradeKey)) {
+        this.tradePeakRrSwitchHandled.delete(tradeKey);
         const stratLabel = existing.strategy_label || 'Momentum Strategy';
         const currentHits = this.peakRrSwitchHits.get(stratLabel) || 0;
         if (currentHits > 0) {
@@ -1214,6 +1289,17 @@ export class PositionTrackerService {
     const risk = Math.abs(Number(trade.entry_price) - Number(trade.initial_sl));
     if (risk <= 0) return trade.rr_sequence_index ?? -1;
 
+    // Floor max_rr_achieved from SL locked profit and hydrate switch state before choosing sequence
+    if (slPrice > 0) {
+      const slReward = trade.direction === 'LONG'
+        ? slPrice - Number(trade.entry_price)
+        : Number(trade.entry_price) - slPrice;
+      if (slReward > 0) {
+        trade.max_rr_achieved = roundEight(Math.max(Number(trade.max_rr_achieved || 0), slReward / risk));
+      }
+    }
+    this.hydratePeakRrSwitchState(trade, config);
+
     let liveRrSequence = (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (config.live_rr_sequence || []);
     let exitRrSequence = (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (config.exit_rr_sequence || []);
 
@@ -1248,9 +1334,10 @@ export class PositionTrackerService {
       }
     }
 
-    // DATA-07: Reconcile max_rr_achieved to match discovered milestone
+    // DATA-07: Reconcile max_rr_achieved to match discovered milestone and re-verify switch state
     if (bestIndex !== -1 && liveRrSequence[bestIndex] !== undefined) {
-      trade.max_rr_achieved = Math.max(Number(trade.max_rr_achieved || 0), liveRrSequence[bestIndex]);
+      trade.max_rr_achieved = roundEight(Math.max(Number(trade.max_rr_achieved || 0), liveRrSequence[bestIndex]));
+      this.hydratePeakRrSwitchState(trade, config);
     }
 
     if (bestIndex !== trade.rr_sequence_index) {
@@ -1287,7 +1374,11 @@ export class PositionTrackerService {
     const oldMaxRr = Number(trade.max_rr_achieved || 0);
     if (liveRr > oldMaxRr) {
       trade.max_rr_achieved = liveRr;
+      if (liveRr - oldMaxRr >= 0.1) {
+        this.eventEmitter.emit(ENGINE_EVENTS.TRADE_UPDATED, { trade });
+      }
     }
+    this.hydratePeakRrSwitchState(trade, activeConfig);
     const peakRr = Math.max(trade.max_rr_achieved || 0, liveRr);
 
     // High-velocity Auto-Ratchet Evaluation

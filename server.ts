@@ -343,6 +343,7 @@ async function syncLiveAccountBaseline() {
       const liveMarginBal = parseFloat(accData.totalMarginBalance || '0');
       const liveUnrealizedPnl = parseFloat(accData.totalUnrealizedProfit || '0');
 
+      const prevActiveBySymbol = new Map((state.activeTrades || []).map((t: any) => [t.symbol, t]));
       const mappedTrades = activePositions.map((p: any) => {
         const amt = parseFloat(p.positionAmt);
         const isLong = amt > 0;
@@ -350,8 +351,17 @@ async function syncLiveAccountBaseline() {
         const mark = parseFloat(p.markPrice);
         const pnl = parseFloat(p.unRealizedProfit);
         const notional = Math.abs(parseFloat(p.notional || (amt * mark).toString()));
+        const existing = prevActiveBySymbol.get(p.symbol);
+        const slPrice = existing?.sl_price ?? existing?.current_sl ?? (entry * (isLong ? 1 - (state.config.sl_distance_pct || 0.8) / 100 : 1 + (state.config.sl_distance_pct || 0.8) / 100));
+        const initSl = existing?.initial_sl ?? existing?.initial_sl_price ?? slPrice;
+        const riskDist = Math.abs(entry - initSl);
+        const priceDiff = isLong ? mark - entry : entry - mark;
+        const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 0;
+        const maxRr = Math.max(Number(existing?.max_rr_achieved ?? existing?.max_rr ?? 0) || 0, liveRr, 0);
+        const minRr = Math.min(Number(existing?.min_rr_achieved ?? existing?.min_rr ?? 0) || 0, liveRr, 0);
         return {
-          id: `live-${p.symbol}-${p.positionSide || 'BOTH'}`,
+          ...existing,
+          id: existing?.id || `live-${p.symbol}-${p.positionSide || 'BOTH'}`,
           sessionId: state.strategyId || 'default-session',
           symbol: p.symbol,
           side: isLong ? 'LONG' : 'SHORT',
@@ -359,15 +369,24 @@ async function syncLiveAccountBaseline() {
           entry_price: entry,
           current_price: mark,
           mark_price: mark,
+          initial_sl: initSl,
+          initial_sl_price: initSl,
+          sl_price: slPrice,
+          current_sl: slPrice,
           quantity: Math.abs(amt),
           notional: parseFloat(notional.toFixed(2)),
           pnl: parseFloat(pnl.toFixed(4)),
           pnl_pct: entry > 0 ? parseFloat((((mark - entry) / entry) * (isLong ? 100 : -100)).toFixed(2)) : 0,
+          rr: liveRr,
+          max_rr: maxRr,
+          max_rr_achieved: maxRr,
+          min_rr: minRr,
+          min_rr_achieved: minRr,
           leverage: parseInt(p.leverage, 10) || 1,
           liquidation_price: parseFloat(p.liquidationPrice) || 0,
           status: 'OPEN',
-          strategy_label: 'Binance Live Position',
-          timestamp: p.updateTime || Date.now(),
+          strategy_label: existing?.strategy_label || 'Binance Live Position',
+          timestamp: existing?.timestamp || p.updateTime || Date.now(),
           margin_type: p.marginType || 'cross',
         };
       });
@@ -915,10 +934,16 @@ setInterval(() => {
       trade.pnl = parseFloat((priceDiff * trade.quantity).toFixed(2));
       trade.pnl_pct = parseFloat(((priceDiff / trade.entry_price) * 100).toFixed(2));
 
-      const riskDist = Math.abs(trade.entry_price - trade.sl_price);
-      trade.rr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 1.0;
+      const initSl = trade.initial_sl ?? trade.initial_sl_price ?? trade.sl_price;
+      const riskDist = Math.abs(trade.entry_price - initSl);
+      const liveRr = riskDist > 0 ? parseFloat((priceDiff / riskDist).toFixed(2)) : 0;
+      trade.rr = liveRr;
+      trade.max_rr_achieved = Math.max(Number(trade.max_rr_achieved ?? trade.max_rr ?? 0) || 0, liveRr, 0);
+      trade.max_rr = trade.max_rr_achieved;
+      trade.min_rr_achieved = Math.min(Number(trade.min_rr_achieved ?? trade.min_rr ?? 0) || 0, liveRr, 0);
+      trade.min_rr = trade.min_rr_achieved;
 
-      slUsed += (riskDist * trade.quantity);
+      slUsed += (Math.abs(trade.entry_price - trade.sl_price) * trade.quantity);
 
       // Check Stop-Loss
       if (isLong && pInfo.price <= trade.sl_price) {
@@ -995,11 +1020,18 @@ setInterval(() => {
           mark_price: entryPrice,
           last_price: entryPrice,
           sl_price: slPrice,
+          current_sl: slPrice,
+          initial_sl: slPrice,
+          initial_sl_price: slPrice,
           tp_price: tpPrice,
           quantity: qty,
           pnl: 0,
           pnl_pct: 0,
-          rr: 1.0,
+          rr: 0,
+          max_rr: 0,
+          max_rr_achieved: 0,
+          min_rr: 0,
+          min_rr_achieved: 0,
           status: 'OPEN',
           strategy_label: state.strategyLabel,
           timestamp: ts,

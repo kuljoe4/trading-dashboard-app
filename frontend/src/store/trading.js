@@ -65,7 +65,8 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const cleanPrice = Math.max(0, toNumber(source.price, 0));
   const prevPrice = prev ? toNumber(prev.price, cleanPrice) : cleanPrice;
   const priceChanged = prev && (Math.abs(cleanPrice - prevPrice) > 0.0000001 || Math.abs((prev.pct || 0) - m) > 0.0001);
-  const effectiveLastUpdate = source.last_update ?? source.lastUpdate ?? source.ts ?? (priceChanged ? Date.now() : (prev?.lastUpdate || Date.now()));
+  const parsedLastUpdate = toNumber(source.last_update ?? source.lastUpdate ?? source.ts, 0);
+  const effectiveLastUpdate = parsedLastUpdate > 0 ? parsedLastUpdate : (priceChanged ? Date.now() : (prev?.lastUpdate || Date.now()));
   const priceChangeDir = cleanPrice > prevPrice ? 'up' : cleanPrice < prevPrice ? 'down' : (prev?.priceChangeDir || null);
 
   const res = {
@@ -165,7 +166,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const sigDetailsDigest = sig?.signals
     ? Object.keys(sig.signals).sort().map(key => {
         const detail = sig.signals[key];
-        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}:${detail.evaluated_at_ms || 0}`;
+        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}`;
       }).join('|')
     : '';
   const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}|${sigDetailsDigest}` : '';
@@ -530,8 +531,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, strategyLabel: Array.from(subs.strategies.keys())[0], scannerSymbol }));
         } else if (scannerSymbol) {
           ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: true, scannerSymbol }));
-        } else if (subs.globalTrades > 0 || subs.scanner > 0) {
-          ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false, scannerSymbol: null }));
+        } else {
+          ws.send(JSON.stringify({ type: 'set_focus_mode', enabled: false, tradeId: null, strategyLabel: null, scannerSymbol: null }));
         }
       }
     }, 50) });
@@ -576,9 +577,15 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
         // BOLT: Centralize merge logic via updateStats
         get().updateStats({
+          _authoritative: true,
+          running,
           sessionActive: running,
           balance: res.data.balance,
+          realizedPnl: res.data.realizedPnl ?? res.data.realized_pnl,
+          activePnl: res.data.activePnl ?? res.data.active_pnl,
           totalPnl: res.data.totalPnl ?? res.data.total_pnl,
+          entryCount: res.data.stats?.entryCount,
+          hitCount: res.data.stats?.hitCount,
           totalRiskPct: res.data.totalRiskPct,
           totalSlUsed: res.data.totalSlUsed,
           activeTrades: res.data.activeTrades,
@@ -796,15 +803,17 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   },
   updateStats: (updates) => set((st) => {
     // BOLT: Session Stickiness Logic.
-    // We defensively protect the session state and critical metrics during 'Resuming' windows.
-    // This handles the '0-then-catchup' bug when returning to a backgrounded tab/desktop.
+    // We defensively protect the session state and critical metrics during transient 'Resuming' windows,
+    // while trusting explicit _authoritative snapshots (e.g. GET /session/status) to clear closed trades cleanly.
+    const isAuthoritative = updates?._authoritative === true;
     const age = Date.now() - (st.lastAuthoritativeUpdateTs || 0);
-    const isResuming = st.isThrottled || st.wsStatus !== 'live' || st.isSyncingOnResume || (age > 15000 && st.sessionActive);
+    const isResuming = !isAuthoritative && (st.isThrottled || st.wsStatus !== 'live' || st.isSyncingOnResume || (age > 15000 && st.sessionActive));
     const sessionCurrentlyActive = st.sessionActive;
 
     // SEC: Defensive Merge Pattern. Never overwrite store keys with undefined.
     const merged = { ...st };
     Object.entries(updates).forEach(([key, value]) => {
+      if (key === '_authoritative') return;
       if (value !== undefined) merged[key] = value;
     });
 
@@ -816,9 +825,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     const currentScannerResults = Array.isArray(st.scannerResults) ? st.scannerResults : [];
     const currentTradeHistory = Array.isArray(st.tradeHistory) ? st.tradeHistory : [];
 
-    // BOLT: Anti-Flicker & Metric Retention Guard across all updates.
-    // Prevent metrics (P&L, balance, risk, SL used) from dropping to 0 or resetting
-    // when backend emits transient zero/null/uninitialized state during reconnection or tab un-throttling.
+    // BOLT: Anti-Flicker & Metric Retention Guard across transient updates.
     if (sessionCurrentlyActive && updates.status !== 'stopped' && updates.running !== false) {
        merged.totalPnl = resolveNonZeroMetric(nextPnl, st.totalPnl, isResuming);
        merged.balance = resolveNonZeroMetric(updates.balance, st.balance, isResuming);
@@ -835,7 +842,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
        // 2. Collection Persistence: hold trades/scanner results until non-empty data arrives
        if (Array.isArray(updates.activeTrades)) {
          if (updates.activeTrades.length > 0 || currentActiveTrades.length === 0) {
-           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), isResuming)).filter(Boolean);
+           merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.id === t.id || x.symbol === t.symbol), isResuming)).filter(Boolean);
          } else {
            merged.activeTrades = currentActiveTrades;
          }
@@ -866,8 +873,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
          merged.tradeHistory = currentTradeHistory;
        }
     } else {
-       // Normal merge with normalization when NOT in resumption window
-       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.symbol === t.symbol), false)).filter(Boolean);
+       // Normal merge with normalization when NOT in transient resumption window
+       if (Array.isArray(updates.activeTrades)) merged.activeTrades = updates.activeTrades.map(t => normalizeTrade(t, currentActiveTrades.find(x => x.id === t.id || x.symbol === t.symbol), false)).filter(Boolean);
        if (Array.isArray(updates.scannerResults)) {
          const prevScannerMap = new Map(currentScannerResults.map(r => [r.symbol, r]));
          merged.scannerResults = updates.scannerResults.map(o => {
@@ -880,6 +887,9 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
 
     if (updates.config) merged.config = deepMerge(st.config, updates.config);
 
+    if (isAuthoritative) {
+      merged.isSyncingOnResume = false;
+    }
     merged.lastAuthoritativeUpdateTs = Date.now();
 
     return merged;
@@ -1269,10 +1279,10 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
           if (stop) nt = [];
           else if (Array.isArray(d.activeTrades)) {
             if (d.activeTrades.length > 0) {
-              const m = new Map(currentActiveTrades.map(t => [t.symbol, t]));
-              nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.symbol), isResuming)).filter(Boolean);
-            } else if (!isResuming) {
-              // Authoritative clear when not in resumption window
+              const m = new Map(currentActiveTrades.map(t => [t.id || t.symbol, t]));
+              nt = d.activeTrades.map(t => normalizeTrade(t, m.get(t.id || t.symbol), isResuming)).filter(Boolean);
+            } else {
+              // WS 'status' / 'session' payloads are authoritative snapshots even during resume/navigation
               nt = [];
             }
           }
@@ -1396,16 +1406,21 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
         }
         set((st) => {
           const isResuming = st.isSyncingOnResume;
+          const hasTargetedFocus = (st._subscriptions?.trades?.size || 0) > 0 || (st._subscriptions?.strategies?.size || 0) > 0;
           const currentActiveTrades = Array.isArray(st.activeTrades) ? st.activeTrades : [];
           let nt = currentActiveTrades;
           if (Array.isArray(d.trades)) {
             if (d.trades.length > 0) {
               const m = new Map(currentActiveTrades.map(t => [t.id, t]));
               d.trades.forEach(t => { const p = m.get(t.id); const n = normalizeTrade(t, p, isResuming); if (n) m.set(t.id, n); });
-              if (d._heartbeat) { const ids = new Set(d.trades.map(t => t.id)); for (const id of m.keys()) if (!ids.has(id)) m.delete(id); }
+              // Only prune missing trades on an unfiltered full heartbeat snapshot
+              if (d._heartbeat && !hasTargetedFocus) {
+                const ids = new Set(d.trades.map(t => t.id));
+                for (const id of m.keys()) if (!ids.has(id)) m.delete(id);
+              }
               nt = Array.from(m.values());
-            } else if (!isResuming) {
-              // Authoritative clear when not in resumption window
+            } else if (d._heartbeat && !isResuming && !hasTargetedFocus) {
+              // Authoritative clear ONLY on unfiltered heartbeat ticks; delta ticks emit [] when prices are unchanged
               nt = [];
             }
           }

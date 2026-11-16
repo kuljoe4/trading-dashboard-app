@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from './primitives';
 import { price as fmtPrice } from '../../lib/formatters';
 import { buildCandidateConditionsModel } from '../../utils/candidateConditions';
@@ -52,6 +52,36 @@ function formatFreshness(ts, nowMs) {
   if (ageHours < 24) return `Captured ${ageHours}h ago`;
   return `Captured ${Math.floor(ageHours / 24)}d ago`;
 }
+
+/**
+ * Isolated leaf freshness label with adaptive 5s/15s timer so parent
+ * SVG dials & model useMemo never recompute just for relative age ticks.
+ */
+const ConditionFreshness = React.memo(function ConditionFreshness({ evaluatedAtMs }) {
+  const [now, setNow] = useState(() => Date.now());
+  const evaluated = Number(evaluatedAtMs);
+  const valid = Number.isFinite(evaluated) && evaluated > 0;
+
+  useEffect(() => {
+    if (!valid) return undefined;
+    let timerId = null;
+    const scheduleNext = () => {
+      const currNow = Date.now();
+      setNow(currNow);
+      const ageSec = Math.max(0, (currNow - evaluated) / 1000);
+      const nextDelay = ageSec < 60 ? 5000 : ageSec < 3600 ? 15000 : 60000;
+      timerId = setTimeout(scheduleNext, nextDelay);
+    };
+    const initAgeSec = Math.max(0, (Date.now() - evaluated) / 1000);
+    const initDelay = initAgeSec < 60 ? 5000 : initAgeSec < 3600 ? 15000 : 60000;
+    timerId = setTimeout(scheduleNext, initDelay);
+    return () => {
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [valid, evaluated]);
+
+  return <>{formatFreshness(evaluatedAtMs, now)}</>;
+});
 
 /**
  * Piecewise angle mapping for 0..150 dial so Fresh (100-105) and Stale (105-115)
@@ -532,8 +562,12 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
   gateReason = '',
   compact = false,
   className = '',
-  nowMs = Date.now(),
+  lastScanTs = 0,
+  nowMs = undefined,
 }) {
+  const mountTsRef = useRef(Date.now());
+  const modelNowMs = nowMs ?? (Number(lastScanTs) > 0 ? Number(lastScanTs) : mountTsRef.current);
+
   const model = useMemo(() => buildCandidateConditionsModel({
     opp,
     strategyConfig,
@@ -542,17 +576,71 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
     isPaused,
     gateState,
     gateReason,
-    nowMs,
-  }), [opp, strategyConfig, activeTrade, closedTrades, isPaused, gateState, gateReason, nowMs]);
+    lastScanTs,
+    nowMs: modelNowMs,
+  }), [opp, strategyConfig, activeTrade, closedTrades, isPaused, gateState, gateReason, lastScanTs, modelNowMs]);
 
   const isInPos = model.mode === 'in_position';
   const hasCandidate = model.symbol && model.symbol !== '---';
   const compositeDial = model.compositeDial || { dialZone: 'watching', dialStatus: 'Watching', dialOverText: '100% to go' };
 
+  // Track single-shot condition & pipeline handoff events without polling loops
+  const prevSnapshotRef = useRef({ symbol: null, mode: null, states: {} });
+  const [flashedKeys, setFlashedKeys] = useState({});
+  const [handoffCue, setHandoffCue] = useState(null);
+
+  const stateSignature = useMemo(
+    () => model.conditions.map(c => `${c.key}:${c.stateLabel}`).join('|'),
+    [model.conditions]
+  );
+
+  useEffect(() => {
+    const prev = prevSnapshotRef.current;
+    const sameSymbol = prev.symbol && prev.symbol === model.symbol && model.symbol !== '---';
+    const nextStates = {};
+    const changed = {};
+
+    for (const c of model.conditions) {
+      nextStates[c.key] = c.stateLabel;
+      const oldState = prev.states[c.key];
+      if (sameSymbol && oldState && oldState !== c.stateLabel && ['PASS', 'NEAR', 'TRIGGERED', 'READY'].includes(c.stateLabel)) {
+        changed[c.key] = c.stateLabel;
+      }
+    }
+
+    let cue = null;
+    if (sameSymbol && prev.mode === 'searching' && model.mode === 'in_position') {
+      cue = 'Position Open → Exit Monitor';
+    } else if (sameSymbol && prev.overallStatus !== model.overallStatus && model.overallStatus === 'ENTRY READY') {
+      cue = 'Signals Met → Stage 3 Risk';
+    }
+
+    prevSnapshotRef.current = {
+      symbol: model.symbol,
+      mode: model.mode,
+      overallStatus: model.overallStatus,
+      states: nextStates,
+    };
+
+    if (Object.keys(changed).length === 0 && !cue) return undefined;
+    if (Object.keys(changed).length > 0) setFlashedKeys(changed);
+    if (cue) setHandoffCue(cue);
+
+    const timer = setTimeout(() => {
+      setFlashedKeys({});
+      setHandoffCue(null);
+    }, 1400);
+    return () => clearTimeout(timer);
+  }, [model.symbol, model.mode, model.overallStatus, stateSignature, model.conditions]);
+
+  const runway = isInPos ? model.positionMeta?.positionRunway : null;
+
   return (
     <div
+      key={`${model.symbol}:${model.mode}`}
       className={cn(
-        'rounded-xl border border-border/60 bg-surface/40 backdrop-blur-sm overflow-hidden flex flex-col',
+        'rounded-xl border border-border/60 bg-surface/40 backdrop-blur-sm overflow-hidden flex flex-col animate-in fade-in duration-200',
+        isInPos && 'border-green/35',
         compact ? 'p-2.5 gap-2' : 'p-3.5 gap-3',
         className
       )}
@@ -581,9 +669,14 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
           <span className="text-[10px] font-mono text-dim">
             · {isInPos ? 'Exit Gate' : 'Signal Gate'}: <strong className="text-text">{model.logicLabel}</strong>
           </span>
+          {handoffCue && (
+            <span className="text-[10px] font-mono font-bold text-green animate-handoff-slide">
+              · {handoffCue}
+            </span>
+          )}
           {opp?.isEntrySnapshot && (
             <span className="text-[10px] font-mono text-accent">
-              · Entry snapshot
+              · {opp.snapshotTradeStatus && opp.snapshotTradeStatus !== 'OPEN' ? `History snapshot (${opp.snapshotTradeStatus})` : 'Entry snapshot'}
               {typeof opp.capRespected === 'boolean' && (
                 <strong className={opp.capRespected ? 'text-green' : 'text-red'}>
                   {' '}· Cap {opp.capRespected ? 'respected' : 'exceeded'}
@@ -613,6 +706,9 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
             <span className={cn(ZONE_TEXT_CLASS[compositeDial.dialZone] || 'text-dim')}>
               {model.overallStatus}
             </span>
+            {!isInPos && model.overallStatus === 'ENTRY READY' && (
+              <span className="text-green/90 font-semibold animate-handoff-slide">→ Risk</span>
+            )}
             {hasCandidate && model.totalConditionsCount > 0 && (
               <span className="text-dim font-normal">
                 · {model.firedConditionsCount}/{model.totalConditionsCount} signals
@@ -622,6 +718,61 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
         </div>
       </div>
 
+      {/* Compact In-Position SL -> Entry -> Live -> TP Runway (zero extra API data) */}
+      {isInPos && runway && (
+        <div className="px-2.5 py-2 rounded-lg bg-bg/45 border border-border/40 flex flex-col gap-1.5 animate-handoff-slide">
+          <div className="flex items-center justify-between gap-2 text-[10px] font-mono tabular-nums flex-wrap">
+            <span className="text-dim">
+              SL <strong className={model.positionMeta?.isProtected ? 'text-green' : 'text-red'}>{fmtPrice(model.positionMeta?.slPrice)}</strong>
+              <span className="mx-1.5 text-border">·</span>
+              Entry <strong className="text-text">{fmtPrice(model.positionMeta?.entryPrice)}</strong>
+              {model.positionMeta?.tpPrice > 0 && (
+                <>
+                  <span className="mx-1.5 text-border">·</span>
+                  TP <strong className="text-green">{fmtPrice(model.positionMeta?.tpPrice)}</strong>
+                </>
+              )}
+            </span>
+            <span className={cn('font-bold', (model.positionMeta?.currentR || 0) >= 0 ? 'text-green' : 'text-red')}>
+              {(model.positionMeta?.currentR || 0) >= 0 ? '+' : ''}{(model.positionMeta?.currentR || 0).toFixed(2)}R
+              {model.positionMeta?.trailingActive ? ' · Trailing' : model.positionMeta?.isProtected ? ' · Protected' : ''}
+            </span>
+          </div>
+          <div className="relative h-2 w-full rounded-full bg-surface/80 border border-border/40 overflow-hidden">
+            {/* SL -> Entry base fill & live position indicator via GPU transform */}
+            <div
+              className="absolute inset-y-0 left-0 w-full bg-green/25 origin-left transition-transform duration-300 ease-out will-change-transform"
+              style={{ transform: `scaleX(${Math.max(0, Math.min(1, runway.livePct / 100))})` }}
+            />
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-red/80"
+              style={{ left: `${runway.slPct}%` }}
+              title="Stop Loss"
+            />
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-dim/80"
+              style={{ left: `${runway.entryPct}%` }}
+              title="Entry Price"
+            />
+            {runway.tpPct !== null && (
+              <div
+                className="absolute top-0 bottom-0 w-0.5 bg-green"
+                style={{ left: `${runway.tpPct}%` }}
+                title="Take Profit"
+              />
+            )}
+            <div
+              className={cn(
+                'absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border border-bg shadow-xs transition-transform duration-300 ease-out will-change-transform',
+                (model.positionMeta?.currentR || 0) >= 0 ? 'bg-green' : 'bg-amber'
+              )}
+              style={{ left: `calc(${runway.livePct}% - 5px)` }}
+              title={`Live Price (${fmtPrice(model.markPrice)})`}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Condition Cards + Composite Summary Grid */}
       {model.conditions.length === 0 ? (
         <div className="text-[11px] font-mono text-dim py-2 text-center">
@@ -630,7 +781,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
       ) : (
         <div
           className={cn(
-            'grid gap-2.5',
+            'grid auto-rows-fr items-stretch gap-2.5',
             compact
               ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
               : 'grid-cols-1 sm:grid-cols-2 xl:grid-cols-4'
@@ -639,15 +790,17 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
           {model.conditions.map((c) => {
             const cZone = c.dialZone || 'watching';
             const isLadder = c.visualization === 'ladder' && c.ladder;
+            const justFlashed = flashedKeys[c.key];
             return (
               <div
                 key={c.key}
                 className={cn(
-                  'rounded-xl border border-border/50 bg-bg/40 p-3 flex flex-col justify-between gap-2 transition-colors',
+                  'rounded-xl border border-border/50 bg-bg/40 p-3 flex flex-col justify-between h-full gap-2 transition-colors',
                   isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2'),
                   cZone === 'fresh' && 'border-green/35 bg-green/[0.03]',
                   cZone === 'stale' && 'border-amber/35 bg-amber/[0.03]',
-                  (cZone === 'late' || cZone === 'blocked') && 'border-red/35 bg-red/[0.03]'
+                  (cZone === 'late' || cZone === 'blocked') && 'border-red/35 bg-red/[0.03]',
+                  justFlashed && 'animate-event-arrive ring-1 ring-green/45'
                 )}
               >
                 {/* Card Top Header */}
@@ -670,7 +823,7 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                       {c.timeframe}{c.paramsText && c.paramsText !== 'Standard' ? ` · ${c.paramsText}` : ''}
                     </div>
                     <div className="text-[9px] font-mono text-dim/75 mt-0.5 tabular-nums">
-                      {formatFreshness(c.evaluatedAtMs, nowMs)}
+                      <ConditionFreshness evaluatedAtMs={c.evaluatedAtMs} />
                     </div>
                   </div>
 

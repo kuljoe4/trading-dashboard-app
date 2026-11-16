@@ -251,7 +251,11 @@ const App = () => {
 
         updateStats({
           ...res.data,
+          _authoritative: true,
           sessionActive: running,
+          totalPnl: res.data.totalPnl ?? res.data.total_pnl,
+          entryCount: res.data.stats?.entryCount,
+          hitCount: res.data.stats?.hitCount,
           activeTrades: res.data.activeTrades,
           variantStats: res.data.variant_stats,
           scannerResults: res.data.scannerResults,

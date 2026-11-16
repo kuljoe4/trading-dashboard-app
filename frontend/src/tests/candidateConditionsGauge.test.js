@@ -334,5 +334,101 @@ test('CandidateConditionsGauge helper suite', async (t) => {
     assert.strictEqual(model.conditions[0].proximity, 74);
     assert.strictEqual(model.conditions[0].etaCandles, 2.5);
     assert.strictEqual(model.conditions[1].timeframe, '1h');
+    assert.strictEqual(model.conditions[0].evaluatedAtMs, undefined);
+
+    const modelWithScanTs = buildCandidateConditionsModel({
+      opp: { symbol: 'TAOUSDT', dir: 'long', pct: 4.5, close: 215 },
+      activeTrade: {
+        symbol: 'TAOUSDT',
+        direction: 'LONG',
+        entry_price: 200,
+        current_price: 215,
+        current_sl: 202,
+        tp_price: 230,
+        qty: 1,
+        initial_risk_usdt: 10,
+        pnl: 15,
+        exit_signals_status_ts: 1700000090000,
+        exit_signals_status: { supertrend: { fired: false, active: true, value: 215, threshold: 205 } },
+      },
+      strategyConfig: { exit_signals: ['supertrend'] },
+      lastScanTs: 1700000080000,
+    });
+    assert.strictEqual(modelWithScanTs.conditions[0].evaluatedAtMs, 1700000090000);
+  });
+
+  await t.test('buildCandidateConditionsModel propagates live opp.lastUpdate/lastScanTs to Scanner Gate & signals while freezing closed snapshots', () => {
+    const liveScanTs = 1700000120000;
+    const oppLastUpdate = 1700000105000;
+    const staleSignalEvalTs = 1700000060000;
+
+    const liveModel = buildCandidateConditionsModel({
+      opp: {
+        symbol: 'GATEUSDT',
+        dir: 'long',
+        pct: 3.91,
+        close: 1.25,
+        lastUpdate: oppLastUpdate,
+        signalResult: {
+          allFired: false,
+          signals: {
+            htf_breakout: {
+              fired: false,
+              value: 1.25,
+              threshold: 1.39,
+              threshold_is_price: true,
+              evaluated_at_ms: staleSignalEvalTs,
+            },
+          },
+        },
+      },
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 0.2,
+        entry_side: 'long',
+        enabled_signals: ['htf_breakout'],
+      },
+      lastScanTs: liveScanTs,
+      nowMs: liveScanTs,
+    });
+
+    assert.strictEqual(liveModel.conditions[0].connector, 'GATE');
+    assert.strictEqual(liveModel.conditions[0].evaluatedAtMs, liveScanTs);
+    assert.strictEqual(liveModel.conditions[1].evaluatedAtMs, liveScanTs);
+
+    const snapshotCapturedAt = 1700000010000;
+    const frozenModel = buildCandidateConditionsModel({
+      opp: {
+        symbol: 'GATEUSDT',
+        dir: 'long',
+        pct: 3.91,
+        close: 1.25,
+        isEntrySnapshot: true,
+        snapshotCapturedAt,
+        signalResult: {
+          allFired: true,
+          signals: {
+            htf_breakout: {
+              fired: true,
+              value: 1.40,
+              threshold: 1.39,
+              threshold_is_price: true,
+              evaluated_at_ms: 1700000005000,
+            },
+          },
+        },
+      },
+      strategyConfig: {
+        scan_interval: '5m',
+        scan_pct_threshold: 0.2,
+        entry_side: 'long',
+        enabled_signals: ['htf_breakout'],
+      },
+      lastScanTs: liveScanTs,
+      nowMs: liveScanTs,
+    });
+
+    assert.strictEqual(frozenModel.conditions[0].evaluatedAtMs, snapshotCapturedAt);
+    assert.strictEqual(frozenModel.conditions[1].evaluatedAtMs, 1700000005000);
   });
 });

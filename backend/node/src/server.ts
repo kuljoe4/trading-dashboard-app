@@ -349,7 +349,9 @@ async function bootstrap() {
     const activeCount = clients.filter((c: any) => c.isActive !== false).length;
     tradingSessionService.setListenerCount(activeCount);
     const dashCount = clients.filter(
-      (c: any) => c.isActive !== false && (!c.focusMode || !!c.focusScannerSymbol),
+      (c: any) =>
+        c.isActive !== false &&
+        (!c.focusMode || !!c.focusScannerSymbol || !!c.focusStrategyLabel),
     ).length;
     tradingSessionService.setDashboardCount(dashCount);
   };
@@ -388,6 +390,10 @@ async function bootstrap() {
       }
 
       if (payload.type === "scanner") {
+        // Optimization: Suppress scanner payloads for pure trade-detail focused clients
+        if (client.focusMode && !client.focusScannerSymbol && !client.focusStrategyLabel) {
+          return;
+        }
         // Optimization: Prune heavy ohlc_history to save bandwidth unless specifically focused on this symbol
         const pruneOpp = (opp: any) => {
           const keepOhlc = client.focusScannerSymbol && opp.symbol === client.focusScannerSymbol;
@@ -508,6 +514,8 @@ async function bootstrap() {
         }
         if (data.type === "set_focus_mode") {
           const wasFocused = socket.focusMode;
+          const prevFocusStrategy = socket.focusStrategyLabel;
+          const prevFocusTrade = socket.focusTradeId;
           const wasScannerSymbol = socket.focusScannerSymbol;
           socket.focusMode = data.enabled === true;
 
@@ -522,13 +530,21 @@ async function bootstrap() {
           socket.focusStrategyLabel = parseStrProp(data.strategyLabel);
           socket.focusScannerSymbol = parseStrProp(data.scannerSymbol);
 
-          if (wasFocused !== socket.focusMode || wasScannerSymbol !== socket.focusScannerSymbol) {
+          if (
+            wasFocused !== socket.focusMode ||
+            wasScannerSymbol !== socket.focusScannerSymbol ||
+            prevFocusStrategy !== socket.focusStrategyLabel
+          ) {
             updateMonitoringSuppression();
           }
 
-          // If becoming focused, immediately broadcast the current session state to the client
-          // to prevent UI "data gaps" during transition.
-          if (!wasFocused && socket.focusMode) {
+          // Broadcast current session state when entering, leaving, or changing focus scope
+          // to prevent stale filtered trades/PnL gaps during view transitions.
+          const focusScopeChanged =
+            wasFocused !== socket.focusMode ||
+            prevFocusStrategy !== socket.focusStrategyLabel ||
+            prevFocusTrade !== socket.focusTradeId;
+          if (focusScopeChanged) {
             const sessionService = app.get(SessionService);
             const status = await sessionService.getStatus(false);
             socket.send(JSON.stringify({

@@ -109,7 +109,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
   return (
     <div
       className={cn(
-        "bg-surface border p-3 md:p-4 rounded-xl shadow-xs transition-all group relative overflow-hidden flex flex-col items-start min-h-[64px] md:min-h-[76px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+        "bg-surface border p-3 md:p-4 rounded-xl shadow-xs transition-all group relative overflow-hidden flex flex-col items-start h-full w-full min-h-[64px] md:min-h-[76px] min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
         isLocked ? "border-border hover:border-border-hover" : "border-accent/50 bg-accent/[0.03] shadow-[0_0_20px_rgba(79,70,229,0.08)]",
         disabled && "opacity-40 grayscale pointer-events-none",
         usagePct >= 90 && "border-red/50 bg-red/[0.03] shadow-[0_0_20px_rgba(244,63,94,0.1)]",
@@ -129,7 +129,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" />
       )}
-      <div className="flex flex-col gap-1 w-full relative z-10">
+      <div className="flex flex-col flex-1 justify-between gap-1 w-full relative z-10">
         <div className="flex items-start w-full">
           <div className="flex items-center gap-1.5 flex-grow overflow-hidden mr-1">
             {tooltip ? (
@@ -220,7 +220,7 @@ export const InteractiveLimitCard = React.memo(({ label, value, unit = "", onInc
 })
 
 // --- Stat Card ---
-export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact, ariaLabel }) => {
+export const StatCard = React.memo(({ label, value, color = "text-text", subValue, syncing, tooltipText, compact, ariaLabel, className }) => {
   // BOLT: Clean up double-negative visuals: if value starts with '-', don't show negative arrow in label/icon.
   const sanitizedValue = typeof value === 'string' && (value.includes('▼') || value.includes('▲') || value.includes('▾') || value.includes('▴')) && value.includes('-')
     ? value.replace('-', '') // Remove the minus if an arrow is already present
@@ -232,7 +232,8 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
         "bg-surface border border-border rounded-xl hover:border-border-hover hover:bg-white/[0.02] transition-all group relative overflow-hidden flex flex-col items-start h-full w-full min-w-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset focus-visible:outline-none",
         compact
           ? "p-2.5 min-h-[48px] md:min-h-[56px]"
-          : "p-3.5 md:p-4 min-h-[64px] md:min-h-[76px]"
+          : "p-3.5 md:p-4 min-h-[64px] md:min-h-[76px]",
+        className
       )}
       role="region"
       aria-label={ariaLabel || `${label}: ${value}${tooltipText ? '. ' + tooltipText : ''}`}
@@ -242,7 +243,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
       {syncing && (
         <div className="absolute inset-0 bg-accent/5 animate-pulse pointer-events-none" aria-label="Syncing data..." />
       )}
-      <div className="flex flex-col items-start self-start w-full gap-1">
+      <div className="flex flex-col items-start self-start w-full h-full gap-1">
         <div className="flex items-center gap-1.5 w-full min-w-0">
           <div className={cn("text-dim tracking-wider uppercase font-bold leading-snug flex-1 min-w-0 truncate", compact ? "text-[8.5px] md:text-[9px]" : "text-[9px] md:text-[10px]")} aria-hidden="true">
             {label}
@@ -264,7 +265,7 @@ export const StatCard = React.memo(({ label, value, color = "text-text", subValu
             syncing && "text-accent/80 font-bold"
           )}>
             {syncing && <RefreshCw size={compact ? 6 : 8} className="animate-spin shrink-0 text-accent" aria-hidden="true" />}
-            <span className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</span>
+            <div className="truncate whitespace-normal sm:whitespace-nowrap min-w-0 w-full">{subValue}</div>
           </div>
         )}
       </div>
@@ -319,7 +320,7 @@ export const StatusBadge = ({ status }) => {
   
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-wider font-mono transition-colors",
+      "inline-flex items-center gap-1.5 text-[9.5px] font-bold uppercase tracking-wider font-mono transition-colors whitespace-nowrap shrink-0",
       active ? "text-green" : "text-dim"
     )}>
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", active ? "bg-green animate-pulse" : "bg-dim/40")} />
@@ -330,7 +331,7 @@ export const StatusBadge = ({ status }) => {
 
 // --- Mode Badges (Zero-Pill Typography) ---
 export const PaperBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-amber font-mono">
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-amber font-mono whitespace-nowrap shrink-0">
     <span className="w-1.5 h-1.5 rounded-full bg-amber shrink-0" />
     Paper
   </span>
@@ -353,7 +354,7 @@ export const EcoBadge = () => {
 
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider font-mono transition-colors",
+      "inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider font-mono transition-colors whitespace-nowrap shrink-0",
       showResumingFeedback ? "text-accent" : "text-green"
     )}>
       <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", showResumingFeedback ? "bg-accent animate-spin" : "bg-green animate-pulse")} />
@@ -363,21 +364,21 @@ export const EcoBadge = () => {
 }
 
 export const DemoBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-purple-400 font-mono">
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-purple-400 font-mono whitespace-nowrap shrink-0">
     <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shrink-0" />
     Testnet
   </span>
 )
 
 export const LiveBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-green font-mono">
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-green font-mono whitespace-nowrap shrink-0">
     <span className="w-1.5 h-1.5 rounded-full bg-green shrink-0 animate-pulse" />
     Live
   </span>
 )
 
 export const BacktestBadge = () => (
-  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-cyan-400 font-mono">
+  <span className="inline-flex items-center gap-1.5 text-[9px] font-bold uppercase tracking-wider text-cyan-400 font-mono whitespace-nowrap shrink-0">
     <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
     Backtest
   </span>
@@ -536,7 +537,7 @@ export const VisuallyHidden = ({ children }) => (
   </span>
 )
 
-export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false, hideMetricsNumbers = false }) => {
+export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = true, backAction, isResuming: propsResuming, hideMetrics = false, hideMetricsNumbers = false, mobileOneRow = false }) => {
   const { balance, totalPnl, activeTrades, gateState, totalRiskPct, config, wsStatus, isThrottled, isEcoMode, isSyncingOnResume, sessionActive, alerts, updateStats } = useTradingStore()
   const tradingMode = config.trading_mode || 'paper'
 
@@ -832,7 +833,7 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         tabIndex={0}
         className={cn(
           "z-40 outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset py-1.5 sm:py-2 px-2.5 sm:px-3.5 [overflow-anchor:none] transition-[background-color,border-color,box-shadow,border-radius] duration-200",
-          hasSplitStickyMetrics ? "mb-0" : "mb-2 lg:mb-4",
+          hasSplitStickyMetrics ? "mb-0" : (mobileOneRow ? "mb-1.5 md:mb-2 lg:mb-4" : "mb-2 lg:mb-4"),
           hasSplitStickyMetrics && !isScrolled ? "rounded-t-2xl" : "rounded-2xl",
           sticky && "sticky top-0 backdrop-blur-xl border-b",
           sticky && isScrolled
@@ -841,30 +842,49 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
         )}
       >
         {/* ROW 1: Brand / Title / Navigation & Action Controls */}
-        <div className="flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[30px] sm:min-h-[36px] min-w-0">
+        <div className={cn(
+          "flex flex-row items-center justify-between gap-1.5 sm:gap-2 relative w-full min-h-[30px] sm:min-h-[36px] min-w-0",
+          mobileOneRow && "flex-nowrap min-h-[38px]"
+        )}>
           {/* Left Side: Title, Icon and Badges */}
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             {backAction && (
               <button
+                type="button"
                 onClick={backAction}
                 aria-label="Go back"
-                className="p-1 sm:p-1.5 hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer"
+                className={cn(
+                  "hover:bg-surface border border-border/60 rounded-xl transition-all active:scale-95 group shrink-0 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none cursor-pointer flex items-center justify-center",
+                  mobileOneRow ? "min-h-[38px] min-w-[38px] sm:min-h-[34px] sm:min-w-[34px] p-1 sm:p-1.5" : "p-1 sm:p-1.5"
+                )}
               >
-                <ChevronLeft size={14} className="text-dim group-hover:text-text" />
+                <ChevronLeft size={mobileOneRow ? 16 : 14} className="text-dim group-hover:text-text" />
               </button>
             )}
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
               {Icon && (
-                <div className="w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0 transition-all">
+                <div className={cn(
+                  "w-7 h-7 rounded-xl bg-accent/10 border border-accent/20 items-center justify-center shrink-0 transition-all",
+                  mobileOneRow && backAction ? "hidden sm:flex" : "flex"
+                )}>
                   <Icon size={14} className="text-accent" />
                 </div>
               )}
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-wrap">
-                  <h1 className="text-xs md:text-sm font-black tracking-tight truncate uppercase text-text">
+              <div className="flex flex-col min-w-0 flex-1">
+                <div className={cn(
+                  "flex items-center gap-1.5 sm:gap-2 min-w-0",
+                  mobileOneRow ? "flex-nowrap" : "flex-wrap"
+                )}>
+                  <h1 className={cn(
+                    "font-black tracking-tight truncate uppercase text-text min-w-0",
+                    mobileOneRow ? "text-[13px] sm:text-xs md:text-sm" : "text-xs md:text-sm"
+                  )}>
                     {showResumingFeedback ? 'Resuming...' : title}
                   </h1>
-                  <div className="flex items-center gap-1 shrink-0 scale-90 sm:scale-100 origin-left">
+                  <div className={cn(
+                    "flex items-center gap-1 shrink-0 origin-left",
+                    mobileOneRow ? "scale-[0.88] sm:scale-100" : "scale-90 sm:scale-100"
+                  )}>
                     {tradingMode === 'paper' && <PaperBadge />}
                     {tradingMode === 'testnet' && <DemoBadge />}
                     {tradingMode === 'live' && <LiveBadge />}
@@ -900,7 +920,10 @@ export const ViewHeader = ({ icon: Icon, title, subTitle, children, sticky = tru
 
           {/* Right Side: Children Action Items */}
           {children && (
-            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap sm:flex-nowrap shrink-0 justify-end">
+            <div className={cn(
+              "flex items-center gap-1.5 sm:gap-2 shrink-0 justify-end",
+              mobileOneRow ? "flex-nowrap" : "flex-wrap sm:flex-nowrap"
+            )}>
               {children}
             </div>
           )}

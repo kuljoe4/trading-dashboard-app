@@ -623,14 +623,9 @@ export class EngineBroadcasterService {
     const startingBalance = (mode === 'paper') ? config?.paper_starting_balance : config?.live_starting_balance;
 
     // WISP OPTIMIZATION: Eliminate O(N) closed trades array iteration loop on the high-frequency broadcast tick path.
-    // Instead of looping through up to 500 closed trades every 500ms tick, retrieve pre-accumulated realized PnL
-    // directly from this.sessionState.stats.totalPnl in O(1) time.
-    let realizedPnl = 0;
-    if (this.sessionState.closedTrades && this.sessionState.closedTrades.length > 0) {
-      realizedPnl = roundEight(this.sessionState.stats?.totalPnl ?? 0);
-    } else {
-      realizedPnl = roundEight(balance - (startingBalance ?? balance));
-    }
+    // Retrieve pre-accumulated session realized PnL directly from sessionState.stats.totalPnl
+    // regardless of trading mode or closedTrades array length so paper/live resumed sessions never drift.
+    const realizedPnl = roundEight(this.sessionState.stats?.totalPnl ?? 0);
     const totalPnl = roundEight(realizedPnl + activePnl);
 
     const analyticsCondition = !this.lastAnalyticsResult ||
@@ -670,6 +665,8 @@ export class EngineBroadcasterService {
 
     const tickData: any = {
       balance: roundTo(balance, 2),
+      realized_pnl: roundTo(realizedPnl, 2),
+      active_pnl: roundTo(activePnl, 2),
       total_pnl: roundTo(totalPnl, 2),
       total_risk_pct: roundTo(balance > 0 ? (totalRiskUsdt / balance) * 100 : 0, 2),
       total_sl_used: roundTo(totalRiskUsdt, 2),

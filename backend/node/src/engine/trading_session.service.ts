@@ -1049,6 +1049,7 @@ export class TradingSessionService implements OnApplicationShutdown {
             opportunities: [],
           };
         }
+        const scanEvalTs = Date.now();
         const rawOpps = opportunitiesBySignature.get(this.scanSignature(c)) || [];
         const opportunitiesWithSignals = rawOpps
           .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
@@ -1060,7 +1061,7 @@ export class TradingSessionService implements OnApplicationShutdown {
               opp.direction.toUpperCase() as "LONG" | "SHORT",
               "entry",
             );
-            return { ...opp, signalResult };
+            return { ...opp, signalResult, last_update: scanEvalTs };
           });
         const rankedOpportunities = rankByBreakoutOpportunity(opportunitiesWithSignals, c);
         rankedOpportunitiesByConfig.set(c, rankedOpportunities);
@@ -1077,6 +1078,10 @@ export class TradingSessionService implements OnApplicationShutdown {
         this.updateScannerResults(opportunitiesWithSignals);
         this.lastVariantScannerResults = scannerData;
         const now = Date.now();
+        // Always record latest completed scan cycle timestamp so existing tick frames
+        // propagate scan freshness even when unchanged values skip full scanner JSON diffs.
+        this.sessionState.last_scan_ts = now;
+        this.sessionState.next_scan_ts = now + effectiveScanInterval;
         const isFull = now - this.lastScannerFullBroadcast > 30000;
         const nextResultsJson = scannerResultsFingerprint(this.lastScannerResults);
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson;
@@ -1085,8 +1090,6 @@ export class TradingSessionService implements OnApplicationShutdown {
         if (isFull || resultsChanged) {
           if (isFull) this.lastScannerFullBroadcast = now;
           this.lastScannerResultsJson = nextResultsJson;
-          this.sessionState.last_scan_ts = Date.now();
-          this.sessionState.next_scan_ts = this.sessionState.last_scan_ts + effectiveScanInterval;
           this.broadcast("scanner", {
             count: this.lastScannerResults.length,
             last_scan_ts: this.sessionState.last_scan_ts,
@@ -1264,6 +1267,18 @@ export class TradingSessionService implements OnApplicationShutdown {
       });
       return;
     }
+    const serializedActiveTrades = this.positionTracker
+      .activeList()
+      .map((t) => this.engineBroadcaster.serializeTrade(t, this.config!));
+    const activePnl = serializedActiveTrades.reduce(
+      (sum: number, t: any) => sum + (Number(t?.pnl) || 0),
+      0,
+    );
+    const realizedPnl = roundEight(this.sessionState.stats?.totalPnl ?? 0);
+    const totalPnl = roundEight(realizedPnl + activePnl);
+    const balance = this.getBalance();
+    const strategyConfigs = this.getStrategyConfigs();
+
     this.broadcast("session", {
       status,
       running: this.running,
@@ -1278,7 +1293,19 @@ export class TradingSessionService implements OnApplicationShutdown {
       ),
       mode: this.config?.paper_mode ? "PAPER" : "LIVE",
       tradingMode: mode,
-      balance: this.getBalance(),
+      balance,
+      realized_pnl: roundEight(realizedPnl),
+      active_pnl: roundEight(activePnl),
+      total_pnl: totalPnl,
+      stats: this.sessionState.stats,
+      variant_stats: strategyConfigs.length > 0
+        ? this.variantAnalytics.calculateVariantStats(
+            serializedActiveTrades as any,
+            balance,
+            this.sessionState.cachedClosedTradesStats,
+            strategyConfigs,
+          )
+        : undefined,
       config: this.config,
       hibernation_mode: this.config?.hibernation_mode || "adaptive",
       gateState: this.sessionState.gateState,
@@ -1288,9 +1315,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         this.sessionState.gateState === "sl_guard" ||
         this.sessionState.gateState === "max_trades_period" ||
         this.sessionState.paused,
-      activeTrades: this.positionTracker
-        .activeList()
-        .map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)),
+      activeTrades: serializedActiveTrades,
       scannerResults: this.lastScannerResults,
       variant_opportunities: this.lastVariantScannerResults,
       activeWindows: this.getActiveWindows(),
@@ -1524,20 +1549,18 @@ export class TradingSessionService implements OnApplicationShutdown {
   getStatus() {
     const mode =
       this.config?.trading_mode || (this.config?.paper_mode ? "paper" : "live");
-    const startingBalance =
-      mode === "paper"
-        ? this.config?.paper_starting_balance || 10000
-        : (mode === "testnet"
-            ? this.config?.testnet_starting_balance || 10000
-            : this.config?.live_starting_balance || 0);
     const currentBalance = this.getBalance();
+    const serializedActiveTrades = this.positionTracker
+      .activeList()
+      .map((t) => this.engineBroadcaster.serializeTrade(t, this.config!));
+    const activePnl = serializedActiveTrades.reduce(
+      (sum: number, t: any) => sum + (Number(t?.pnl) || 0),
+      0,
+    );
 
-    // DATA-CONSISTENCY: Use mode-specific profit calculation.
-    // Live mode uses internal PnL tracking to ignore deposits.
-    const totalPnl =
-      mode === "paper"
-        ? roundEight(currentBalance - startingBalance)
-        : roundEight(this.sessionState.stats.totalPnl || 0);
+    // DATA-CONSISTENCY: Align REST getStatus() with broadcastTick() Session Return (realized + unrealized active PnL)
+    const realizedPnl = roundEight(this.sessionState.stats.totalPnl || 0);
+    const totalPnl = roundEight(realizedPnl + activePnl);
 
     const lastRisk = this.engineBroadcaster.getLastRiskResult();
 
@@ -1556,14 +1579,14 @@ export class TradingSessionService implements OnApplicationShutdown {
       tradingMode: mode,
       balance_paper: this.sessionState.balancePaper,
       balance_live: this.sessionState.balanceLive,
+      realized_pnl: realizedPnl,
+      active_pnl: roundEight(activePnl),
       total_pnl: totalPnl,
       stats: this.sessionState.stats,
-      activeTrades: this.positionTracker
-        .activeList()
-        .map((t) => this.engineBroadcaster.serializeTrade(t, this.config!)),
+      activeTrades: serializedActiveTrades,
       total_risk: this.positionTracker.totalRisk(),
       variant_stats: this.variantAnalytics.calculateVariantStats(
-        this.positionTracker.activeList(),
+        serializedActiveTrades as any,
         currentBalance,
         this.sessionState.cachedClosedTradesStats,
         this.getStrategyConfigs(),

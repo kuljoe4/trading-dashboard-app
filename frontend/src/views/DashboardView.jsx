@@ -62,7 +62,7 @@ const TemporalRiskGrid = React.memo(() => {
     : null;
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2.5 md:gap-3 mb-3">
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 auto-rows-fr items-stretch gap-2.5 md:gap-3 mb-3">
       <InteractiveLimitCard
         label="Period Limit"
         subValue={tradesInPeriod !== undefined ? `${Math.max(0, (maxTradesPeriod || config.max_trades_per_period) - tradesInPeriod)} Remaining${isAdaptiveTightened ? ' (x0.5)' : ''}` : (isAdaptiveTightened ? 'x0.5 Applied' : null)}
@@ -867,7 +867,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
       role="button"
       tabIndex={0}
       className={cn(
-        "bg-surface border border-border/40 rounded-xl flex flex-col w-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
+        "bg-surface border border-border/40 rounded-xl flex flex-col w-full h-full shadow-sm cursor-pointer hover:border-accent/30 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none group relative overflow-hidden",
         isCompact ? "p-2.5 gap-2" : "p-3 sm:p-3.5 gap-2.5",
         className,
         isResuming && "opacity-80 border-accent/20 bg-accent/[0.01]"
@@ -1019,7 +1019,7 @@ export const StrategyCard = React.memo(({ s, config, onClick, onPause, onEdit, h
       </div>
 
       {/* Compact 3-Column Metrics + Integrated Slot Capacity Runway */}
-      <div className="grid grid-cols-3 gap-2.5 items-center pt-2 border-t border-border/20">
+      <div className="grid grid-cols-3 gap-2.5 items-center pt-2 border-t border-border/20 mt-auto">
         <div className="flex flex-col min-w-0">
           <span className="text-[8px] text-dim font-black uppercase tracking-widest leading-none">Active P&amp;L</span>
           <div className="flex items-baseline gap-1 mt-1 flex-wrap">
@@ -1721,9 +1721,10 @@ export function DashboardView({ initialStrategy }) {
     return map;
   }, [tradeHistory, config]);
 
-  const { activePnlMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, peakActivePnl, minActivePnl, oldestActiveEntryTs, latestActiveUpdateTs, maxRR } = useMemo(() => {
+  const { activePnlMap, activeRiskMap, activeEstPnlToRealizeMap, activeTradeCountsMap, totalActivePnl, peakActivePnl, minActivePnl, oldestActiveEntryTs, latestActiveUpdateTs, maxRR } = useMemo(() => {
     const strategyLabel = currentStrategy.strategy_label;
     const pnlMap = { [strategyLabel]: 0 };
+    const riskMap = { [strategyLabel]: 0 };
     const estPnlMap = { [strategyLabel]: 0 };
     const countMap = { [strategyLabel]: 0 };
 
@@ -1731,6 +1732,7 @@ export function DashboardView({ initialStrategy }) {
     for (let i = 0; i < variants.length; i++) {
       const label = variants[i].strategy_label || 'Variant';
       pnlMap[label] = 0;
+      riskMap[label] = 0;
       estPnlMap[label] = 0;
       countMap[label] = 0;
     }
@@ -1750,6 +1752,7 @@ export function DashboardView({ initialStrategy }) {
         const tradeLabel = t.strategy_label || strategyLabel;
         if (pnlMap[tradeLabel] === undefined) {
           pnlMap[tradeLabel] = 0;
+          riskMap[tradeLabel] = 0;
           estPnlMap[tradeLabel] = 0;
           countMap[tradeLabel] = 0;
         }
@@ -1763,6 +1766,7 @@ export function DashboardView({ initialStrategy }) {
         // Calculate risk in USDT to convert R multiples to dollar amounts if max_pnl is not directly present
         const riskUsdt = safeNum(t.risk_usdt || t.initial_risk_usdt) ||
           (t.entry_price && t.qty && t.initial_sl ? Math.abs(t.entry_price - t.initial_sl) * t.qty : 0);
+        riskMap[label] += riskUsdt;
 
         const peakRr = Number(t.max_rr ?? t.max_rr_achieved ?? t.rr ?? 0);
         const minRr = Number(t.min_rr_achieved ?? t.min_rr ?? t.rr ?? 0);
@@ -1791,6 +1795,7 @@ export function DashboardView({ initialStrategy }) {
 
     return {
       activePnlMap: pnlMap,
+      activeRiskMap: riskMap,
       activeEstPnlToRealizeMap: estPnlMap,
       activeTradeCountsMap: countMap,
       totalActivePnl: totPnl,
@@ -2102,13 +2107,30 @@ export function DashboardView({ initialStrategy }) {
 
   const strategyData = useMemo(() => {
     if (!selected) return null;
+    const vStats = safeVariantStats[selected];
+    const stratMetric = stratMetricsMap.get(selected);
+    const activeVariantsCount = (config?.strategy_variants || []).filter(v => v && v.enabled !== false).length;
+    const isBaseSelected = selected === currentStrategy.strategy_label;
+    const computedActivePnl = activePnlMap[selected] || 0;
+    const computedRiskUsdt = activeRiskMap[selected] || 0;
+    const fallbackRiskPct = vStats?.totalRiskPct ?? (balance > 0 && computedRiskUsdt > 0 ? (computedRiskUsdt / balance) * 100 : (isBaseSelected && activeVariantsCount === 0 ? totalRiskPct : 0));
+    const fallbackTotalPnl = vStats?.totalPnl ?? (stratMetric ? stratMetric.totalPnl + computedActivePnl : (isBaseSelected && activeVariantsCount === 0 ? currentStrategy.totalPnl : computedActivePnl));
+    const fallbackEntryCount = vStats?.entryCount ?? (stratMetric ? (stratMetric.wins + stratMetric.losses) : (isBaseSelected && activeVariantsCount === 0 ? currentStrategy.entryCount : (activeTradeCountsMap[selected] || 0)));
+    const fallbackHitCount = vStats?.hitCount ?? (stratMetric ? stratMetric.wins : (isBaseSelected && activeVariantsCount === 0 ? currentStrategy.hitCount : 0));
+
     return {
       ...currentStrategy,
       strategy_label: selected,
-      ...safeVariantStats[selected],
-      activePnl: activePnlMap[selected] || 0
+      ...vStats,
+      totalPnl: fallbackTotalPnl,
+      entryCount: fallbackEntryCount,
+      hitCount: fallbackHitCount,
+      totalRiskPct: fallbackRiskPct,
+      activeTradeCount: activeTradeCountsMap[selected] || vStats?.activeTradeCount || 0,
+      totalEstPnlToRealize: vStats?.totalEstPnlToRealize ?? activeEstPnlToRealizeMap[selected] ?? 0,
+      activePnl: computedActivePnl
     };
-  }, [selected, currentStrategy, safeVariantStats, activePnlMap]);
+  }, [selected, currentStrategy, safeVariantStats, stratMetricsMap, config?.strategy_variants, activePnlMap, activeRiskMap, activeTradeCountsMap, activeEstPnlToRealizeMap, balance, totalRiskPct]);
 
   const tradingMode = config.trading_mode || (config.paper_mode ? 'paper' : 'live');
 
@@ -2255,11 +2277,22 @@ export function DashboardView({ initialStrategy }) {
 
         {/* Unified Portfolio & Risk Limits Strip */}
         <div className="flex flex-col gap-2.5 mb-3">
-          <div className="flex items-center justify-between gap-2 w-full">
-            <SectionLabel className="mb-0 flex items-center gap-1.5">
-              <Activity size={13} className="text-accent" /> Global Metrics
-            </SectionLabel>
-            <div className="flex items-center gap-1.5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 w-full">
+            <div className="flex items-center justify-between gap-2 min-w-0">
+              <SectionLabel className="mb-0 flex items-center gap-1.5 whitespace-nowrap shrink-0">
+                <Activity size={13} className="text-accent shrink-0" /> Global Metrics
+              </SectionLabel>
+              <span className="sm:hidden text-[10px] font-mono tabular-nums text-dim truncate">
+                {(activeTrades || []).length}/{config.max_open_trades} Slots · Cap {Number(config.max_total_risk_pct || 5).toFixed(1)}%
+              </span>
+            </div>
+
+            {/* Unified equal-height control track */}
+            <div
+              role="group"
+              aria-label="Global metrics and risk limits controls"
+              className="grid grid-cols-2 sm:inline-flex items-stretch gap-1 p-1 bg-surface/90 border border-border/60 rounded-xl w-full sm:w-auto shrink-0"
+            >
               <button
                 type="button"
                 onClick={() => setShowTemporalRisk(!showTemporalRisk)}
@@ -2267,25 +2300,31 @@ export function DashboardView({ initialStrategy }) {
                 aria-controls="temporal-risk-grid"
                 aria-label={showTemporalRisk ? "Collapse Temporal Risk section" : "Expand Temporal Risk section"}
                 className={cn(
-                  "flex items-center gap-1 text-[9.5px] font-mono font-bold uppercase transition-colors px-2 py-0.5 rounded-lg border cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-all whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
                   showTemporalRisk
-                    ? "bg-accent/10 border-accent/40 text-accent"
-                    : "bg-surface border-border/40 text-dim hover:text-text hover:border-accent/40"
+                    ? "bg-accent/15 border-accent/35 text-accent shadow-xs"
+                    : "border-transparent text-dim hover:text-text hover:bg-background/60"
                 )}
               >
-                <ShieldCheck size={11} className="text-accent" />
-                <span>Risk Limits ({config.max_open_trades} Max)</span>
-                <ChevronDown size={11} className={cn("transition-transform duration-200", showTemporalRisk && "rotate-180")} />
+                <ShieldCheck size={12} className="text-accent shrink-0" />
+                <span className="truncate">Risk Limits</span>
+                <span className="opacity-70 tabular-nums shrink-0">({config.max_open_trades})</span>
+                <ChevronDown size={12} className={cn("shrink-0 transition-transform duration-200", showTemporalRisk && "rotate-180")} />
               </button>
               <button
                 type="button"
                 onClick={toggleGlobalMetricsExpanded}
                 aria-expanded={globalMetricsExpanded}
                 aria-label={globalMetricsExpanded ? "Collapse secondary global metrics" : "Expand secondary global metrics"}
-                className="text-dim hover:text-text flex items-center gap-1 text-[9.5px] font-mono font-bold uppercase transition-colors px-2 py-0.5 rounded-lg bg-surface border border-border/40 hover:border-accent/40 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                className={cn(
+                  "h-9 sm:h-7 px-2.5 sm:px-3 rounded-lg flex items-center justify-center gap-1.5 text-[10.5px] sm:text-[10px] font-mono font-bold uppercase tracking-wider transition-all whitespace-nowrap min-w-0 shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none border",
+                  globalMetricsExpanded
+                    ? "bg-background/90 border-border/60 text-text shadow-xs"
+                    : "border-transparent text-dim hover:text-text hover:bg-background/60"
+                )}
               >
                 <span>{globalMetricsExpanded ? "Compact" : "Expand"}</span>
-                <ChevronDown size={11} className={cn("transition-transform duration-200", globalMetricsExpanded && "rotate-180")} />
+                <ChevronDown size={12} className={cn("shrink-0 transition-transform duration-200", globalMetricsExpanded && "rotate-180")} />
               </button>
             </div>
           </div>
@@ -2364,7 +2403,7 @@ export function DashboardView({ initialStrategy }) {
               subValue={globalMetricsExpanded ? (() => {
                 const modeLabel = config?.trading_mode ? (config.trading_mode === 'paper' ? 'Paper' : config.trading_mode === 'testnet' ? 'Testnet' : 'Live') : (config?.paper_mode ? 'Paper' : 'Live');
                 if (!activeTrades || activeTrades.length === 0) {
-                  return `Total (${modeLabel}): ${fmtUSD(totalPnl)}`;
+                  return `Session (${modeLabel}): ${fmtUSD(totalPnl)}`;
                 }
                 const peakPct = balance > 0 ? (peakActivePnl / balance) * 100 : 0;
                 const minPct = balance > 0 ? (minActivePnl / balance) * 100 : 0;
@@ -2374,7 +2413,7 @@ export function DashboardView({ initialStrategy }) {
                     <span>•</span>
                     <span>Min: <span className={cn(minActivePnl < 0 ? "text-red font-bold" : "text-dim")}>{fmtUSD(minActivePnl)} ({minPct >= 0 ? '+' : ''}{minPct.toFixed(1)}%)</span></span>
                     <span>•</span>
-                    <span className="text-dim">Session: {fmtUSD(totalPnl)}</span>
+                    <span className="text-dim">Session ({modeLabel}): {fmtUSD(totalPnl)}</span>
                   </div>
                 );
               })() : null}
@@ -2386,6 +2425,7 @@ export function DashboardView({ initialStrategy }) {
               label="Live Risk"
               value={`${Number(totalRiskPct || 0).toFixed(1)}%`}
               color={totalRiskPct > config.max_total_risk_pct * 0.8 ? "text-amber" : "text-text"}
+              subValue={globalMetricsExpanded ? `Cap: ${Number(config.max_total_risk_pct || 5).toFixed(1)}% · ${(activeTrades || []).length}/${config.max_open_trades || 3} Slots` : null}
               tooltipText="Combined risk percentage across all open positions relative to account equity."
             />
             <StatCard
@@ -2393,6 +2433,7 @@ export function DashboardView({ initialStrategy }) {
               label="Peak RR"
               value={`+${Number(maxRR || 0).toFixed(2)}`}
               color="text-accent"
+              subValue={globalMetricsExpanded ? `${hitCount || 0}/${entryCount || 0} Hits · TP ${fmtUSD(totalEstPnlToRealize || 0)}` : null}
               tooltipText="Maximum Reward-to-Risk ratio achieved during this trading session."
             />
           </div>
@@ -2481,7 +2522,7 @@ export function DashboardView({ initialStrategy }) {
               transition={{ duration: 0.15, ease: "easeInOut" }}
               className={cn(
                 "grid gap-2.5 sm:gap-3",
-                cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2"
+                cardViewMode === 'list' ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch"
               )}
             >
             {sessionActive ? (

@@ -40,7 +40,7 @@ function calculateVariantStatsUnoptimized(
       totalRiskPct: roundTo(balance > 0 ? (a.risk / balance) * 100 : 0, 2),
       activeTradeCount: a.count,
       totalSlUsed: roundTo(a.risk, 2),
-      totalEstPnlToRealize: roundTo(a.estPnlToRealize || 0, 2)
+      totalEstPnlToRealize: roundTo(c.pnl + (a.estPnlToRealize || 0), 2)
     };
   });
 

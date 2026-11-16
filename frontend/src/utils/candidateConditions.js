@@ -677,6 +677,7 @@ export function buildCandidateConditionsModel({
   isPaused = false,
   gateState = 'ACTIVE',
   gateReason = '',
+  lastScanTs = 0,
   nowMs = Date.now(),
 }) {
   const symbol = activeTrade?.symbol || opp?.symbol || '---';
@@ -813,6 +814,11 @@ export function buildCandidateConditionsModel({
         stateLabel,
         tone,
         description: asText(est?.description || s.description, ''),
+        evaluatedAtMs: s.evaluated_at_ms
+          ? Number(s.evaluated_at_ms)
+          : (activeTrade.exit_signals_status_ts
+              ? new Date(activeTrade.exit_signals_status_ts).getTime()
+              : (Number(lastScanTs) > 0 ? Number(lastScanTs) : undefined)),
       };
     });
 
@@ -917,6 +923,10 @@ export function buildCandidateConditionsModel({
     ? '---'
     : `${rawPct > 0 ? '+' : rawPct < 0 ? '-' : ''}${movePct.toFixed(2)}%`;
 
+  const liveEvalTs = !opp?.isEntrySnapshot
+    ? (Math.max(Number(opp?.lastUpdate || 0), Number(lastScanTs || 0)) || undefined)
+    : undefined;
+
   const scannerCondition = {
     key: '__velocity__',
     connector: 'GATE',
@@ -931,7 +941,7 @@ export function buildCandidateConditionsModel({
     stateLabel: symbol === '---' ? 'IDLE' : !sideMatched ? 'SIDE MISMATCH' : velocityPassed ? 'PASS' : 'WATCHING',
     tone: !sideMatched ? 'danger' : velocityPassed ? 'positive' : velocityProximity >= 75 ? 'accent' : 'neutral',
     description: '',
-    evaluatedAtMs: opp?.snapshotCapturedAt,
+    evaluatedAtMs: opp?.isEntrySnapshot ? opp?.snapshotCapturedAt : liveEvalTs,
   };
 
   const signalConditionItems = enabledSignals.map((sigKey) => {
@@ -1067,7 +1077,9 @@ export function buildCandidateConditionsModel({
       stateLabel,
       tone,
       description: asText(s.description, ''),
-      evaluatedAtMs: s.evaluated_at_ms || opp?.snapshotCapturedAt,
+      evaluatedAtMs: opp?.isEntrySnapshot
+        ? (s.evaluated_at_ms || opp?.snapshotCapturedAt)
+        : (Math.max(Number(s.evaluated_at_ms || 0), Number(liveEvalTs || 0)) || undefined),
     };
   });
 

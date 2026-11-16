@@ -2201,7 +2201,7 @@ export const TradeDetailContent = memo(({ trade, isSyncing, onTradeClose, isClos
       </div>
 
       {/* Primary Metrics Grid */}
-       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 gap-y-4">
+       <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4">
          <StatCard label="Mark Price" value={price(mark)} color={pnlClass(trade.pnl)} syncing={isSyncing} compact tooltipText="Latest traded mark price from Binance WebSocket" />
          <StatCard label="Position Size" value={qtyFormatted} subValue={trade.symbol.replace('USDT', '')} color="text-text" compact tooltipText="Contract size currently allocated to this trade" />
          <StatCard label="Stop Distance (Live)" value={riskFormatted} subValue={`${slDistPct.toFixed(2)}% distance`} color="text-red" compact tooltipText="Current dollar risk and percentage distance to the active stop-loss level" />

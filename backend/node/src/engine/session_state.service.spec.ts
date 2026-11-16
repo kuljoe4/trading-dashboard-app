@@ -40,6 +40,24 @@ describe('SessionStateService PnL Restart Consistency', () => {
     expect(service.stats.totalPnl).toBe(8.5);
   });
 
+  it('should isolate session stats strictly to matching sessionId on reset()', () => {
+    const config = new SessionConfig();
+    config.strategy_label = 'Momentum Strategy';
+    const currentSessionId = 'session-current';
+
+    const closedCurrent = { id: 'c1', sessionId: currentSessionId, pnl: 25, status: 'CLOSED', strategy_label: 'Momentum Strategy' } as any;
+    const closedForeign = { id: 'c2', sessionId: 'session-old', pnl: 500, status: 'CLOSED', strategy_label: 'Momentum Strategy' } as any;
+    const openCurrent = { id: 'o1', sessionId: currentSessionId, pnl: -1.5, status: 'OPEN', strategy_label: 'Momentum Strategy' } as any;
+    const openForeign = { id: 'o2', sessionId: 'session-old', pnl: -100, status: 'OPEN', strategy_label: 'Momentum Strategy' } as any;
+
+    service.reset(config, [closedCurrent, closedForeign], 10000, currentSessionId, [openCurrent, openForeign]);
+
+    expect(service.stats.totalPnl).toBe(23.5);
+    expect(service.stats.entryCount).toBe(2);
+    expect(service.cachedClosedTradesStats['Momentum Strategy'].pnl).toBe(25);
+    expect(service.cachedClosedTradesStats['Momentum Strategy'].count).toBe(1);
+  });
+
   describe('API Limit and Ban Protection', () => {
     it('should correctly process centralized BAN limit reached events', () => {
       const banTime = Date.now() + 10000;

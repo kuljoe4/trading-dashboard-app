@@ -443,7 +443,7 @@ export const BacktestPanel = ({ onApplyConfig }) => {
           className="flex flex-col gap-6"
         >
           {/* KPI Cards Strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 auto-rows-fr items-stretch gap-3">
             <StatCard
               label="Net P&L"
               value={`${fmtUSD(results.totalPnl)} (${results.pnlPct >= 0 ? '+' : ''}${results.pnlPct}%)`}

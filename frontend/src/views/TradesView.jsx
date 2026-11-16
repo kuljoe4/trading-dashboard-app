@@ -154,7 +154,7 @@ const TradesView = () => {
           backAction={() => window.location.hash = '#/'}
         />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4 mb-8 lg:mb-12">
+      <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4 mb-8 lg:mb-12">
         <StatCard
           label="Active P&L"
           value={fmtUSD(activePnl)}

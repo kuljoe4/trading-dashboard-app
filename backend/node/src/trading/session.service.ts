@@ -1615,6 +1615,23 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
         .orderBy('trade.exit_ts', 'DESC')
         .take(500)
         .getMany();
+
+      // Guarantee resumed session's own closed trades are included even when >500 newer mode-wide trades exist
+      if (sessionId && this.currentSessionId && typeof this.tradeRepository.find === 'function') {
+        const resumedTrades = await this.tradeRepository.find({
+          where: { sessionId: this.currentSessionId, status: In(TERMINAL_STATUSES as any) },
+          order: { exit_ts: 'DESC' },
+        });
+        if (Array.isArray(resumedTrades) && resumedTrades.length > 0) {
+          const seenIds = new Set(initialHistory.map((t) => t.id));
+          for (const rt of resumedTrades) {
+            if (!seenIds.has(rt.id)) {
+              initialHistory.push(rt);
+              seenIds.add(rt.id);
+            }
+          }
+        }
+      }
     } else {
       const rawHistory = await this.tradeRepository.find({
         where: { status: In(TERMINAL_STATUSES as any) },
@@ -2987,12 +3004,20 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
           ? engineStatus.balance_paper
           : engineStatus.balance_live
         : session.balance,
+      realizedPnl: engineStatus.running
+        ? engineStatus.realized_pnl
+        : session.totalPnl,
+      activePnl: engineStatus.running
+        ? engineStatus.active_pnl
+        : 0,
       totalPnl: engineStatus.running
         ? engineStatus.total_pnl
         : session.totalPnl,
+      stats: engineStatus.running ? engineStatus.stats : undefined,
+      variant_stats: engineStatus.running ? engineStatus.variant_stats : undefined,
       logLines: logs,
-      activeTrades: engineStatus.activeTrades?.length
-        ? engineStatus.activeTrades
+      activeTrades: engineStatus.running
+        ? (engineStatus.activeTrades || [])
         : activeTrades,
       scannerResults: engineStatus.scannerResults,
       variant_opportunities: engineStatus.variant_opportunities || engineStatus.variantScannerResults || [],

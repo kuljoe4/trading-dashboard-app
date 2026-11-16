@@ -1,6 +1,7 @@
 import { EngineBroadcasterService } from './engine-broadcaster.service';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
+import { scannerResultsFingerprint } from './scanner-fingerprint';
 
 describe('EngineBroadcasterService BOLT Optimizations', () => {
   let service: EngineBroadcasterService;
@@ -408,6 +409,69 @@ describe('EngineBroadcasterService BOLT Optimizations', () => {
 
       console.log(`[BENCHMARK] exit_signals_status for...in iteration across 100,000 trade evaluations: ${totalMs.toFixed(2)}ms (${(totalMs / (iterations * 20) * 1000).toFixed(2)}ns/eval)`);
       expect(totalMs).toBeGreaterThan(0);
+    });
+  });
+
+  describe('authoritative PnL breakdown & scanner fingerprint stability', () => {
+    it('broadcasts exact realized_pnl, active_pnl, and total_pnl without exchange balance fallback drift', () => {
+      const openTrade = new Trade();
+      openTrade.id = 't-open';
+      openTrade.symbol = 'ETHUSDT';
+      openTrade.entry_price = 2000;
+      openTrade.qty = 0.5;
+      openTrade.direction = 'LONG';
+      openTrade.current_sl = 1950;
+      openTrade.realized_fee = 1.0;
+      openTrade._sig_json = '{}';
+
+      // Mark price 2100 -> unrealized = (2100 - 2000) * 0.5 = +50
+      tickerCache.getPrice.mockReturnValue(2100);
+      sessionState.stats = { entryCount: 3, hitCount: 2, totalPnl: 120 };
+      // Balance intentionally deviates from starting + realized to prove zero balance-fallback drift
+      sessionState.getBalance.mockReturnValue(99999);
+      (service as any).lastTickTime = 0;
+
+      service.broadcastTick([openTrade], { paper_mode: true, paper_starting_balance: 10000 } as any, [], false, () => [], () => ({}));
+
+      const payload = broadcastService.broadcast.mock.calls[0][1];
+      expect(payload.realized_pnl).toBe(120);
+      expect(payload.active_pnl).toBe(50);
+      expect(payload.total_pnl).toBe(170);
+    });
+
+    it('scannerResultsFingerprint ignores volatile evaluated_at_ms so unchanged scan loops skip redundant WS broadcasts', () => {
+      const makeResults = (evalTs: number) => [
+        {
+          symbol: 'GATEUSDT',
+          direction: 'long',
+          score: 85.4,
+          price: 1.25,
+          pct: 3.91,
+          breakout_rank: 1,
+          signalResult: {
+            allFired: false,
+            firedSignals: [],
+            reason: 'Pending',
+            details: {
+              htf_breakout: {
+                value: 1.25,
+                threshold: 1.39,
+                fired: false,
+                active: true,
+                rejected: false,
+                insufficientData: false,
+                status: 'watching',
+                description: 'Near level',
+                evaluated_at_ms: evalTs,
+              },
+            },
+          },
+        },
+      ];
+
+      const fp1 = scannerResultsFingerprint(makeResults(1700000000000));
+      const fp2 = scannerResultsFingerprint(makeResults(1700000015000));
+      expect(fp1).toBe(fp2);
     });
   });
 });

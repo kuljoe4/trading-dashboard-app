@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback, Suspense } from 'react'
+import React, { useMemo, useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlClass, fmtUSD } from '../lib/theme'
 import { useTradingStore } from '../store/trading'
@@ -171,6 +171,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const [decisionLogNowMs, setDecisionLogNowMs] = useState(() => Date.now())
 
   useEffect(() => {
+    if (typeof useTradingStore.getState().fetchLogs === 'function') {
+      useTradingStore.getState().fetchLogs(200);
+    }
+  }, [s?.strategy_label]);
+
+  useEffect(() => {
     if (activeTab !== 'decisions') return undefined;
     setDecisionLogNowMs(Date.now());
     const timer = setInterval(() => setDecisionLogNowMs(Date.now()), 10000);
@@ -337,22 +343,29 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
           .find(t => String(t.id) === tradeId);
         const snapshotOpp = entrySnapshotOpportunity(selectedSnapshotTrade);
         if (snapshotOpp) return snapshotOpp;
+      } else {
+        const found = proximityLeaderboard.find(r => r.symbol === selectedFocusSymbol)
+          || strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
+        if (found) return found;
+        const activeT = strategyActiveTrades.find(t => t.symbol === selectedFocusSymbol);
+        if (activeT) {
+          const snapshotOpp = entrySnapshotOpportunity(activeT);
+          if (snapshotOpp) return snapshotOpp;
+        }
+        return { symbol: selectedFocusSymbol, pct: 0, dir: '---', signalResult: { allFired: false, firedSignals: [] } };
       }
-      const found = proximityLeaderboard.find(r => r.symbol === selectedFocusSymbol)
-        || strategyScannerResults.find(r => r.symbol === selectedFocusSymbol);
-      if (found) return found;
-      const activeT = strategyActiveTrades.find(t => t.symbol === selectedFocusSymbol);
-      if (activeT) {
-        const snapshotOpp = entrySnapshotOpportunity(activeT);
-        if (snapshotOpp) return snapshotOpp;
-      }
-      return { symbol: selectedFocusSymbol, pct: 0, dir: '---', signalResult: { allFired: false, firedSignals: [] } };
     }
     if (proximityLeaderboard[0]) return proximityLeaderboard[0];
     if (strategyScannerResults[0]) return strategyScannerResults[0];
     if (strategyActiveTrades[0]) {
       const snapshotOpp = entrySnapshotOpportunity(strategyActiveTrades[0]);
       if (snapshotOpp) return snapshotOpp;
+      return {
+        symbol: strategyActiveTrades[0].symbol,
+        pct: 0,
+        dir: String(strategyActiveTrades[0].direction || 'LONG').toLowerCase(),
+        close: Number(strategyActiveTrades[0].current_price || strategyActiveTrades[0].entry_price || 0),
+      };
     }
     return { symbol: '---', pct: 0, dir: '---' };
   }, [selectedFocusSymbol, strategyScannerResults, proximityLeaderboard, strategyActiveTrades, strategyTrades]);
@@ -366,6 +379,18 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
   const focusedActiveTrade = useMemo(() => {
     return strategyActiveTrades.find(t => t.symbol === focusedOpp.symbol) || strategyActiveTrades[0] || null;
   }, [strategyActiveTrades, focusedOpp.symbol]);
+  const isClosedHistorySnapshot = Boolean(
+    bestOpp?.isEntrySnapshot && bestOpp?.snapshotTradeStatus && bestOpp.snapshotTradeStatus !== 'OPEN'
+  );
+  const focusedTradeForGauge = useMemo(() => {
+    if (isClosedHistorySnapshot || !bestOpp?.symbol || bestOpp.symbol === '---') return null;
+    if (selectedFocusSymbol?.startsWith('trade:')) {
+      const tid = selectedFocusSymbol.slice(6);
+      const byId = strategyActiveTrades.find(t => String(t.id) === tid);
+      if (byId) return byId;
+    }
+    return strategyActiveTrades.find(t => t.symbol === bestOpp.symbol) || null;
+  }, [isClosedHistorySnapshot, bestOpp?.symbol, selectedFocusSymbol, strategyActiveTrades]);
 
   const scanMet = bestOpp.symbol !== '---' && Math.abs(bestOpp.pct || 0) >= (strategyConfig.scan_pct_threshold ?? 2.0);
   const signalResult = bestOpp.signalResult || { allFired: false, firedSignals: [] };
@@ -492,6 +517,28 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       desc: isStaticWatchlist ? 'Monitoring configured Static Watchlist targets.' : 'Scanning Smart Watchlist discovery feed.'
     };
   }, [focusedOpp.symbol, strategyActiveTrades, entryMet, scanMet, firedCount, signalsCount, isStaticWatchlist, effectiveGate, conditionFormula]);
+
+  // Single-shot pipeline stage transition feedback (fires only when focused symbol shifts stage)
+  const prevStageRef = useRef({ symbol: null, stageNumber: null });
+  const [stageTransition, setStageTransition] = useState(null);
+  useEffect(() => {
+    const sym = focusedOpp?.symbol;
+    const prev = prevStageRef.current;
+    prevStageRef.current = { symbol: sym, stageNumber: currentLifecycleStage.stageNumber };
+
+    if (!sym || sym === '---' || prev.symbol !== sym || prev.stageNumber === null || prev.stageNumber === currentLifecycleStage.stageNumber) {
+      return undefined;
+    }
+
+    setStageTransition({
+      symbol: sym,
+      fromStage: prev.stageNumber,
+      stageNumber: currentLifecycleStage.stageNumber,
+      statusLabel: currentLifecycleStage.statusLabel,
+    });
+    const timer = setTimeout(() => setStageTransition(null), 1800);
+    return () => clearTimeout(timer);
+  }, [focusedOpp?.symbol, currentLifecycleStage.stageNumber, currentLifecycleStage.statusLabel]);
 
   // Evaluation Timeframe Debug Table Data Construction (kept before journeyMilestones for TDZ test invariant)
   const timeframeDebugItems = useMemo(() => {
@@ -1141,25 +1188,37 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     return [...liveStrategyReasons, ...closedAndLogReasons].sort((a, b) => b.timestamp - a.timestamp);
   }, [liveStrategyReasons, closedAndLogReasons]);
 
-  const recentSkipEvent = useMemo(() => {
-    const cutoff = (lastAuthoritativeUpdateTs || stableFallbackTs || Date.now()) - 5 * 60 * 1000;
-    const hit = strategyReasons.find(r =>
-      r.outcome === 'rejected' &&
-      !r.isRoutine &&
-      r.symbol &&
-      r.symbol !== 'STRATEGY' &&
-      r.symbol !== '---' &&
-      r.stageNum !== '6' &&
-      r.timestamp >= cutoff
-    );
-    if (!hit) return null;
-    const cleaned = String(hit.reason || hit.title || '')
-      .replace(new RegExp(`^${hit.symbol}\\s*(?:\\([^)]*\\))?:?\\s*`, 'i'), '')
-      .replace(/^(Candidate removed|Entry skipped)\s*[-:]\s*/i, '')
-      .trim();
-    const shortReason = cleaned.length > 96 ? `${cleaned.slice(0, 93)}...` : (cleaned || hit.title);
-    return { symbol: hit.symbol, shortReason, timestamp: hit.timestamp };
+  const recentSkipItems = useMemo(() => {
+    const cutoff = (lastAuthoritativeUpdateTs || stableFallbackTs || Date.now()) - 15 * 60 * 1000;
+    const seen = new Set();
+    const out = [];
+    for (const r of strategyReasons) {
+      if (
+        r.outcome === 'rejected' &&
+        !r.isRoutine &&
+        r.symbol &&
+        r.symbol !== 'STRATEGY' &&
+        r.symbol !== '---' &&
+        r.stageNum !== '6' &&
+        r.timestamp >= cutoff
+      ) {
+        const cleaned = String(r.reason || r.title || '')
+          .replace(new RegExp(`^${r.symbol}\\s*(?:\\([^)]*\\))?:?\\s*`, 'i'), '')
+          .replace(/^(Candidate removed|Entry skipped)\s*[-:]\s*/i, '')
+          .trim();
+        const shortReason = cleaned.length > 72 ? `${cleaned.slice(0, 69)}...` : (cleaned || r.title);
+        const dedupKey = `${r.symbol}:${shortReason}`;
+        if (!seen.has(dedupKey)) {
+          seen.add(dedupKey);
+          out.push({ id: r.id, symbol: r.symbol, shortReason, stageNum: r.stageNum, timestamp: r.timestamp });
+          if (out.length >= 3) break;
+        }
+      }
+    }
+    return out;
   }, [strategyReasons, lastAuthoritativeUpdateTs, stableFallbackTs]);
+
+  const recentSkipEvent = recentSkipItems[0] || null;
 
   const narrative = useMemo(() => buildStrategyNarrative({
     isStrategyPaused,
@@ -1319,50 +1378,97 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
     }
   };
 
-  // Candidate selector items (merged static + top proximity + active trades, deduplicated)
-  const candidateChips = useMemo(() => {
-    const seen = new Set();
-    const out = [];
+  // Live Watchlist & Static Candidate Chips (never shadowed by historical closed trade snapshots)
+  const { liveCandidateChips, closedSnapshotChips } = useMemo(() => {
+    const seenLive = new Set();
+    const live = [];
+    const nowCheck = lastAuthoritativeUpdateTs || stableFallbackTs || Date.now();
+    const onScannerSet = new Set(proximityLeaderboard.map(o => o.symbol));
+
+    const getCooldownBadge = (sym, oppLastUpdate) => {
+      const block = activeStage3BlockBySymbol.get(sym);
+      if (!block) return null;
+      const active = nowCheck < block.expiresAt || block.logTs >= (oppLastUpdate || 0) - 15_000;
+      if (!active) return null;
+      const remSec = block.expiresAt > nowCheck ? Math.ceil((block.expiresAt - nowCheck) / 1000) : null;
+      const isCooldown = /cooldown|anti-whipsaw/i.test(block.reason);
+      return {
+        label: isCooldown ? (remSec ? `Cooldown ${remSec}s` : 'Cooldown') : 'Stage 3 Block',
+        reason: block.reason
+      };
+    };
+
     for (const t of strategyActiveTrades) {
-      if (t.entry_signal_snapshot?.signalResult && !seen.has(t.symbol)) {
-        seen.add(t.symbol);
-        out.push({ symbol: t.symbol, focusKey: `trade:${t.id}`, tag: 'Entry', tone: 'text-green', priority: 1 });
+      if (!seenLive.has(t.symbol)) {
+        const inScanner = onScannerSet.has(t.symbol);
+        seenLive.add(t.symbol);
+        live.push({
+          symbol: t.symbol,
+          focusKey: inScanner ? t.symbol : `trade:${t.id}`,
+          tag: 'In Pos',
+          tone: 'text-green',
+          title: `Open ${t.direction || 'LONG'} position (Exit Monitor)`
+        });
       }
     }
-    for (const t of strategyTrades) {
-      if (out.filter(item => item.tag === 'Closed').length >= 4) break;
-      if (!t.entry_signal_snapshot || seen.has(t.symbol)) continue;
-      seen.add(t.symbol);
-      out.push({ symbol: t.symbol, focusKey: `trade:${t.id}`, tag: 'Closed', tone: 'text-dim', priority: 2 });
-    }
+
     const maxStatic = showAllStaticSymbols ? staticSymbols.length : 8;
     for (const sym of staticSymbols.slice(0, maxStatic)) {
-      if (!seen.has(sym)) {
-        seen.add(sym);
+      if (!seenLive.has(sym)) {
+        seenLive.add(sym);
         const info = staticSymbolStatuses[sym];
-        out.push({
+        const block = getCooldownBadge(sym, info?.opp?.lastUpdate);
+        live.push({
           symbol: sym,
           focusKey: sym,
-          tag: info?.label || 'Static',
-          tone: info?.state === 'TRIGGERED' ? 'text-green' : info?.state === 'EVALUATING' ? 'text-accent' : 'text-dim',
-          priority: 2
+          tag: block ? `${block.label} · ${info?.label || 'Static'}` : (info?.label || 'Static'),
+          tone: block ? 'text-amber' : (info?.state === 'TRIGGERED' ? 'text-green' : info?.state === 'EVALUATING' ? 'text-accent' : 'text-dim'),
+          title: block?.reason || undefined
         });
       }
     }
-    for (const opp of proximityLeaderboard.slice(0, 6)) {
-      if (!seen.has(opp.symbol)) {
-        seen.add(opp.symbol);
-        out.push({
+
+    for (const opp of proximityLeaderboard.slice(0, 8)) {
+      if (!seenLive.has(opp.symbol)) {
+        seenLive.add(opp.symbol);
+        const block = getCooldownBadge(opp.symbol, opp.lastUpdate);
+        const proxTag = opp.signalResult?.allFired ? 'Fired' : `${opp.proximity ?? 0}%`;
+        live.push({
           symbol: opp.symbol,
           focusKey: opp.symbol,
-          tag: opp.signalResult?.allFired ? 'Fired' : `${opp.proximity ?? 0}%`,
-          tone: opp.signalResult?.allFired ? 'text-green' : opp.proximity >= 80 ? 'text-accent' : 'text-dim',
-          priority: 3
+          tag: block ? `${block.label} · ${proxTag}` : proxTag,
+          tone: block ? 'text-amber' : (opp.signalResult?.allFired ? 'text-green' : opp.proximity >= 80 ? 'text-accent' : 'text-dim'),
+          title: block?.reason || undefined
         });
       }
     }
-    return out;
-  }, [strategyActiveTrades, strategyTrades, staticSymbols, showAllStaticSymbols, staticSymbolStatuses, proximityLeaderboard]);
+
+    const snapshots = [];
+    for (const t of strategyTrades) {
+      if (snapshots.length >= 4) break;
+      if (!t.entry_signal_snapshot?.signalResult) continue;
+      const isWin = Number(t.pnl || 0) >= 0;
+      snapshots.push({
+        symbol: t.symbol,
+        focusKey: `trade:${t.id}`,
+        tag: `${isWin ? 'Win' : 'Loss'} ${fmtUSD(t.pnl || 0)}`,
+        tone: isWin ? 'text-green' : 'text-red',
+        title: `Historical closed trade entry snapshot (${t.exit_reason || t.status || 'CLOSED'})`
+      });
+    }
+
+    return { liveCandidateChips: live, closedSnapshotChips: snapshots };
+  }, [
+    strategyActiveTrades,
+    strategyTrades,
+    staticSymbols,
+    showAllStaticSymbols,
+    staticSymbolStatuses,
+    proximityLeaderboard,
+    activeStage3BlockBySymbol,
+    lastAuthoritativeUpdateTs,
+    stableFallbackTs
+  ]);
 
   const riskPerTradePct = Number(strategyConfig.risk_pct_per_trade ?? 1.0);
   const riskPerTradeUsdt = (startingBal * riskPerTradePct) / 100;
@@ -1383,23 +1489,19 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         backAction={onBack}
         sticky={false}
         hideMetrics
+        mobileOneRow
       >
-        <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto justify-between sm:justify-end">
-          <div className="flex md:hidden items-center gap-1.5 text-[11px] font-mono text-dim min-w-0">
-            <StatusBadge status={s.sessionActive} />
-            <LiveStreamAge lastUpdateTs={lastAuthoritativeUpdateTs} compact />
-          </div>
-
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0 justify-end flex-nowrap">
           <CopyButton value={s.strategyId} className="p-1.5 hidden sm:inline-flex" />
 
           {/* Unboxed live telemetry metadata (Desktop) */}
-          <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-dim px-2">
+          <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-dim px-2 shrink-0">
             <StatusBadge status={s.sessionActive} />
             <span className="text-dim/40" aria-hidden="true">·</span>
             <LiveStreamAge lastUpdateTs={lastAuthoritativeUpdateTs} />
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0 ml-auto sm:ml-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0 flex-nowrap">
             {sessionActive && (
               <Tooltip content={isStrategyPaused ? "Resume Strategy Automation" : "Pause Strategy Automation"}>
                 <button
@@ -1416,7 +1518,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                     }
                   }}
                   className={cn(
-                    "px-2.5 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap",
+                    "px-2 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] rounded-xl border text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap",
                     isPausing ? "cursor-wait opacity-60 text-dim bg-surface border-border" : (
                       isStrategyPaused
                         ? "bg-green/10 text-green border-green/25 hover:bg-green/20"
@@ -1425,7 +1527,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                   )}
                   aria-label={isPausing ? (isStrategyPaused ? "Resuming strategy..." : "Pausing strategy...") : (isStrategyPaused ? "Resume strategy" : "Pause strategy")}
                 >
-                  {isPausing ? <Loader2 size={12} className="animate-spin text-accent" /> : (isStrategyPaused ? <Play size={12} fill="currentColor" /> : <Pause size={12} fill="currentColor" />)}
+                  {isPausing ? <Loader2 size={12} className="animate-spin text-accent shrink-0" /> : (isStrategyPaused ? <Play size={12} fill="currentColor" className="shrink-0" /> : <Pause size={12} fill="currentColor" className="shrink-0" />)}
                   <span>{isPausing ? (isStrategyPaused ? "Resuming..." : "Pausing...") : (isStrategyPaused ? "Resume" : "Pause")}</span>
                 </button>
               </Tooltip>
@@ -1435,10 +1537,10 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               <button
                 type="button"
                 onClick={onEdit}
-                className="px-2.5 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
+                className="px-2 sm:px-3 py-1.5 min-h-[38px] sm:min-h-[34px] bg-surface border border-border text-text/90 hover:text-accent hover:border-accent/40 rounded-xl text-[11px] font-semibold flex items-center gap-1 sm:gap-1.5 transition-all focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none shrink-0 cursor-pointer whitespace-nowrap"
                 aria-label={isVariant ? "Edit strategy variant configuration" : "Edit base strategy configuration"}
               >
-                <Edit3 size={12} />
+                <Edit3 size={12} className="shrink-0" />
                 <span className="sm:hidden">Edit</span>
                 <span className="hidden sm:inline">{isVariant ? 'Edit Variant' : 'Edit Config'}</span>
               </button>
@@ -1447,16 +1549,28 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
         </div>
       </ViewHeader>
 
+      {/* Unboxed live telemetry metadata strip below header on mobile/small-tablet so Row 1 stays cleanly single-row */}
+      <div className="flex md:hidden items-center justify-between gap-2 px-1 mb-2.5 text-[10.5px] font-mono text-dim min-w-0">
+        <span className="truncate uppercase font-bold tracking-wider opacity-80 sm:hidden">
+          {isVariant ? 'Variant' : 'Base'} · {strategyConfig.scan_interval || '5m'} · {(strategyConfig.entry_side || 'both').toUpperCase()}
+        </span>
+        <div className="flex items-center gap-1.5 shrink-0 sm:ml-auto">
+          <StatusBadge status={s.sessionActive} />
+          <span className="text-dim/40" aria-hidden="true">·</span>
+          <LiveStreamAge lastUpdateTs={lastAuthoritativeUpdateTs} compact />
+        </div>
+      </div>
+
       {/* Compact 4-Card KPI Strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5 mb-2.5 sm:mb-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5 mb-2.5 sm:mb-3">
         <StatCard
           compact
           label="Active P&L"
           value={fmtUSD(s.activePnl)}
           color={pnlClass(s.activePnl)}
-          subValue={analytics === null ? "Syncing..." : `Realized: ${fmtUSD(s.totalPnl)}`}
-          syncing={showResumingFeedback || isSyncing || (analytics === null && s.activePnl === 0)}
-          tooltipText="Unrealized P&L on active positions and cumulative realized strategy P&L."
+          subValue={`Session: ${fmtUSD(s.totalPnl)} · Realized: ${fmtUSD((s.totalPnl || 0) - (s.activePnl || 0))}`}
+          syncing={showResumingFeedback || isSyncing}
+          tooltipText="Unrealized P&L on active positions, total Session Return (realized + unrealized), and cumulative realized strategy P&L."
         />
         <StatCard
           compact
@@ -1520,7 +1634,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       {activeTradeCount > 0 && (
         <div className="mb-3 sm:mb-4 animate-in fade-in duration-300 text-left">
           <SectionLabel>Active Positions ({activeTradeCount})</SectionLabel>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 sm:gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 auto-rows-fr items-stretch gap-2.5 sm:gap-3">
             {strategyActiveTrades.map(trade => (
               <ActiveTradeCard
                 key={trade.id || trade.symbol}
@@ -1613,16 +1727,17 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                     </button>
                   )}
                 </div>
-                {candidateChips.length > 0 ? (
+                {liveCandidateChips.length > 0 ? (
                   <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap pb-0.5 sm:pb-0">
-                    {candidateChips.map(c => {
+                    {liveCandidateChips.map(c => {
                       const isSelected = selectedFocusSymbol
                         ? selectedFocusSymbol === c.focusKey
-                        : bestOpp.symbol === c.symbol;
+                        : bestOpp.symbol === c.symbol && !isClosedHistorySnapshot;
                       return (
                         <button
                           key={c.focusKey || c.symbol}
                           type="button"
+                          title={c.title}
                           onClick={() => setSelectedFocusSymbol(c.focusKey || c.symbol)}
                           className={cn(
                             "min-h-[34px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded-lg sm:rounded-md text-[11px] font-mono transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
@@ -1687,6 +1802,75 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               </div>
             </div>
 
+            {/* Secondary Row: Historical Trade Entry Snapshots (separate from Live Scanner Watchlist) + Recent Skip Summary */}
+            {(closedSnapshotChips.length > 0 || recentSkipItems.length > 0) && (
+              <div className="px-3 py-2 sm:px-3.5 bg-background/25 border-b border-border/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] font-mono">
+                {closedSnapshotChips.length > 0 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:flex-wrap min-w-0">
+                    <span className="text-dim/90 font-semibold whitespace-nowrap shrink-0">History Snapshots:</span>
+                    {closedSnapshotChips.map(c => {
+                      const isSelected = selectedFocusSymbol === c.focusKey;
+                      return (
+                        <button
+                          key={c.focusKey}
+                          type="button"
+                          title={c.title}
+                          onClick={() => setSelectedFocusSymbol(c.focusKey)}
+                          className={cn(
+                            "min-h-[30px] sm:min-h-0 px-2 py-0.5 rounded-md transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1.5 border shrink-0",
+                            isSelected
+                              ? "bg-accent/15 border-accent/50 text-accent font-semibold"
+                              : "bg-surface/40 border-border/40 text-dim hover:text-text hover:border-border"
+                          )}
+                        >
+                          <span>{c.symbol.replace('USDT', '')}</span>
+                          <span className={cn("text-[10px] tabular-nums", isSelected ? "text-accent" : c.tone)}>{c.tag}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {recentSkipItems.length > 0 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar sm:ml-auto shrink-0">
+                    <span className="text-amber font-semibold whitespace-nowrap shrink-0 flex items-center gap-1">
+                      <Ban size={11} className="shrink-0" />
+                      Recent Skips:
+                    </span>
+                    {recentSkipItems.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('decisions');
+                          setReasonsOutcome('rejected');
+                          setReasonsSymbol(item.symbol);
+                          setVisibleReasonsLimit(25);
+                        }}
+                        title={`${item.symbol}: ${item.shortReason} (click to open Decision Log)`}
+                        className="min-h-[30px] sm:min-h-0 px-2 py-0.5 rounded-md border border-amber/30 bg-amber/5 text-amber/90 hover:bg-amber/15 transition-colors cursor-pointer whitespace-nowrap flex items-center gap-1 shrink-0"
+                      >
+                        <span className="font-semibold">{item.symbol.replace('USDT', '')}</span>
+                        <span className="text-[10px] text-dim max-w-[140px] truncate">{item.shortReason}</span>
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('decisions');
+                        setReasonsOutcome('rejected');
+                        setReasonsSymbol('all');
+                        setVisibleReasonsLimit(25);
+                      }}
+                      className="text-[10px] text-accent hover:underline cursor-pointer whitespace-nowrap shrink-0 px-1"
+                    >
+                      All skips →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Expandable Warmup Strip (Auto-highlighted when warming, always collapsible by user) */}
             {isWarmupOpen && (
               <div className="px-3 py-2.5 sm:px-3.5 bg-background/40 border-b border-border/30 grid grid-cols-1 sm:flex sm:flex-wrap sm:items-center gap-2 sm:gap-3 font-mono text-[11px]">
@@ -1721,13 +1905,32 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               </div>
             )}
 
-            {/* Row 2: Compact Interactive 6-Stage Lifecycle Stepper */}
+            {/* Row 2: Compact Interactive 6-Stage Lifecycle Stepper with GPU Progress Rail */}
             <div className="px-3 py-2.5 sm:px-3.5 bg-background/25 border-b border-border/30">
+              <div className="flex items-center justify-between gap-2 mb-1.5 min-h-[16px]">
+                <div className="h-1 flex-1 bg-background/70 rounded-full overflow-hidden border border-border/25" aria-hidden="true">
+                  <div
+                    className={cn(
+                      "h-full w-full origin-left transition-transform duration-500 ease-out will-change-transform rounded-full",
+                      currentLifecycleStage.stageNumber >= 6 ? "bg-red" :
+                      currentLifecycleStage.stageNumber >= 4 ? "bg-green" :
+                      currentLifecycleStage.stageNumber === 3 ? "bg-amber" : "bg-accent"
+                    )}
+                    style={{ transform: `scaleX(${Math.max(0.08, currentLifecycleStage.stageNumber / 6)})` }}
+                  />
+                </div>
+                {stageTransition && stageTransition.symbol === bestOpp.symbol && (
+                  <span className="text-[10px] font-mono font-semibold text-green whitespace-nowrap shrink-0 animate-handoff-slide">
+                    Stage {stageTransition.fromStage} → Stage {stageTransition.stageNumber} · {stageTransition.statusLabel}
+                  </span>
+                )}
+              </div>
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                 {journeyMilestones.map(m => {
                   const isSelected = activeJourneyMilestone === m.num;
                   const isCurrent = currentLifecycleStage.stageNumber === m.num;
                   const isPassed = currentLifecycleStage.stageNumber > m.num;
+                  const justArrived = stageTransition && stageTransition.symbol === bestOpp.symbol && stageTransition.stageNumber === m.num;
                   return (
                     <button
                       key={m.num}
@@ -1743,7 +1946,8 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
                           ? "bg-accent/10 border-accent/50 text-text"
                           : isPassed
                           ? "bg-green/5 border-green/25 text-green"
-                          : "bg-surface/40 border-border/40 text-dim hover:text-text hover:border-border"
+                          : "bg-surface/40 border-border/40 text-dim hover:text-text hover:border-border",
+                        justArrived && "animate-event-arrive ring-1 ring-green/50"
                       )}
                     >
                       <span className="text-[11px] font-semibold truncate w-full sm:w-auto leading-tight">{m.num}. {m.short}</span>
@@ -1836,12 +2040,12 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
               <CandidateConditionsGauge
                 opp={bestOpp}
                 strategyConfig={diagnosticStrategyConfig}
-                activeTrade={null}
+                activeTrade={focusedTradeForGauge}
                 closedTrades={tradeHistory}
                 isPaused={isStrategyPaused}
                 gateState={effectiveGate}
                 gateReason={effectiveReason}
-                nowMs={lastAuthoritativeUpdateTs}
+                lastScanTs={lastScanTs}
               />
             </div>
 
@@ -2266,7 +2470,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       {activeTab === 'performance' && (
         <div className="space-y-3 sm:space-y-4 animate-in fade-in duration-200">
           {/* Quant Metrics Strip */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-2.5">
+          <div className="grid grid-cols-2 lg:grid-cols-4 auto-rows-fr items-stretch gap-2 sm:gap-2.5">
             <StatCard
               compact
               label="Hit Rate Ratio"

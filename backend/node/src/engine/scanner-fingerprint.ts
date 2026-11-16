@@ -16,7 +16,6 @@ function signalFingerprint(signalResult: any): any {
       detail.insufficientData === true,
       detail.status || '',
       detail.description || '',
-      Number(detail.evaluated_at_ms) || 0,
     ];
   });
 

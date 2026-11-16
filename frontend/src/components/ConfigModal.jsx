@@ -1963,7 +1963,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
 
       {result && (
         <div className="flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 auto-rows-fr items-stretch gap-3">
             <StatCard label="Total PnL" value={`${fmtUSD(result.totalPnl)}`} subValue={`${result.pnlPct >= 0 ? '+' : ''}${result.pnlPct}%`} color={result.totalPnl >= 0 ? 'text-green' : 'text-red'} />
             <StatCard label="Win Rate" value={`${result.winRate}%`} subValue={`${result.wins}W / ${result.losses}L (${result.totalTrades} Total)`} color="text-accent" />
             <StatCard label="Profit Factor" value={`${result.profitFactor}`} subValue={`Avg Win: $${result.avgWin}`} color="text-purple-400" />

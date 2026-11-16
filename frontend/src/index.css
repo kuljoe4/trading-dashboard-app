@@ -123,4 +123,40 @@
   .animate-shrink-width {
     animation: shrink-width 10s linear forwards;
   }
+  @keyframes event-arrive {
+    0% {
+      opacity: 0.45;
+      transform: translate3d(0, 4px, 0) scale(0.985);
+    }
+    45% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1.012);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+  }
+  @keyframes handoff-slide {
+    0% {
+      opacity: 0;
+      transform: translate3d(-10px, 0, 0);
+    }
+    100% {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
+  .animate-event-arrive {
+    animation: event-arrive 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .animate-handoff-slide {
+    animation: handoff-slide 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-event-arrive,
+    .animate-handoff-slide {
+      animation: none !important;
+    }
+  }
 }

@@ -82,7 +82,7 @@ export class VariantAnalyticsService {
         totalRiskPct: roundTo(aRisk * balanceRatio, 2),
         activeTradeCount: aCount,
         totalSlUsed: roundTo(aRisk, 2),
-        totalEstPnlToRealize: roundTo(aEstPnl, 2)
+        totalEstPnlToRealize: roundTo(cPnl + aEstPnl, 2)
       };
     }
 

@@ -2684,7 +2684,7 @@ export const HistoryView = () => {
                 className="overflow-hidden bg-surface/5 border-x border-b border-border/50 rounded-b-2xl p-4 md:p-6 flex flex-col gap-6 md:gap-8"
               >
                 {/* 1. Stat Cards Grid (First 6) */}
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4 gap-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4">
                   <StatCard
                     label="Total Performance"
                     value={fmtUSD(totalPnl)}
@@ -2743,7 +2743,7 @@ export const HistoryView = () => {
                 </div>
 
                 {/* 2. Secondary Analytics Grid */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 gap-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 auto-rows-fr items-stretch gap-3 md:gap-4 gap-y-4">
                   <StatCard
                     label="Sharpe Ratio"
                     value={Number(currentAnalytics?.sharpeRatio || 0).toFixed(2)}

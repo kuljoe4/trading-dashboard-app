@@ -782,6 +782,7 @@ export class ExecutionService {
 
         if (tpPrice !== null && tpPrice <= 0) {
            this.logger.warn(`${opp.symbol}: Skip entry opportunity - computed TP price ${tpPrice} is non-positive.`);
+           this.emitEntrySkipLog(opp.symbol, currentStrategyLabel, 'tp_zero', `computed TP price ${tpPrice} is non-positive`, 'warn');
            continue;
         }
 

@@ -162,7 +162,7 @@ export class ExecutionService {
       if (exitSignals.length > 0) {
         for (const exitSig of exitSignals) {
           const requiredWarmup = this.signalEngine.getRequiredWarmupForSignal(activeConfig, exitSig, 'exit');
-          const rawTf = activeConfig.signal_timeframes?.[exitSig] || activeConfig.signal_timeframes?.[exitSig.replace(/_(?:cross|close)$/, '')];
+          const rawTf = activeConfig.signal_timeframes?.[exitSig];
           const rawExitInterval = (!rawTf || rawTf === 'default') ? (activeConfig.scan_interval || '1m') : rawTf;
           const exitInterval = this.marketFeedService.resolveInterval(rawExitInterval, activeConfig) || '1m';
           const candles = this.klineStore.getRawCandles(trade.symbol, exitInterval);

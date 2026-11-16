@@ -20,6 +20,7 @@ describe('Candidate Skip & Removal Logging', () => {
         getRawCandles: jest.fn().mockReturnValue(candles),
       } as any;
       const tickerCache = {
+        getPrice: jest.fn().mockReturnValue(null),
         getTicker: jest.fn().mockReturnValue({ price: 100.5, volume_24h: 1_000_000 }),
         topByVolume: jest.fn().mockReturnValue([]),
       } as any;

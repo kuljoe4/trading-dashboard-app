@@ -216,6 +216,10 @@ export class ExecutionService {
         const currentPrice = this.tickerCache.getPrice(trade.symbol);
         if (!currentPrice) continue;
 
+        if (typeof (this.klineStore as any)?.syncLivePrice === 'function') {
+          (this.klineStore as any).syncLivePrice(trade.symbol, currentPrice);
+        }
+
         const tradeConfig = { ...config, ...(trade.strategy_config || {}) } as SessionConfig;
         await this.positionTracker.checkKnifeTrailingStop(trade.symbol, currentPrice, tradeConfig);
         await this.positionTracker.checkRrSequenceAdjustments(trade.symbol, currentPrice, tradeConfig);

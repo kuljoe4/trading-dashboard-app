@@ -37,7 +37,7 @@ import { MaintenanceService } from "./maintenance.service";
 import { AuditLogService } from "../trading/audit-log.service";
 import { TradeSerializationDto } from "../trading/dto/trade-serialization.dto";
 import { rankByBreakoutOpportunity } from "./breakout-ranking";
-import { scannerResultsFingerprint } from "./scanner-fingerprint";
+import { scannerResultsFingerprint, scannerVariantsFingerprint } from "./scanner-fingerprint";
 
 function monitoringChangedInternal(curr: any, prev: any): boolean {
   if (!curr || !prev) return true;
@@ -1060,7 +1060,7 @@ export class TradingSessionService implements OnApplicationShutdown {
         const label = c.strategy_label || "Momentum Strategy";
         if (isPausedLabel(label)) {
           return {
-            strategy_label: c.strategy_label,
+            strategy_label: label,
             opportunities: [],
           };
         }
@@ -1069,6 +1069,10 @@ export class TradingSessionService implements OnApplicationShutdown {
         const opportunitiesWithSignals = rawOpps
           .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
           .map((opp) => {
+            const livePrice = this.tickerCache.getPrice(opp.symbol) || opp.price;
+            if (livePrice && livePrice > 0 && typeof (this.klineStore as any)?.syncLivePrice === "function") {
+              (this.klineStore as any).syncLivePrice(opp.symbol, livePrice);
+            }
             const signalResult = this.signalEngine.checkEntry(
               opp.symbol,
               c,
@@ -1076,29 +1080,28 @@ export class TradingSessionService implements OnApplicationShutdown {
               opp.direction.toUpperCase() as "LONG" | "SHORT",
               "entry",
             );
-            return { ...opp, signalResult, last_update: scanEvalTs };
+            return { ...opp, price: livePrice || opp.price, signalResult, last_update: scanEvalTs };
           });
         const rankedOpportunities = rankByBreakoutOpportunity(opportunitiesWithSignals, c);
         rankedOpportunitiesByConfig.set(c, rankedOpportunities);
         return {
-          strategy_label: c.strategy_label,
-          opportunities: rankedOpportunities,
+          strategy_label: label,
+          opportunities: rankedOpportunities.map((o) => this.formatScannerOpportunity(o)),
         };
       });
 
       this.trackAndLogRemovedCandidates(strategyConfigs, scannerData, activePositionSymbols);
 
+      const opportunitiesWithSignals = scannerData[0]?.opportunities || [];
+      this.updateScannerResults(opportunitiesWithSignals);
+      this.lastVariantScannerResults = scannerData;
+      const now = Date.now();
+      this.sessionState.last_scan_ts = now;
+      this.sessionState.next_scan_ts = now + effectiveScanInterval;
+
       if (this.sessionState.dashboardCount > 0) {
-        const opportunitiesWithSignals = scannerData[0]?.opportunities || [];
-        this.updateScannerResults(opportunitiesWithSignals);
-        this.lastVariantScannerResults = scannerData;
-        const now = Date.now();
-        // Always record latest completed scan cycle timestamp so existing tick frames
-        // propagate scan freshness even when unchanged values skip full scanner JSON diffs.
-        this.sessionState.last_scan_ts = now;
-        this.sessionState.next_scan_ts = now + effectiveScanInterval;
         const isFull = now - this.lastScannerFullBroadcast > 30000;
-        const nextResultsJson = scannerResultsFingerprint(this.lastScannerResults);
+        const nextResultsJson = `${scannerResultsFingerprint(this.lastScannerResults)}|${scannerVariantsFingerprint(this.lastVariantScannerResults)}`;
         const resultsChanged = nextResultsJson !== this.lastScannerResultsJson;
         this.lastScannerResultsJson = nextResultsJson;
 
@@ -1131,7 +1134,7 @@ export class TradingSessionService implements OnApplicationShutdown {
             activeWindows: this.getActiveWindows(),
           });
         }
-      } else this.refreshActiveWindows(primaryOpportunities);
+      }
 
       if (this.sessionState.paused) {
         this.mainLoopProcessing = false;
@@ -1213,29 +1216,37 @@ export class TradingSessionService implements OnApplicationShutdown {
       this.logger.verbose(`Candle closed for ${symbol}`);
   }
 
-  private updateScannerResults(opportunities: any[]) {
-    this.lastScannerResults = opportunities.map((o) => ({
+  private formatScannerOpportunity(o: any) {
+    const dir = String(o.direction || o.dir || "long").toLowerCase();
+    return {
+      ...o,
       symbol: o.symbol,
       price: o.price,
-      pct: roundTo(o.momentum, 2),
-      momentum: roundTo(o.momentum, 2),
-      direction: o.direction.toLowerCase(),
-      dir: o.direction.toLowerCase(),
-      vol: o.volume_24h,
-      volume_usdt: o.volume_24h,
+      pct: roundTo(Number(o.momentum ?? o.pct) || 0, 2),
+      momentum: roundTo(Number(o.momentum ?? o.pct) || 0, 2),
+      direction: dir,
+      dir,
+      vol: o.volume_24h ?? o.vol,
+      volume_usdt: o.volume_24h ?? o.volume_usdt,
       volume_rank: o.volume_rank,
-      score: roundTo(o.score, 1),
+      score: roundTo(Number(o.score) || 0, 1),
       history: o.history,
       ohlc_history: o.ohlc_history,
       candle_count: o.candle_count,
       signalResult: o.signalResult,
       breakout_rank: o.breakout_rank,
+      last_update: o.last_update,
       score_breakdown: o.score_breakdown ? {
-        momentum: roundTo(o.score_breakdown.momentum, 1),
-        volatility: roundTo(o.score_breakdown.volatility, 1),
-        trend: roundTo(o.score_breakdown.trend, 1),
+        ...o.score_breakdown,
+        momentum: roundTo(Number(o.score_breakdown.momentum) || 0, 1),
+        volatility: roundTo(Number(o.score_breakdown.volatility) || 0, 1),
+        trend: roundTo(Number(o.score_breakdown.trend) || 0, 1),
       } : undefined,
-    }));
+    };
+  }
+
+  private updateScannerResults(opportunities: any[]) {
+    this.lastScannerResults = opportunities.map((o) => this.formatScannerOpportunity(o));
     this.refreshActiveWindows(this.lastScannerResults);
   }
 

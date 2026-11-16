@@ -130,6 +130,24 @@ export class KlineStoreService {
   }
 
   /**
+   * Synchronizes the forming (latest) candle's close, high, and low with the live ticker price
+   * across all cached intervals for a symbol. Ensures signal engine and exit conditions always
+   * evaluate against the freshest real-time price even between WebSocket kline frames or during Light Sleep.
+   */
+  syncLivePrice(symbol: string, price: number): void {
+    if (!symbol || !Number.isFinite(price) || price <= 0) return;
+    const prefix = `${symbol}_`;
+    for (const [key, candles] of this.klines.entries()) {
+      if (!key.startsWith(prefix) || !candles || candles.length === 0) continue;
+      const last = candles[candles.length - 1];
+      if (!last) continue;
+      last.close = price;
+      if (price > last.high) last.high = price;
+      if (price < last.low) last.low = price;
+    }
+  }
+
+  /**
    * Synthesize higher timeframe candles by downsampling 1m candles in memory.
    */
   synthesizeHigherInterval(symbol: string, targetInterval: string, sourceInterval: string = '1m'): Candle[] {

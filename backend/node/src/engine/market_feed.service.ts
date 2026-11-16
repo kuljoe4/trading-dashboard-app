@@ -1035,11 +1035,13 @@ export class MarketFeedService {
             activeCacheKeys.add(`${symbol}:${interval}`);
           }
         }
-        if (typeof (this.klineStore as any).pruneExcept === 'function') {
-          (this.klineStore as any).pruneExcept(activeKeys);
-        }
-        if (typeof (this.signalEngine as any).pruneCaches === 'function') {
-          (this.signalEngine as any).pruneCaches(activeSymbolSet);
+        if (!suppressScanner) {
+          if (typeof (this.klineStore as any).pruneExcept === 'function') {
+            (this.klineStore as any).pruneExcept(activeKeys);
+          }
+          if (typeof (this.signalEngine as any).pruneCaches === 'function') {
+            (this.signalEngine as any).pruneCaches(activeSymbolSet);
+          }
         }
         for (const cacheKey of Array.from(this.lastBackfillAttemptMap.keys())) {
           if (!activeCacheKeys.has(cacheKey)) {

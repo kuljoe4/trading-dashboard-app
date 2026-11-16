@@ -404,7 +404,7 @@ async function bootstrap() {
 
         const focusedStrategy = client.focusStrategyLabel;
         const focusedVariant = (basePayload.variant_opportunities || []).find(
-          (variant: any) => variant?.strategy_label === focusedStrategy,
+          (variant: any) => (variant?.strategy_label || "Momentum Strategy") === focusedStrategy,
         );
         const focusedOpportunities = focusedStrategy
           ? focusedVariant?.opportunities || payload.opportunities || []

@@ -336,6 +336,10 @@ export class MomentumScannerService {
 
     // Get recent candles for momentum calculation
     const lookback = Math.max(config.scan_lookback || 1, 1);
+    const livePrice = this.tickerCache.getPrice(symbol);
+    if (livePrice && livePrice > 0 && typeof (this.klineStore as any).syncLivePrice === 'function') {
+      (this.klineStore as any).syncLivePrice(symbol, livePrice);
+    }
     const candles = this.klineStore.getRawCandles(symbol, interval);
     if (candles.length < lookback + 1) {
       if (isExplicitSymbol || (Array.isArray(config.symbols) && config.symbols.includes(symbol))) {

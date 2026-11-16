@@ -166,7 +166,7 @@ export const normalizeOpportunity = (o = {}, prev = null) => {
   const sigDetailsDigest = sig?.signals
     ? Object.keys(sig.signals).sort().map(key => {
         const detail = sig.signals[key];
-        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}`;
+        return `${key}:${detail.value}:${detail.threshold}:${detail.fired ? 1 : 0}:${detail.active ? 1 : 0}:${detail.rejected ? 1 : 0}:${detail.insufficientData ? 1 : 0}:${detail.status || ''}:${detail.description || ''}:${detail.live_price ?? ''}:${detail.closed_value ?? ''}:${detail.ref_high ?? ''}:${detail.ref_low ?? ''}:${detail.breakout_level ?? ''}:${detail.expansion_cap ?? ''}:${detail.candle_confirm_state || ''}:${detail.evaluated_at_ms ?? ''}`;
       }).join('|')
     : '';
   const sigDigest = sig ? `${sig.allFired ? 1 : 0}|${(sig.firedSignals || []).join(',')}|${sig.reason}|${sigDetailsDigest}` : '';
@@ -1367,16 +1367,17 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 return normalizeOpportunity(o, prevOppMap.get(sym));
               }).filter(Boolean);
             })() : (st.scannerResults || []),
-            variantScannerResults: Array.isArray(d.variant_opportunities) ? d.variant_opportunities.reduce((acc, v) => {
-              if (!v || !v.strategy_label || !Array.isArray(v.opportunities)) return acc;
-              const prevOppMap = new Map(((st.variantScannerResults && st.variantScannerResults[v.strategy_label]) || []).map(r => [r.symbol, r]));
-              acc[v.strategy_label] = v.opportunities.map(o => {
+            variantScannerResults: Array.isArray(d.variant_opportunities) && d.variant_opportunities.length > 0 ? d.variant_opportunities.reduce((acc, v) => {
+              if (!v || !Array.isArray(v.opportunities)) return acc;
+              const label = v.strategy_label || 'Momentum Strategy';
+              const prevOppMap = new Map(((st.variantScannerResults && st.variantScannerResults[label]) || []).map(r => [r.symbol, r]));
+              acc[label] = v.opportunities.map(o => {
                 const sym = String(o.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
                 const p = prevOppMap.get(sym);
                 return normalizeOpportunity(o, p);
               }).filter(Boolean);
               return acc;
-            }, {}) : (st.variantScannerResults || {}),
+            }, { ...(st.variantScannerResults || {}) }) : (st.variantScannerResults || {}),
             activeWindows: Array.isArray(d.activeWindows) ? d.activeWindows.map(w => ({...w})) : (Array.isArray(st.activeWindows) ? st.activeWindows : []),
             tradeHistory: nextHistory,
             gateState: d.gateState ?? st.gateState,
@@ -1572,10 +1573,11 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 signalResult: n.signalResult || p?.signalResult
               };
             }).filter(Boolean),
-            variantScannerResults: Array.isArray(d.variant_opportunities) ? d.variant_opportunities.reduce((acc, v) => {
-              if (!v || !v.strategy_label || !Array.isArray(v.opportunities)) return acc;
-              const prevOppMap = new Map((st.variantScannerResults[v.strategy_label] || []).map(r => [r.symbol, r]));
-              acc[v.strategy_label] = v.opportunities.map(o => {
+            variantScannerResults: Array.isArray(d.variant_opportunities) && d.variant_opportunities.length > 0 ? d.variant_opportunities.reduce((acc, v) => {
+              if (!v || !Array.isArray(v.opportunities)) return acc;
+              const label = v.strategy_label || 'Momentum Strategy';
+              const prevOppMap = new Map(((st.variantScannerResults && st.variantScannerResults[label]) || []).map(r => [r.symbol, r]));
+              acc[label] = v.opportunities.map(o => {
                 const sym = String(o.symbol || '').replace(/[^A-Z0-9]/gi, '').substring(0, 20);
                 const p = prevOppMap.get(sym);
                 const n = normalizeOpportunity(o, p);
@@ -1590,7 +1592,7 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
                 };
               }).filter(Boolean);
               return acc;
-            }, {}) : st.variantScannerResults,
+            }, { ...(st.variantScannerResults || {}) }) : st.variantScannerResults,
             activeWindows: d.activeWindows || st.activeWindows,
             hibernating: d.hibernating ?? st.hibernating,
             lastScanTs: d.last_scan_ts ?? st.lastScanTs,

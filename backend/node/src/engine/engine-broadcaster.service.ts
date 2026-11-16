@@ -381,7 +381,9 @@ export class EngineBroadcasterService {
       _thin: true,
       _sl_len: trade.sl_adjustments?.length || 0,
       active_trade_events: trade.active_trade_events || [],
-      _sig_json: trade._sig_json || JSON.stringify(trade.exit_signals_status || {}),
+      _sig_json: (trade.exit_signals_status && Object.keys(trade.exit_signals_status).length > 0)
+        ? JSON.stringify(trade.exit_signals_status)
+        : (trade._sig_json || '{}'),
       live_rr_sequence: (trade.live_rr_sequence && trade.live_rr_sequence.length > 0) ? trade.live_rr_sequence : (trade.strategy_config?.live_rr_sequence || config?.live_rr_sequence || EMPTY_ARRAY),
       exit_rr_sequence: (trade.exit_rr_sequence && trade.exit_rr_sequence.length > 0) ? trade.exit_rr_sequence : (trade.strategy_config?.exit_rr_sequence || config?.exit_rr_sequence || EMPTY_ARRAY),
       exit_estimation: exitEst,
@@ -425,7 +427,7 @@ export class EngineBroadcasterService {
 
         if (isThin) {
           if (isMidFidelity) {
-            const { _sig_json, active_trade_events, ...midThinTrade } = trade;
+            const { active_trade_events, ...midThinTrade } = trade;
             return midThinTrade;
           }
           const {
@@ -458,6 +460,9 @@ export class EngineBroadcasterService {
             ...thinTrade,
             live_rr_sequence: trade.live_rr_sequence,
             exit_rr_sequence: trade.exit_rr_sequence,
+            exit_signals_status: trade.exit_signals_status,
+            _sig_json: trade._sig_json,
+            exit_estimation: trade.exit_estimation,
             _thin: true,
           };
         }
@@ -598,13 +603,18 @@ export class EngineBroadcasterService {
         g.estPnlToRealize = roundEight(g.estPnlToRealize + (maxEstPnlForTrade || 0));
       }
 
+      const currentSigJson = (trade.exit_signals_status && Object.keys(trade.exit_signals_status).length > 0)
+        ? JSON.stringify(trade.exit_signals_status)
+        : (trade._sig_json || '{}');
+      trade._sig_json = currentSigJson;
+
       let tradeChanged = !prevTrade || isHeartbeat;
       if (!tradeChanged && prevTrade) {
         if (trade.current_sl !== prevTrade.sl_price || trade.max_rr_achieved !== prevTrade.max_rr || trade.direction !== prevTrade.direction) {
           tradeChanged = true;
         } else if ((trade.sl_adjustments?.length || 0) !== (prevTrade._sl_len || 0)) {
           tradeChanged = true;
-        } else if (trade._sig_json !== prevTrade._sig_json) {
+        } else if (currentSigJson !== prevTrade._sig_json) {
           tradeChanged = true;
         } else {
           const pnlDelta = Math.abs(pnlValue - (prevTrade.pnl || 0));

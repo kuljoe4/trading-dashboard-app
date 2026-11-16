@@ -2543,6 +2543,7 @@ export class OrderManagerService {
         const remaining = Math.max(0, requiredDelaySec - tradeAgeSec);
 
         statuses[exitSignal] = {
+          ...(detail || {}),
           fired: isFired,
           active: isActive,
           remaining_delay: remaining,

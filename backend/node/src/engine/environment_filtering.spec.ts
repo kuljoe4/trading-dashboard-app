@@ -14,6 +14,7 @@ describe('MomentumScannerService Environment Filtering', () => {
     }
 
     tickerCache = {
+      getPrice: jest.fn().mockReturnValue(null),
       getTicker: jest.fn(),
       topByVolume: jest.fn().mockReturnValue([{ symbol: 'BTCUSDT' }, { symbol: 'TRADABLEUSDT' }]),
     }

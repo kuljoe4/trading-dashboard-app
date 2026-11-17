@@ -45,8 +45,7 @@ export function mergeVariantConfigForSave(currentConfig, submittedConfig, varian
   }
 
   return {
-    ...current,
-    ...submitted,
+    ...(submittedVariants.length > 0 ? { ...current, ...submitted } : current),
     strategy_variants: variants,
   };
 }

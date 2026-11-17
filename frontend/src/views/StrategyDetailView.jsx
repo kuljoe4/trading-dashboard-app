@@ -568,7 +568,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
 
     if (strategyConfig.sl_lookback_timeframe && strategyConfig.sl_lookback_timeframe !== 'default') {
       const slTf = strategyConfig.sl_lookback_timeframe;
-      const slPeriod = Number(strategyConfig.sl_lookback_period || 20);
+      const slPeriod = Number(strategyConfig.sl_lookback_period ?? 20);
       items.push({
         key: 'sl_lookback',
         label: 'SL Lookback Range',

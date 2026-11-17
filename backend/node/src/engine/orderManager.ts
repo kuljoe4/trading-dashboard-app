@@ -3028,7 +3028,7 @@ export class OrderManagerService {
                 }
                    const type = ((orderData as any).type || (orderData as any).algoType || '').toUpperCase();
                    const clientOrderId = orderData.clientOrderId || (orderData as any).clientAlgoId;
-                   let reason = undefined;
+                   let reason: string | undefined = undefined;
 
                    // SRE: Map exchange order type to engine-specific EXIT_REASONS
                    if (type === 'TAKE_PROFIT' || type === 'TAKE_PROFIT_MARKET') {

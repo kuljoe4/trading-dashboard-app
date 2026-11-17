@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { X, Plus, Trash2, Save, FolderOpen, Search, Settings2, ShieldCheck, Clock, CheckCircle2, Check, Zap, XCircle, Activity, LayoutGrid, Briefcase, TrendingUp, Target, ArrowRight, Copy, RefreshCw, ClipboardPaste, Download, Upload, Info, AlertTriangle, Lock, Sparkles, Award, MoreHorizontal, MoreVertical, SlidersHorizontal, ChevronDown, ChevronRight, Layers, Edit3 } from 'lucide-react'
 import { cn, Btn, Tooltip, PaperBadge, DemoBadge, LiveBadge, CopyButton, VisuallyHidden, ModalAlertTicker, StatCard } from './ui/primitives'
 import * as Switch from '@radix-ui/react-switch'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI, sessionAPI, smartOptimizerAPI } from '../api/client'
@@ -11,25 +12,124 @@ import { useTradingStore } from '../store/trading'
 import { isSignalLayer } from '../utils/signalIdentity.js'
 import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { EntrySignalCard, ExitSignalCard } from './config/SignalCards'
+import { ActiveSummaryPanel } from './config/ActiveSummaryPanel'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-const CollapsibleSection = ({ id, icon, title, subtitle, children, isOpen, onToggle }) => {
+const InfoHelpButton = React.memo(({ open, onToggle, label = 'details', className }) => (
+  <button
+    type="button"
+    onClick={(e) => {
+      e.stopPropagation();
+      onToggle?.();
+    }}
+    aria-expanded={!!open}
+    aria-label={`Toggle info for ${label}`}
+    title={`Toggle info for ${label}`}
+    className={cn(
+      "p-1 rounded-md transition-colors shrink-0 cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-accent",
+      open ? "text-accent bg-accent/15" : "text-dim/70 hover:text-accent hover:bg-white/5",
+      className
+    )}
+  >
+    <Info size={12} />
+  </button>
+));
+InfoHelpButton.displayName = 'InfoHelpButton';
+
+const InfoDropdownBox = React.memo(({ children, className }) => (
+  <div className={cn("px-2.5 py-2 bg-background/75 border border-border/60 rounded-lg text-[10px] text-dim font-medium leading-relaxed text-left animate-in fade-in duration-150", className)}>
+    {children}
+  </div>
+));
+InfoDropdownBox.displayName = 'InfoDropdownBox';
+
+const CollapsibleHelpTitle = React.memo(({ title, helpText, icon: ItemIcon, titleClassName, className, badge }) => {
+  const [open, setOpen] = useState(false);
   return (
-    <section className="bg-background/60 rounded-xl border border-border/80 shadow-sm overflow-hidden transition-all">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between p-2.5 hover:bg-white/[0.02] transition-colors group"
-      >
-        <SectionHeader icon={icon} title={title} subtitle={subtitle} className="mb-0" />
-        <div className={cn(
-          "w-6 h-6 rounded-md border border-border/40 flex items-center justify-center text-dim transition-all group-hover:border-accent/40 group-hover:text-accent",
-          isOpen && "rotate-180 bg-accent/5 border-accent/20 text-accent"
-        )}>
-          <ChevronDown size={14} />
+    <div className={cn("flex flex-col text-left min-w-0", className)}>
+      <div className="flex items-center gap-1.5 min-w-0">
+        {ItemIcon && <ItemIcon size={12} className="shrink-0" />}
+        <span className={cn("text-xs font-bold text-text leading-snug break-words", titleClassName)}>{title}</span>
+        {badge}
+        {helpText && <InfoHelpButton open={open} onToggle={() => setOpen(v => !v)} label={typeof title === 'string' ? title : 'details'} />}
+      </div>
+      {open && helpText && (
+        <InfoDropdownBox className="mt-1.5 max-w-xl">
+          {helpText}
+        </InfoDropdownBox>
+      )}
+    </div>
+  );
+});
+CollapsibleHelpTitle.displayName = 'CollapsibleHelpTitle';
+
+const CollapsibleSection = ({ id, icon: Icon, title, subtitle, children, isOpen, onToggle, hasError = false, errorCount = 0, onInteract }) => {
+  const [showInfo, setShowInfo] = useState(false);
+  return (
+    <section
+      id={id}
+      aria-invalid={hasError}
+      onFocusCapture={onInteract}
+      className={cn(
+        "rounded-xl border shadow-sm overflow-hidden transition-all",
+        hasError
+          ? "border-red/60 bg-red/[0.03]"
+          : "bg-background/60 border-border/80"
+      )}
+    >
+      <div className="w-full flex items-center justify-between gap-2 p-2.5 hover:bg-white/[0.02] transition-colors group">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isOpen}
+          aria-invalid={hasError}
+          className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer"
+        >
+          <div className={cn(
+            "w-6 h-6 rounded-md flex items-center justify-center shrink-0",
+            hasError ? "bg-red/15 text-red" : "bg-accent/10 text-accent"
+          )}>
+            <Icon size={14} />
+          </div>
+          <h3 className={cn("text-xs font-bold uppercase tracking-tight truncate", hasError && "text-red")}>{title}</h3>
+          {hasError && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red tabular-nums shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse" aria-hidden="true" />
+              {errorCount > 0 ? `${errorCount} ${errorCount === 1 ? 'error' : 'errors'}` : 'Error'}
+            </span>
+          )}
+        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {subtitle && (
+            <InfoHelpButton
+              open={showInfo}
+              onToggle={() => setShowInfo(v => !v)}
+              label={title}
+            />
+          )}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={`Toggle ${title}`}
+            aria-expanded={isOpen}
+            className={cn(
+              "w-6 h-6 rounded-md border flex items-center justify-center transition-all cursor-pointer",
+              hasError
+                ? "border-red/40 text-red hover:border-red"
+                : "border-border/40 text-dim group-hover:border-accent/40 group-hover:text-accent",
+              isOpen && (hasError ? "rotate-180 bg-red/10 border-red/50 text-red" : "rotate-180 bg-accent/5 border-accent/20 text-accent")
+            )}
+          >
+            <ChevronDown size={14} />
+          </button>
         </div>
-      </button>
+      </div>
+      {subtitle && showInfo && (
+        <div className="px-2.5 pb-2.5">
+          <InfoDropdownBox>{subtitle}</InfoDropdownBox>
+        </div>
+      )}
       <AnimatePresence initial={false}>
         {isOpen && (
           <motion.div
@@ -48,6 +148,140 @@ const CollapsibleSection = ({ id, icon, title, subtitle, children, isOpen, onTog
   );
 };
 
+const SignalListWithCollapse = React.memo(({
+  signals,
+  activeSet,
+  commonSet,
+  renderCard
+}) => {
+  const [showAll, setShowAll] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('active'); // 'all' | 'active' | 'momentum' | 'trend' | 'breakout'
+
+  const categories = [
+    { id: 'all', label: 'All' },
+    { id: 'active', label: 'Active Only' },
+    { id: 'momentum', label: 'Momentum / MACD' },
+    { id: 'trend', label: 'Trend / EMA' },
+    { id: 'breakout', label: 'Breakout / Vol' },
+  ];
+
+  const filteredSignals = useMemo(() => {
+    return signals.filter(([key, label, desc]) => {
+      const matchesSearch = !searchQuery || 
+        label.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        desc.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        key.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      if (!matchesSearch) return false;
+
+      if (categoryFilter === 'active') {
+        return activeSet.has(key);
+      }
+      if (categoryFilter === 'momentum') {
+        return key.includes('momentum') || key.includes('macd') || key.includes('engulfing');
+      }
+      if (categoryFilter === 'trend') {
+        return key.includes('ema') || key.includes('ma') || key.includes('supertrend');
+      }
+      if (categoryFilter === 'breakout') {
+        return key.includes('breakout') || key.includes('knife');
+      }
+      return true;
+    });
+  }, [signals, searchQuery, categoryFilter, activeSet]);
+
+  const sorted = [...filteredSignals].sort((a, b) => {
+    const aActive = activeSet.has(a[0]);
+    const bActive = activeSet.has(b[0]);
+    if (aActive !== bActive) return aActive ? -1 : 1;
+    const aCommon = commonSet.has(a[0]);
+    const bCommon = commonSet.has(b[0]);
+    if (aCommon !== bCommon) return aCommon ? -1 : 1;
+    return 0;
+  });
+
+  const isFiltering = Boolean(searchQuery.trim() || categoryFilter !== 'all');
+  const visibleSignals = (showAll || isFiltering) ? sorted : sorted.filter(s => activeSet.has(s[0]) || commonSet.has(s[0]));
+  const hiddenCount = sorted.length - visibleSignals.length;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Search & Filter Toolbar */}
+      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between bg-surface/40 p-2.5 rounded-xl border border-border/50">
+        <div className="relative flex-1">
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim/50 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search signals..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-surface border border-border/80 rounded-lg pl-7 pr-7 py-1 min-h-[32px] text-xs font-mono focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none transition-all"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-dim hover:text-accent p-0.5 rounded"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0">
+          {categories.map(c => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setCategoryFilter(c.id)}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all whitespace-nowrap cursor-pointer",
+                categoryFilter === c.id
+                  ? "bg-accent/15 border border-accent/30 text-accent font-black"
+                  : "bg-surface/50 border border-border/30 text-dim hover:text-text"
+              )}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {visibleSignals.map(signal => renderCard(signal))}
+      </div>
+
+      {visibleSignals.length === 0 && (
+        <div className="p-6 text-center text-xs text-dim bg-surface/30 rounded-xl border border-dashed border-border/40 font-medium">
+          No matching signals found for "{searchQuery || categoryFilter}"
+        </div>
+      )}
+
+      {hiddenCount > 0 && !showAll && !isFiltering && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="py-2.5 px-3 bg-surface/60 hover:bg-surface border border-border/80 rounded-xl text-[10px] font-black uppercase tracking-wider text-dim hover:text-text transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+        >
+          <span>Show {hiddenCount} more inactive signals</span>
+          <ChevronDown size={12} />
+        </button>
+      )}
+      {showAll && sorted.length > visibleSignals.length && !isFiltering && (
+        <button
+          type="button"
+          onClick={() => setShowAll(false)}
+          className="py-2.5 px-3 bg-surface/60 hover:bg-surface border border-border/80 rounded-xl text-[10px] font-black uppercase tracking-wider text-dim hover:text-text transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+        >
+          <span>Show less</span>
+          <ChevronDown size={12} className="rotate-180" />
+        </button>
+      )}
+    </div>
+  );
+});
+SignalListWithCollapse.displayName = 'SignalListWithCollapse';
+
 const TAB_ERROR_MAP = {
   slippage_warning_threshold: 'risk',
   scan_interval: 'scan',
@@ -65,6 +299,42 @@ const TAB_ERROR_MAP = {
   scanner_weights_momentum: 'scan',
   scanner_weights_volatility: 'scan',
   scanner_weights_trend: 'scan',
+  scanner_signal_depth: 'scan',
+};
+
+const SECTION_ERROR_MAP = {
+  scan_interval: 'scan_global',
+  discovery_mode: 'scan_global',
+  scan_lookback: 'scan_global',
+  scan_mode: 'scan_global',
+  scanner_weights_momentum: 'scan_global',
+  scanner_weights_volatility: 'scan_global',
+  scanner_weights_trend: 'scan_global',
+  scanner_signal_depth: 'scan_global',
+  slippage_warning_threshold: 'risk_guards',
+  risk_pct_per_trade: 'risk_guards',
+  max_open_trades: 'risk_guards',
+  martingale_multiplier: 'risk_martingale',
+  martingale_reset_threshold_pct: 'risk_martingale',
+  martingale_max_steps: 'risk_martingale',
+  martingale_post_reset_behavior: 'risk_martingale',
+  sl_distance_pct: 'risk_sl',
+  trading_mode: 'adv_env',
+};
+
+const SECTION_LABELS = {
+  scan_global: 'Scanner -> Global Scanner',
+  risk_guards: 'Risk -> Capital Guards',
+  risk_martingale: 'Risk -> Martingale Recovery',
+  risk_sl: 'Risk -> Stop Loss Strategy',
+  adv_env: 'Environment -> Execution Environment',
+};
+
+const TAB_SECTION_DEFAULTS = {
+  scan: ['scan_general', 'scan_htf_cross', 'scan_global', 'scan_watchlist', 'scan_exclusion'],
+  strategy: ['strategy_entry', 'strategy_params', 'strategy_exit', 'strategy_whipsaw', 'strategy_knife', 'strategy_timeframes'],
+  risk: ['risk_guards', 'risk_martingale', 'risk_sl', 'risk_tp', 'risk_temporal'],
+  env: ['adv_env', 'adv_capital'],
 };
 
 const SIGNALS = [
@@ -282,18 +552,72 @@ const TOOLTIPS = {
   trigger_candle_exit_buffer_pct: "Additional safety buffer percentage beyond the boundary before triggering exit."
 };
 
-const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => (
-  <div className={cn("flex items-center gap-2 mb-2", className)}>
-    <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center text-accent">
-      <Icon size={14} />
+const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) => {
+  const [showInfo, setShowInfo] = useState(false);
+  return (
+    <div className={cn("flex flex-col gap-1.5 mb-2", className)}>
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center text-accent shrink-0">
+          <Icon size={14} />
+        </div>
+        <div className="flex items-center gap-1.5 text-left min-w-0">
+          <h3 className="text-xs font-bold uppercase tracking-tight truncate">{title}</h3>
+          {subtitle && (
+            <InfoHelpButton
+              open={showInfo}
+              onToggle={() => setShowInfo(v => !v)}
+              label={title}
+            />
+          )}
+        </div>
+      </div>
+      {subtitle && showInfo && (
+        <InfoDropdownBox>{subtitle}</InfoDropdownBox>
+      )}
     </div>
-    <div className="text-left">
-      <h3 className="text-xs font-bold uppercase tracking-tight">{title}</h3>
-      {subtitle && <p className="text-[9px] text-dim font-medium uppercase">{subtitle}</p>}
-    </div>
-  </div>
-))
+  );
+})
 SectionHeader.displayName = 'SectionHeader'
+
+const CollapsibleInfoCard = React.memo(({ icon: Icon = Info, title, children, className }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  return (
+    <div className={cn("flex flex-col gap-1.5 my-3", className)}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(v => !v)}
+        className="flex items-center gap-2 px-3 py-2 bg-surface/50 hover:bg-surface border border-border/60 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer w-full justify-between shadow-xs text-accent"
+      >
+        <div className="flex items-center gap-2">
+          <div className="w-5 h-5 rounded-md bg-accent/10 flex items-center justify-center text-accent">
+            <Icon size={13} />
+          </div>
+          <span>{title}</span>
+        </div>
+        <div className="flex items-center gap-1.5 text-dim font-bold">
+          <span>{isOpen ? 'Hide Guide' : 'View Guide'}</span>
+          <ChevronDown size={14} className={cn("transition-transform duration-200", isOpen && "rotate-180")} />
+        </div>
+      </button>
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="p-3.5 bg-background/60 border border-border/50 rounded-xl flex flex-col gap-3 text-left animate-in fade-in duration-200">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+CollapsibleInfoCard.displayName = 'CollapsibleInfoCard';
 
 const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => {
   const isChecked = value === true || value === 'true' || value === 1 || value === '1';
@@ -302,7 +626,7 @@ const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => {
       <Switch.Root checked={isChecked} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-offset-1 focus-visible:ring-offset-surface", isChecked ? color : "bg-border")}>
         <Switch.Thumb className={cn("pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform", isChecked ? "translate-x-5" : "translate-x-0.5")} />
       </Switch.Root>
-      {label && <span className={cn("text-sm font-bold transition-colors", isChecked ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
+      {label && <span className={cn("text-xs font-bold transition-colors", isChecked ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
     </label>
   );
 })
@@ -313,12 +637,16 @@ const Chip = React.forwardRef(({ active, onClick, children, activeClass = "borde
 ))
 Chip.displayName = 'Chip'
 
-const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs }) => {
+const ConfigField = React.memo(({ label, id, name, type, value, onChange, error, warning, opts, attrs, helpText }) => {
   // BOLT-PERF: Local-Sync pattern with debounced idle commit + iOS blur safety.
   // Maintains instant local state while typing and commits safely on pause, blur, or Enter.
   const [localValue, setLocalValue] = useState(value ?? '');
+  const [showHelp, setShowHelp] = useState(false);
   const isFocusedRef = useRef(false);
   const commitTimerRef = useRef(null);
+
+  const { tooltip: attrTooltip, helpText: attrHelpText, ...cleanAttrs } = attrs || {};
+  const resolvedHelp = helpText || attrHelpText || attrTooltip || null;
 
   useEffect(() => {
     if (!isFocusedRef.current) {
@@ -362,8 +690,18 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
 
   return (
     <div className="flex flex-col gap-1 group/field min-w-0">
-      <div className="flex justify-between items-center gap-2">
-        <label htmlFor={id} className="text-[10px] sm:text-[9px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors truncate">{label}</label>
+      <div className="flex justify-between items-center gap-1.5">
+        <div className="flex items-center gap-1 min-w-0">
+          <label htmlFor={id} className="text-[10px] sm:text-[9px] text-dim group-hover/field:text-accent font-black tracking-widest uppercase transition-colors truncate">{label}</label>
+          {resolvedHelp && (
+            <InfoHelpButton
+              open={showHelp}
+              onToggle={() => setShowHelp(v => !v)}
+              label={label}
+              className="p-0.5"
+            />
+          )}
+        </div>
         {error && <span role="alert" className="text-[9px] text-red font-bold uppercase shrink-0">{error}</span>}
         {warning && !error && <span role="alert" className="text-[9px] text-amber font-bold uppercase shrink-0">{warning}</span>}
       </div>
@@ -371,9 +709,9 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
         <select
           id={id}
           value={localValue ?? ''}
-          {...attrs}
+          {...cleanAttrs}
           onChange={handleSelectChange}
-          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none appearance-none transition-all cursor-pointer hover:border-border-hover w-full"
+          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none appearance-none transition-all cursor-pointer hover:border-border-hover w-full"
         >
           {opts.map((o) => {
             const val = typeof o === 'string' ? o : o?.value;
@@ -387,20 +725,20 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           type={type}
           inputMode={resolvedInputMode}
           enterKeyHint={resolvedEnterKeyHint}
-          autoCapitalize={type === 'text' && attrs?.autoCapitalize === undefined ? 'none' : attrs?.autoCapitalize}
-          autoCorrect={type === 'text' && attrs?.autoCorrect === undefined ? 'off' : attrs?.autoCorrect}
+          autoCapitalize={type === 'text' && cleanAttrs?.autoCapitalize === undefined ? 'none' : cleanAttrs?.autoCapitalize}
+          autoCorrect={type === 'text' && cleanAttrs?.autoCorrect === undefined ? 'off' : cleanAttrs?.autoCorrect}
           value={localValue ?? ''}
-          {...attrs}
+          {...cleanAttrs}
           onFocus={(e) => {
             isFocusedRef.current = true;
-            attrs?.onFocus?.(e);
+            cleanAttrs?.onFocus?.(e);
           }}
           onChange={handleChange}
           onBlur={(e) => {
             isFocusedRef.current = false;
             if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
             commit(e.target.value);
-            attrs?.onBlur?.(e);
+            cleanAttrs?.onBlur?.(e);
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
@@ -410,10 +748,13 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
                 e.currentTarget.blur();
               }
             }
-            attrs?.onKeyDown?.(e);
+            cleanAttrs?.onKeyDown?.(e);
           }}
-          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none transition-all hover:border-border-hover w-full tabular-nums"
+          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none transition-all hover:border-border-hover w-full tabular-nums"
         />
+      )}
+      {showHelp && resolvedHelp && (
+        <InfoDropdownBox className="mt-0.5">{resolvedHelp}</InfoDropdownBox>
       )}
     </div>
   );
@@ -466,17 +807,17 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               setIsOpen(false);
             }
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-base sm:text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+          className="w-full bg-surface border border-border rounded-lg pl-3 pr-7 py-1 min-h-[32px] text-xs font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
         />
         {value && (
           <Tooltip content="Clear Input">
             <button
               type="button"
               onClick={() => { setValue(''); setIsOpen(false); inputRef.current?.focus(); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
               aria-label="Clear Input"
             >
-              <XCircle size={16} />
+              <XCircle size={13} />
             </button>
           </Tooltip>
         )}
@@ -487,14 +828,14 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="absolute top-full left-0 right-0 mt-2 bg-surface border border-border rounded-xl shadow-xl z-50 overflow-hidden"
+              className="absolute top-full left-0 right-0 mt-1.5 bg-surface border border-border rounded-xl shadow-xl z-50 overflow-hidden"
             >
               {options.map(o => (
                 <button
                   key={o.symbol}
                   type="button"
                   onClick={() => handleAdd(o.symbol)}
-                  className="w-full px-4 py-2.5 text-left text-sm font-mono hover:bg-white/5 transition-colors border-b border-border/50 last:border-0"
+                  className="w-full px-3 py-2 text-left text-xs font-mono hover:bg-white/5 transition-colors border-b border-border/50 last:border-0"
                 >
                   {o.symbol}
                 </button>
@@ -503,7 +844,7 @@ const ManualMonitorInput = React.memo(({ onAdd }) => {
           )}
         </AnimatePresence>
       </div>
-      <Btn variant="primary" onClick={() => handleAdd()} className="aspect-square p-0 w-12 h-12 flex items-center justify-center shrink-0"><Plus size={20} /></Btn>
+      <Btn variant="primary" onClick={() => handleAdd()} className="aspect-square p-0 w-8 h-8 flex items-center justify-center shrink-0"><Plus size={14} /></Btn>
       {isOpen && <div className="fixed inset-0 z-40" onClick={() => setIsOpen(false)} />}
     </div>
   );
@@ -538,7 +879,7 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
             setName(e.target.value);
             setIsUserEdited(true);
           }}
-          className="w-full bg-surface border border-border rounded-xl pl-4 pr-8 py-3 text-base sm:text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+          className="w-full bg-surface border border-border rounded-lg pl-3 pr-7 py-1 min-h-[32px] text-xs font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
         />
         {name && (
           <Tooltip content="Clear Preset Name">
@@ -549,10 +890,10 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
                 setIsUserEdited(true);
                 inputRef.current?.focus();
               }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
               aria-label="Clear Preset Name"
             >
-              <XCircle size={16} />
+              <XCircle size={13} />
             </button>
           </Tooltip>
         )}
@@ -574,10 +915,10 @@ const SavePresetInput = React.memo(({ onSave, isSaving, success, defaultName }) 
             onClick={() => { if (name.trim()) { onSave(name); } }}
             disabled={isSaving || !name.trim()}
             loading={isSaving}
-            className="aspect-square p-0 w-12 h-12 flex items-center justify-center"
+            className="aspect-square p-0 w-8 h-8 flex items-center justify-center"
             aria-label={success ? "Preset saved successfully" : "Save current configuration as preset"}
           >
-            {success ? <CheckCircle2 size={20} /> : <Save size={20} />}
+            {success ? <CheckCircle2 size={14} /> : <Save size={14} />}
           </Btn>
         </div>
       </Tooltip>
@@ -646,7 +987,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col md:flex-row gap-3">
         <div className="relative flex-1 group">
-          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
+          <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-dim/40 group-focus-within:text-accent pointer-events-none transition-colors" />
           <input
             ref={watchlistSearchInputRef}
             type="text"
@@ -656,7 +997,7 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
             onChange={(e) => { setSearchTerm(e.target.value.toUpperCase()); setIsOpen(true); }}
             onKeyDown={(e) => { if (e.key === 'Escape') { setSearchTerm(''); setIsOpen(false); } }}
             aria-label="Search symbols to add to watchlist"
-            className="w-full bg-surface border border-border rounded-xl pl-10 pr-8 py-3 text-base sm:text-sm font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+            className="w-full bg-surface border border-border rounded-lg pl-7 pr-7 py-1 min-h-[32px] text-xs font-mono focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
           />
           {searchTerm ? (
             <Tooltip content="Clear Search">
@@ -666,14 +1007,14 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
                   setSearchTerm('');
                   watchlistSearchInputRef.current?.focus();
                 }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-dim hover:text-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-md p-0.5 transition-colors"
                 aria-label="Clear Search symbol"
               >
-                <XCircle size={16} />
+                <XCircle size={13} />
               </button>
             </Tooltip>
           ) : (
-            <kbd className="absolute right-3.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
+            <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-surface/50 border border-border/80 text-[9px] font-black text-accent/80 shadow-sm font-mono px-1.5 py-0.5 rounded pointer-events-none select-none transition-opacity duration-200 group-focus-within:opacity-0">
               /
             </kbd>
           )}
@@ -753,9 +1094,13 @@ const WatchlistDropdownInput = React.memo(({ value = [], onChange }) => {
 
       <div className="flex flex-wrap gap-2 mt-4">
         {value.length === 0 ? (
-          <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">
-            No symbols in Static Watchlist (Global discovery will be used)
-          </p>
+          <div className="p-3 border border-dashed border-border/40 rounded-xl w-full flex items-center justify-center">
+            <CollapsibleHelpTitle
+              title="No static symbols"
+              titleClassName="text-[10px] text-dim/60 font-bold uppercase tracking-widest"
+              helpText="Global discovery is used when no symbols are pinned to the static watchlist."
+            />
+          </div>
         ) : (
           value.map((sym, i) => {
             const opp = scannerResults.find(r => r?.symbol === sym);
@@ -824,7 +1169,7 @@ const ListInput = React.memo(({ id, value, onChange, placeholder }) => {
       onChange={handleChange}
       onBlur={handleBlur}
       onKeyDown={(e) => { if (e.key === 'Enter') handleBlur(); }}
-      className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-base sm:text-sm font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
+      className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none hover:border-border-hover transition-colors"
     />
   );
 })
@@ -860,19 +1205,35 @@ SectionTab.displayName = 'SectionTab'
 const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
   const listRef = useRef(null);
 
-  const allTabs = useMemo(() => [
+  const primaryTabs = useMemo(() => [
+    { id: 'summary', label: 'Active', icon: SlidersHorizontal },
     { id: 'scan', label: 'Scanner', icon: Search },
     { id: 'strategy', label: 'Strategy', icon: Zap },
     { id: 'risk', label: 'Risk', icon: ShieldCheck },
     { id: 'presets', label: 'Presets', icon: FolderOpen },
-    { id: 'env', label: 'Env', icon: Briefcase },
-    { id: 'smart', label: 'Smart', icon: Sparkles },
-    { id: 'backtest', label: 'Backtest', icon: TrendingUp }
   ], []);
+
+  const overflowTabs = useMemo(() => [
+    { id: 'env', label: 'Env', menuLabel: 'Environment', icon: Briefcase },
+    { id: 'smart', label: 'Smart', menuLabel: 'Smart Auto-Discovery', icon: Sparkles },
+    { id: 'backtest', label: 'Backtest', menuLabel: 'Backtest', icon: TrendingUp }
+  ], []);
+
+  const allTabs = useMemo(() => [...primaryTabs, ...overflowTabs], [primaryTabs, overflowTabs]);
 
   const tabHasError = React.useCallback((tabId) => {
     return Object.keys(errors).some(key => TAB_ERROR_MAP[key] === tabId);
   }, [errors]);
+
+  const activeOverflowTab = useMemo(
+    () => overflowTabs.find(t => t.id === section) || null,
+    [overflowTabs, section]
+  );
+
+  const overflowHasError = useMemo(
+    () => overflowTabs.some(t => tabHasError(t.id)),
+    [overflowTabs, tabHasError]
+  );
 
   // Keep active tab centered horizontally inside the tab strip without triggering vertical ancestor scroll
   useEffect(() => {
@@ -907,31 +1268,100 @@ const SectionTabs = React.memo(({ section, onSectionChange, errors }) => {
     }
   };
 
+  const TriggerIcon = activeOverflowTab ? activeOverflowTab.icon : MoreHorizontal;
+
   return (
     <div
-      ref={listRef}
-      className="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1 sm:px-3.5 overflow-x-auto no-scrollbar snap-x snap-proximity outline-none relative z-40 w-full"
+      className="flex items-center justify-between gap-1.5 px-2.5 py-1 sm:px-3.5 relative z-40 w-full"
       data-vaul-no-drag
       role="tablist"
       aria-label="Configuration sections"
       onKeyDown={handleKeyDownNav}
       tabIndex={-1}
     >
-      {allTabs.map((tab) => (
-        <SectionTab
-          key={tab.id}
-          {...tab}
-          active={section === tab.id}
-          onClick={onSectionChange}
-          hasError={tabHasError(tab.id)}
-        />
-      ))}
+      <div
+        ref={listRef}
+        className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar snap-x snap-proximity outline-none flex-1 min-w-0"
+      >
+        {primaryTabs.map((tab) => (
+          <SectionTab
+            key={tab.id}
+            {...tab}
+            active={section === tab.id}
+            onClick={onSectionChange}
+            hasError={tabHasError(tab.id)}
+          />
+        ))}
+      </div>
+
+      <DropdownMenu.Root modal={false}>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            id={activeOverflowTab ? `config-tab-${activeOverflowTab.id}` : 'config-tab-more'}
+            aria-label="More configuration sections"
+            aria-invalid={overflowHasError}
+            className={cn(
+              "flex items-center gap-1 relative transition-all duration-200 min-h-[30px] px-2 sm:px-2.5 py-0.5 rounded-lg text-[11px] sm:text-xs font-bold shrink-0 border cursor-pointer whitespace-nowrap focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+              activeOverflowTab
+                ? "bg-accent text-white font-black border-accent shadow-[0_2px_10px_rgba(var(--accent-rgb),0.3)]"
+                : "border-border/70 bg-background/40 text-dim hover:border-dim/50 hover:text-text",
+              overflowHasError && !activeOverflowTab && "border-red/50 text-red/90"
+            )}
+          >
+            <TriggerIcon size={12} className={cn("shrink-0", activeOverflowTab ? "text-white" : "text-dim", overflowHasError && !activeOverflowTab && "text-red")} />
+            <span className="whitespace-nowrap">{activeOverflowTab ? activeOverflowTab.label : 'More'}</span>
+            <ChevronDown size={11} className={cn("shrink-0 opacity-75", activeOverflowTab ? "text-white" : "text-dim")} />
+            {overflowHasError && !activeOverflowTab && (
+              <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse shrink-0" aria-hidden="true" />
+            )}
+          </button>
+        </DropdownMenu.Trigger>
+
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            sideOffset={6}
+            collisionPadding={8}
+            data-vaul-no-drag
+            className="z-[200] min-w-[190px] rounded-xl border border-border/80 bg-surface/95 backdrop-blur-md p-1 shadow-xl text-text animate-in fade-in duration-150"
+          >
+            {overflowTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isSelected = section === tab.id;
+              const hasErr = tabHasError(tab.id);
+              return (
+                <DropdownMenu.Item
+                  key={tab.id}
+                  id={`config-menu-${tab.id}`}
+                  onSelect={() => onSectionChange(tab.id)}
+                  className={cn(
+                    "flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-lg text-xs font-semibold outline-none cursor-pointer transition-colors select-none",
+                    isSelected
+                      ? "bg-accent/15 text-accent font-bold"
+                      : "text-text/90 hover:bg-white/5 focus:bg-white/5"
+                  )}
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <Icon size={13} className={cn("shrink-0", isSelected ? "text-accent" : "text-dim", hasErr && !isSelected && "text-red")} />
+                    <span className="truncate">{tab.menuLabel}</span>
+                  </span>
+                  <span className="flex items-center gap-1 shrink-0">
+                    {hasErr && <span className="w-1.5 h-1.5 rounded-full bg-red" aria-hidden="true" />}
+                    {isSelected && <Check size={12} className="text-accent" />}
+                  </span>
+                </DropdownMenu.Item>
+              );
+            })}
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
   );
 })
 SectionTabs.displayName = 'SectionTabs';
 
-const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePreset }) => {
+const SmartAutoDiscoveryPanel = React.memo(({ cfg, buildConfigToSave, onLoadRecommendation, savePreset }) => {
   const [iterations, setIterations] = useState(15);
   const [days, setDays] = useState(14);
   const [startingBalance, setStartingBalance] = useState(10000);
@@ -939,6 +1369,8 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
   const [isRunning, setIsRunning] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
   const [error, setError] = useState(null);
+  const [showHeaderInfo, setShowHeaderInfo] = useState(false);
+  const [showEmptyInfo, setShowEmptyInfo] = useState(false);
   const addAlert = useTradingStore(state => state.addAlert);
 
   useEffect(() => {
@@ -960,12 +1392,13 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
     setError(null);
     try {
       const parsedSymbols = symbolsText.split(',').map(s => s.trim().toUpperCase()).filter(s => s.endsWith('USDT'));
+      const sanitizedBaseConfig = typeof buildConfigToSave === 'function' ? buildConfigToSave() : cfg;
       const res = await smartOptimizerAPI.run({
         iterations: Number(iterations),
         days: Number(days),
         startingBalance: Number(startingBalance),
         symbols: parsedSymbols.length > 0 ? parsedSymbols : ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'],
-        baseConfig: cfg,
+        baseConfig: sanitizedBaseConfig,
         topCount: 5,
       });
 
@@ -1010,26 +1443,33 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
       aria-labelledby="config-tab-smart"
       className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
     >
-      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+      <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
               <Sparkles size={16} />
             </div>
-            <div>
-              <h3 className="text-xs font-black uppercase tracking-tight">Smart Intelligence Auto-Optimizer</h3>
-              <p className="text-[9px] text-dim font-medium uppercase">Generates & paper-tests randomized strategy variations to find top performers</p>
-            </div>
+            <h3 className="text-xs font-black uppercase tracking-tight truncate">Smart Auto-Optimizer</h3>
+            <InfoHelpButton
+              open={showHeaderInfo}
+              onToggle={() => setShowHeaderInfo(v => !v)}
+              label="Smart Auto-Optimizer"
+            />
           </div>
           <Btn
             variant="primary"
             onClick={handleRunOptimization}
             loading={isRunning}
-            className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)]"
+            className="px-4 py-2 text-xs font-bold bg-accent text-white hover:bg-accent/90 shadow-[0_0_20px_rgba(91,111,255,0.2)] shrink-0"
           >
-            {isRunning ? 'Testing Strategies...' : '⚡ Run Smart Auto Optimizer'}
+            {isRunning ? 'Testing...' : '⚡ Run Optimizer'}
           </Btn>
         </div>
+        {showHeaderInfo && (
+          <InfoDropdownBox>
+            Generates & paper-tests randomized strategy variations to find top performers.
+          </InfoDropdownBox>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2 border-t border-border/40">
           <div>
@@ -1038,7 +1478,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
               id="smart-iterations"
               value={iterations}
               onChange={(e) => setIterations(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+              className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
             >
               <option value={10}>10 Variations (Fast)</option>
               <option value={15}>15 Variations (Recommended)</option>
@@ -1053,7 +1493,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
               id="smart-days"
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+              className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
             >
               <option value={7}>7 Days (1 Week)</option>
               <option value={14}>14 Days (2 Weeks)</option>
@@ -1072,7 +1512,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
               step={1000}
               value={startingBalance}
               onChange={(e) => setStartingBalance(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent"
             />
           </div>
 
@@ -1086,7 +1526,7 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
               placeholder="BTCUSDT, ETHUSDT..."
               value={symbolsText}
               onChange={(e) => setSymbolsText(e.target.value)}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent"
             />
           </div>
         </div>
@@ -1119,12 +1559,21 @@ const SmartAutoDiscoveryPanel = React.memo(({ cfg, onLoadRecommendation, savePre
         </div>
 
         {recommendations.length === 0 ? (
-          <div className="p-10 border border-dashed border-border/60 rounded-2xl text-center flex flex-col gap-2">
-            <Sparkles size={28} className="mx-auto text-dim/30 animate-pulse" />
-            <div className="text-xs font-bold text-dim uppercase">No strategy recommendations stored in memory yet</div>
-            <p className="text-[10px] text-dim/70 max-w-sm mx-auto">
-              Click <strong className="text-accent">"⚡ Run Smart Auto Optimizer"</strong> above to paper-test randomized setting candidates and discover top strategy configurations.
-            </p>
+          <div className="p-6 border border-dashed border-border/60 rounded-2xl text-center flex flex-col items-center gap-2">
+            <Sparkles size={24} className="text-dim/30 animate-pulse" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs font-bold text-dim uppercase">No Recommendations Yet</span>
+              <InfoHelpButton
+                open={showEmptyInfo}
+                onToggle={() => setShowEmptyInfo(v => !v)}
+                label="Empty Recommendations"
+              />
+            </div>
+            {showEmptyInfo && (
+              <InfoDropdownBox className="max-w-sm">
+                Click Run Optimizer above to paper-test randomized setting candidates and discover top strategy configurations.
+              </InfoDropdownBox>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -1238,18 +1687,15 @@ const EnvironmentButton = React.memo(({ mode, isSelected, onClick, disabled = fa
     disabled={disabled}
     onClick={() => onClick(mode)}
     className={cn(
-      "p-4 rounded-xl border-2 text-left transition-all relative group",
+      "p-3.5 rounded-xl border-2 text-left transition-all relative group cursor-pointer",
       isSelected ? "border-accent bg-accent/10 ring-2 ring-accent/20" : "border-border bg-surface hover:border-border-hover",
       disabled && !isSelected && "opacity-50 cursor-not-allowed hover:border-border"
     )}
   >
-    <div className="flex items-center justify-between mb-1">
+    <div className="flex items-center justify-between gap-2">
       <span className="text-xs font-black uppercase tracking-tighter capitalize">{mode}</span>
-      {isSelected ? <CheckCircle2 size={16} className="text-accent" /> : disabled ? <Lock size={14} className="text-dim" /> : null}
+      {isSelected ? <CheckCircle2 size={15} className="text-accent shrink-0" /> : disabled ? <Lock size={13} className="text-dim shrink-0" /> : null}
     </div>
-    <p className="text-[9px] text-dim font-bold uppercase tracking-widest">
-      {mode === 'paper' ? 'Simulated' : mode === 'testnet' ? 'Demo API' : mode === 'backtest' ? 'Historical Test' : 'Real Capital'}
-    </p>
   </button>
 ))
 EnvironmentButton.displayName = 'EnvironmentButton'
@@ -1264,6 +1710,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
   const [progressStatus, setProgressStatus] = useState('');
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [showBacktestInfo, setShowBacktestInfo] = useState(false);
   const abortControllerRef = useRef(null);
   const addAlert = useTradingStore(state => state.addAlert);
 
@@ -1377,15 +1824,17 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
       className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
     >
       <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
               <TrendingUp size={16} />
             </div>
-            <div>
-              <h3 className="text-xs font-black uppercase tracking-tight">Backtesting Workbench</h3>
-              <p className="text-[9px] text-dim font-medium uppercase">Simulate strategy on Binance historical klines</p>
-            </div>
+            <h3 className="text-xs font-black uppercase tracking-tight truncate">Backtesting Workbench</h3>
+            <InfoHelpButton
+              open={showBacktestInfo}
+              onToggle={() => setShowBacktestInfo(v => !v)}
+              label="Backtesting Workbench"
+            />
           </div>
 
           <div className="flex items-center gap-2">
@@ -1408,6 +1857,9 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
             )}
           </div>
         </div>
+        {showBacktestInfo && (
+          <InfoDropdownBox>Simulate strategy on Binance historical klines</InfoDropdownBox>
+        )}
 
         {isRunning && (
           <div className="p-3 bg-accent/5 border border-accent/20 rounded-xl flex flex-col gap-2 animate-in fade-in duration-200">
@@ -1433,7 +1885,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               id="backtest-days"
               value={days}
               onChange={(e) => setDays(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
+              className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent cursor-pointer"
             >
               <option value={7}>7 Days (1 Week)</option>
               <option value={14}>14 Days (2 Weeks)</option>
@@ -1453,7 +1905,7 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               step={100}
               value={startingBalance}
               onChange={(e) => setStartingBalance(Number(e.target.value))}
-              className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent"
+              className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent"
             />
           </div>
 
@@ -1469,18 +1921,19 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
               value={symbolText}
               onChange={(e) => setSymbolSearchText(e.target.value)}
               className={cn(
-                "w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[36px] text-base sm:text-xs font-mono font-bold text-text outline-none focus:border-accent",
+                "w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono font-bold text-text outline-none focus:border-accent",
                 useGlobalScanner && "opacity-50 cursor-not-allowed"
               )}
             />
           </div>
         </div>
 
-        <div className="flex items-center justify-between p-3 bg-surface/40 border border-border/30 rounded-xl">
-          <div className="flex flex-col text-left">
-            <span className="text-[10px] font-black uppercase tracking-widest text-text">Simulate Market-Wide Global Scanner</span>
-            <span className="text-[9px] text-dim font-medium uppercase mt-0.5">Filter & rank candidate opportunities across candidate symbols dynamically</span>
-          </div>
+        <div className="flex items-center justify-between gap-3 p-3 bg-surface/40 border border-border/30 rounded-xl">
+          <CollapsibleHelpTitle
+            title="Market-Wide Global Scanner"
+            titleClassName="text-[10px] font-black uppercase tracking-widest text-text"
+            helpText="Filter & rank candidate opportunities across candidate symbols dynamically during historical simulation."
+          />
           <Toggle value={useGlobalScanner} onChange={setUseGlobalScanner} color="bg-accent" />
         </div>
 
@@ -1537,10 +1990,11 @@ const BacktestWorkbenchPanel = React.memo(({ cfg, setField, buildConfigToSave, o
           {result.symbolPerformance && result.symbolPerformance.length > 0 && (
             <div className="p-4 bg-background/50 border border-border/60 rounded-2xl flex flex-col gap-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-dim block">Symbol Performance & Watchlist Recommendations</span>
-                  <span className="text-[9px] text-dim/70 font-medium">Inject top backtested symbols into your active strategy watchlist</span>
-                </div>
+                <CollapsibleHelpTitle
+                  title="Symbol Performance & Recommendations"
+                  titleClassName="text-[10px] font-black uppercase tracking-widest text-dim"
+                  helpText="Inject top backtested symbols into your active strategy watchlist."
+                />
 
                 {result.symbolPerformance.some(sp => sp.isRecommended) && (
                   <Btn
@@ -1764,7 +2218,7 @@ const SavePresetModal = ({ isOpen, onClose, onSave, defaultName = '', configSumm
               }}
               placeholder="e.g. Scalp Alpha 1m"
               className={cn(
-                "w-full min-h-[42px] bg-background border rounded-xl px-3.5 py-2 text-base sm:text-sm font-medium text-text focus:outline-none transition-colors",
+                "w-full min-h-[32px] bg-background border rounded-lg px-2.5 py-1 text-xs font-medium text-text focus:outline-none transition-colors",
                 error ? "border-red focus:border-red" : "border-border focus:border-accent"
               )}
             />
@@ -1828,7 +2282,8 @@ const PresetItem = React.memo(React.forwardRef(({
   onSave,
   onSaveAsNew,
   onRevert,
-  onDuplicate
+  onDuplicate,
+  onPromoteVariant
 }, ref) => {
   const [manualExpanded, setManualExpanded] = useState(false);
   const pMode = preset.config.trading_mode || (preset.config.paper_mode ? 'paper' : 'live');
@@ -2054,8 +2509,9 @@ const PresetItem = React.memo(React.forwardRef(({
                      <Edit3 size={12} /> Edit Variant
                    </Btn>
                    <Btn
+                     type="button"
                      variant="ghost"
-                     onClick={() => onLoad(preset)}
+                     onClick={() => onPromoteVariant ? onPromoteVariant(variantIndex) : onLoad(preset)}
                      className="h-8 px-3 text-[11px] border border-border text-dim hover:text-text font-bold"
                      title="Make this variant your main base strategy"
                    >
@@ -2106,7 +2562,7 @@ const PresetItem = React.memo(React.forwardRef(({
                <Btn
                  variant="ghost"
                  onClick={onDuplicate}
-                 className="h-8 px-2.5 text-[11px] text-dim hover:text-text hidden md:flex font-bold"
+                 className="h-8 px-2.5 text-[11px] text-dim hover:text-text flex font-bold"
                >
                  Duplicate
                </Btn>
@@ -2328,12 +2784,23 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
       'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
-      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score'
+      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score',
+      'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
+      'trailing_activation_rr', 'auto_scale_max_overshoot',
+      'auto_adjust_max_trades_min', 'auto_adjust_max_trades_max', 'auto_adjust_max_trades_step',
+      'scan_window_duration_sec', 'scan_check_interval_sec',
+      'martingale_multiplier', 'martingale_max_steps', 'martingale_reset_threshold_pct'
     ];
 
     numericFields.forEach(f => {
       if (c[f] !== undefined && c[f] !== null) {
-        c[f] = Number(c[f]);
+        if (c[f] === '' || (typeof c[f] === 'string' && c[f].trim() === '')) {
+          delete c[f];
+        } else {
+          const num = Number(c[f]);
+          if (Number.isFinite(num)) c[f] = num;
+          else delete c[f];
+        }
       }
     });
 
@@ -2348,13 +2815,21 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
     delete c.scanner_weights_volatility;
     delete c.scanner_weights_trend;
 
-    if (c.hibernation_grace_period_sec !== undefined) {
-      c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
+    if (c.hibernation_grace_period_sec !== undefined && c.hibernation_grace_period_sec !== null && c.hibernation_grace_period_sec !== '') {
+      const num = Number(c.hibernation_grace_period_sec);
+      if (Number.isFinite(num)) c.hibernation_grace_period_sec = num;
+      else delete c.hibernation_grace_period_sec;
+    } else {
+      delete c.hibernation_grace_period_sec;
     }
 
     // UI Conversion: UI percentage back to backend decimal
-    if (c.slippage_warning_threshold !== undefined) {
-      c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
+    if (c.slippage_warning_threshold !== undefined && c.slippage_warning_threshold !== null && c.slippage_warning_threshold !== '') {
+      const num = Number(c.slippage_warning_threshold);
+      if (Number.isFinite(num)) c.slippage_warning_threshold = num / 100;
+      else delete c.slippage_warning_threshold;
+    } else {
+      delete c.slippage_warning_threshold;
     }
 
     // Format anti_whipsaw_timeframes as an array of strings
@@ -2401,7 +2876,7 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
   }
 };
 export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, loading = false, initialEditingVariantIndex = null, baseConfig = null }) => {
-  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus } = useTradingStore(state => ({
+  const { addAlert, isThrottled, wsStatus, isSyncingOnResume, sessionActive, lifetimeAnalytics, fetchLifetimeAnalytics, apiStatus, sessionList } = useTradingStore(state => ({
     addAlert: state.addAlert,
     isThrottled: state.isThrottled,
     wsStatus: state.wsStatus,
@@ -2410,6 +2885,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     lifetimeAnalytics: state.lifetimeAnalytics,
     fetchLifetimeAnalytics: state.fetchLifetimeAnalytics,
     apiStatus: state.apiStatus,
+    sessionList: state.sessionList,
   }));
 
   const presetSearchInputRef = useRef(null);
@@ -2645,54 +3121,90 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     setTimeout(resetOuterScroll, 60);
   }, [resetOuterScroll]);
 
-  const [initialDraftRestored] = useState(() => {
-    if (isEdit || initialEditingVariantIndex !== null) return false;
-    const savedDraft = sessionStorage.getItem('config_draft');
-    if (!savedDraft) return false;
+  const [expandedHelpMap, setExpandedHelpMap] = useState({});
+  const toggleHelpKey = React.useCallback((key) => {
+    setExpandedHelpMap(prev => ({ ...prev, [key]: !prev[key] }));
+  }, []);
+
+  const [initialDraftData] = useState(() => {
+    if (isEdit || initialEditingVariantIndex !== null) return null;
     try {
+      const savedDraft = sessionStorage.getItem('config_draft');
+      if (!savedDraft) return null;
       const parsed = JSON.parse(savedDraft);
-      return !!(parsed && (parsed.strategy_label === initialConfig?.strategy_label || (!parsed.strategy_label && !initialConfig?.strategy_label)));
-    } catch {
-      return false;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (e) {
+      console.error('[ConfigModal] Failed to parse draft:', e);
     }
+    return null;
   });
 
+  const initialDraftRestored = !!initialDraftData;
+
   const [cfg, setCfg] = useState(() => {
-    if (!isEdit && initialEditingVariantIndex === null) {
-      const savedDraft = sessionStorage.getItem('config_draft');
-      if (savedDraft) {
-        try {
-          const parsed = JSON.parse(savedDraft);
-          if (parsed && (parsed.strategy_label === initialConfig?.strategy_label || (!parsed.strategy_label && !initialConfig?.strategy_label))) {
-            return flattenConfig(parsed);
-          }
-        } catch (e) {
-          console.error('[ConfigModal] Failed to parse draft:', e);
-        }
-      }
+    if (initialDraftData) {
+      return flattenConfig(initialDraftData);
     }
     return flattenConfig(initialConfig);
   });
 
   const [isDirty, setIsDirty] = useState(initialDraftRestored);
+  const [hasPendingSessionChanges, setHasPendingSessionChanges] = useState(initialDraftRestored);
   const isDirtyRef = useRef(isDirty);
+  const hasPendingSessionChangesRef = useRef(hasPendingSessionChanges);
+  const hasUserLocalOverrideRef = useRef(initialDraftRestored);
+  const prevInitialVariantPropRef = useRef(initialEditingVariantIndex);
+  const prevIsEditPropRef = useRef(isEdit);
+  const suppressDraftSaveRef = useRef(false);
+
   useEffect(() => {
     isDirtyRef.current = isDirty;
   }, [isDirty]);
 
   useEffect(() => {
-    setEditingVariantIdx(initialEditingVariantIndex ?? null);
-    setBaseConfigBackup(initialEditingVariantIndex !== null && baseConfig ? flattenConfig(baseConfig) : null);
-    if (initialConfig && !isDirtyRef.current) {
-      setCfg(flattenConfig(initialConfig));
+    hasPendingSessionChangesRef.current = hasPendingSessionChanges;
+  }, [hasPendingSessionChanges]);
+
+  useEffect(() => {
+    const propModeChanged =
+      initialEditingVariantIndex !== prevInitialVariantPropRef.current ||
+      isEdit !== prevIsEditPropRef.current;
+    prevInitialVariantPropRef.current = initialEditingVariantIndex;
+    prevIsEditPropRef.current = isEdit;
+
+    if (propModeChanged) {
+      hasUserLocalOverrideRef.current = false;
+      setHasPendingSessionChanges(false);
+      setEditingVariantIdx(initialEditingVariantIndex ?? null);
+      setBaseConfigBackup(initialEditingVariantIndex !== null && baseConfig ? flattenConfig(baseConfig) : null);
+      if (initialConfig) {
+        setCfg(flattenConfig(initialConfig));
+      }
+      if (isEdit || initialEditingVariantIndex !== null) {
+        setSection('summary');
+      }
+      return;
     }
-  }, [initialConfig, initialEditingVariantIndex, baseConfig]);
+
+    if (
+      !hasUserLocalOverrideRef.current &&
+      !hasPendingSessionChangesRef.current &&
+      !isDirtyRef.current &&
+      editingVariantIdx === null
+    ) {
+      if (initialConfig) {
+        setCfg(flattenConfig(initialConfig));
+      }
+    }
+  }, [initialConfig, initialEditingVariantIndex, baseConfig, isEdit, editingVariantIdx]);
 
   useEffect(() => {
     fetchLifetimeAnalytics(cfg?.paper_mode ? 'paper' : 'live');
   }, [fetchLifetimeAnalytics, cfg?.paper_mode]);
 
-  const [section, setSection] = useState(initialEditingVariantIndex !== null ? 'strategy' : (isEdit ? 'presets' : 'scan'))
+  const [section, setSection] = useState('summary')
   const [presetLoaded, setPresetLoaded] = useState(false)
   const [presets, setPresets] = useState([])
   const [presetName, setPresetName] = useState('')
@@ -2708,9 +3220,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (initialEditingVariantIndex !== null) {
       return baseConfig?.strategy_label || null;
     }
-    const stored = sessionStorage.getItem('loaded_preset_name');
+    const stored = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('loaded_preset_name') : null;
     if (isEdit) {
       return stored && stored === initialConfig?.strategy_label ? stored : null;
+    }
+    if (initialDraftRestored) {
+      return stored || null;
     }
     if (stored && (!initialConfig?.strategy_label || initialConfig.strategy_label === stored)) {
       return stored;
@@ -2746,6 +3261,148 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   const [pasteValue, setPasteValue] = useState('');
   const [pasteError, setPasteError] = useState(null);
   const [openSectionId, setOpenSectionId] = useState(null);
+  const [recentSectionIds, setRecentSectionIds] = useState(() => {
+    try {
+      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem('recent_config_sections') : null;
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.filter(id => typeof id === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const recentSectionIdsRef = useRef(recentSectionIds);
+  useEffect(() => {
+    recentSectionIdsRef.current = recentSectionIds;
+  }, [recentSectionIds]);
+
+  const recordRecentSection = React.useCallback((sectionId) => {
+    if (!sectionId) return;
+    setRecentSectionIds(prev => {
+      if (prev[0] === sectionId) return prev;
+      const updated = [sectionId, ...prev.filter(id => id !== sectionId)].slice(0, 24);
+      recentSectionIdsRef.current = updated;
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('recent_config_sections', JSON.stringify(updated));
+        }
+      } catch {}
+      return updated;
+    });
+  }, []);
+
+  const computeTabSectionOrder = React.useCallback((tabId, recentIds, errsObj, activeOpenId = null) => {
+    const defaults = TAB_SECTION_DEFAULTS[tabId] || [];
+    const errSections = new Set(
+      Object.keys(errsObj || {})
+        .filter(k => !k.endsWith('_warn'))
+        .map(k => SECTION_ERROR_MAP[k])
+        .filter(Boolean)
+    );
+    return [...defaults].sort((a, b) => {
+      const aErr = errSections.has(a);
+      const bErr = errSections.has(b);
+      if (aErr !== bErr) return aErr ? -1 : 1;
+
+      if (activeOpenId) {
+        if (a === activeOpenId && b !== activeOpenId) return -1;
+        if (b === activeOpenId && a !== activeOpenId) return 1;
+      }
+
+      const idxA = recentIds.indexOf(a);
+      const idxB = recentIds.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+
+      return defaults.indexOf(a) - defaults.indexOf(b);
+    });
+  }, []);
+
+  const [sectionOrderMap, setSectionOrderMap] = useState(() => ({
+    scan: computeTabSectionOrder('scan', recentSectionIds, {}),
+    strategy: computeTabSectionOrder('strategy', recentSectionIds, {}),
+    risk: computeTabSectionOrder('risk', recentSectionIds, {}),
+    env: computeTabSectionOrder('env', recentSectionIds, {}),
+  }));
+
+  const refreshSectionOrders = React.useCallback((nextRecentIds, errsObj, activeOpenId = null) => {
+    setSectionOrderMap({
+      scan: computeTabSectionOrder('scan', nextRecentIds, errsObj, activeOpenId),
+      strategy: computeTabSectionOrder('strategy', nextRecentIds, errsObj, activeOpenId),
+      risk: computeTabSectionOrder('risk', nextRecentIds, errsObj, activeOpenId),
+      env: computeTabSectionOrder('env', nextRecentIds, errsObj, activeOpenId),
+    });
+  }, [computeTabSectionOrder]);
+
+  const blockingErrorSignature = useMemo(
+    () => Object.keys(errors).filter(k => !k.endsWith('_warn')).sort().join('|'),
+    [errors]
+  );
+
+  useEffect(() => {
+    if (blockingErrorSignature) {
+      refreshSectionOrders(recentSectionIdsRef.current, errors, openSectionId);
+    }
+  }, [blockingErrorSignature]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleSectionChange = React.useCallback((nextTab, targetSectionId = null) => {
+    setSection(nextTab);
+    let nextRecent = recentSectionIdsRef.current;
+    if (targetSectionId) {
+      nextRecent = [targetSectionId, ...nextRecent.filter(id => id !== targetSectionId)].slice(0, 24);
+      recordRecentSection(targetSectionId);
+      setOpenSectionId(targetSectionId);
+    }
+    refreshSectionOrders(nextRecent, errors, targetSectionId || openSectionId);
+  }, [errors, openSectionId, recordRecentSection, refreshSectionOrders]);
+
+  const handleToggleSection = React.useCallback((sectionId) => {
+    setOpenSectionId(prev => {
+      const willOpen = prev !== sectionId;
+      if (willOpen) recordRecentSection(sectionId);
+      return willOpen ? sectionId : null;
+    });
+  }, [recordRecentSection]);
+
+  const orderSectionEntries = React.useCallback((tabId, sectionsMap) => {
+    const order = sectionOrderMap[tabId] || TAB_SECTION_DEFAULTS[tabId] || Object.keys(sectionsMap);
+    return order.map((id) => {
+      const el = sectionsMap[id];
+      if (!el) return null;
+      return React.cloneElement(el, {
+        key: id,
+        onToggle: () => handleToggleSection(id),
+        onInteract: () => recordRecentSection(id),
+      });
+    }).filter(Boolean);
+  }, [sectionOrderMap, handleToggleSection, recordRecentSection]);
+
+  const openFullSection = React.useCallback((tabId, collapsibleId = null) => {
+    handleSectionChange(tabId, collapsibleId);
+    resetOuterScroll();
+  }, [handleSectionChange, resetOuterScroll]);
+
+  // Canonical list of staged variants across base & variant-editing views
+  const activeVariants = useMemo(() => {
+    if (editingVariantIdx !== null && baseConfigBackup) {
+      return Array.isArray(baseConfigBackup.strategy_variants) ? baseConfigBackup.strategy_variants : [];
+    }
+    return Array.isArray(cfg.strategy_variants) ? cfg.strategy_variants : [];
+  }, [editingVariantIdx, baseConfigBackup, cfg.strategy_variants]);
+
+  const persistDraft = React.useCallback((nextCfg, nextLoadedName) => {
+    if (isEdit || typeof sessionStorage === 'undefined' || suppressDraftSaveRef.current) return;
+    try {
+      sessionStorage.setItem('config_draft', JSON.stringify(nextCfg));
+      if (nextLoadedName) {
+        sessionStorage.setItem('loaded_preset_name', nextLoadedName);
+      } else {
+        sessionStorage.removeItem('loaded_preset_name');
+      }
+    } catch (e) {
+      console.error('[ConfigModal] Failed to persist draft:', e);
+    }
+  }, [isEdit]);
 
   // Auto-focus container on mount for accessible keyboard navigation
   useEffect(() => {
@@ -2767,6 +3424,40 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [onClose]);
 
 
+  const sessionRecency = useMemo(() => {
+    const activeNames = new Set();
+    const lastUsedTsByName = new Map();
+    const sessions = Array.isArray(sessionList) ? sessionList : [];
+    for (const s of sessions) {
+      if (!s) continue;
+      const baseLabel = s.strategyLabel || s.config?.strategy_label;
+      const ts = Math.max(
+        Number(s.startTimeMs) || 0,
+        s.endTime ? (new Date(s.endTime).getTime() || 0) : 0,
+        s.startTime ? (new Date(s.startTime).getTime() || 0) : 0,
+      );
+      const isRunning = s.status === 'active' || (sessionActive && !s.endTime);
+      const variantLabels = Array.isArray(s.config?.strategy_variants)
+        ? s.config.strategy_variants.map(v => v?.strategy_label).filter(Boolean)
+        : [];
+      for (const lbl of [baseLabel, ...variantLabels]) {
+        if (!lbl) continue;
+        if (isRunning) activeNames.add(lbl);
+        if (ts > (lastUsedTsByName.get(lbl) || 0)) {
+          lastUsedTsByName.set(lbl, ts);
+        }
+      }
+    }
+    return { activeNames, lastUsedTsByName };
+  }, [sessionList, sessionActive]);
+
+  const activeBasePresetName = useMemo(() => {
+    if (baseConfigBackup) {
+      return baseConfigBackup.strategy_label || loadedPresetName || null;
+    }
+    return loadedPresetName || (isEdit ? (initialConfig?.strategy_label || cfg.strategy_label) : null);
+  }, [baseConfigBackup, loadedPresetName, isEdit, initialConfig?.strategy_label, cfg.strategy_label]);
+
   const filteredPresets = useMemo(() => {
     let list = Array.isArray(presets) ? presets : [];
 
@@ -2777,40 +3468,68 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     if (presetTabFilter !== 'all') {
       if (presetTabFilter === 'variants') {
-        const variantsSet = new Set((cfg.strategy_variants || []).map(v => v.strategy_label));
+        const variantsSet = new Set(activeVariants.map(v => v?.strategy_label));
         list = list.filter(p => variantsSet.has(p.name));
       } else {
         list = list.filter(p => {
-          const pMode = p.config.trading_mode || (p.config.paper_mode ? 'paper' : 'live');
+          const pMode = p.config?.trading_mode || (p.config?.paper_mode ? 'paper' : 'live');
           return pMode === presetTabFilter;
         });
       }
     }
 
-    // Sort recentlyUsed according to recentlyUsedNames order to top
-    return [...list].sort((a, b) => {
-       const idxA = recentlyUsedNames.indexOf(a.name);
-       const idxB = recentlyUsedNames.indexOf(b.name);
-       if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-       if (idxA !== -1) return -1;
-       if (idxB !== -1) return 1;
-       return a.name.localeCompare(b.name);
+    const variantOrderMap = new Map();
+    activeVariants.forEach((v, idx) => {
+      if (v?.strategy_label && !variantOrderMap.has(v.strategy_label)) {
+        variantOrderMap.set(v.strategy_label, idx);
+      }
     });
-  }, [presets, presetSearch, presetTabFilter, cfg.strategy_variants, recentlyUsedNames]);
+
+    const getBubbleTier = (p) => {
+      if (activeBasePresetName && p.name === activeBasePresetName && !variantOrderMap.has(p.name)) return 0; // Active Base
+      if (variantOrderMap.has(p.name)) return 1; // Active Variants
+      if (sessionRecency.activeNames.has(p.name)) return 2; // Active Session(s)
+      if (recentlyUsedNames.includes(p.name) || sessionRecency.lastUsedTsByName.has(p.name)) return 3; // Latest Used
+      return 4;
+    };
+
+    // Bubble active base, active variants, active sessions, and latest used sessions/presets to the top
+    return [...list].sort((a, b) => {
+      const tierA = getBubbleTier(a);
+      const tierB = getBubbleTier(b);
+      if (tierA !== tierB) return tierA - tierB;
+
+      if (tierA === 1) {
+        return variantOrderMap.get(a.name) - variantOrderMap.get(b.name);
+      }
+
+      if (tierA === 3) {
+        const idxA = recentlyUsedNames.indexOf(a.name);
+        const idxB = recentlyUsedNames.indexOf(b.name);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        const tsA = sessionRecency.lastUsedTsByName.get(a.name) || 0;
+        const tsB = sessionRecency.lastUsedTsByName.get(b.name) || 0;
+        if (tsA !== tsB) return tsB - tsA;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+  }, [presets, presetSearch, presetTabFilter, activeVariants, recentlyUsedNames, activeBasePresetName, sessionRecency]);
 
 
-  // Persist uncommitted New Session drafts only when dirty so opening/closing never leaves phantom drafts
+  // Persist uncommitted New Session drafts with short debounce so closing right after edits never loses state
   useEffect(() => {
-    if (!isDirty || isEdit || editingVariantIdx !== null) return;
+    if (isEdit || editingVariantIdx !== null || suppressDraftSaveRef.current) return;
+    if (!isDirty && !hasPendingSessionChanges && !loadedPresetName) return;
     const timer = setTimeout(() => {
-      sessionStorage.setItem('config_draft', JSON.stringify(cfg));
-      if (loadedPresetName) sessionStorage.setItem('loaded_preset_name', loadedPresetName);
-      else sessionStorage.removeItem('loaded_preset_name');
-    }, 1000);
+      persistDraft(cfg, loadedPresetName);
+    }, 200);
     return () => clearTimeout(timer);
-  }, [cfg, loadedPresetName, isDirty, isEdit, editingVariantIdx]);
+  }, [cfg, loadedPresetName, isDirty, hasPendingSessionChanges, isEdit, editingVariantIdx, persistDraft]);
 
-  const validate = React.useCallback((c) => {
+  const getValidationErrors = React.useCallback((c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
     if (!Number.isFinite(Number(c.slippage_warning_threshold)) || Number(c.slippage_warning_threshold) < 0 || Number(c.slippage_warning_threshold) > 100) {
       errs.slippage_warning_threshold = 'Saved value is invalid. Enter a warning percentage between 0 and 100.';
@@ -2857,8 +3576,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
     if (c.scanner_signal_depth < 1) errs.scanner_signal_depth = 'Min 1';
 
-    setErrors(errs); return Object.keys(errs).length === 0;
+    setErrors(errs);
+    return errs;
   }, [testnetConfigured, liveConfigured]);
+
+  const validate = React.useCallback((c) => {
+    const errs = getValidationErrors(c);
+    return Object.keys(errs).filter(k => !k.endsWith('_warn')).length === 0;
+  }, [getValidationErrors]);
+
+  const getSectionErrorInfo = React.useCallback((sectionId) => {
+    let errorCount = 0;
+    for (const key of Object.keys(errors)) {
+      if (key.endsWith('_warn')) continue;
+      if (SECTION_ERROR_MAP[key] === sectionId) {
+        errorCount += 1;
+      }
+    }
+    return { hasError: errorCount > 0, errorCount };
+  }, [errors]);
 
   const generatedPresetName = useMemo(() => {
     if (loadedPresetName && typeof loadedPresetName === 'string' && loadedPresetName.trim()) {
@@ -2993,7 +3729,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, [fetchLifetimeAnalytics, cfg.trading_mode, cfg.paper_mode]);
 
   const setField = React.useCallback((key, value) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const next = { ...prev, [key]: value };
       // BOLT: Floating-point precision guard for weights to prevent intermittent sum warnings
@@ -3012,7 +3751,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleToggleRequiredEntry = React.useCallback((sigKey) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const currentReq = Array.isArray(prev.required_signals) ? prev.required_signals : [];
       const isReq = currentReq.includes(sigKey);
@@ -3022,7 +3764,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleToggleRequiredExit = React.useCallback((sigKey) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const currentReq = Array.isArray(prev.required_exit_signals) ? prev.required_exit_signals : [];
       const isReq = currentReq.includes(sigKey);
@@ -3032,7 +3777,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleToggleExitSignal = React.useCallback((baseKey, active) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const next = { ...prev };
       const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
@@ -3084,7 +3832,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleAddLayer = React.useCallback((baseKey) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const currentExitSignals = Array.isArray(prev.exit_signals) ? prev.exit_signals : [];
       let suffixNum = 2;
@@ -3113,7 +3864,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleRemoveLayer = React.useCallback((layerKey) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const nextDelays = { ...(prev.exit_signal_delays || {}) };
       delete nextDelays[layerKey];
@@ -3135,7 +3889,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleUpdateLayer = React.useCallback((layerKey, field, value) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const next = { ...prev };
       if (field === 'timeframe') {
@@ -3156,7 +3913,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleToggleEntrySignal = React.useCallback((baseKey, active) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const next = { ...prev };
       const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
@@ -3187,7 +3947,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleAddEntryLayer = React.useCallback((baseKey) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
       let suffixNum = 2;
@@ -3214,7 +3977,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleRemoveEntryLayer = React.useCallback((layerKey) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const nextTimeframes = { ...(prev.signal_timeframes || {}) };
       delete nextTimeframes[layerKey];
@@ -3228,7 +3994,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const handleUpdateEntryLayer = React.useCallback((layerKey, field, value) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const next = { ...prev };
       if (field === 'timeframe') {
@@ -3245,11 +4014,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
   
   const resetToLastSaved = React.useCallback(() => {
-    sessionStorage.removeItem('config_draft');
+    suppressDraftSaveRef.current = true;
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('config_draft');
+    }
+    const restoredIdx = initialEditingVariantIndex ?? null;
+    setEditingVariantIdx(restoredIdx);
+    setBaseConfigBackup(restoredIdx !== null && baseConfig ? flattenConfig(baseConfig) : null);
     setCfg(flattenConfig(initialConfig));
+    hasUserLocalOverrideRef.current = false;
+    setHasPendingSessionChanges(false);
     setIsDirty(false);
     setErrors({});
-  }, [initialConfig]);
+  }, [initialConfig, initialEditingVariantIndex, baseConfig]);
   
   const handleModeSelect = React.useCallback((mode) => {
     setModeWarning(null)
@@ -3261,6 +4038,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       setModeWarning('Live API keys not configured. Please add them in Settings first.')
       return
     }
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
+    setIsDirty(true);
+    setHasPendingSessionChanges(true);
     setCfg(prev => {
       const next = {
         ...prev,
@@ -3341,12 +4122,23 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       'max_open_trades_per_symbol', 'tod_min_winrate', 'leverage',
       'slippage_abort_threshold', 'htf_ema_cross_count', 'htf_ema_fast_period',
       'htf_ema_slow_period', 'htf_ema_cross_max_boost', 'htf_ema_cross_rr_weight',
-      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score'
+      'watchlist_max_symbols', 'watchlist_rotate_interval_min', 'watchlist_min_score',
+      'switched_sl_distance_pct', 'peak_rr_switch_threshold', 'peak_rr_switch_count',
+      'trailing_activation_rr', 'auto_scale_max_overshoot',
+      'auto_adjust_max_trades_min', 'auto_adjust_max_trades_max', 'auto_adjust_max_trades_step',
+      'scan_window_duration_sec', 'scan_check_interval_sec',
+      'martingale_multiplier', 'martingale_max_steps', 'martingale_reset_threshold_pct'
     ];
 
     numericFields.forEach(f => {
       if (c[f] !== undefined && c[f] !== null) {
-        c[f] = Number(c[f]);
+        if (c[f] === '' || (typeof c[f] === 'string' && c[f].trim() === '')) {
+          delete c[f];
+        } else {
+          const num = Number(c[f]);
+          if (Number.isFinite(num)) c[f] = num;
+          else delete c[f];
+        }
       }
     });
 
@@ -3374,13 +4166,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     delete c.scanner_weights_volatility;
     delete c.scanner_weights_trend;
 
-    if (c.hibernation_grace_period_sec !== undefined) {
-      c.hibernation_grace_period_sec = Number(c.hibernation_grace_period_sec);
+    if (c.hibernation_grace_period_sec !== undefined && c.hibernation_grace_period_sec !== null && c.hibernation_grace_period_sec !== '') {
+      const num = Number(c.hibernation_grace_period_sec);
+      if (Number.isFinite(num)) c.hibernation_grace_period_sec = num;
+      else delete c.hibernation_grace_period_sec;
+    } else {
+      delete c.hibernation_grace_period_sec;
     }
 
     // UI Conversion: UI percentage back to backend decimal
-    if (c.slippage_warning_threshold !== undefined) {
-      c.slippage_warning_threshold = Number(c.slippage_warning_threshold) / 100;
+    if (c.slippage_warning_threshold !== undefined && c.slippage_warning_threshold !== null && c.slippage_warning_threshold !== '') {
+      const num = Number(c.slippage_warning_threshold);
+      if (Number.isFinite(num)) c.slippage_warning_threshold = num / 100;
+      else delete c.slippage_warning_threshold;
+    } else {
+      delete c.slippage_warning_threshold;
     }
     c.strategy_variants = (cfg.strategy_variants || []).filter(Boolean).map((v) => {
       return coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' }, true);
@@ -3396,12 +4196,46 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return c;
   }, [cfg, presetName, loadedPresetName, generatedPresetName, editingVariantIdx, baseConfigBackup, initialConfig?.strategy_label]);
 
+  // Atomically sync variant list updates across both cfg and baseConfigBackup (and keep editingVariantIdx valid)
+  const updateVariantsList = React.useCallback((updater) => {
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
+    setIsDirty(true);
+    setHasPendingSessionChanges(true);
+
+    const sourceList = (editingVariantIdx !== null && baseConfigBackup)
+      ? (baseConfigBackup.strategy_variants || [])
+      : (cfg.strategy_variants || []);
+    const nextVariants = updater(Array.isArray(sourceList) ? sourceList : []);
+    const editingTarget = (editingVariantIdx !== null) ? sourceList[editingVariantIdx] : null;
+
+    if (editingVariantIdx !== null && baseConfigBackup) {
+      const updatedBackup = { ...baseConfigBackup, strategy_variants: nextVariants };
+      const survivingIdx = editingTarget
+        ? (nextVariants.indexOf(editingTarget) !== -1
+            ? nextVariants.indexOf(editingTarget)
+            : nextVariants.findIndex(v => v?.strategy_label === editingTarget.strategy_label))
+        : -1;
+
+      if (survivingIdx === -1) {
+        setBaseConfigBackup(null);
+        setEditingVariantIdx(null);
+        const restoredBase = flattenConfig(updatedBackup);
+        setCfg(restoredBase);
+        if (!isEdit) persistDraft(restoredBase, loadedPresetName);
+      } else {
+        setEditingVariantIdx(survivingIdx);
+        setBaseConfigBackup(updatedBackup);
+        setCfg(prev => ({ ...prev, strategy_variants: nextVariants }));
+      }
+    } else {
+      const nextCfg = { ...cfg, strategy_variants: nextVariants };
+      setCfg(nextCfg);
+      if (!isEdit) persistDraft(nextCfg, loadedPresetName);
+    }
+  }, [editingVariantIdx, baseConfigBackup, cfg, isEdit, persistDraft, loadedPresetName]);
+
   const savePreset = React.useCallback(async (explicitName) => {
-    // SRE name-resolution helper: cleanly resolves the preset name with strict precedence.
-    // 1. explicitName: provided when user specifies a name in the Save dialog (e.g., Save As).
-    // 2. presetName: the state field from the preset input box.
-    // 3. loadedPresetName: the active preset if explicitName is not explicitly skipped (undefined).
-    // 4. generatedPresetName: fallback auto-generated label based on scan interval & risk distance.
     const resolvePresetName = () => {
       if (explicitName) return explicitName;
       if (presetName) return presetName;
@@ -3429,9 +4263,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       }
 
       setIsSaving(true);
-      let pc;
+      const isEditingVariant = editingVariantIdx !== null;
+      let sourceConfig;
       try {
-        pc = buildConfigToSave();
+        sourceConfig = isEditingVariant ? coerceAndSanitizeConfig(cfg, true) : buildConfigToSave();
       } catch (buildErr) {
         console.error('[ConfigModal] Critical error building config:', buildErr);
         addAlert({ level: 'error', title: 'Internal Error', message: 'Failed to construct configuration object. Check console for details.' });
@@ -3441,9 +4276,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       console.log(`[ConfigModal] Sending save request to API for "${name}"...`);
 
-      // Preserve strategy_variants when persisting a library preset so presets retain their configured variants
-      const isEditingVariant = editingVariantIdx !== null;
-      const sourceConfig = isEditingVariant ? coerceAndSanitizeConfig(cfg, true) : pc;
       const presetVariants = isEditingVariant
         ? []
         : (Array.isArray(sourceConfig.strategy_variants)
@@ -3469,13 +4301,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
           return nextPresets.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         });
         setPresetName('');
-        if (editingVariantIdx === null) {
+        hasUserLocalOverrideRef.current = true;
+        if (!isEditingVariant) {
           setLoadedPresetName(name);
+          setCfg(prev => {
+            const nextCfg = { ...prev, strategy_label: name };
+            if (!isEdit) persistDraft(nextCfg, name);
+            return nextCfg;
+          });
         } else {
-          setField('strategy_label', name);
+          // Sync updated variant back into baseConfigBackup and cfg.strategy_variants so Done/Apply keeps the update
+          const stagedCopy = { ...sourceConfig, strategy_label: name, strategy_variants: [] };
+          setBaseConfigBackup(prevBackup => {
+            if (!prevBackup) return prevBackup;
+            const variants = [...(prevBackup.strategy_variants || [])];
+            if (editingVariantIdx >= 0 && editingVariantIdx < variants.length) {
+              variants[editingVariantIdx] = stagedCopy;
+            }
+            return { ...prevBackup, strategy_variants: variants };
+          });
+          setCfg(prev => {
+            const variants = [...(prev.strategy_variants || [])];
+            if (editingVariantIdx >= 0 && editingVariantIdx < variants.length) {
+              variants[editingVariantIdx] = stagedCopy;
+            }
+            return { ...prev, strategy_label: name, strategy_variants: variants };
+          });
+          setHasPendingSessionChanges(true);
         }
         recordRecentlyUsed(name);
-        sessionStorage.removeItem('config_draft');
+        if (isEdit && !isEditingVariant) {
+          setHasPendingSessionChanges(true);
+        }
         setIsDirty(false);
         setSaveSuccess(true);
         addAlert({ level: 'success', title: 'Preset Saved', message: `Strategy "${name}" has been stored in the database.` });
@@ -3486,7 +4343,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       let errMsg = 'Could not store strategy preset in the database.';
       if (e.response?.data?.detail && Array.isArray(e.response.data.detail)) {
-        // Format class-validator errors for better readability
         const extractConstraints = (errs) => {
           return errs.flatMap(err => {
             const current = err.constraints ? [`${err.property}: ${Object.values(err.constraints).join(', ')}`] : [];
@@ -3507,19 +4363,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } finally {
       setIsSaving(false);
     }
-  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert, editingVariantIdx, recordRecentlyUsed, setField]);
+  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert, editingVariantIdx, recordRecentlyUsed, isEdit, persistDraft]);
 
   const loadPreset = React.useCallback((p) => {
-    // Exit any variant editing mode when loading a preset as base
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
     setEditingVariantIdx(null);
     setBaseConfigBackup(null);
 
     const presetLabel = p.name || p.config?.strategy_label;
+    const baseSourceVariants = baseConfigBackup?.strategy_variants || cfg.strategy_variants || [];
 
     // Load variants from the preset if present, otherwise fall back to non-conflicting existing variants
     const targetVariants = (Array.isArray(p.config?.strategy_variants) && p.config.strategy_variants.length > 0)
       ? p.config.strategy_variants
-      : (cfg.strategy_variants || []);
+      : baseSourceVariants;
 
     // Deduplicate: If promoting preset "X" to base, strip any matching variant entry from strategy_variants
     const filteredVariants = targetVariants
@@ -3548,6 +4406,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     recordRecentlyUsed(p.name);
     validate(next);
     setIsDirty(false);
+    setHasPendingSessionChanges(true);
+    if (!isEdit) persistDraft(next, p.name);
 
     const dedupNote = wasDeduplicated ? ` (Removed "${p.name}" from variants list)` : '';
     addAlert({
@@ -3557,47 +4417,89 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         ? `Preset "${p.name}" strategy parameters loaded into active ${cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'} session.${dedupNote}`
         : `Active base configuration set to "${p.name}".${dedupNote}`
     });
-  }, [validate, addAlert, isEdit, sessionActive, cfg.trading_mode, cfg.paper_mode, cfg.strategy_variants, cfg.strategy_label]);
+  }, [validate, addAlert, isEdit, sessionActive, cfg.trading_mode, cfg.paper_mode, cfg.strategy_variants, cfg.strategy_label, baseConfigBackup, recordRecentlyUsed, persistDraft]);
 
   // Variant editing handlers - allows customizing a variant without replacing or losing the base configuration
   const startEditingVariant = React.useCallback((variantPresetOrObj, vIndex) => {
-    const currentBase = editingVariantIdx === null ? { ...cfg } : (baseConfigBackup || { ...cfg });
-    if (editingVariantIdx === null) {
-      setBaseConfigBackup(currentBase);
+    // If user clicks Edit on the variant already being tuned, preserve unsaved edits and switch to Active tab
+    if (editingVariantIdx !== null && editingVariantIdx === vIndex) {
+      handleSectionChange('summary');
+      return;
     }
 
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
+
+    let cleanBase;
+    if (editingVariantIdx === null) {
+      cleanBase = coerceAndSanitizeConfig(cfg, false);
+    } else {
+      // Switching directly from one variant to another: commit current variant edits into base first
+      const rawBase = coerceAndSanitizeConfig(baseConfigBackup || cfg, false);
+      const variants = [...(rawBase.strategy_variants || [])];
+      const currentSanitized = coerceAndSanitizeConfig(cfg, true);
+      delete currentSanitized.strategy_variants;
+      currentSanitized.strategy_label = cfg.strategy_label || `Variant ${editingVariantIdx + 1}`;
+      if (editingVariantIdx >= 0 && editingVariantIdx < variants.length) {
+        variants[editingVariantIdx] = currentSanitized;
+      }
+      rawBase.strategy_variants = variants;
+      cleanBase = rawBase;
+    }
+
+    const currentBase = flattenConfig(cleanBase);
+    setBaseConfigBackup(currentBase);
+
     let vData = null;
-    if (currentBase.strategy_variants && currentBase.strategy_variants[vIndex]) {
-      vData = { ...currentBase.strategy_variants[vIndex] };
+    if (cleanBase.strategy_variants && cleanBase.strategy_variants[vIndex]) {
+      vData = { ...cleanBase.strategy_variants[vIndex] };
     } else if (variantPresetOrObj) {
       vData = { ...(variantPresetOrObj.config || variantPresetOrObj) };
     }
 
     if (!vData) return;
-    const label = variantPresetOrObj?.name || vData.strategy_label || `Variant ${vIndex + 1}`;
-    vData.strategy_label = label;
+    const cleanVariant = vData.__flattened ? coerceAndSanitizeConfig(vData, true) : { ...vData };
+    const label = variantPresetOrObj?.name || cleanVariant.strategy_label || `Variant ${vIndex + 1}`;
+    cleanVariant.strategy_label = label;
 
     setEditingVariantIdx(vIndex);
     const fullVariantCfg = {
-      ...resolveStrategyConfig(currentBase, vData),
+      ...resolveStrategyConfig(cleanBase, cleanVariant),
       strategy_label: label,
       strategy_variants: currentBase.strategy_variants || [] // CRITICAL: Preserve base variants list!
     };
+    delete fullVariantCfg.__flattened;
 
     setCfg(flattenConfig(fullVariantCfg));
     // CRITICAL: loadedPresetName is strictly for the active base preset. DO NOT overwrite with variant name.
     setIsDirty(false);
-    setSection('strategy');
+    handleSectionChange('summary');
 
     addAlert({
       level: 'info',
       title: 'Variant Editing Active',
       message: `Tuning variant "${label}". Base strategy "${currentBase.strategy_label || 'Base'}" is preserved.`
     });
-  }, [cfg, editingVariantIdx, baseConfigBackup, addAlert]);
+  }, [cfg, editingVariantIdx, baseConfigBackup, addAlert, handleSectionChange]);
 
   const saveVariantChanges = React.useCallback(() => {
-    if (!validate(cfg)) return;
+    const errs = getValidationErrors(cfg);
+    const errKeys = Object.keys(errs).filter(k => !k.endsWith('_warn'));
+    if (errKeys.length > 0) {
+      const firstKey = errKeys[0];
+      const targetTab = TAB_ERROR_MAP[firstKey];
+      const targetSection = SECTION_ERROR_MAP[firstKey];
+      if (targetTab) {
+        handleSectionChange(targetTab, targetSection || null);
+      } else if (targetSection) {
+        recordRecentSection(targetSection);
+        setOpenSectionId(targetSection);
+      }
+      return;
+    }
+
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
 
     const base = baseConfigBackup || cfg;
     const currentVariants = [...(base.strategy_variants || [])].filter(Boolean);
@@ -3613,15 +4515,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       currentVariants.push(sanitizedVariant);
     }
 
-    const updatedBase = {
+    const updatedBase = flattenConfig({
       ...base,
       strategy_variants: currentVariants
-    };
+    });
 
-    setCfg(flattenConfig(updatedBase));
+    setCfg(updatedBase);
     setBaseConfigBackup(null);
     setEditingVariantIdx(null);
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
+    if (!isEdit) persistDraft(updatedBase, loadedPresetName);
 
     addAlert({
       level: 'success',
@@ -3629,7 +4533,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       message: `Updated "${variantLabel}". Apply Changes to persist this update.`
     });
     setSection('presets');
-  }, [cfg, baseConfigBackup, editingVariantIdx, validate, addAlert]);
+  }, [cfg, baseConfigBackup, editingVariantIdx, validate, addAlert, isEdit, persistDraft, loadedPresetName]);
 
   const exitVariantEditing = React.useCallback(() => {
     if (baseConfigBackup) {
@@ -3637,7 +4541,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
     setBaseConfigBackup(null);
     setEditingVariantIdx(null);
-    setIsDirty(false);
+    setIsDirty(hasPendingSessionChangesRef.current);
     setSection('presets');
     addAlert({
       level: 'info',
@@ -3646,27 +4550,44 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     });
   }, [baseConfigBackup, addAlert]);
 
-  const promoteVariantToBase = React.useCallback(() => {
-    const base = baseConfigBackup || cfg;
-    const currentVariants = [...(base.strategy_variants || [])].filter(Boolean);
-    const variantLabel = cfg.strategy_label || 'Promoted Strategy';
+  const promoteVariantToBaseByIndex = React.useCallback((targetIdx = editingVariantIdx) => {
+    const cleanBase = baseConfigBackup ? coerceAndSanitizeConfig(baseConfigBackup, false) : coerceAndSanitizeConfig(cfg, false);
+    const variantsList = [...(cleanBase.strategy_variants || [])].filter(Boolean);
 
-    const remainingVariants = currentVariants
-      .filter((v, i) => i !== editingVariantIdx && v.strategy_label !== variantLabel)
+    const isEditingTarget = editingVariantIdx !== null && (targetIdx === null || targetIdx === editingVariantIdx);
+    const rawTargetVariant = isEditingTarget
+      ? coerceAndSanitizeConfig(cfg, true)
+      : (variantsList[targetIdx] ? coerceAndSanitizeConfig(variantsList[targetIdx], true) : null);
+
+    if (!rawTargetVariant) return;
+
+    const variantLabel = rawTargetVariant.strategy_label || 'Promoted Strategy';
+    const remainingVariants = variantsList
+      .filter((v, i) => i !== targetIdx && v.strategy_label !== variantLabel)
       .map(v => coerceAndSanitizeConfig(v, true));
 
+    const resolvedTarget = resolveStrategyConfig(cleanBase, rawTargetVariant);
     const newBaseConfig = {
-      ...coerceAndSanitizeConfig(cfg, true),
+      ...resolvedTarget,
       strategy_label: variantLabel,
       strategy_variants: remainingVariants
     };
+    if (isEdit || sessionActive) {
+      newBaseConfig.trading_mode = cleanBase.trading_mode;
+      newBaseConfig.paper_mode = cleanBase.paper_mode;
+    }
 
-    setCfg(flattenConfig(newBaseConfig));
+    hasUserLocalOverrideRef.current = true;
+    suppressDraftSaveRef.current = false;
+    const flattenedBase = flattenConfig(newBaseConfig);
+    setCfg(flattenedBase);
     setBaseConfigBackup(null);
     setEditingVariantIdx(null);
     setLoadedPresetName(variantLabel);
     setPresetName(variantLabel);
     setIsDirty(true);
+    setHasPendingSessionChanges(true);
+    if (!isEdit) persistDraft(flattenedBase, variantLabel);
 
     addAlert({
       level: 'success',
@@ -3674,7 +4595,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       message: `"${variantLabel}" is now the active base strategy.`
     });
     setSection('presets');
-  }, [baseConfigBackup, cfg, editingVariantIdx, addAlert]);
+  }, [baseConfigBackup, cfg, editingVariantIdx, isEdit, sessionActive, persistDraft, addAlert]);
+
+  const promoteVariantToBase = React.useCallback(() => {
+    promoteVariantToBaseByIndex(editingVariantIdx);
+  }, [promoteVariantToBaseByIndex, editingVariantIdx]);
 
   const handleOpenSaveAsNew = React.useCallback((presetToCopy = null) => {
     const targetConfig = presetToCopy ? presetToCopy.config : cfg;
@@ -3711,9 +4636,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         setIsSaving(true);
         const sourceVariants = Array.isArray(saveModalState.preset.config?.strategy_variants)
           ? saveModalState.preset.config.strategy_variants.map(v => coerceAndSanitizeConfig(v, true))
-          : (Array.isArray(cfg.strategy_variants) ? cfg.strategy_variants.map(v => coerceAndSanitizeConfig(v, true)) : []);
+          : (Array.isArray(activeVariants) ? activeVariants.map(v => coerceAndSanitizeConfig(v, true)) : []);
         const payload = {
-          ...saveModalState.preset.config,
+          ...coerceAndSanitizeConfig(saveModalState.preset.config, false),
           strategy_label: newName,
           strategy_variants: sourceVariants
         };
@@ -3742,7 +4667,42 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     } else {
       await savePreset(newName);
     }
-  }, [saveModalState.preset, savePreset, addAlert]);
+  }, [saveModalState.preset, savePreset, activeVariants, addAlert]);
+
+  const duplicatePreset = React.useCallback(async (p) => {
+    if (!p?.name) return;
+    try {
+      setIsSaving(true);
+      const existingNames = new Set((Array.isArray(presets) ? presets : []).map(x => x?.name));
+      let copyName = `${p.name} (Copy)`;
+      let counter = 2;
+      while (existingNames.has(copyName)) {
+        copyName = `${p.name} (Copy ${counter++})`;
+      }
+      const sourceConfig = coerceAndSanitizeConfig({ ...(p.config || {}), strategy_label: copyName }, false);
+      const res = await presetsAPI.save(copyName, sourceConfig);
+      if (res && res.data) {
+        const savedPreset = res.data?.preset || res.data;
+        setPresets(prev => {
+          const safe = Array.isArray(prev) ? prev : [];
+          return [...safe.filter(x => x && x.name !== copyName), savedPreset].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        });
+        addAlert({
+          level: 'success',
+          title: 'Preset Duplicated',
+          message: `Created duplicate preset "${copyName}".`
+        });
+      }
+    } catch (err) {
+      addAlert({
+        level: 'error',
+        title: 'Duplicate Failed',
+        message: err.response?.data?.message || err.message || 'Failed to duplicate preset.'
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [presets, addAlert]);
 
   const deletePreset = React.useCallback(async (name) => {
     if (sessionActive) {
@@ -3754,7 +4714,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       await presetsAPI.delete(name);
       setPresets(prev => (Array.isArray(prev) ? prev.filter(p => p && p.name !== name) : []));
 
-      // Clear active preset/loaded references if the deleted preset was active/loaded
       if (loadedPresetName === name) {
         setLoadedPresetName(null);
         if (typeof sessionStorage !== 'undefined') {
@@ -3765,14 +4724,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         setPresetName('');
       }
 
-      // Automatically prune this configuration from active variants to prevent it from bleeding into new sessions
-      setCfg(prev => {
-        const variants = (prev.strategy_variants || []).filter(v => v.strategy_label !== name);
-        return {
-          ...prev,
-          strategy_variants: variants
-        };
-      });
+      // Prune deleted preset from both active variants and base backup
+      updateVariantsList(variants => variants.filter(v => v?.strategy_label !== name));
 
       addAlert({ level: 'info', title: 'Preset Deleted', message: `"${name}" has been removed from the database.` });
     } catch (e) {
@@ -3782,15 +4735,22 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       setIsDeleting(false);
       setPresetToDelete(null);
     }
-  }, [addAlert, loadedPresetName, presetName, setCfg, setLoadedPresetName, setPresetName, sessionActive]);
+  }, [addAlert, loadedPresetName, presetName, sessionActive, updateVariantsList]);
 
   const handleClearActiveConfig = React.useCallback(() => {
+    suppressDraftSaveRef.current = true;
+    hasUserLocalOverrideRef.current = false;
+    setEditingVariantIdx(null);
+    setBaseConfigBackup(null);
+    setSelectedPresetNames(new Set());
+
     let baseline;
     if (isEdit) {
       baseline = flattenConfig(initialConfig);
     } else {
       baseline = flattenConfig({
         paper_mode: true,
+        global_scanner_enabled: true,
         strategy_label: 'Momentum Strategy',
         strategy_variants: [],
         max_total_risk_pct: CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT,
@@ -3838,6 +4798,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       sessionStorage.removeItem('config_draft');
       sessionStorage.removeItem('loaded_preset_name');
     }
+    setHasPendingSessionChanges(false);
     setIsDirty(false);
     setErrors({});
     addAlert({
@@ -3992,14 +4953,37 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const names = Array.from(selectedPresetNames);
     if (names.length === 0 || sessionActive) return;
     try {
-      await Promise.all(names.map(name => presetsAPI.delete(name)));
+      setIsDeleting(true);
+      const results = await Promise.allSettled(names.map(name => presetsAPI.delete(name)));
+      const deletedSet = new Set(names.filter((_, idx) => results[idx].status === 'fulfilled'));
+      const failedCount = names.length - deletedSet.size;
+
+      if (deletedSet.size > 0) {
+        setPresets(prev => (Array.isArray(prev) ? prev.filter(p => p && !deletedSet.has(p.name)) : []));
+        if (loadedPresetName && deletedSet.has(loadedPresetName)) {
+          setLoadedPresetName(null);
+          if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem('loaded_preset_name');
+        }
+        if (presetName && deletedSet.has(presetName)) {
+          setPresetName('');
+        }
+        updateVariantsList(variants => variants.filter(v => !deletedSet.has(v?.strategy_label)));
+      }
       setSelectedPresetNames(new Set());
-      await fetchPresets();
-      addAlert({ level: 'success', title: 'Presets Deleted', message: `Successfully deleted ${names.length} selected preset(s).` });
+
+      if (failedCount === 0) {
+        addAlert({ level: 'success', title: 'Presets Deleted', message: `Successfully deleted ${deletedSet.size} selected preset(s).` });
+      } else if (deletedSet.size > 0) {
+        addAlert({ level: 'warning', title: 'Partial Delete', message: `Deleted ${deletedSet.size} preset(s); ${failedCount} failed.` });
+      } else {
+        addAlert({ level: 'error', title: 'Delete Failed', message: 'Failed to delete selected presets.' });
+      }
     } catch (e) {
       addAlert({ level: 'error', title: 'Delete Failed', message: 'Failed to delete selected presets.' });
+    } finally {
+      setIsDeleting(false);
     }
-  }, [selectedPresetNames, sessionActive, fetchPresets, addAlert]);
+  }, [selectedPresetNames, sessionActive, loadedPresetName, presetName, updateVariantsList, addAlert]);
 
   const handlePasteConfig = React.useCallback(async () => {
     let text = '';
@@ -4035,8 +5019,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     try {
       const parsed = JSON.parse(text);
       const flattened = flattenConfig(parsed);
+      hasUserLocalOverrideRef.current = true;
+      suppressDraftSaveRef.current = false;
       setCfg(flattened);
       setIsDirty(true);
+      setHasPendingSessionChanges(true);
       validate(flattened);
       addAlert({ level: 'success', title: 'Paste Successful', message: 'Configuration pasted from clipboard.' });
     } catch (err) {
@@ -4067,10 +5054,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   }, []);
 
   const toggleVariant = React.useCallback((e, p) => {
-    e.stopPropagation()
+    e.stopPropagation();
 
     // Guard 1: Prevent adding the current active base strategy as a variant of itself
-    const currentBaseLabel = loadedPresetName || cfg.strategy_label;
+    const currentBaseLabel = (editingVariantIdx !== null && baseConfigBackup)
+      ? (baseConfigBackup.strategy_label || loadedPresetName)
+      : (loadedPresetName || cfg.strategy_label);
     if (p.name === currentBaseLabel) {
       addAlert({
         level: 'warn',
@@ -4080,10 +5069,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       return;
     }
 
-    const variants = cfg.strategy_variants || []
-    const exists = variants.some((v) => v.strategy_label === p.name)
-
-    if (!exists && variants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
+    const exists = activeVariants.some((v) => v?.strategy_label === p.name);
+    if (!exists && activeVariants.length >= CONFIG_LIMITS.MAX_VARIANTS) {
       addAlert({
         level: 'warn',
         title: 'Limit Reached',
@@ -4092,21 +5079,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       return;
     }
 
-    setField('strategy_variants', exists
-      ? variants.filter((v) => v.strategy_label !== p.name)
-      : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true)])
-  }, [cfg.strategy_variants, loadedPresetName, cfg.strategy_label, setField, addAlert]);
+    updateVariantsList(variants => exists
+      ? variants.filter((v) => v?.strategy_label !== p.name)
+      : [...variants, coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true)]);
+  }, [activeVariants, editingVariantIdx, baseConfigBackup, loadedPresetName, cfg.strategy_label, updateVariantsList, addAlert]);
 
   const clearAllVariants = React.useCallback(() => {
-    const count = (cfg.strategy_variants || []).length;
+    const count = activeVariants.length;
     if (count === 0) return;
-    setField('strategy_variants', []);
+    updateVariantsList(() => []);
     addAlert({
       level: 'info',
       title: 'Variants Cleared',
       message: `Removed ${count} strategy variant${count > 1 ? 's' : ''} from active orchestration.`
     });
-  }, [cfg.strategy_variants, setField, addAlert]);
+  }, [activeVariants.length, updateVariantsList, addAlert]);
 
   const currentModeBalance = cfg.trading_mode === 'paper' ? (cfg.paper_starting_balance || 10000) : cfg.trading_mode === 'testnet' ? (cfg.testnet_starting_balance || 0) : (cfg.live_starting_balance || 0);
   const riskAmount = (currentModeBalance * ((cfg.risk_pct_per_trade || 0) / 100))
@@ -4165,7 +5152,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       className="signal-stack-editor flex flex-col flex-1 min-h-0 h-full bg-surface text-text overflow-hidden relative outline-none"
     >
       <div className="relative z-40 bg-surface/95 backdrop-blur-md border-b border-border shrink-0">
-        <div className="px-2.5 sm:px-4 py-1 sm:py-2 flex justify-between items-center relative z-20 transition-all">
+        <div className="px-2.5 sm:px-4 py-1 sm:py-1.5 flex justify-between items-center relative z-20 transition-all">
           <div className="min-w-0 flex-1 mr-2">
              <div className="text-xs sm:text-sm font-black tracking-tight truncate uppercase flex items-center gap-1.5">
                <span className="truncate">
@@ -4191,43 +5178,30 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                    Draft
                  </span>
                )}
-               {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
+               {(isDirty || hasPendingSessionChanges) && <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse shrink-0" />}
+               <InfoHelpButton
+                 open={!!expandedHelpMap.header_status}
+                 onToggle={() => toggleHelpKey('header_status')}
+                 label="Configuration Status"
+               />
              </div>
-             <div className={cn("text-[9px] text-dim font-bold uppercase tracking-widest items-center gap-1.5 truncate", isInputFocused ? "hidden" : "hidden sm:flex")}>
-               {editingVariantIdx !== null ? (
-                 <span className="text-violet-400 font-semibold truncate flex items-center gap-1">
-                   Base Preserved: {baseConfigBackup?.strategy_label || loadedPresetName || 'Main Strategy'}
-                 </span>
-               ) : showResumingFeedback ? (
-                 <span className="text-accent flex items-center gap-1 shrink-0">
-                   <RefreshCw size={9} className="animate-spin" /> Resuming Feed...
-                 </span>
-               ) : isDirty ? (
-                 <span className="text-accent flex items-center gap-1 shrink-0">
-                   <Activity size={9} className="animate-pulse" /> Unsaved Changes
-                 </span>
-               ) : (
-                 <span className="flex items-center gap-1 shrink-0">
-                   <ShieldCheck size={9} className="text-green/60" /> Strategy Synced
-                 </span>
-               )}
-               {editingVariantIdx === null && (
-                 <>
-                   <span className="opacity-40">/</span>
-                   <span className="truncate">
-                     {loadedPresetName
-                       ? `Preset: "${loadedPresetName}"${cfg.strategy_label && cfg.strategy_label !== loadedPresetName ? ` (${cfg.strategy_label})` : ''}`
-                       : (cfg.strategy_label ? `Strategy: ${cfg.strategy_label}` : 'Orchestration Center')}
-                   </span>
-                 </>
-               )}
-             </div>
+             {expandedHelpMap.header_status && (
+               <InfoDropdownBox className="mt-1">
+                 {editingVariantIdx !== null
+                   ? `Base Preserved: ${baseConfigBackup?.strategy_label || loadedPresetName || 'Main Strategy'}`
+                   : showResumingFeedback
+                     ? 'Resuming Feed...'
+                     : (isDirty || hasPendingSessionChanges)
+                       ? `Unsaved Changes · ${loadedPresetName ? `Preset: "${loadedPresetName}"` : (cfg.strategy_label || 'Orchestration Center')}`
+                       : `Strategy Synced · ${loadedPresetName ? `Preset: "${loadedPresetName}"` : (cfg.strategy_label || 'Orchestration Center')}`}
+               </InfoDropdownBox>
+             )}
           </div>
           <Tooltip content="Close Configuration">
             <button type="button" onClick={onClose} aria-label="Close Configuration" className="min-h-[30px] min-w-[30px] sm:min-h-[32px] sm:min-w-[32px] flex items-center justify-center hover:bg-white/5 rounded-lg transition-colors shrink-0 cursor-pointer"><X size={15} className="text-dim" /></button>
           </Tooltip>
         </div>
-        <SectionTabs section={section} onSectionChange={setSection} errors={errors} />
+        <SectionTabs section={section} onSectionChange={handleSectionChange} errors={errors} />
 
         {/* Ultra-Dense, High-Clarity Sub-Header Ribbon across other tabs (auto-collapses while keyboard is active) */}
         {section !== 'presets' && (!isInputFocused && (
@@ -4381,6 +5355,35 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       <ModalAlertTicker />
 
       <div ref={scrollBodyRef} className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-2.5 pt-1.5 sm:px-4 sm:pt-2.5 pb-2 sm:pb-3 overscroll-contain" data-vaul-no-drag>
+        {section === 'summary' && (
+          <ActiveSummaryPanel
+            cfg={cfg}
+            setField={setField}
+            renderField={renderField}
+            errors={errors}
+            riskAmount={riskAmount}
+            activeVariants={activeVariants}
+            isEdit={isEdit}
+            editingVariantIdx={editingVariantIdx}
+            SIGNALS={SIGNALS}
+            TOOLTIPS={TOOLTIPS}
+            getBaseSignalType={getBaseSignalType}
+            getSignalParamsSchema={getSignalParamsSchema}
+            onToggleEntrySignal={handleToggleEntrySignal}
+            onRemoveEntryLayer={handleRemoveEntryLayer}
+            onUpdateEntryLayer={handleUpdateEntryLayer}
+            onToggleRequiredEntry={handleToggleRequiredEntry}
+            onToggleExitSignal={handleToggleExitSignal}
+            onRemoveExitLayer={handleRemoveLayer}
+            onUpdateExitLayer={handleUpdateLayer}
+            onToggleRequiredExit={handleToggleRequiredExit}
+            onOpenFullSection={openFullSection}
+            ConfigFieldComponent={ConfigField}
+            ToggleComponent={Toggle}
+            onInputFocus={handleInputFocus}
+          />
+        )}
+
         {section === 'scan' && (
           <div
             id="config-panel-scan"
@@ -4388,6 +5391,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-scan"
             className="flex flex-col gap-3 animate-in fade-in duration-300"
           >
+            {orderSectionEntries('scan', {
+            scan_general: (
             <CollapsibleSection
               id="scan_general"
               icon={Settings2}
@@ -4398,7 +5403,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             >
               {renderField('Strategy label', 'strategy_label', 'text', null, { placeholder: 'Momentum Strategy' })}
             </CollapsibleSection>
+            ),
 
+            scan_htf_cross: (
             <CollapsibleSection
               id="scan_htf_cross"
               icon={Award}
@@ -4408,17 +5415,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'scan_htf_cross' ? null : 'scan_htf_cross')}
             >
               <div className="flex flex-col gap-4">
-                <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                      <Award size={20} />
+                <div className="p-3.5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0">
+                        <Award size={16} />
+                      </div>
+                      <span className="text-xs font-bold truncate">HTF EMA Cross Boost</span>
+                      <InfoHelpButton
+                        open={!!expandedHelpMap.scan_htf_boost}
+                        onToggle={() => toggleHelpKey('scan_htf_boost')}
+                        label="HTF EMA Cross Boost"
+                      />
                     </div>
-                    <div>
-                      <div className="text-sm font-bold">HTF EMA Cross Boost</div>
-                      <div className="text-[10px] text-dim font-medium uppercase">Rank symbols by historical 4H cross profit % & R:R</div>
-                    </div>
+                    <Toggle value={cfg.htf_ema_cross_boost_enabled !== false} onChange={(v) => setField('htf_ema_cross_boost_enabled', v)} />
                   </div>
-                  <Toggle value={cfg.htf_ema_cross_boost_enabled !== false} onChange={(v) => setField('htf_ema_cross_boost_enabled', v)} />
+                  {expandedHelpMap.scan_htf_boost && (
+                    <InfoDropdownBox>Rank symbols by historical 4H EMA cross profit % &amp; R:R.</InfoDropdownBox>
+                  )}
                 </div>
 
                 <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-6", cfg.htf_ema_cross_boost_enabled === false && "opacity-40 pointer-events-none")}>
@@ -4431,7 +5445,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               </div>
             </CollapsibleSection>
+            ),
 
+            scan_global: (
             <CollapsibleSection
               id="scan_global"
               icon={Search}
@@ -4439,30 +5455,38 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               subtitle="Automatic discovery settings"
               isOpen={openSectionId === 'scan_global'}
               onToggle={() => setOpenSectionId(openSectionId === 'scan_global' ? null : 'scan_global')}
+              {...getSectionErrorInfo('scan_global')}
             >
-              <div className="p-4 bg-accent/5 border border-accent/20 rounded-2xl flex items-center justify-between mb-6">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                    <Search size={20} />
+              <div className="p-3.5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-2 mb-5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0">
+                      <Search size={16} />
+                    </div>
+                    <span className="text-xs font-bold truncate">Global Scanner</span>
+                    <InfoHelpButton
+                      open={!!expandedHelpMap.scan_global_toggle}
+                      onToggle={() => toggleHelpKey('scan_global_toggle')}
+                      label="Global Scanner"
+                    />
                   </div>
-                  <div>
-                    <div className="text-sm font-bold">Global Scanner</div>
-                    <div className="text-[10px] text-dim font-medium uppercase">Automatic discovery</div>
-                  </div>
+                  <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
                 </div>
-                <Toggle value={cfg.global_scanner_enabled !== false} onChange={(v) => setField('global_scanner_enabled', v)} />
+                {expandedHelpMap.scan_global_toggle && (
+                  <InfoDropdownBox>Automatic market-wide candidate discovery using Binance 24h rankings and configurable filters.</InfoDropdownBox>
+                )}
               </div>
 
               <div className={cn("grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6", cfg.global_scanner_enabled === false && "opacity-40 pointer-events-none")}>
                 {renderField('Timeframe', 'scan_interval', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
-                <Tooltip content="Determines how candidate symbols are selected from Binance 24h market rankings: Top Volume (liquidity-focused), Top Gainers % (rising 24h momentum), Top Losers % (falling 24h momentum), or Top Absolute Movement (volatile movers).">
-                  {renderField('Discovery Mode', 'discovery_mode', 'text', [
-                    { value: 'volume', label: 'Top 24h Volume' },
-                    { value: 'change_pct', label: 'Top 24h Gainers (%)' },
-                    { value: 'loss_pct', label: 'Top 24h Losers (%)' },
-                    { value: 'abs_change_pct', label: 'Top Absolute Movement (Gainers & Losers)' }
-                  ])}
-                </Tooltip>
+                {renderField('Discovery Mode', 'discovery_mode', 'text', [
+                  { value: 'volume', label: 'Top 24h Volume' },
+                  { value: 'change_pct', label: 'Top 24h Gainers (%)' },
+                  { value: 'loss_pct', label: 'Top 24h Losers (%)' },
+                  { value: 'abs_change_pct', label: 'Top Absolute Movement (Gainers & Losers)' }
+                ], {
+                  helpText: "Determines how candidate symbols are selected from Binance 24h market rankings: Top Volume (liquidity-focused), Top Gainers % (rising 24h momentum), Top Losers % (falling 24h momentum), or Top Absolute Movement (volatile movers)."
+                })}
                 {renderField('% Threshold', 'scan_pct_threshold', 'number', null, { min: CONFIG_LIMITS.SCAN_PCT_THRESHOLD_MIN, step: 0.1 })}
                 {renderField('Watchlist size', 'watchlist_size', 'number', null, { min: CONFIG_LIMITS.WATCHLIST_MIN, max: CONFIG_LIMITS.WATCHLIST_MAX })}
                 {renderField('Watchlist Offset', 'watchlist_offset', 'number', null, { min: 0, max: 100 })}
@@ -4471,45 +5495,57 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   { value: 'long', label: 'Long Only' },
                   { value: 'short', label: 'Short Only' },
                 ])}
-                <Tooltip content="Number of recent candles evaluated for price momentum percentage change. Shorter lookback captures immediate price velocity, while longer lookback filters short-term wicks.">
-                  {renderField('Momentum Lookback', 'scan_lookback', 'number', null, { min: 1, max: 100 })}
-                </Tooltip>
-                <Tooltip content="CRITICAL FOR TARGET EXITS: Evaluates average candle range expansion over recent candles. A higher number of candles (e.g. recommended 48) is advised so volatility measurement is smooth and trades have sufficient price room to reach profit targets (TP/RR) and absorb spread/fees rather than stalling in consolidation.">
-                  {renderField('Volatility Lookback', 'volatility_lookback', 'number', null, { min: 1, max: 100 })}
-                </Tooltip>
-                <Tooltip content="Number of recent candles evaluated for consecutive close-to-close directional consistency. Ensures momentum moves have solid trend confirmation instead of single-wick noise.">
-                  {renderField('Trend Lookback', 'trend_lookback', 'number', null, { min: 2, max: 100 })}
-                </Tooltip>
-                <Tooltip content="The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling.">
-                  {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, { min: 1, max: 50 })}
-                </Tooltip>
+                {renderField('Momentum Lookback', 'scan_lookback', 'number', null, {
+                  min: 1,
+                  max: 100,
+                  helpText: "Number of recent candles evaluated for price momentum percentage change. Shorter lookback captures immediate price velocity, while longer lookback filters short-term wicks."
+                })}
+                {renderField('Volatility Lookback', 'volatility_lookback', 'number', null, {
+                  min: 1,
+                  max: 100,
+                  helpText: "CRITICAL FOR TARGET EXITS: Evaluates average candle range expansion over recent candles. A higher number of candles (e.g. recommended 48) is advised so volatility measurement is smooth and trades have sufficient price room to reach profit targets (TP/RR) and absorb spread/fees rather than stalling in consolidation."
+                })}
+                {renderField('Trend Lookback', 'trend_lookback', 'number', null, {
+                  min: 2,
+                  max: 100,
+                  helpText: "Number of recent candles evaluated for consecutive close-to-close directional consistency. Ensures momentum moves have solid trend confirmation instead of single-wick noise."
+                })}
+                {renderField('Signal Depth', 'scanner_signal_depth', 'number', null, {
+                  min: 1,
+                  max: 50,
+                  helpText: "The scanner will check signals for top candidates up to this depth. If top candidates fail signals, it moves to the next. Set higher for strict signal strategies to prevent stalling."
+                })}
 
-                <div className="md:col-span-2 mt-4 flex flex-col gap-4">
-                  <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Zap size={20} /></div>
-                      <div>
-                        <div className="text-sm font-bold flex items-center gap-2">
-                          Smart Watchlist
-                          <Tooltip content="Event-driven discovery: Monitors the real-time !miniTicker stream to catch symbols with high momentum BEFORE they enter the top volume lists. Increases discovery range without extra API weight.">
-                            <Info size={12} className="text-dim/60" />
-                          </Tooltip>
-                        </div>
-                        <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Event-driven discovery via !miniTicker</div>
+                <div className="md:col-span-2 mt-2 flex flex-col gap-3">
+                  <div className="p-3.5 bg-background/50 rounded-2xl border border-border/50 flex flex-col gap-2 hover:border-accent/30 transition-colors">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0"><Zap size={16} /></div>
+                        <span className="text-xs font-bold truncate">Smart Watchlist</span>
+                        <InfoHelpButton
+                          open={!!expandedHelpMap.smart_watchlist}
+                          onToggle={() => toggleHelpKey('smart_watchlist')}
+                          label="Smart Watchlist"
+                        />
                       </div>
+                      <Toggle value={cfg.smart_watchlist_enabled === true} onChange={(v) => setField('smart_watchlist_enabled', v)} />
                     </div>
-                    <Toggle value={cfg.smart_watchlist_enabled === true} onChange={(v) => setField('smart_watchlist_enabled', v)} />
+                    {expandedHelpMap.smart_watchlist && (
+                      <InfoDropdownBox>Event-driven discovery: Monitors the real-time !miniTicker stream to catch symbols with high momentum BEFORE they enter the top volume lists without extra API weight.</InfoDropdownBox>
+                    )}
                   </div>
 
                   {cfg.smart_watchlist_enabled && (
-                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-accent/5 rounded-2xl border border-accent/20 flex flex-col gap-4 shadow-sm">
-                      <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent mb-2">
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-accent/5 rounded-2xl border border-accent/20 flex flex-col gap-3 shadow-sm">
+                      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent">
                         <TrendingUp size={12} /> Predictive Discovery
                       </div>
-                      {renderField('Discovery Sensitivity', 'smart_watchlist_sensitivity', 'number', null, { min: 0.1, max: 1.0, step: 0.1 })}
-                      <p className="text-[9px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
-                        Expands the candidate pool by identifying movers in the real-time mini-ticker stream before they enter the top volume lists. Lower values are more inclusive.
-                      </p>
+                      {renderField('Discovery Sensitivity', 'smart_watchlist_sensitivity', 'number', null, {
+                        min: 0.1,
+                        max: 1.0,
+                        step: 0.1,
+                        helpText: "Expands the candidate pool by identifying movers in the real-time mini-ticker stream before they enter the top volume lists. Lower values are more inclusive."
+                      })}
                     </motion.div>
                   )}
                 </div>
@@ -4570,7 +5606,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               </div>
             </CollapsibleSection>
+            ),
 
+            scan_watchlist: (
             <CollapsibleSection
               id="scan_watchlist"
               icon={Plus}
@@ -4582,9 +5620,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="flex flex-col gap-4">
                 {/* Watchlist Limit Control */}
                 <div className="flex flex-col gap-2 p-3 bg-surface/50 border border-border/40 rounded-xl">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black text-text uppercase tracking-wider">Watchlist Limit (Strict Ceiling)</span>
-                    <span className="text-[9px] font-mono font-bold text-accent">
+                  <div className="flex justify-between items-start gap-2">
+                    <CollapsibleHelpTitle
+                      title="Watchlist Limit (Strict Ceiling)"
+                      titleClassName="text-[10px] font-black text-text uppercase tracking-wider"
+                      helpText="If set to 1, strictly only 1 symbol stays on the list. Adding or rotating in a new candidate replaces the idle symbol."
+                    />
+                    <span className="text-[9px] font-mono font-bold text-accent shrink-0">
                       {Number(cfg.watchlist_max_symbols) > 0 ? `${cfg.watchlist_max_symbols} Symbols Max` : 'Unlimited'}
                     </span>
                   </div>
@@ -4617,30 +5659,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       </button>
                     ))}
                   </div>
-                  <span className="text-[8.5px] text-dim leading-relaxed">
-                    If set to 1, strictly only 1 symbol stays on the list. Adding or rotating in a new candidate replaces the idle symbol.
-                  </span>
                 </div>
 
                 {/* Auto-Rotate Scheduler & Freeze Lock */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-surface/50 border border-border/40 rounded-xl">
                   <div className="flex flex-col gap-1.5">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-text uppercase tracking-wider">Auto-Rotate Scheduler</span>
+                    <div className="flex justify-between items-start gap-2">
+                      <CollapsibleHelpTitle
+                        title="Auto-Rotate Scheduler"
+                        titleClassName="text-[10px] font-black text-text uppercase tracking-wider"
+                        helpText="Promotes top favorable dynamic scanner opportunities into watchlist at regular intervals."
+                      />
                       <button
                         type="button"
                         onClick={() => setField('watchlist_auto_rotate', !cfg.watchlist_auto_rotate)}
                         className={cn(
-                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors",
+                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors shrink-0",
                           cfg.watchlist_auto_rotate ? "bg-green/15 border-green/40 text-green" : "bg-surface border-border text-dim"
                         )}
                       >
                         {cfg.watchlist_auto_rotate ? 'Enabled' : 'Disabled'}
                       </button>
                     </div>
-                    <span className="text-[8.5px] text-dim">
-                      Promotes top favorable dynamic scanner opportunities into watchlist at regular intervals.
-                    </span>
 
                     {cfg.watchlist_auto_rotate && (
                       <div className="flex flex-wrap gap-1 mt-1">
@@ -4664,33 +5704,40 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
 
                   <div className="flex flex-col gap-1.5 border-t md:border-t-0 md:border-l border-border/30 pt-2 md:pt-0 md:pl-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] font-black text-text uppercase tracking-wider">Lock Watchlist (Freeze)</span>
+                    <div className="flex justify-between items-start gap-2">
+                      <CollapsibleHelpTitle
+                        title="Lock Watchlist (Freeze)"
+                        titleClassName="text-[10px] font-black text-text uppercase tracking-wider"
+                        helpText='"No to change" mode: Freezes the list and disables automated rotation.'
+                      />
                       <button
                         type="button"
                         onClick={() => setField('watchlist_locked', !cfg.watchlist_locked)}
                         className={cn(
-                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors",
+                          "px-2 py-0.5 rounded text-[8.5px] font-black uppercase tracking-wider border transition-colors shrink-0",
                           cfg.watchlist_locked ? "bg-amber/15 border-amber/40 text-amber" : "bg-surface border-border text-dim"
                         )}
                       >
                         {cfg.watchlist_locked ? 'Locked (Frozen)' : 'Unlocked'}
                       </button>
                     </div>
-                    <span className="text-[8.5px] text-dim">
-                      "No to change" mode: Freezes the list and disables automated rotation.
-                    </span>
                   </div>
                 </div>
 
                 <WatchlistDropdownInput value={cfg.symbols || []} onChange={(val) => setField('symbols', val)} />
-                <div className="pt-4 border-t border-border/40">
-                  <span className="text-[10px] font-black text-dim uppercase tracking-wider mb-2 block">Edit Comma-Separated List (Advanced)</span>
+                <div className="pt-4 border-t border-border/40 flex flex-col gap-2">
+                  <CollapsibleHelpTitle
+                    title="Comma-Separated List"
+                    titleClassName="text-[10px] font-black text-dim uppercase tracking-wider"
+                    helpText="Advanced direct comma-separated symbol editor for bulk editing static watchlist symbols."
+                  />
                   <ListInput placeholder="BTCUSDT, ETHUSDT, SOLUSDT..." value={cfg.symbols} onChange={(val) => setField('symbols', val)} />
                 </div>
               </div>
             </CollapsibleSection>
+            ),
 
+            scan_exclusion: (
             <CollapsibleSection
               id="scan_exclusion"
               icon={XCircle}
@@ -4701,6 +5748,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             >
               <ListInput placeholder="BTCUSDT, ETHUSDT..." value={cfg.excluded_symbols} onChange={(val) => setField('excluded_symbols', val)} />
             </CollapsibleSection>
+            ),
+            })}
 
             <section className="pt-6 border-t border-border/40">
                <div className="flex justify-between items-center mb-4">
@@ -4712,7 +5761,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                />
                <div className="flex flex-wrap gap-2 mt-4">
                  {(Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).length === 0 ? (
-                   <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-4 border border-dashed border-border/40 rounded-xl w-full text-center">No symbols tracked manually</p>
+                   <p className="text-[10px] text-dim/40 font-bold uppercase tracking-widest p-3 border border-dashed border-border/40 rounded-xl w-full text-center">No manual symbols</p>
                  ) : (Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).map((sc, i) => (
                    <Chip key={i} active activeClass="bg-accent/10 border-accent/40 text-accent" aria-label={`Remove ${sc?.symbol || ''}`} onClick={() => setField('single_symbol_configs', (Array.isArray(cfg.single_symbol_configs) ? cfg.single_symbol_configs : []).filter((_, idx) => idx !== i))}>{sc?.symbol} <X size={10} className="inline ml-1" /></Chip>
                  ))}
@@ -4728,6 +5777,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-strategy"
             className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
+            {orderSectionEntries('strategy', {
+            strategy_entry: (
             <CollapsibleSection
               id="strategy_entry"
               icon={Zap}
@@ -4737,55 +5788,53 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_entry' ? null : 'strategy_entry')}
             >
               <div className="flex flex-col gap-2 mb-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Entry Signal Logic</span>
-                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
+                <div className="flex justify-between items-center gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-[10px] font-black text-dim uppercase tracking-widest truncate">Entry Signal Logic</span>
+                    <InfoHelpButton
+                      open={!!expandedHelpMap.entry_signal_logic}
+                      onToggle={() => toggleHelpKey('entry_signal_logic')}
+                      label="Entry Signal Logic"
+                    />
+                  </div>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner shrink-0">
                     <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'any' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'any')}>ANY</button>
                     <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'all' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'all')}>ALL (AND)</button>
                     <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.signal_logic || 'all') === 'combo' ? "bg-accent text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('signal_logic', 'combo')}>COMBO</button>
                   </div>
                 </div>
-                {cfg.signal_logic === 'combo' && (
-                  <div className="p-2.5 bg-accent/5 border border-accent/20 rounded-xl text-[9px] font-bold text-accent uppercase tracking-wider flex items-center gap-2 text-left">
-                    <Zap size={13} className="shrink-0 text-accent" />
-                    <span>COMBO Mode: Position enters when ALL <strong>Required (AND)</strong> signals fire + at least ONE <strong>Optional (ANY)</strong> signal fires.</span>
-                  </div>
+                {expandedHelpMap.entry_signal_logic && (
+                  <InfoDropdownBox>
+                    <strong>ANY:</strong> Enters if any active signal triggers. <strong>ALL (AND):</strong> Every active signal must agree. <strong>COMBO:</strong> Enters when all Required (AND) signals fire + at least one Optional (ANY) signal fires.
+                  </InfoDropdownBox>
                 )}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {(() => {
-                  const activeSet = new Set(cfg.enabled_signals || []);
-                  const commonSet = new Set(['momentum_pct', 'ema_dual_cross', 'supertrend', 'engulfing', 'htf_breakout']);
-                  const sorted = [...SIGNALS].sort((a, b) => {
-                    const aActive = activeSet.has(a[0]);
-                    const bActive = activeSet.has(b[0]);
-                    if (aActive !== bActive) return aActive ? -1 : 1;
-                    const aCommon = commonSet.has(a[0]);
-                    const bCommon = commonSet.has(b[0]);
-                    if (aCommon !== bCommon) return aCommon ? -1 : 1;
-                    return 0;
-                  });
-                  return sorted.map((signal) => (
-                    <EntrySignalCard
-                      key={signal[0]}
-                      signal={signal}
-                      active={(cfg.enabled_signals || []).includes(signal[0])}
-                      isComboMode={cfg.signal_logic === 'combo'}
-                      isRequired={(cfg.required_signals || []).includes(signal[0])}
-                      onToggleRequired={handleToggleRequiredEntry}
-                      layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
-                      timeframes={cfg.signal_timeframes || {}}
-                      scanTimeframe={cfg.scan_interval}
-                      onToggle={handleToggleEntrySignal}
-                      onAddLayer={handleAddEntryLayer}
-                      onRemoveLayer={handleRemoveEntryLayer}
-                      onUpdateLayer={handleUpdateEntryLayer}
-                    />
-                  ));
-                })()}
-              </div>
+              <SignalListWithCollapse
+                signals={SIGNALS}
+                activeSet={new Set(cfg.enabled_signals || [])}
+                commonSet={new Set(['momentum_pct', 'ema_dual_cross', 'supertrend', 'engulfing', 'htf_breakout'])}
+                renderCard={(signal) => (
+                  <EntrySignalCard
+                    key={signal[0]}
+                    signal={signal}
+                    active={(cfg.enabled_signals || []).includes(signal[0])}
+                    isComboMode={cfg.signal_logic === 'combo'}
+                    isRequired={(cfg.required_signals || []).includes(signal[0])}
+                    onToggleRequired={handleToggleRequiredEntry}
+                    layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
+                    timeframes={cfg.signal_timeframes || {}}
+                    scanTimeframe={cfg.scan_interval}
+                    onToggle={handleToggleEntrySignal}
+                    onAddLayer={handleAddEntryLayer}
+                    onRemoveLayer={handleRemoveEntryLayer}
+                    onUpdateLayer={handleUpdateEntryLayer}
+                  />
+                )}
+              />
             </CollapsibleSection>
+            ),
 
+            strategy_params: (
             <CollapsibleSection
               id="strategy_params"
               icon={Activity}
@@ -4835,30 +5884,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       <div className="bg-background/20 p-4 rounded-2xl border border-border/50">
                         <div className="text-[9px] font-black text-dim uppercase tracking-[0.2em] mb-4">Global Parameters</div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                          {globalSchema.map(field => {
-                            const render = () => (
-                              <ConfigField
-                                label={field.label}
-                                id={`config-${field.key}`}
-                                name={field.key}
-                                key={field.key}
-                                type={field.type}
-                                value={cfg[field.key] !== undefined ? cfg[field.key] : field.defaultValue}
-                                onChange={setField}
-                                error={errors[field.key]}
-                                warning={errors[`${field.key}_warn`]}
-                                attrs={{ ...field.attrs, onFocus: handleInputFocus }}
-                              />
-                            );
-                            if (field.tooltip) {
-                              return (
-                                <Tooltip key={field.key} content={field.tooltip}>
-                                  <div>{render()}</div>
-                                </Tooltip>
-                              );
-                            }
-                            return render();
-                          })}
+                          {globalSchema.map(field => (
+                            <ConfigField
+                              label={field.label}
+                              id={`config-${field.key}`}
+                              name={field.key}
+                              key={field.key}
+                              type={field.type}
+                              value={cfg[field.key] !== undefined ? cfg[field.key] : field.defaultValue}
+                              onChange={setField}
+                              error={errors[field.key]}
+                              warning={errors[`${field.key}_warn`]}
+                              helpText={field.tooltip || TOOLTIPS[field.baseParamKey]}
+                              attrs={{ ...field.attrs, onFocus: handleInputFocus }}
+                            />
+                          ))}
                         </div>
                       </div>
 
@@ -4889,48 +5929,42 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               isBooleanOnly ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-2 md:grid-cols-4"
                             )}>
                               {card.schema.map(field => {
-                                const renderInput = () => {
-                                  if (field.type === 'boolean') {
-                                    return (
-                                      <div className="flex flex-col gap-1.5 justify-center h-full min-h-[44px]">
-                                        <div className="flex justify-between items-center">
-                                          <label className="text-[10px] text-dim font-black tracking-widest uppercase">{field.label}</label>
-                                          <Toggle
-                                            value={cfg[field.key] !== undefined ? cfg[field.key] === true : field.defaultValue}
-                                            onChange={(v) => setField(field.key, v)}
-                                            color={card.isLayered ? "bg-purple" : "bg-accent"}
-                                          />
-                                        </div>
-                                      </div>
-                                    );
-                                  }
-
-                                  return (
-                                    <ConfigField
-                                      label={field.label}
-                                      id={`config-${field.key}`}
-                                      name={field.key}
-                                      type={field.type}
-                                      value={cfg[field.key] !== undefined ? cfg[field.key] : field.defaultValue}
-                                      onChange={setField}
-                                      error={errors[field.key]}
-                                      warning={errors[`${field.key}_warn`]}
-                                      opts={field.opts}
-                                      attrs={{ ...field.attrs, onFocus: handleInputFocus }}
-                                    />
-                                  );
-                                };
-
                                 const tooltipText = TOOLTIPS[field.baseParamKey];
-                                if (tooltipText) {
+                                if (field.type === 'boolean') {
                                   return (
-                                    <Tooltip key={field.key} content={tooltipText}>
-                                      <div>{renderInput()}</div>
-                                    </Tooltip>
+                                    <div key={field.key} className="flex flex-col gap-1.5 justify-center h-full min-h-[44px]">
+                                      <div className="flex justify-between items-center gap-2">
+                                        <CollapsibleHelpTitle
+                                          title={field.label}
+                                          titleClassName="text-[10px] text-dim font-black tracking-widest uppercase"
+                                          helpText={tooltipText}
+                                        />
+                                        <Toggle
+                                          value={cfg[field.key] !== undefined ? cfg[field.key] === true : field.defaultValue}
+                                          onChange={(v) => setField(field.key, v)}
+                                          color={card.isLayered ? "bg-purple" : "bg-accent"}
+                                        />
+                                      </div>
+                                    </div>
                                   );
                                 }
 
-                                return <React.Fragment key={field.key}>{renderInput()}</React.Fragment>;
+                                return (
+                                  <ConfigField
+                                    key={field.key}
+                                    label={field.label}
+                                    id={`config-${field.key}`}
+                                    name={field.key}
+                                    type={field.type}
+                                    value={cfg[field.key] !== undefined ? cfg[field.key] : field.defaultValue}
+                                    onChange={setField}
+                                    error={errors[field.key]}
+                                    warning={errors[`${field.key}_warn`]}
+                                    opts={field.opts}
+                                    helpText={tooltipText}
+                                    attrs={{ ...field.attrs, onFocus: handleInputFocus }}
+                                  />
+                                );
                               })}
                             </div>
                           </div>
@@ -4942,36 +5976,30 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               </div>
 
               {(cfg.enabled_signals || []).some(s => s === 'ema_dual' || s === 'ema_dual_close') && (
-                <div className="mt-8 p-5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-500 shadow-[0_4px_24px_rgba(var(--accent-rgb),0.04)]">
-                   <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
-                      <div className="p-1.5 bg-accent/10 rounded-lg">
-                        <Zap size={14} className="fill-accent/20" />
-                      </div>
-                      EMA Dual Logic
-                   </div>
-                   <div className="flex flex-col gap-2.5">
-                      <p className="text-[11px] text-dim leading-relaxed font-medium">
-                         An authoritative trend-following strategy that requires absolute alignment across two time horizons. {cfg.enabled_signals.includes('ema_dual_close') ? 'This variant strictly evaluates at the completed candle close.' : ''}
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                         <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
-                            <div className="text-[9px] font-black text-green uppercase tracking-wider mb-1">Long Entry</div>
-                            <div className="text-[10px] font-mono text-text/80">Fast EMA {'>'} Slow EMA</div>
-                         </div>
-                         <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
-                            <div className="text-[9px] font-black text-red uppercase tracking-wider mb-1">Short Entry</div>
-                            <div className="text-[10px] font-mono text-text/80">Fast EMA {'<'} Slow EMA</div>
-                         </div>
-                      </div>
-                      <p className="text-[10px] text-dim/60 italic leading-snug border-l-2 border-accent/20 pl-3">
-                         The engine interprets this as a "one-way door": if the fast EMA crosses back through the slow EMA, the trend is considered broken and the position is closed.
-                      </p>
-                   </div>
-                </div>
+                <CollapsibleInfoCard title="EMA Dual Logic" icon={Zap} className="mt-5">
+                  <p className="text-[11px] text-dim leading-relaxed font-medium">
+                    An authoritative trend-following strategy requiring alignment across two time horizons. {cfg.enabled_signals.includes('ema_dual_close') ? 'This variant strictly evaluates at the completed candle close.' : ''}
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
+                      <div className="text-[9px] font-black text-green uppercase tracking-wider mb-1">Long Entry</div>
+                      <div className="text-[10px] font-mono text-text/80">Fast EMA {'>'} Slow EMA</div>
+                    </div>
+                    <div className="p-3 bg-background/40 border border-border/30 rounded-xl">
+                      <div className="text-[9px] font-black text-red uppercase tracking-wider mb-1">Short Entry</div>
+                      <div className="text-[10px] font-mono text-text/80">Fast EMA {'<'} Slow EMA</div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-dim/70 italic leading-snug border-l-2 border-accent/20 pl-3">
+                    Interpreted as a &ldquo;one-way door&rdquo;: if the fast EMA crosses back through the slow EMA, the trend is considered broken and the position is closed.
+                  </p>
+                </CollapsibleInfoCard>
               )}
 
             </CollapsibleSection>
+            ),
 
+            strategy_exit: (
             <CollapsibleSection
               id="strategy_exit"
               icon={XCircle}
@@ -4980,69 +6008,68 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               isOpen={openSectionId === 'strategy_exit'}
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_exit' ? null : 'strategy_exit')}
             >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 mb-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Logic Override</span>
-                  <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Bypass ratcheting/trailing, immediately cancel SL, and drop exit signal delays to 0 when trade profit exceeds exit targets.</p>
-                </div>
+              <div className="flex items-start justify-between gap-4 p-3.5 mb-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                <CollapsibleHelpTitle
+                  title="Exit Logic Override"
+                  titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                  helpText="Bypass ratcheting/trailing, immediately cancel SL, and drop exit signal delays to 0 when trade profit exceeds exit targets."
+                />
                 <Toggle
                   value={cfg.exit_signals_override_ratchet || false}
                   onChange={(v) => setField('exit_signals_override_ratchet', v)}
                 />
               </div>
               <div className="flex flex-col gap-2 mb-4">
-                <div className="flex justify-between items-center">
-                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Exit Signal Logic</span>
-                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner">
+                <div className="flex justify-between items-center gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-[10px] font-black text-dim uppercase tracking-widest truncate">Exit Signal Logic</span>
+                    <InfoHelpButton
+                      open={!!expandedHelpMap.exit_signal_logic}
+                      onToggle={() => toggleHelpKey('exit_signal_logic')}
+                      label="Exit Signal Logic"
+                    />
+                  </div>
+                  <div className="flex bg-background p-1 rounded-lg border border-border shadow-inner shrink-0">
                     <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", (cfg.exit_signal_logic || 'any') === 'any' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'any')}>ANY</button>
                     <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'all' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'all')}>ALL (AND)</button>
                     <button type="button" className={cn("px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all", cfg.exit_signal_logic === 'combo' ? "bg-red text-white shadow-sm" : "text-dim hover:text-text")} onClick={() => setField('exit_signal_logic', 'combo')}>COMBO</button>
                   </div>
                 </div>
-                {cfg.exit_signal_logic === 'combo' && (
-                  <div className="p-2.5 bg-red/5 border border-red/20 rounded-xl text-[9px] font-bold text-red uppercase tracking-wider flex items-center gap-2 text-left">
-                    <Zap size={13} className="shrink-0 text-red" />
-                    <span>COMBO Mode: Exit triggers when ALL <strong>Required (AND)</strong> exit signals fire + at least ONE <strong>Optional (ANY)</strong> exit signal fires.</span>
-                  </div>
+                {expandedHelpMap.exit_signal_logic && (
+                  <InfoDropdownBox>
+                    <strong>ANY:</strong> Closes position when any exit signal fires. <strong>ALL (AND):</strong> Requires all selected exit signals to agree. <strong>COMBO:</strong> Closes when all Required (AND) exit signals fire + at least one Optional (ANY) exit signal fires.
+                  </InfoDropdownBox>
                 )}
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {(() => {
-                  const activeSet = new Set(cfg.exit_signals || []);
-                  const commonSet = new Set(['trigger_candle_exit', 'supertrend', 'engulfing', 'macd_fade']);
-                  const sorted = [...SIGNALS].sort((a, b) => {
-                    const aActive = activeSet.has(a[0]);
-                    const bActive = activeSet.has(b[0]);
-                    if (aActive !== bActive) return aActive ? -1 : 1;
-                    const aCommon = commonSet.has(a[0]);
-                    const bCommon = commonSet.has(b[0]);
-                    if (aCommon !== bCommon) return aCommon ? -1 : 1;
-                    return 0;
-                  });
-                  return sorted.map((signal) => (
-                    <ExitSignalCard
-                      key={signal[0]}
-                      signal={signal}
-                      active={(cfg.exit_signals || []).includes(signal[0])}
-                      isComboMode={cfg.exit_signal_logic === 'combo'}
-                      isRequired={(cfg.required_exit_signals || []).includes(signal[0])}
-                      onToggleRequired={handleToggleRequiredExit}
-                      layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
-                      delays={cfg.exit_signal_delays || {}}
-                      actions={cfg.exit_signal_actions || {}}
-                      timeframes={cfg.signal_timeframes || {}}
-                      scanTimeframe={cfg.scan_interval}
-                      onToggle={handleToggleExitSignal}
-                      onAddLayer={handleAddLayer}
-                      onRemoveLayer={handleRemoveLayer}
-                      onUpdateLayer={handleUpdateLayer}
-                      engulfingMode={cfg.engulfing_mode}
-                    />
-                  ));
-                })()}
-              </div>
+              <SignalListWithCollapse
+                signals={SIGNALS}
+                activeSet={new Set(cfg.exit_signals || [])}
+                commonSet={new Set(['trigger_candle_exit', 'supertrend', 'engulfing', 'macd_fade'])}
+                renderCard={(signal) => (
+                  <ExitSignalCard
+                    key={signal[0]}
+                    signal={signal}
+                    active={(cfg.exit_signals || []).includes(signal[0])}
+                    isComboMode={cfg.exit_signal_logic === 'combo'}
+                    isRequired={(cfg.required_exit_signals || []).includes(signal[0])}
+                    onToggleRequired={handleToggleRequiredExit}
+                    layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
+                    delays={cfg.exit_signal_delays || {}}
+                    actions={cfg.exit_signal_actions || {}}
+                    timeframes={cfg.signal_timeframes || {}}
+                    scanTimeframe={cfg.scan_interval}
+                    onToggle={handleToggleExitSignal}
+                    onAddLayer={handleAddLayer}
+                    onRemoveLayer={handleRemoveLayer}
+                    onUpdateLayer={handleUpdateLayer}
+                    engulfingMode={cfg.engulfing_mode}
+                  />
+                )}
+              />
             </CollapsibleSection>
+            ),
 
+            strategy_whipsaw: (
             <CollapsibleSection
               id="strategy_whipsaw"
               icon={ShieldCheck}
@@ -5054,55 +6081,65 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               <div className="flex flex-col gap-4">
                 <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-3">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Tooltip content="Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay). Applies to all standard strategy signals.">
-                      {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, { min: 0, max: 20 })}
-                    </Tooltip>
-                    <Tooltip content="Custom time delay (in minutes) after an exit before re-entry is permitted on the symbol. Overrides candle delay if time delay is longer.">
-                      {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, { min: 0, max: 1440 })}
-                    </Tooltip>
-                    <Tooltip content="Maximum signal timeframe evaluated for anti-whipsaw same-candle gating. Signals with larger timeframes (e.g. 1d confirming entry signals) will not lock out re-entries for 24 hours. Default: 4h.">
-                      {renderField('Max Anti-Whipsaw Timeframe', 'anti_whipsaw_max_tf', 'text', [
-                        { value: '1m', label: '1m' },
-                        { value: '3m', label: '3m' },
-                        { value: '5m', label: '5m' },
-                        { value: '15m', label: '15m' },
-                        { value: '30m', label: '30m' },
-                        { value: '1h', label: '1h' },
-                        { value: '4h', label: '4h (Default - Excludes 1d+ macro)' },
-                        { value: '1d', label: '1d' },
-                        { value: 'none', label: 'None (No limit)' }
-                      ])}
-                    </Tooltip>
+                    {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, {
+                      min: 0,
+                      max: 20,
+                      helpText: "Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay). Applies to all standard strategy signals."
+                    })}
+                    {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, {
+                      min: 0,
+                      max: 1440,
+                      helpText: "Custom time delay (in minutes) after an exit before re-entry is permitted on the symbol. Overrides candle delay if time delay is longer."
+                    })}
+                    {renderField('Max Anti-Whipsaw Timeframe', 'anti_whipsaw_max_tf', 'text', [
+                      { value: '1m', label: '1m' },
+                      { value: '3m', label: '3m' },
+                      { value: '5m', label: '5m' },
+                      { value: '15m', label: '15m' },
+                      { value: '30m', label: '30m' },
+                      { value: '1h', label: '1h' },
+                      { value: '4h', label: '4h (Default - Excludes 1d+ macro)' },
+                      { value: '1d', label: '1d' },
+                      { value: 'none', label: 'None (No limit)' }
+                    ], {
+                      helpText: "Maximum signal timeframe evaluated for anti-whipsaw same-candle gating. Signals with larger timeframes (e.g. 1d confirming entry signals) will not lock out re-entries for 24 hours. Default: 4h."
+                    })}
                     <div className="flex flex-col gap-1 text-left">
-                      <label htmlFor="anti-whipsaw-tfs" className="text-[9px] text-dim font-black tracking-widest uppercase">
-                        Explicit Timeframes Override (Comma-separated)
-                      </label>
+                      <div className="flex items-center gap-1">
+                        <label htmlFor="anti-whipsaw-tfs" className="text-[9px] text-dim font-black tracking-widest uppercase">
+                          Explicit Timeframes Override
+                        </label>
+                        <InfoHelpButton
+                          open={!!expandedHelpMap.anti_whipsaw_tfs}
+                          onToggle={() => toggleHelpKey('anti_whipsaw_tfs')}
+                          label="Explicit Timeframes Override"
+                        />
+                      </div>
                       <ListInput
                         id="anti-whipsaw-tfs"
                         placeholder="e.g. 1m, 1h (leave empty for auto)"
                         value={cfg.anti_whipsaw_timeframes}
                         onChange={(val) => setField('anti_whipsaw_timeframes', val)}
                       />
+                      {expandedHelpMap.anti_whipsaw_tfs && (
+                        <InfoDropdownBox>Comma-separated timeframes to explicitly enforce whipsaw cooldowns on. Leave empty for automatic detection capped by Max Timeframe.</InfoDropdownBox>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between pt-2 border-t border-border/20">
-                    <div className="flex flex-col text-left pr-3">
-                      <span className="text-[10px] font-black text-text uppercase tracking-widest">
-                        Per-Strategy Cooldown Isolation
-                      </span>
-                      <p className="text-[8.5px] text-dim/75 leading-snug mt-0.5">
-                        When enabled (default), anti-whipsaw cooldowns apply strictly within this strategy or variant so one strategy never blocks another on the same symbol.
-                      </p>
-                    </div>
+                  <div className="flex items-start justify-between gap-3 pt-2 border-t border-border/20">
+                    <CollapsibleHelpTitle
+                      title="Per-Strategy Cooldown Isolation"
+                      titleClassName="text-[10px] font-black text-text uppercase tracking-widest"
+                      helpText={'When enabled (default), anti-whipsaw cooldowns apply strictly within this strategy or variant so one strategy never blocks another. Signals above Max Timeframe (e.g. 1d macro) are excluded; Knife Catch trades can bypass via "Allow Knife Re-entry".'}
+                    />
                     <Toggle value={cfg.anti_whipsaw_per_strategy !== false} onChange={(v) => setField('anti_whipsaw_per_strategy', v)} />
                   </div>
-                  <p className="text-[8.5px] text-dim/70 leading-snug">
-                    Anti-whipsaw gating prevents rapid oscillation and double-dipping on the same symbol right after an exit. Signals above the Max Timeframe (like a 1d confirming signal) are automatically excluded so macro confirmation does not freeze candidate re-entries for 24 hours. High-velocity Knife Catch trades can optionally bypass this delay via "Allow Knife Re-entry".
-                  </p>
                 </div>
               </div>
             </CollapsibleSection>
+            ),
 
+            strategy_knife: (
             <CollapsibleSection
               id="strategy_knife"
               icon={Zap}
@@ -5112,66 +6149,88 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'strategy_knife' ? null : 'strategy_knife')}
             >
               <div className="flex flex-col gap-4">
-                <div className="p-4 bg-amber/5 border border-amber/20 rounded-2xl flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-amber/10 flex items-center justify-center text-amber">
-                      <Zap size={20} />
+                <div className="p-3.5 bg-amber/5 border border-amber/20 rounded-2xl flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-amber/10 flex items-center justify-center text-amber shrink-0">
+                        <Zap size={16} />
+                      </div>
+                      <span className="text-xs font-bold truncate">Knife Trailing Stop</span>
+                      <InfoHelpButton
+                        open={!!expandedHelpMap.knife_trailing_toggle}
+                        onToggle={() => toggleHelpKey('knife_trailing_toggle')}
+                        label="Knife Trailing Stop"
+                      />
                     </div>
-                    <div>
-                      <div className="text-sm font-bold">Knife Trailing Stop</div>
-                      <div className="text-[10px] text-dim font-medium uppercase">High-frequency velocity ROC trailing stop</div>
-                    </div>
+                    <Toggle value={cfg.knife_trailing_enabled !== false} onChange={(v) => setField('knife_trailing_enabled', v)} color="bg-amber" />
                   </div>
-                  <Toggle value={cfg.knife_trailing_enabled !== false} onChange={(v) => setField('knife_trailing_enabled', v)} color="bg-amber" />
+                  {expandedHelpMap.knife_trailing_toggle && (
+                    <InfoDropdownBox>High-frequency velocity ROC trailing stop applied specifically to Knife Catch burst entries.</InfoDropdownBox>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <Tooltip content="Dynamic trailing distance (%) applied strictly to high-velocity Knife Catch trades on fast ticks.">
-                    {renderField('Knife Trailing Distance (%)', 'knife_trailing_distance_pct', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
-                  </Tooltip>
-                  <Tooltip content="Target R:R threshold where Stop Loss instantly ratchets to Breakeven (0.0R) upon price crossing velocity threshold.">
-                    {renderField('Auto-Ratchet Breakeven (RR)', 'knife_auto_ratchet_be_rr', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
-                  </Tooltip>
-                  <Tooltip content="Target R:R threshold where Stop Loss instantly ratchets to Lock Profit (0.5R or configured) upon price expansion.">
-                    {renderField('Auto-Ratchet Lock Profit (RR)', 'knife_auto_ratchet_lock_rr', 'number', null, { min: 0.1, max: 10, step: 0.1 })}
-                  </Tooltip>
+                  {renderField('Knife Trailing Distance (%)', 'knife_trailing_distance_pct', 'number', null, {
+                    min: 0.1,
+                    max: 10,
+                    step: 0.1,
+                    helpText: "Dynamic trailing distance (%) applied strictly to high-velocity Knife Catch trades on fast ticks."
+                  })}
+                  {renderField('Auto-Ratchet Breakeven (RR)', 'knife_auto_ratchet_be_rr', 'number', null, {
+                    min: 0.1,
+                    max: 10,
+                    step: 0.1,
+                    helpText: "Target R:R threshold where Stop Loss instantly ratchets to Breakeven (0.0R) upon price crossing velocity threshold."
+                  })}
+                  {renderField('Auto-Ratchet Lock Profit (RR)', 'knife_auto_ratchet_lock_rr', 'number', null, {
+                    min: 0.1,
+                    max: 10,
+                    step: 0.1,
+                    helpText: "Target R:R threshold where Stop Loss instantly ratchets to Lock Profit (0.5R or configured) upon price expansion."
+                  })}
                 </div>
 
                 <div className="pt-4 border-t border-border/40 flex flex-col gap-3">
                   <div className="p-3.5 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex flex-col text-left">
-                        <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
-                          <Zap size={12} /> Allow Knife Re-entry (Anti-Whipsaw Bypass)
-                        </span>
-                        <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">If a trade was closed by Knife Catch engine, allow re-entering the symbol in the same candle provided the candidate is still a Knife Catch trade.</p>
-                      </div>
+                    <div className="flex items-start justify-between gap-3">
+                      <CollapsibleHelpTitle
+                        title="Allow Knife Re-entry (Bypass)"
+                        icon={Zap}
+                        titleClassName="text-[10px] font-black text-amber uppercase tracking-widest"
+                        helpText="If a trade was closed by Knife Catch engine, allow re-entering the symbol in the same candle provided the candidate is still a Knife Catch trade."
+                      />
                       <Toggle value={cfg.anti_whipsaw_allow_knife === true} onChange={(v) => setField('anti_whipsaw_allow_knife', v)} color="bg-amber" />
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border/20">
-                      <Tooltip content="Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay).">
-                        {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, { min: 0, max: 20 })}
-                      </Tooltip>
-                      <Tooltip content="Custom time delay (in minutes) after an exit before re-entry is permitted. Overrides candle delay if time delay is longer.">
-                        {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, { min: 0, max: 1440 })}
-                      </Tooltip>
+                      {renderField('Anti-Whipsaw Candle Delay', 'anti_whipsaw_candle_delay', 'number', null, {
+                        min: 0,
+                        max: 20,
+                        helpText: "Number of full candles to delay re-entry after an exit or entry on the same symbol (0 = disabled, 1 = default 1-candle delay)."
+                      })}
+                      {renderField('Anti-Whipsaw Timeframe Delay (min)', 'anti_whipsaw_tf_delay_min', 'number', null, {
+                        min: 0,
+                        max: 1440,
+                        helpText: "Custom time delay (in minutes) after an exit before re-entry is permitted. Overrides candle delay if time delay is longer."
+                      })}
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-amber/20 transition-all">
-                    <div className="flex flex-col text-left">
-                      <span className="text-[10px] font-black text-amber uppercase tracking-widest flex items-center gap-1.5">
-                        <Zap size={12} /> Allow 1 Knife Trade When Gated
-                      </span>
-                      <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Allow entering up to 1 Knife Catch trade even when strategy gating is active (e.g. max open trades, SL guard, or rolling period limits), provided 0 active knife trades exist.</p>
-                    </div>
+                  <div className="flex items-start justify-between gap-3 p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-amber/20 transition-all">
+                    <CollapsibleHelpTitle
+                      title="Allow 1 Knife Trade When Gated"
+                      icon={Zap}
+                      titleClassName="text-[10px] font-black text-amber uppercase tracking-widest"
+                      helpText="Allow entering up to 1 Knife Catch trade even when strategy gating is active (e.g. max open trades, SL guard, or rolling period limits), provided 0 active knife trades exist."
+                    />
                     <Toggle value={cfg.allow_knife_when_gated === true} onChange={(v) => setField('allow_knife_when_gated', v)} color="bg-amber" />
                   </div>
                 </div>
               </div>
             </CollapsibleSection>
+            ),
 
+            strategy_timeframes: (
             <CollapsibleSection
               id="strategy_timeframes"
               icon={Clock}
@@ -5187,12 +6246,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
                 if (allActiveSignals.length === 0) {
                   return (
-                    <div className="flex flex-col items-center justify-center p-6 text-center border border-dashed border-border rounded-2xl bg-surface/30">
-                      <Clock className="text-dim mb-2 opacity-50" size={20} />
-                      <span className="text-[10px] text-dim font-bold uppercase tracking-wider">No Active Signals</span>
-                      <p className="text-[9px] text-dim/80 mt-1 max-w-xs">
-                        Enable Entry or Exit signals above to configure custom timeframe overrides for them.
-                      </p>
+                    <div className="flex flex-col items-center justify-center p-5 text-center border border-dashed border-border rounded-2xl bg-surface/30 gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Clock className="text-dim opacity-50" size={16} />
+                        <span className="text-[10px] text-dim font-bold uppercase tracking-wider">No Active Signals</span>
+                        <InfoHelpButton
+                          open={!!expandedHelpMap.mtf_empty}
+                          onToggle={() => toggleHelpKey('mtf_empty')}
+                          label="Multi-Timeframe Overrides"
+                        />
+                      </div>
+                      {expandedHelpMap.mtf_empty && (
+                        <InfoDropdownBox className="max-w-xs">Enable Entry or Exit signals above to configure custom timeframe overrides for them.</InfoDropdownBox>
+                      )}
                     </div>
                   );
                 }
@@ -5234,7 +6300,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                 }
                                 setField('signal_timeframes', updated);
                               }}
-                              className="bg-background border border-border rounded-lg pl-3 pr-8 py-1 text-base sm:text-[11px] font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover min-h-[40px] sm:min-h-[32px] h-auto sm:h-8 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                              className="bg-background border border-border rounded-lg pl-2.5 pr-7 py-1 text-xs font-bold text-text focus:border-accent outline-none appearance-none cursor-pointer transition-all hover:border-border-hover min-h-[32px] h-8 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
                             >
                               <option value="default">Default ({cfg.scan_interval || 'Default'})</option>
                               <option value="1m">1m</option>
@@ -5257,6 +6323,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 );
               })()}
             </CollapsibleSection>
+            ),
+            })}
           </div>
         )}
 
@@ -5267,9 +6335,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-risk"
             className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
-            <Tooltip content="Warn when execution slippage exceeds this percentage. Invalid legacy values must be corrected before saving; this does not change the separate abort threshold.">
-              {renderField('Slippage warning (%)', 'slippage_warning_threshold', 'number', null, { min: 0, max: 100, step: 0.1 })}
-            </Tooltip>
+            {orderSectionEntries('risk', {
+            risk_guards: (
             <CollapsibleSection
               id="risk_guards"
               icon={ShieldCheck}
@@ -5277,19 +6344,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               subtitle="Global safety limits"
               isOpen={openSectionId === 'risk_guards'}
               onToggle={() => setOpenSectionId(openSectionId === 'risk_guards' ? null : 'risk_guards')}
+              {...getSectionErrorInfo('risk_guards')}
             >
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 {renderField('Risk % Per Trade', 'risk_pct_per_trade', 'number', null, { min: CONFIG_LIMITS.RISK_PER_TRADE_MIN, max: CONFIG_LIMITS.RISK_PER_TRADE_MAX, step: 0.1 })}
                 {renderField('Max Total Risk %', 'max_total_risk_pct', 'number', null, { min: CONFIG_LIMITS.MAX_TOTAL_RISK_MIN, max: CONFIG_LIMITS.MAX_TOTAL_RISK_MAX })}
                 {renderField('Max Open Trades', 'max_open_trades', 'number', null, { min: CONFIG_LIMITS.MAX_OPEN_TRADES_MIN })}
                 {renderField('SL Guard (USDT)', 'total_sl_guard_usdt', 'number', null, { min: 0 })}
+                {renderField('Slippage warning (%)', 'slippage_warning_threshold', 'number', null, {
+                  min: 0,
+                  max: 100,
+                  step: 0.1,
+                  helpText: "Warn when execution slippage exceeds this percentage. Invalid legacy values must be corrected before saving; this does not change the separate abort threshold."
+                })}
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 my-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
-                <div className="flex flex-col text-left">
-                  <span className="text-[10px] font-black text-dim uppercase tracking-widest">Est. P&L Risk Release</span>
-                  <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Release risk lock (risk_usdt = 0) when active estimated P&L reaches or exceeds breakeven, even before physical SL ratchets.</p>
-                </div>
+              <div className="flex items-start justify-between gap-4 p-3.5 my-4 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                <CollapsibleHelpTitle
+                  title="Est. P&L Risk Release"
+                  titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                  helpText="Release risk lock (risk_usdt = 0) when active estimated P&L reaches or exceeds breakeven, even before physical SL ratchets."
+                />
                 <Toggle
                   value={cfg.release_risk_on_est_pnl_be || false}
                   onChange={(v) => setField('release_risk_on_est_pnl_be', v)}
@@ -5298,16 +6373,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               {/* Dynamic Auto-Adjust Max Open Trades on Zero Risk */}
               <div className="p-4 my-4 bg-surface/40 border border-border/30 rounded-xl flex flex-col gap-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex flex-col text-left">
-                    <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
-                      <Zap size={12} className="text-accent" />
-                      Auto-Adjust Max Open Trades (Zero Active Risk)
-                    </span>
-                    <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-xl">
-                      Dynamically step up max allowed trades when strategy active risk reaches 0 (all open positions risk-protected). Step down when active risk is re-locked.
-                    </p>
-                  </div>
+                <div className="flex items-start justify-between gap-4">
+                  <CollapsibleHelpTitle
+                    title="Auto-Adjust Max Open Trades (Zero Risk)"
+                    icon={Zap}
+                    titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                    helpText="Dynamically step up max allowed trades when strategy active risk reaches 0 (all open positions risk-protected). Step down when active risk is re-locked."
+                  />
                   <Toggle
                     value={cfg.auto_adjust_max_trades_enabled || false}
                     onChange={(v) => setField('auto_adjust_max_trades_enabled', v)}
@@ -5336,97 +6408,89 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
 
                 <div className={cn(
-                  "p-4 border rounded-2xl flex flex-col justify-center gap-1",
+                  "p-3.5 border rounded-2xl flex flex-col justify-center gap-2",
                   cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05
                     ? "bg-amber/5 border-amber/20 shadow-[0_0_20px_rgba(245,166,35,0.05)]"
                     : "bg-background/40 border-border/40"
                 )}>
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest">Min Notional Guard</span>
-                      <div className="w-1 h-1 rounded-full bg-dim/30" />
-                      <span className="text-[8px] text-accent font-bold uppercase tracking-tight">$5.05 Floor</span>
+                  <div className="flex justify-between items-center gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest truncate">Min Notional Guard</span>
+                      <span className="text-[8px] text-accent font-bold uppercase tracking-tight shrink-0">$5.05</span>
+                      <InfoHelpButton
+                        open={!!expandedHelpMap.risk_min_notional}
+                        onToggle={() => toggleHelpKey('risk_min_notional')}
+                        label="Min Notional Guard"
+                      />
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
-                      <Tooltip content="Binance Futures requires a minimum position size of 5 USDT. When enabled, the engine automatically scales UP small positions to $5.05 to avoid exchange rejections.">
-                        <Activity size={10} className="text-dim cursor-help" />
-                      </Tooltip>
-                    </div>
+                    <Toggle value={cfg.auto_scale_min_notional !== false} onChange={(v) => setField('auto_scale_min_notional', v)} color="bg-accent" />
                   </div>
-                  <div className="flex flex-col gap-1.5 mt-0.5">
-                    <div className={cn(cfg.auto_scale_min_notional !== false ? "block" : "hidden", "mb-2")}>
-                      {renderField('Max Scaled Risk Overshoot (Multiplier)', 'auto_scale_max_overshoot', 'number', null, { min: 1.0, max: 10.0, step: 0.1 })}
-                    </div>
-                    <div className="flex items-baseline gap-2">
-                      <span className={cn(
-                        "text-sm font-bold font-mono transition-colors",
-                        cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "text-amber" : "text-text"
-                      )}>
-                        {fmtUSD(cfg.auto_scale_min_notional !== false ? Math.max(5.05, riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)))}
-                        <span className="text-[9px] ml-1.5 opacity-40 font-medium uppercase tracking-tight">Execution</span>
-                      </span>
-                      {(cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05) && (
-                        <span className="text-[8px] px-1.5 py-0.5 bg-amber text-black font-black rounded-sm uppercase animate-pulse">Auto-Scaled</span>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-1 border-l border-border/50 pl-2 py-0.5">
-                      <p className="text-[8px] text-dim/60 font-mono leading-tight">
+                  <div className={cn(cfg.auto_scale_min_notional !== false ? "block" : "hidden")}>
+                    {renderField('Max Scaled Risk Overshoot (Multiplier)', 'auto_scale_max_overshoot', 'number', null, { min: 1.0, max: 10.0, step: 0.1 })}
+                  </div>
+                  <div className="flex items-baseline gap-2">
+                    <span className={cn(
+                      "text-sm font-bold font-mono transition-colors",
+                      cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "text-amber" : "text-text"
+                    )}>
+                      {fmtUSD(cfg.auto_scale_min_notional !== false ? Math.max(5.05, riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)))}
+                      <span className="text-[9px] ml-1.5 opacity-40 font-medium uppercase tracking-tight">Execution</span>
+                    </span>
+                    {(cfg.auto_scale_min_notional !== false && (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05) && (
+                      <span className="text-[8px] px-1.5 py-0.5 bg-amber text-black font-black rounded-sm uppercase">Auto-Scaled</span>
+                    )}
+                  </div>
+                  {expandedHelpMap.risk_min_notional && (
+                    <InfoDropdownBox className="flex flex-col gap-1">
+                      <span>Binance Futures requires a minimum position size of $5.00 + $0.05 buffer ($5.05).</span>
+                      <span className="font-mono text-text/80">
                         Math: {fmtUSD(riskAmount)} Target Risk / {Number(cfg.sl_distance_pct || 0.8).toFixed(1)}% SL = {fmtUSD(riskAmount / ((cfg.sl_distance_pct || 0.8) / 100))} Notional
-                      </p>
-                      <p className="text-[7px] text-dim/40 font-bold uppercase tracking-tighter">
-                        Exchange Rule: $5.00 (Min) + $0.05 (Buffer) = $5.05 Requirement
-                      </p>
-                      <p className="text-[7px] font-black text-accent uppercase tracking-widest mt-0.5">
-                        Status: {cfg.auto_scale_min_notional === false ? "❌ Scaling disabled, risk of rejection" : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? "⚠️ Scaling up to meet exchange minimum" : "✅ Threshold met, using precise sizing"}
-                      </p>
-                    </div>
-                  </div>
+                      </span>
+                      <span className="text-accent font-bold">
+                        {cfg.auto_scale_min_notional === false ? 'Scaling disabled (orders < $5 may fail).' : (riskAmount / ((cfg.sl_distance_pct || 0.8) / 100)) < 5.05 ? 'Scaling up to meet exchange minimum.' : 'Threshold met, using precise sizing.'}
+                      </span>
+                    </InfoDropdownBox>
+                  )}
                 </div>
 
                 <div className={cn(
-                  "p-4 border rounded-2xl flex flex-col justify-center gap-1",
+                  "p-3.5 border rounded-2xl flex flex-col justify-center gap-2",
                   cfg.auto_scale_min_notional === false && cfg.risk_hardening_enabled
                     ? "bg-red/5 border-red/20 shadow-[0_0_20px_rgba(239,68,68,0.05)]"
                     : "bg-background/40 border-border/40",
                   cfg.auto_scale_min_notional !== false && "opacity-40 grayscale grayscale-[50%]"
                 )}>
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest">Risk Hardening</span>
-                      <div className="w-1 h-1 rounded-full bg-dim/30" />
-                      <span className="text-[8px] text-red font-bold uppercase tracking-tight">Small Account Guard</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Toggle
-                        value={cfg.risk_hardening_enabled === true}
-                        onChange={(v) => setField('risk_hardening_enabled', v)}
-                        color="bg-red"
+                  <div className="flex justify-between items-center gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[9px] text-dim uppercase font-bold tracking-widest truncate">Risk Hardening</span>
+                      <InfoHelpButton
+                        open={!!expandedHelpMap.risk_hardening}
+                        onToggle={() => toggleHelpKey('risk_hardening')}
+                        label="Risk Hardening"
                       />
-                      <Tooltip content="When Auto-Scaling is DISABLED, risk hardening protects small accounts from entering positions where the exchange's $5.00 minimum forces risk to exceed a safe percentage of your balance.">
-                        <ShieldCheck size={10} className="text-dim cursor-help" />
-                      </Tooltip>
                     </div>
+                    <Toggle
+                      value={cfg.risk_hardening_enabled === true}
+                      onChange={(v) => setField('risk_hardening_enabled', v)}
+                      color="bg-red"
+                    />
                   </div>
-                  <div className="flex flex-col gap-2 mt-1">
-                    <div className={cn(cfg.risk_hardening_enabled ? "block" : "hidden")}>
-                      {renderField('Max Single Trade Risk (%)', 'max_single_trade_risk_pct', 'number', null, { min: 0.1, max: 100, step: 0.5 })}
-                    </div>
-                    <p className="text-[8px] text-dim/60 italic leading-tight">
+                  <div className={cn(cfg.risk_hardening_enabled ? "block" : "hidden")}>
+                    {renderField('Max Single Trade Risk (%)', 'max_single_trade_risk_pct', 'number', null, { min: 0.1, max: 100, step: 0.5 })}
+                  </div>
+                  {expandedHelpMap.risk_hardening && (
+                    <InfoDropdownBox>
                       {cfg.auto_scale_min_notional !== false
-                        ? "Only available when Auto-Scale is OFF."
+                        ? 'Small Account Guard: Only active when Auto-Scale Min Notional is OFF.'
                         : cfg.risk_hardening_enabled
-                        ? `Trades will be REJECTED if they force > ${cfg.max_single_trade_risk_pct}% account risk.`
-                        : "Account at risk of oversized exposure on small balances."}
-                    </p>
-                  </div>
+                        ? `Protects small accounts from $5.00 exchange minimum overshoot. Trades will be rejected if they force > ${cfg.max_single_trade_risk_pct}% account risk.`
+                        : 'Protects small accounts when Auto-Scale is OFF. Currently disabled — small accounts may take oversized exposure.'}
+                    </InfoDropdownBox>
+                  )}
                 </div>
               </div>
 
-              <div className="mt-4 p-4 bg-surface/50 border border-border/40 rounded-xl flex flex-col gap-3">
-                 <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent">
-                    <Target size={12} /> Sizing Guide
-                 </div>
+              <CollapsibleInfoCard title="Sizing Guide" icon={Target}>
                  <div className="flex flex-col gap-2">
                     <p className="text-[10px] text-dim leading-relaxed font-medium">
                        Position size (Qty) is derived from <span className="text-text font-bold">Target Risk $ / SL Distance</span>.
@@ -5447,7 +6511,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                        Tight SLs or higher Risk % result in larger positions. Wide SLs or low Risk % result in smaller positions. The engine protects you from exchange rejections by enforcing the $5.05 minimum.
                     </p>
                  </div>
-              </div>
+              </CollapsibleInfoCard>
 
               {(cfg.tp_mode === 'exp_rr_seq' || cfg.tp_mode === 'exp_rr_seq_switch') && (
                 <div className="flex flex-col gap-2 mt-6 bg-background/50 p-5 rounded-2xl border border-border/40 shadow-inner">
@@ -5566,17 +6630,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           const next = [...(Array.isArray(cfg.live_rr_sequence) ? cfg.live_rr_sequence : [1.0, 2.0, 4.0])];
                           next[i] = Number(e.target.value);
                           setField('live_rr_sequence', next);
-                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-6" />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                       </div>
-                      <ArrowRight size={14} className="text-dim/20 shrink-0" />
+                      <ArrowRight size={13} className="text-dim/20 shrink-0" />
                       <div className="relative flex-1">
                         <input type="number" inputMode="decimal" step="0.1" value={exit} onChange={(e) => {
                           const next = [...(Array.isArray(cfg.exit_rr_sequence) ? cfg.exit_rr_sequence : [0.0, 1.0, 2.0])];
                           next[i] = Number(e.target.value);
                           setField('exit_rr_sequence', next);
-                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
-                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                        }} onBlur={handleSortMilestones} className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-6" />
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                       </div>
                       <Tooltip content="Remove Milestone">
                         <button type="button" onClick={() => {
@@ -5585,7 +6649,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                           nextL.splice(i, 1);
                           nextE.splice(i, 1);
                           setCfg(prev => ({ ...prev, live_rr_sequence: nextL, exit_rr_sequence: nextE }));
-                        }} aria-label="Remove Milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                        }} aria-label="Remove Milestone" className="p-1.5 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={14} /></button>
                       </Tooltip>
                     </div>
                   ))}
@@ -5602,7 +6666,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       live_rr_sequence: pairs.map(p => p.trigger),
                       exit_rr_sequence: pairs.map(p => p.exit)
                     }));
-                  }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
+                  }} className="w-full py-2 border border-dashed border-border rounded-lg text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={13} className="group-hover:scale-110 transition-transform" /> Add RR Milestone</button>
 
                   {cfg.tp_mode === 'exp_rr_seq_switch' && (
                     <div className="mt-4 pt-4 border-t border-border/30">
@@ -5640,17 +6704,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                     const next = [...liveSw];
                                     next[i] = Number(e.target.value);
                                     setField('switched_live_rr_sequence', next);
-                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
-                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-6" />
+                                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                                 </div>
-                                <ArrowRight size={14} className="text-dim/20 shrink-0" />
+                                <ArrowRight size={13} className="text-dim/20 shrink-0" />
                                 <div className="relative flex-1">
                                   <input type="number" inputMode="decimal" step="0.1" value={exit} onChange={(e) => {
                                     const next = [...exitSw];
                                     next[i] = Number(e.target.value);
                                     setField('switched_exit_rr_sequence', next);
-                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-xl px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-7" />
-                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
+                                  }} onBlur={handleSortSwitchedMilestones} className="w-full bg-surface border border-border rounded-lg px-2.5 py-1 min-h-[32px] text-xs font-mono text-text focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none pr-6" />
+                                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-dim/40">R</span>
                                 </div>
                                 <Tooltip content="Remove Switched Milestone">
                                   <button type="button" onClick={() => {
@@ -5659,7 +6723,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                     nextL.splice(i, 1);
                                     nextE.splice(i, 1);
                                     setCfg(prev => ({ ...prev, switched_live_rr_sequence: nextL, switched_exit_rr_sequence: nextE }));
-                                  }} aria-label="Remove Switched Milestone" className="p-2 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={16} /></button>
+                                  }} aria-label="Remove Switched Milestone" className="p-1.5 text-dim hover:text-red transition-colors rounded-lg hover:bg-red/5"><Trash2 size={14} /></button>
                                 </Tooltip>
                               </div>
                             ))}
@@ -5676,7 +6740,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                 switched_live_rr_sequence: pairs.map(p => p.trigger),
                                 switched_exit_rr_sequence: pairs.map(p => p.exit)
                               }));
-                            }} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={14} className="group-hover:scale-110 transition-transform" /> Add Switched RR Milestone</button>
+                            }} className="w-full py-2 border border-dashed border-border rounded-lg text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all mt-2 group flex items-center justify-center gap-2"><Plus size={13} className="group-hover:scale-110 transition-transform" /> Add Switched RR Milestone</button>
                           </div>
                         );
                       })()}
@@ -5685,7 +6749,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               )}
             </CollapsibleSection>
+            ),
 
+            risk_martingale: (
             <CollapsibleSection
               id="risk_martingale"
               icon={Zap}
@@ -5693,33 +6759,35 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               subtitle="Exponential risk sizing after losses"
               isOpen={openSectionId === 'risk_martingale'}
               onToggle={() => setOpenSectionId(openSectionId === 'risk_martingale' ? null : 'risk_martingale')}
+              {...getSectionErrorInfo('risk_martingale')}
             >
               <div className="flex flex-col gap-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 bg-surface/40 border border-border/30 rounded-xl">
-                  <div className="flex flex-col text-left">
-                    <span className="text-[10px] font-black text-dim uppercase tracking-widest flex items-center gap-1.5">
-                      <Zap size={12} className="text-accent" />
-                      Enable Martingale
-                    </span>
-                    <p className="text-[9px] text-dim/75 font-semibold mt-0.5">Increases position risk multiplier sequentially after each consecutive loss to accelerate recovery.</p>
-                  </div>
+                <div className="flex items-start justify-between gap-4 p-3.5 bg-surface/40 border border-border/30 rounded-xl">
+                  <CollapsibleHelpTitle
+                    title="Enable Martingale"
+                    icon={Zap}
+                    titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                    helpText="Increases position risk multiplier sequentially after each consecutive loss to accelerate recovery."
+                  />
                   <Toggle value={cfg.martingale_enabled === true} onChange={(v) => setField('martingale_enabled', v)} />
                 </div>
 
                 {cfg.martingale_enabled && (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-surface/20 border border-border/20 rounded-xl">
-                    {renderField('Multiplier', 'martingale_multiplier', 'number', null, { title: 'e.g. 2.0 = double risk per loss', min: 1.0, max: 10.0, step: 0.1 })}
-                    {renderField('Max Steps', 'martingale_max_steps', 'number', null, { title: 'Maximum consecutive loss multipliers', min: 1, max: 20, step: 1 })}
-                    {renderField('Hard Reset Risk %', 'martingale_reset_threshold_pct', 'number', null, { title: 'Reset multiplier if new risk exceeds this %', min: 0.1, max: 100.0, step: 0.1 })}
+                    {renderField('Multiplier', 'martingale_multiplier', 'number', null, { helpText: 'e.g. 2.0 = double risk per loss', min: 1.0, max: 10.0, step: 0.1 })}
+                    {renderField('Max Steps', 'martingale_max_steps', 'number', null, { helpText: 'Maximum consecutive loss multipliers', min: 1, max: 20, step: 1 })}
+                    {renderField('Hard Reset Risk %', 'martingale_reset_threshold_pct', 'number', null, { helpText: 'Reset multiplier if new risk exceeds this %', min: 0.1, max: 100.0, step: 0.1 })}
                     {renderField('Post-Reset Behavior', 'martingale_post_reset_behavior', 'text', [
                         { value: 'wait', label: 'Wait for Win (No Multiplier)' },
                         { value: 'restart', label: 'Restart Sequence' }
-                      ], { title: 'Action to take when capped' })}
+                      ], { helpText: 'Action to take when capped' })}
                   </div>
                 )}
               </div>
             </CollapsibleSection>
+            ),
 
+            risk_sl: (
             <CollapsibleSection
               id="risk_sl"
               icon={ShieldCheck}
@@ -5727,6 +6795,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               subtitle="Risk truncation parameters"
               isOpen={openSectionId === 'risk_sl'}
               onToggle={() => setOpenSectionId(openSectionId === 'risk_sl' ? null : 'risk_sl')}
+              {...getSectionErrorInfo('risk_sl')}
             >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
                 {renderField('Strategy Type', 'sl_type', 'text', [
@@ -5739,11 +6808,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   { value: 'clamp', label: 'Clamp to Limits' },
                   { value: 'reject', label: 'Reject Entry' }
                 ])}
-                <div className="md:col-span-2 flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
-                  <div className="flex flex-col text-left">
-                    <span className="text-[10px] font-black text-dim uppercase tracking-widest">Reject Entry If SL Exceeds Max</span>
-                    <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">Pre-filter scanner opportunities where calculated prospective SL exceeds sl_max_pct, rejecting wide high-risk moves to free up slots for better setups.</p>
-                  </div>
+                <div className="md:col-span-2 flex items-start justify-between gap-3 p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                  <CollapsibleHelpTitle
+                    title="Reject Entry If SL Exceeds Max"
+                    titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                    helpText="Pre-filter scanner opportunities where calculated prospective SL exceeds sl_max_pct, rejecting wide high-risk moves to free up slots for better setups."
+                  />
                   <Toggle
                     value={cfg.reject_entry_if_sl_exceeds_max !== false}
                     onChange={(v) => setField('reject_entry_if_sl_exceeds_max', v)}
@@ -5754,16 +6824,18 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ) : (
                   <div className="flex flex-col gap-4">
                     <div className="grid grid-cols-2 gap-4">
-                      <Tooltip content="Number of completed candles to look back for High/Low stop loss. Set to 0 to use the current (forming) candle's High/Low.">
-                        {renderField('Lookback Period', 'sl_lookback_period', 'number', null, { min: 0 })}
-                      </Tooltip>
+                      {renderField('Lookback Period', 'sl_lookback_period', 'number', null, {
+                        min: 0,
+                        helpText: "Number of completed candles to look back for High/Low stop loss. Set to 0 to use the current (forming) candle's High/Low."
+                      })}
                       {renderField('Lookback TF', 'sl_lookback_timeframe', 'text', ['1m', '5m', '15m', '1h', '4h', '1d'])}
                     </div>
-                    <div className="flex items-center justify-between p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
-                      <div className="flex flex-col text-left">
-                        <span className="text-[10px] font-black text-dim uppercase tracking-widest">Include Forming Candle in SL Lookback</span>
-                        <p className="text-[9px] text-dim/75 font-semibold uppercase mt-0.5 max-w-md">When enabled, incorporates the actively forming candle's wick into High/Low extremes. When disabled, uses completed candles only to avoid intrabar wick false breakouts.</p>
-                      </div>
+                    <div className="flex items-start justify-between gap-3 p-3.5 bg-surface/40 border border-border/30 rounded-xl hover:border-accent/15 transition-all">
+                      <CollapsibleHelpTitle
+                        title="Include Forming Candle in SL Lookback"
+                        titleClassName="text-[10px] font-black text-dim uppercase tracking-widest"
+                        helpText="When enabled, incorporates the actively forming candle's wick into High/Low extremes. When disabled, uses completed candles only to avoid intrabar wick false breakouts."
+                      />
                       <Toggle
                         value={Boolean(cfg.sl_include_forming_candle)}
                         onChange={(v) => setField('sl_include_forming_candle', v)}
@@ -5777,19 +6849,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   {renderField('Ceiling Max %', 'sl_max_pct', 'number', null, { min: 0.1, step: 0.1 })}
                 </div>
                 <div className="md:col-span-2">
-                  <Tooltip content="Safety buffer that prevents trailing stops from being placed too close to the market price. This avoids 'Order would immediately trigger' errors and instant fills during high volatility. Recommended: 0.03% to 0.05%.">
-                    {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, { min: CONFIG_LIMITS.TRAILING_GUARD_MIN, max: CONFIG_LIMITS.TRAILING_GUARD_MAX, step: 0.01 })}
-                  </Tooltip>
+                  {renderField('Trailing Guard (%)', 'trailing_guard_buffer_pct', 'number', null, {
+                    min: CONFIG_LIMITS.TRAILING_GUARD_MIN,
+                    max: CONFIG_LIMITS.TRAILING_GUARD_MAX,
+                    step: 0.01,
+                    helpText: "Safety buffer that prevents trailing stops from being placed too close to the market price. Avoids immediate-trigger rejections during high volatility. Recommended: 0.03% to 0.05%."
+                  })}
                 </div>
               </div>
 
-              <div className="mt-6 p-5 bg-accent/5 border border-accent/20 rounded-2xl flex flex-col gap-3.5 shadow-sm">
-                 <div className="flex items-center gap-2.5 text-[10px] font-black uppercase tracking-[0.15em] text-accent">
-                    <div className="p-1.5 bg-accent/10 rounded-lg group">
-                      <ShieldCheck size={14} className="fill-accent/20 group-hover:animate-pulse" />
-                    </div>
-                    Trailing Safety Guide
-                 </div>
+              <CollapsibleInfoCard title="Trailing Safety Guide" icon={ShieldCheck}>
                  <div className="flex flex-col gap-3">
                     <p className="text-[11px] text-dim leading-relaxed font-medium">
                        The <span className="text-text font-bold">Trailing Guard</span> prevents exchange rejections (Error -4120) by maintaining a mandatory gap between your Stop Loss and the active Market Price.
@@ -5815,9 +6884,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                        Essential for SHORT trades near entry and high-volatility LONG trades. Prevents "instant fills" caused by the market spread touching your stop exactly at the moment of update.
                     </p>
                  </div>
-              </div>
+              </CollapsibleInfoCard>
             </CollapsibleSection>
+            ),
 
+            risk_tp: (
             <CollapsibleSection
               id="risk_tp"
               icon={Target}
@@ -5837,21 +6908,28 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
               <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="rr" />
 
-              <div className="mt-8 pt-6 border-t border-border/40 flex flex-col gap-6">
-                 <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
-                      <div>
-                        <div className="text-sm font-bold">Dynamic Trailing Stop</div>
-                        <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Active price chasing to protect unrealized PnL</div>
+              <div className="mt-6 pt-5 border-t border-border/40 flex flex-col gap-5">
+                 <div className="p-3.5 bg-background/50 rounded-2xl border border-border/50 flex flex-col gap-2 hover:border-accent/30 transition-colors">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0"><Activity size={16} /></div>
+                        <span className="text-xs font-bold truncate">Dynamic Trailing Stop</span>
+                        <InfoHelpButton
+                          open={!!expandedHelpMap.risk_dynamic_trailing}
+                          onToggle={() => toggleHelpKey('risk_dynamic_trailing')}
+                          label="Dynamic Trailing Stop"
+                        />
                       </div>
+                      <Toggle value={cfg.trailing_stop_enabled === true} onChange={(v) => setField('trailing_stop_enabled', v)} />
                     </div>
-                    <Toggle value={cfg.trailing_stop_enabled === true} onChange={(v) => setField('trailing_stop_enabled', v)} />
+                    {expandedHelpMap.risk_dynamic_trailing && (
+                      <InfoDropdownBox>Active price chasing to protect unrealized PnL once activation R:R is reached.</InfoDropdownBox>
+                    )}
                  </div>
 
                  {cfg.trailing_stop_enabled && (
                     <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4">
-                       <div className="mb-6">
+                       <div className="mb-2">
                           {renderField("Trailing Execution Mode", "trailing_execution_mode", "text", [{ value: "local", label: "Local" }, { value: "exchange", label: "Exchange" }, { value: "native", label: "Native" }])}
                        </div>
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -5859,14 +6937,29 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                             { value: 'pct', label: 'Percentage Distance (%)' },
                             { value: 'rr', label: 'Risk Multiple (R:R)' }
                           ])}
-                          {renderField('Trailing Activation R:R', 'trailing_activation_rr', 'number', 'Required R:R before trailing stop activates (0 = immediate)', { min: 0, max: 10, step: 0.1 })}
+                          {renderField('Trailing Activation R:R', 'trailing_activation_rr', 'number', null, {
+                            min: 0,
+                            max: 10,
+                            step: 0.1,
+                            helpText: 'Required R:R before trailing stop activates (0 = immediate)'
+                          })}
                        </div>
 
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {cfg.trailing_stop_type === 'rr' ? (
-                            renderField('Trailing Distance (R:R)', 'trailing_stop_rr', 'number', 'Distance expressed as a multiple of initial SL risk distance (e.g. 1.0R = initial risk width)', { min: 0.1, max: 10, step: 0.1 })
+                            renderField('Trailing Distance (R:R)', 'trailing_stop_rr', 'number', null, {
+                              min: 0.1,
+                              max: 10,
+                              step: 0.1,
+                              helpText: 'Distance expressed as a multiple of initial SL risk distance (e.g. 1.0R = initial risk width)'
+                            })
                           ) : (
-                            renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', 'Distance expressed as percentage of price', { min: 0.1, max: 10, step: 0.1 })
+                            renderField('Trailing Distance (%)', 'trailing_stop_distance_pct', 'number', null, {
+                              min: 0.1,
+                              max: 10,
+                              step: 0.1,
+                              helpText: 'Distance expressed as percentage of price'
+                            })
                           )}
                        </div>
                        <OptimizationPanel analytics={lifetimeAnalytics} cfg={cfg} setField={setField} type="trailing" />
@@ -5874,7 +6967,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  )}
               </div>
             </CollapsibleSection>
+            ),
 
+            risk_temporal: (
             <CollapsibleSection
               id="risk_temporal"
               icon={Clock}
@@ -5884,70 +6979,85 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               onToggle={() => setOpenSectionId(openSectionId === 'risk_temporal' ? null : 'risk_temporal')}
             >
 
-              <div className="flex flex-col gap-4 mb-8">
-                <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><Activity size={20} /></div>
-                    <div>
-                      <div className="text-sm font-bold">Frequency Shaping</div>
-                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Control trade distribution and rolling limits</div>
+              <div className="flex flex-col gap-4 mb-6">
+                <div className="p-3.5 bg-background/50 rounded-2xl border border-border/50 flex flex-col gap-2 hover:border-accent/30 transition-colors">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0"><Activity size={16} /></div>
+                      <span className="text-xs font-bold truncate">Frequency Shaping</span>
+                      <InfoHelpButton
+                        open={!!expandedHelpMap.risk_freq_shaping}
+                        onToggle={() => toggleHelpKey('risk_freq_shaping')}
+                        label="Frequency Shaping"
+                      />
                     </div>
+                    <Toggle value={cfg.frequency_shaping_enabled === true} onChange={(v) => setField('frequency_shaping_enabled', v)} />
                   </div>
-                  <Toggle value={cfg.frequency_shaping_enabled === true} onChange={(v) => setField('frequency_shaping_enabled', v)} />
+                  {expandedHelpMap.risk_freq_shaping && (
+                    <InfoDropdownBox>Control trade distribution, minimum entry intervals, and rolling window caps.</InfoDropdownBox>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-6 p-4 bg-surface/30 rounded-2xl border border-border/40">
                   {renderField('Period Limit', 'max_trades_per_period', 'number', null, { min: 0 })}
                   {renderField('Period (min)', 'trades_period_min', 'number', null, { min: 1 })}
                   {renderField('Max 24h', 'max_trades_24h', 'number', null, { min: 0 })}
                 </div>
 
                 {cfg.frequency_shaping_enabled && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4 p-5 bg-surface/30 rounded-2xl border border-border/40 mb-6">
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-4 p-4 bg-surface/30 rounded-2xl border border-border/40">
                     <div className="grid grid-cols-2 md:grid-cols-2 gap-6">
                       {renderField('Min Interval (m)', 'min_trade_interval_min', 'number', null, { min: 0 })}
                       {renderField('Window Jitter (%)', 'trades_jitter_pct', 'number', null, { min: 0, max: 100 })}
                     </div>
-                    <div className={cn("flex items-center justify-between pt-4 border-t border-border/40 transition-opacity duration-300", cfg.trades_jitter_pct <= 0 && "opacity-40 pointer-events-none")}>
-                      <div className="flex flex-col">
-                        <span className="text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                          <Target size={12} className="text-accent" /> Market-Aware Jitter
-                        </span>
-                        <span className="text-[9px] text-dim font-medium uppercase tracking-tight">Prioritize high-quality signals with less random delay</span>
-                      </div>
+                    <div className={cn("flex items-start justify-between gap-3 pt-3 border-t border-border/40 transition-opacity duration-300", cfg.trades_jitter_pct <= 0 && "opacity-40 pointer-events-none")}>
+                      <CollapsibleHelpTitle
+                        title="Market-Aware Jitter"
+                        icon={Target}
+                        titleClassName="text-[10px] font-black uppercase tracking-widest"
+                        helpText="Prioritize high-quality signals with less random delay when window jitter is active."
+                      />
                       <Toggle value={cfg.trades_jitter_market_aware === true} onChange={(v) => setField('trades_jitter_market_aware', v)} color="bg-accent" />
                     </div>
                   </motion.div>
                 )}
 
-                <div className="p-4 bg-background/50 rounded-2xl border border-border/50 flex items-center justify-between group hover:border-accent/30 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent"><LayoutGrid size={20} /></div>
-                    <div>
-                      <div className="text-sm font-bold">Time-of-Day Guard</div>
-                      <div className="text-[10px] text-dim font-medium uppercase tracking-tight">Adaptive risk management based on hour stats</div>
+                <div className="p-3.5 bg-background/50 rounded-2xl border border-border/50 flex flex-col gap-2 hover:border-accent/30 transition-colors">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0"><LayoutGrid size={16} /></div>
+                      <span className="text-xs font-bold truncate">Time-of-Day Guard</span>
+                      <InfoHelpButton
+                        open={!!expandedHelpMap.risk_tod_guard}
+                        onToggle={() => toggleHelpKey('risk_tod_guard')}
+                        label="Time-of-Day Guard"
+                      />
                     </div>
+                    <Toggle value={cfg.risk_use_tod_stats === true} onChange={(v) => setField('risk_use_tod_stats', v)} />
                   </div>
-                  <Toggle value={cfg.risk_use_tod_stats === true} onChange={(v) => setField('risk_use_tod_stats', v)} />
+                  {expandedHelpMap.risk_tod_guard && (
+                    <InfoDropdownBox>Adaptive risk management based on historical hour-of-day winrate statistics.</InfoDropdownBox>
+                  )}
                 </div>
 
                 {cfg.risk_use_tod_stats && (
-                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-5 bg-surface/30 rounded-2xl border border-border/40 flex flex-col gap-4">
+                  <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="p-4 bg-surface/30 rounded-2xl border border-border/40 flex flex-col gap-4">
                     {renderField('Minimum Required TOD Winrate %', 'tod_min_winrate', 'number', null, { min: 0, max: 100 })}
 
                     {cfg.frequency_shaping_enabled && (
-                      <div className="flex items-center justify-between pt-4 border-t border-border/40">
-                        <div className="flex flex-col">
-                          <span className="text-xs font-bold">Integrated Frequency Guard</span>
-                          <span className="text-[10px] text-dim font-medium uppercase">Adaptive spacing when winrate is low</span>
-                        </div>
+                      <div className="flex items-start justify-between gap-3 pt-3 border-t border-border/40">
+                        <CollapsibleHelpTitle
+                          title="Integrated Frequency Guard"
+                          titleClassName="text-xs font-bold"
+                          helpText="Adaptive trade spacing when historical winrate for the current hour is low."
+                        />
                         <Toggle value={cfg.frequency_tod_integration === true} onChange={(v) => setField('frequency_tod_integration', v)} color="bg-amber" />
                       </div>
                     )}
                   </motion.div>
                 )}
 
-                <div className="grid grid-cols-2 gap-6 pt-4">
+                <div className="grid grid-cols-2 gap-6 pt-2">
                   {renderField('Max Per Sym', 'max_open_trades_per_symbol', 'number', null, { min: 1 })}
                 </div>
               </div>
@@ -5956,19 +7066,21 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                  <div className="text-[10px] text-dim font-bold uppercase tracking-widest flex items-center gap-2 px-1"><Clock size={12} /> Daily Execution Windows (UTC)</div>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                    {(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).map((w, i) => (
-                     <div key={i} className="flex gap-2 p-3 bg-surface/50 border border-border rounded-xl items-center shadow-sm">
-                       <input type="text" value={w?.start || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], start: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-center focus:border-accent outline-none" />
+                     <div key={i} className="flex gap-2 p-2.5 bg-surface/50 border border-border rounded-xl items-center shadow-sm">
+                       <input type="text" value={w?.start || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], start: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 min-h-[32px] text-xs font-mono text-center focus:border-accent outline-none" />
                        <span className="text-dim/40 font-mono text-[10px]">to</span>
-                       <input type="text" value={w?.end || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], end: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-3 py-2 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono text-center focus:border-accent outline-none" />
+                       <input type="text" value={w?.end || ''} onChange={(e) => { const wins = [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : [])]; wins[i] = { ...wins[i], end: e.target.value }; setField('trading_windows', wins); }} className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 min-h-[32px] text-xs font-mono text-center focus:border-accent outline-none" />
                        <Tooltip content="Remove Window">
-                        <button type="button" onClick={() => setField('trading_windows', (Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-2 text-dim hover:text-red transition-colors"><Trash2 size={16} /></button>
+                        <button type="button" onClick={() => setField('trading_windows', (Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []).filter((_, idx) => idx !== i))} aria-label="Remove Window" className="p-1.5 text-dim hover:text-red transition-colors"><Trash2 size={14} /></button>
                        </Tooltip>
                      </div>
                    ))}
-                   <button type="button" onClick={() => setField('trading_windows', [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []), { start: '09:00', end: '17:00' }])} className="w-full py-3 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={14} /> Add Window</button>
+                   <button type="button" onClick={() => setField('trading_windows', [...(Array.isArray(cfg.trading_windows) ? cfg.trading_windows : []), { start: '09:00', end: '17:00' }])} className="w-full py-2 border border-dashed border-border rounded-xl text-[10px] font-bold uppercase tracking-widest text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-2"><Plus size={13} /> Add Window</button>
                  </div>
                </div>
             </CollapsibleSection>
+            ),
+            })}
           </div>
         )}
 
@@ -5979,13 +7091,16 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-env"
             className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
+            {orderSectionEntries('env', {
+            adv_env: (
             <CollapsibleSection
               id="adv_env"
               icon={Briefcase}
               title="Execution Environment"
-              subtitle="Target exchange and mode"
+              subtitle="Paper: Simulated · Testnet: Demo API · Live: Real Capital · Backtest: Historical Test"
               isOpen={openSectionId === 'adv_env'}
               onToggle={() => setOpenSectionId(openSectionId === 'adv_env' ? null : 'adv_env')}
+              {...getSectionErrorInfo('adv_env')}
             >
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {['paper', 'testnet', 'live', 'backtest'].map(m => (
@@ -5999,12 +7114,25 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 ))}
               </div>
               {isEdit && (
-                <div className="mt-3 p-3 bg-accent/10 border border-accent/20 rounded-lg flex items-start gap-2.5 text-xs text-text-muted">
-                  <Lock size={16} className="text-accent flex-shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold text-text-primary">Execution Mode Fixed: </span>
-                    Trading mode ({cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'}) is fixed while this session is running. Strategy parameters hot-reload dynamically on save.
+                <div className="mt-3 p-2.5 bg-accent/10 border border-accent/20 rounded-lg flex flex-col gap-1.5 text-xs text-text-muted">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Lock size={13} className="text-accent shrink-0" />
+                      <span className="font-bold text-text-primary truncate">
+                        Execution Mode Fixed ({cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'})
+                      </span>
+                    </div>
+                    <InfoHelpButton
+                      open={!!expandedHelpMap.env_mode_fixed}
+                      onToggle={() => toggleHelpKey('env_mode_fixed')}
+                      label="Execution Mode Fixed"
+                    />
                   </div>
+                  {expandedHelpMap.env_mode_fixed && (
+                    <InfoDropdownBox>
+                      Trading mode ({cfg.trading_mode ? cfg.trading_mode.toUpperCase() : 'PAPER'}) is fixed while this session is running. Strategy parameters hot-reload dynamically on save.
+                    </InfoDropdownBox>
+                  )}
                 </div>
               )}
               {modeWarning && (
@@ -6023,7 +7151,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 </div>
               )}
             </CollapsibleSection>
+            ),
 
+            adv_capital: (
             <CollapsibleSection
               id="adv_capital"
               icon={TrendingUp}
@@ -6038,17 +7168,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 {renderField('Live Balance ($)', 'live_starting_balance', 'number', null, { min: 0 })}
               </div>
             </CollapsibleSection>
+            ),
+            })}
           </div>
         )}
 
         {section === 'smart' && (
           <SmartAutoDiscoveryPanel
             cfg={cfg}
+            buildConfigToSave={buildConfigToSave}
             onLoadRecommendation={(recommendedConfig) => {
+              hasUserLocalOverrideRef.current = true;
+              suppressDraftSaveRef.current = false;
               const flattened = flattenConfig(recommendedConfig);
               setCfg(flattened);
               setIsDirty(true);
+              setHasPendingSessionChanges(true);
               validate(flattened);
+              if (!isEdit) persistDraft(flattened, loadedPresetName);
               addAlert({
                 level: 'success',
                 title: 'Recommendation Applied',
@@ -6086,7 +7223,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                          placeholder="Search presets by name or mode... (/)"
                          value={presetSearch}
                          onChange={(e) => setPresetSearch(e.target.value)}
-                         className="w-full bg-background/70 border border-border/70 hover:border-border rounded-lg h-9 sm:h-8.5 pl-8 pr-7 text-base sm:text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
+                         className="w-full bg-background/70 border border-border/70 hover:border-border rounded-lg h-8 pl-8 pr-7 text-xs font-medium text-text placeholder:text-dim/60 focus:border-accent focus:bg-background focus:outline-none transition-all"
                       />
                       {presetSearch && (
                          <button
@@ -6102,7 +7239,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     <button
                        type="button"
                        onClick={() => handleOpenSaveAsNew(null)}
-                       className="h-9 sm:h-8.5 px-3 rounded-lg bg-accent hover:bg-accent/90 text-white text-[11px] font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
+                       className="h-8 px-3 rounded-lg bg-accent hover:bg-accent/90 text-white text-[11px] font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95 shrink-0"
                     >
                        <Plus size={12} />
                        <span className="hidden sm:inline">Save as Preset</span>
@@ -6112,7 +7249,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                        type="button"
                        onClick={() => setOpenSectionId(openSectionId === 'presets_tools' ? null : 'presets_tools')}
                        className={cn(
-                          "h-9 sm:h-8.5 px-2.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer shrink-0",
+                          "h-8 px-2.5 rounded-lg border text-[11px] font-bold transition-colors cursor-pointer shrink-0",
                           openSectionId === 'presets_tools'
                              ? "bg-accent/10 border-accent/40 text-accent"
                              : "border-border/70 text-dim hover:text-text hover:bg-background/60"
@@ -6130,7 +7267,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                          { id: 'live', label: 'Live' },
                          { id: 'testnet', label: 'Testnet' },
                          { id: 'paper', label: 'Paper' },
-                         { id: 'variants', label: 'Variants', count: (cfg.strategy_variants || []).length, isVariantTab: true }
+                         { id: 'variants', label: 'Variants', count: activeVariants.length, isVariantTab: true }
                       ].map(f => (
                          <button
                             key={f.id}
@@ -6202,13 +7339,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   </div>
                ) : (
                   filteredPresets.map(p => {
-                     const activeVariants = baseConfigBackup?.strategy_variants || cfg.strategy_variants || [];
-                     const variantIndex = activeVariants.findIndex(v => v.strategy_label === p.name);
+                     const variantIndex = activeVariants.findIndex(v => v?.strategy_label === p.name);
                      const isVariant = variantIndex !== -1;
                      const isEditingVariant = editingVariantIdx === variantIndex && isVariant;
-                     const isLoaded = (baseConfigBackup
-                       ? (baseConfigBackup.strategy_label === p.name || loadedPresetName === p.name)
-                       : (loadedPresetName === p.name)) && !isVariant;
+                     const isLoaded = (activeBasePresetName === p.name) && !isVariant;
                      return (
                         <PresetItem
                            key={p.name}
@@ -6222,6 +7356,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                            isVariant={isVariant}
                            isEditingVariant={isEditingVariant}
                            onEditVariant={() => startEditingVariant(p, variantIndex)}
+                           onPromoteVariant={() => promoteVariantToBaseByIndex(variantIndex)}
                            sessionActive={sessionActive}
                            isSelected={selectedPresetNames.has(p.name)}
                            onToggleSelect={toggleSelectPreset}
@@ -6232,10 +7367,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                               const original = (Array.isArray(presets) ? presets : []).find(x => x.name === loadedPresetName);
                               if (original) loadPreset(original);
                            }}
-                           onDuplicate={() => {
-                              loadPreset(p);
-                              setLoadedPresetName(null);
-                           }}
+                           onDuplicate={() => duplicatePreset(p)}
                         />
                      );
                   })
@@ -6273,19 +7405,27 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                         <Btn
                            variant="primary"
                            onClick={() => {
-                              const currentBaseLabel = loadedPresetName || cfg.strategy_label;
-                              const newVariants = [...(cfg.strategy_variants || [])];
-                              Array.from(selectedPresetNames).forEach(name => {
-                                 if (name !== currentBaseLabel && !newVariants.some(v => v.strategy_label === name)) {
-                                    const p = presets.find(x => x.name === name);
-                                    if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
-                                       newVariants.push(coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true));
-                                    }
-                                 }
+                              const currentBaseLabel = (editingVariantIdx !== null && baseConfigBackup)
+                                ? (baseConfigBackup.strategy_label || loadedPresetName)
+                                : (loadedPresetName || cfg.strategy_label);
+                              let addedCount = 0;
+                              updateVariantsList(existing => {
+                                const newVariants = [...existing];
+                                Array.from(selectedPresetNames).forEach(name => {
+                                   if (name !== currentBaseLabel && !newVariants.some(v => v?.strategy_label === name)) {
+                                      const p = (Array.isArray(presets) ? presets : []).find(x => x.name === name);
+                                      if (p && newVariants.length < CONFIG_LIMITS.MAX_VARIANTS) {
+                                         newVariants.push(coerceAndSanitizeConfig({ ...p.config, strategy_label: p.name }, true));
+                                         addedCount++;
+                                      }
+                                   }
+                                });
+                                return newVariants;
                               });
-                              setField('strategy_variants', newVariants);
                               setSelectedPresetNames(new Set());
-                              addAlert({ level: 'success', title: 'Variants Updated', message: `Added selected presets to active variants.` });
+                              if (addedCount > 0) {
+                                addAlert({ level: 'success', title: 'Variants Updated', message: `Added ${addedCount} preset${addedCount === 1 ? '' : 's'} to active variants.` });
+                              }
                            }}
                            className="flex-1 sm:flex-none h-8 px-3 bg-accent hover:bg-accent/90 text-white text-[11px] font-bold"
                         >
@@ -6313,14 +7453,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                      <div className="flex items-center gap-1.5 flex-wrap">
                         <Layers size={12} className="text-violet-400 shrink-0" />
                         <span className="font-medium text-text/80">
-                           Variants: <strong className="text-violet-400 font-bold">{(cfg.strategy_variants || []).length}</strong>/{CONFIG_LIMITS.MAX_VARIANTS}
+                           Variants: <strong className="text-violet-400 font-bold">{activeVariants.length}</strong>/{CONFIG_LIMITS.MAX_VARIANTS}
                         </span>
                         <span className="text-dim/40">·</span>
                         <span className="text-dim">
-                           Combined: <strong className="text-text font-bold">{((cfg.strategy_variants || []).reduce((acc, v) => acc + (Number(v.risk_pct_per_trade) || 0), 0)).toFixed(1)}%</strong>/{cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}%
+                           Combined: <strong className="text-text font-bold">{(activeVariants.reduce((acc, v) => acc + (Number(v?.risk_pct_per_trade) || 0), 0)).toFixed(1)}%</strong>/{cfg.max_total_risk_pct || CONFIG_LIMITS.MAX_TOTAL_RISK_DEFAULT}%
                         </span>
                      </div>
-                     {(cfg.strategy_variants || []).length > 0 && (
+                     {activeVariants.length > 0 && (
                         <button
                            type="button"
                            onClick={clearAllVariants}
@@ -6389,7 +7529,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         <div className="flex items-center gap-1.5 sm:gap-2">
           <div className={cn("items-center gap-1.5 shrink-0", isInputFocused ? "hidden sm:flex" : "flex")}>
              <Btn variant="ghost" onClick={onClose} className="h-9 px-2.5 sm:px-3 text-xs shrink-0">Cancel</Btn>
-             {isDirty && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5 h-9 px-2.5 sm:px-3 text-xs shrink-0">Reset</Btn>}
+             {(isDirty || hasPendingSessionChanges) && <Btn variant="ghost" onClick={resetToLastSaved} className="text-red hover:bg-red/5 h-9 px-2.5 sm:px-3 text-xs shrink-0">Reset</Btn>}
              <Tooltip content="Copy Configuration to Clipboard">
                <CopyButton
                   getValue={() => JSON.stringify(buildConfigToSave(), null, 2)}
@@ -6421,11 +7561,47 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
                 return;
               }
-              if (validate(cfg)) {
-                 const saved = await onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true });
+              const errs = getValidationErrors(cfg);
+              const blockingKeys = Object.keys(errs).filter(k => !k.endsWith('_warn'));
+              if (blockingKeys.length === 0) {
+                 const payload = { ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true };
+                 const saved = await onSave(payload);
                  if (saved === false) return;
-                 sessionStorage.removeItem('config_draft');
+                 if (payload.strategy_label) recordRecentlyUsed(payload.strategy_label);
+                 if (Array.isArray(payload.strategy_variants)) {
+                   payload.strategy_variants.forEach(v => {
+                     if (v?.strategy_label) recordRecentlyUsed(v.strategy_label);
+                   });
+                 }
+                 suppressDraftSaveRef.current = true;
+                 if (typeof sessionStorage !== 'undefined') {
+                   sessionStorage.removeItem('config_draft');
+                 }
+                 hasUserLocalOverrideRef.current = false;
+                 setHasPendingSessionChanges(false);
                  setIsDirty(false);
+              } else {
+                 const firstKey = blockingKeys[0];
+                 const targetTab = TAB_ERROR_MAP[firstKey];
+                 const targetSection = SECTION_ERROR_MAP[firstKey];
+                 const failingSections = Array.from(new Set(blockingKeys.map(k => SECTION_LABELS[SECTION_ERROR_MAP[k]]).filter(Boolean)));
+                 if (targetTab && section !== 'summary') {
+                   handleSectionChange(targetTab, targetSection || null);
+                 } else if (targetSection && section === targetTab) {
+                   recordRecentSection(targetSection);
+                   setOpenSectionId(targetSection);
+                   refreshSectionOrders([targetSection, ...recentSectionIdsRef.current.filter(id => id !== targetSection)].slice(0, 24), errs, targetSection);
+                 } else if (section === 'summary') {
+                   const el = document.getElementById(targetTab === 'env' ? 'summary_env' : targetTab === 'scan' ? 'summary_scan' : 'summary_risk');
+                   el?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+                 }
+                 addAlert?.({
+                   level: 'error',
+                   title: 'Configuration Validation Failed',
+                   message: failingSections.length > 0
+                     ? `Fix errors in: ${failingSections.join(', ')}`
+                     : `Please resolve ${blockingKeys.length} validation error(s) before saving.`
+                 });
               }
             }}
             className={cn(
@@ -6434,7 +7610,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             )}
           >
             {!isEdit && apiStatus?.isBanned ? 'Disabled (API Ban)' : (isEdit ? 'Apply Changes' : 'Start Session')}
-            {isDirty && <span className="w-1.5 h-1.5 rounded-full bg-white/80 animate-pulse" />}
+            {(isDirty || hasPendingSessionChanges) && <span className="w-1.5 h-1.5 rounded-full bg-white/80 animate-pulse" />}
           </Btn>
         </div>
       </div>
@@ -6453,36 +7629,40 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
               exit={{ scale: 0.95, y: 10 }}
               className="w-full max-w-lg bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden p-5 flex flex-col gap-4"
             >
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
-                    <ClipboardPaste size={16} />
+              <div className="flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
+                      <ClipboardPaste size={16} />
+                    </div>
+                    <h3 className="text-sm font-black uppercase tracking-tight truncate">Paste Configuration</h3>
+                    <InfoHelpButton
+                      open={!!expandedHelpMap.paste_overlay_help}
+                      onToggle={() => toggleHelpKey('paste_overlay_help')}
+                      label="Paste Configuration"
+                    />
                   </div>
-                  <div className="text-left">
-                    <h3 className="text-sm font-black uppercase tracking-tight">Paste Configuration</h3>
-                    <p className="text-[9px] text-dim font-medium uppercase">Direct clipboard fallback editor</p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setShowPasteOverlay(false); setPasteValue(''); setPasteError(null); }}
+                    className="p-1 hover:bg-white/5 rounded-full transition-colors shrink-0"
+                  >
+                    <X size={16} className="text-dim" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => { setShowPasteOverlay(false); setPasteValue(''); setPasteError(null); }}
-                  className="p-1 hover:bg-white/5 rounded-full transition-colors"
-                >
-                  <X size={16} className="text-dim" />
-                </button>
+                {expandedHelpMap.paste_overlay_help && (
+                  <InfoDropdownBox>Direct clipboard fallback editor: paste strategy configuration JSON below to parse, validate, and apply to active fields.</InfoDropdownBox>
+                )}
               </div>
 
               <div className="flex flex-col gap-2 text-left">
-                <p className="text-xs text-dim leading-relaxed">
-                  Paste your strategy configuration JSON below. The engine will instantly parse, validate, and hot-reload your active fields.
-                </p>
                 <div className="relative">
                   <textarea
                     value={pasteValue}
                     onChange={(e) => handlePasteAreaChange(e.target.value)}
                     placeholder='{ "strategy_label": "Scalp Momentum", ... }'
                     className={cn(
-                      "w-full h-48 bg-background border rounded-xl p-3 text-base sm:text-xs font-mono focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all resize-none",
+                      "w-full h-48 bg-background border rounded-xl p-2.5 text-xs font-mono focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none transition-all resize-none",
                       pasteError ? "border-red/40 focus:border-red focus-visible:ring-red" : pasteValue.trim() ? "border-green/40 focus:border-green focus-visible:ring-green" : "border-border focus:border-accent focus-visible:ring-accent"
                     )}
                     autoFocus
@@ -6520,9 +7700,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     try {
                       const parsed = JSON.parse(pasteValue);
                       const flattened = flattenConfig(parsed);
+                      hasUserLocalOverrideRef.current = true;
+                      suppressDraftSaveRef.current = false;
                       setCfg(flattened);
                       setIsDirty(true);
+                      setHasPendingSessionChanges(true);
                       validate(flattened);
+                      if (!isEdit) persistDraft(flattened, loadedPresetName);
                       addAlert({ level: 'success', title: 'Paste Successful', message: 'Configuration pasted and loaded.' });
                       setShowPasteOverlay(false);
                       setPasteValue('');
@@ -6546,6 +7730,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
 
 const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
+  const [showMaeInfo, setShowMaeInfo] = useState(false);
   if (!analytics?.rrOptimization) return null;
   const opt = analytics.rrOptimization;
   const sampleSize = opt.sampleSize || 0;
@@ -6606,12 +7791,22 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
      if (dist === null) return null;
 
      return (
-       <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl flex flex-col gap-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-purple-400">
+       <div className="mt-4 p-4 bg-purple/5 border border-purple/20 rounded-2xl flex flex-col gap-3 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-purple-400">
               <Activity size={12} /> Volatility Recommendation
             </div>
+            <InfoHelpButton
+              open={showMaeInfo}
+              onToggle={() => setShowMaeInfo(v => !v)}
+              label="Volatility Recommendation"
+            />
           </div>
+          {showMaeInfo && (
+            <InfoDropdownBox>
+              Based on historical Maximum Adverse Excursion (MAE). Designed to survive normal volatility while locking gains.
+            </InfoDropdownBox>
+          )}
           <div className="flex items-center justify-between gap-4">
              <div className="flex flex-col">
                 <span className="text-[8px] text-dim font-black uppercase tracking-widest mb-0.5">Statistical Distance</span>
@@ -6625,9 +7820,6 @@ const OptimizationPanel = ({ analytics, cfg, setField, type = 'rr' }) => {
                Use Recommended
              </Btn>
           </div>
-          <p className="text-[8px] text-dim/60 italic leading-snug border-l-2 border-purple/20 pl-3">
-             Based on historical Maximum Adverse Excursion (MAE). Designed to survive normal volatility while locking gains.
-          </p>
        </div>
      );
   }

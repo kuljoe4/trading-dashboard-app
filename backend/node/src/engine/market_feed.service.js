@@ -11,6 +11,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 var MarketFeedService_1;
+import { resolveStrategyConfig } from './strategyConfig';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -703,16 +704,7 @@ let MarketFeedService = class MarketFeedService {
                 for (const v of config.strategy_variants) {
                     if (v.enabled !== false) {
                         strategyConfigs.push({
-                            ...config,
-                            ...v,
-                            signal_params: {
-                                ...(config?.signal_params || {}),
-                                ...(v?.signal_params || {}),
-                            },
-                            signal_timeframes: {
-                                ...(config?.signal_timeframes || {}),
-                                ...(v?.signal_timeframes || {}),
-                            },
+                            ...resolveStrategyConfig(config, v),
                             strategy_label: v.strategy_label,
                             strategy_variants: [], // prevent infinite recursion
                         });
@@ -1410,12 +1402,23 @@ let MarketFeedService = class MarketFeedService {
         }
     }
     queueBackfill(symbol, interval, requiredWarmup) {
-        if (this.sessionState.isBanned() || this.isBackfillShortHistory(symbol, interval)) {
+        const resolvedInterval = this.resolveInterval(interval, this.sessionState?.config) || interval;
+        if (this.sessionState.isBanned() || this.isBackfillShortHistory(symbol, resolvedInterval)) {
             return;
         }
-        const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
+        const cacheKey = `${symbol}:${resolvedInterval}`;
+        const failRetryAt = this.failureBackoffMap.get(cacheKey) || 0;
+        const lastAttempt = this.lastBackfillAttemptMap.get(cacheKey) || 0;
+        const now = Date.now();
+        if (now < failRetryAt || (now - lastAttempt < 5 * 60 * 1000)) {
+            return;
+        }
+        if (this.backfillQueue.length >= 120) {
+            return;
+        }
+        const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === resolvedInterval);
         if (!alreadyQueued) {
-            this.backfillQueue.push({ symbol, interval });
+            this.backfillQueue.push({ symbol, interval: resolvedInterval });
             this.processBackfillQueue().catch(err => {
                 this.logger.error(`[MarketFeed] Backfill queue execution failed: ${err instanceof Error ? err.message : String(err)}`);
             });

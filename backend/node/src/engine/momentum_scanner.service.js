@@ -221,8 +221,13 @@ let MomentumScannerService = class MomentumScannerService {
                 }
             }
             // 3. Sorting and Slicing
+            // Keep up to configured watchlist_size (minimum SCANNER_MAX_RESULTS) so downstream signal evaluation
+            // and execution consider all valid candidates in the user's watchlist rather than dropping #16..N pre-signal.
             results.sort((a, b) => b.opp.score - a.opp.score);
-            const topCount = Math.min(results.length, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS);
+            const configuredMax = (config.symbols && config.symbols.length > 0)
+                ? results.length
+                : Math.max(ENGINE_CONSTANTS.SCANNER_MAX_RESULTS, config.watchlist_size || ENGINE_CONSTANTS.SCANNER_MAX_RESULTS);
+            const topCount = Math.min(results.length, configuredMax);
             // 4. In-Place Finalization
             // BOLT OPTIMIZATION: Directly populate sparkline history for top results without intermediate .map() allocation.
             const finalOpportunities = new Array(topCount);
@@ -261,7 +266,9 @@ let MomentumScannerService = class MomentumScannerService {
         }
         // Get recent candles for momentum calculation
         const lookback = Math.max(config.scan_lookback || 1, 1);
-        const livePrice = this.tickerCache.getPrice(symbol);
+        const livePrice = typeof this.tickerCache?.getPrice === 'function'
+            ? this.tickerCache.getPrice(symbol)
+            : (typeof this.tickerCache?.getTicker === 'function' ? this.tickerCache.getTicker(symbol)?.price : undefined);
         if (livePrice && livePrice > 0 && typeof this.klineStore.syncLivePrice === 'function') {
             this.klineStore.syncLivePrice(symbol, livePrice);
         }
@@ -289,6 +296,14 @@ let MomentumScannerService = class MomentumScannerService {
             }
             const warmReason = `insufficient ${interval} candles (${candles.length}/${lookback + 1})`;
             this.recordPreFilterReason(symbol, 'insufficient_candles', warmReason, undefined, undefined, config.strategy_label);
+            if (typeof this.marketFeed?.queueBackfill === 'function') {
+                try {
+                    this.marketFeed.queueBackfill(symbol, interval);
+                }
+                catch {
+                    // Non-fatal: scanner continues while backfill runs asynchronously
+                }
+            }
             if (config.debug_mode) {
                 this.logger.debug(`[Scanner Diagnostic] ${symbol} skipped: insufficient candles (${candles.length} < ${lookback + 1}) for interval ${interval}`);
             }
@@ -392,7 +407,9 @@ let MomentumScannerService = class MomentumScannerService {
         const action = config.sl_out_of_bounds_action || 'clamp';
         const shouldReject = action === 'reject' || (config.reject_entry_if_sl_exceeds_max === true && action !== 'clamp');
         let calculatedDistPct = slDistancePct;
-        const rawSlTf = config.sl_lookback_timeframe || config.scan_interval || '5m';
+        const rawSlTf = (!config.sl_lookback_timeframe || config.sl_lookback_timeframe === 'default')
+            ? (config.scan_interval || '5m')
+            : config.sl_lookback_timeframe;
         const slTf = this.marketFeed.resolveInterval(rawSlTf, config) || '5m';
         const scanInterval = this.marketFeed.resolveInterval(config.scan_interval || '1m', config) || '1m';
         const targetCandles = (slTf !== scanInterval)
@@ -400,16 +417,23 @@ let MomentumScannerService = class MomentumScannerService {
             : candles;
         const evalCandles = targetCandles.length > 0 ? targetCandles : candles;
         if (slType === 'lookback_low/high' && evalCandles.length > 0) {
-            const rawPeriod = config.sl_lookback_period ?? 5;
+            const rawPeriod = (config.sl_lookback_period !== undefined && config.sl_lookback_period !== null && Number.isFinite(Number(config.sl_lookback_period)) && Number(config.sl_lookback_period) >= 0)
+                ? Number(config.sl_lookback_period)
+                : 5;
+            const includeForming = Boolean(config.sl_include_forming_candle);
             let extreme;
-            if (rawPeriod === 0) {
+            if (rawPeriod === 0 || evalCandles.length === 1) {
                 const currentCandle = evalCandles[evalCandles.length - 1];
                 extreme = direction === 'LONG' ? currentCandle.low : currentCandle.high;
             }
             else {
-                const windowCount = Math.min(evalCandles.length, rawPeriod + 1);
-                extreme = evalCandles[evalCandles.length - 1].close;
-                for (let i = evalCandles.length - windowCount; i < evalCandles.length; i++) {
+                // Align exactly with KlineStoreService.getLookbackExtremes:
+                // completed candles are indices [endCompleted - rawPeriod .. endCompleted - 1]; forming candle at [length - 1] is included only when sl_include_forming_candle is true.
+                const endCompletedIdx = evalCandles.length - 1;
+                const startIdx = Math.max(0, endCompletedIdx - rawPeriod);
+                const endIdx = includeForming ? evalCandles.length : endCompletedIdx;
+                extreme = evalCandles[startIdx][direction === 'LONG' ? 'low' : 'high'];
+                for (let i = startIdx; i < endIdx; i++) {
                     if (direction === 'LONG') {
                         if (evalCandles[i].low < extreme)
                             extreme = evalCandles[i].low;

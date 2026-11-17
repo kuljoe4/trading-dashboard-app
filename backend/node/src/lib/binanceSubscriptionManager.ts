@@ -213,7 +213,7 @@ export class BinanceSubscriptionManager {
 
     // Chunking: Max 200 streams per SUBSCRIBE frame
     const CHUNK_SIZE = 200;
-    const chunks = [];
+    const chunks: string[][] = [];
     for (let i = 0; i < newStreams.length; i += CHUNK_SIZE) {
       chunks.push(newStreams.slice(i, i + CHUNK_SIZE));
     }
@@ -229,7 +229,7 @@ export class BinanceSubscriptionManager {
     if (toUnsubscribe.length === 0) return;
 
     const CHUNK_SIZE = 200;
-    const chunks = [];
+    const chunks: string[][] = [];
     for (let i = 0; i < toUnsubscribe.length; i += CHUNK_SIZE) {
       chunks.push(toUnsubscribe.slice(i, i + CHUNK_SIZE));
     }

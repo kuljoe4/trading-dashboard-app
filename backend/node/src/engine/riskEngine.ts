@@ -562,7 +562,7 @@ export class RiskEngineService {
       const distancePct = Math.abs(finalSl - entryPrice) / entryPrice * 100;
 
       let rejected = false;
-      let reason = undefined;
+      let reason: string | undefined = undefined;
 
       if (distancePct < minPct) {
         if (action === 'clamp') {

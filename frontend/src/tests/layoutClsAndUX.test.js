@@ -114,10 +114,11 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     );
 
     assert.ok(
-      configModalSource.includes('text-base sm:text-xs') &&
+      configModalSource.includes('min-h-[32px] text-xs') &&
+      !configModalSource.includes('text-base sm:text-xs') &&
       configModalSource.includes("const resolvedInputMode = attrs?.inputMode ?? (type === 'number' ? 'decimal' : undefined);") &&
       configModalSource.includes('inputMode={resolvedInputMode}'),
-      'ConfigModal ConfigField inputs must use >=16px text-base on mobile to prevent iOS Safari zoom and set numeric inputMode'
+      'ConfigModal ConfigField inputs must use uniform compact text-xs typography, min-h-[32px], and numeric inputMode'
     );
 
     assert.ok(
@@ -183,8 +184,9 @@ describe('Layout CLS & WCAG 2.1 UX Standards', () => {
     );
 
     assert.ok(
-      settingsSource.includes('min-h-[44px] text-base sm:text-sm'),
-      'SettingsView inputs/selects must enforce 44px mobile touch targets and 16px+ font-size'
+      settingsSource.includes('min-h-[34px] text-xs') &&
+      !settingsSource.includes('text-base sm:text-sm'),
+      'SettingsView inputs/selects must use uniform compact text-xs typography and 34px min height'
     );
   });
 });

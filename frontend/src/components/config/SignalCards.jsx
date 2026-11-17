@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import * as Switch from '@radix-ui/react-switch';
-import { AlertTriangle, ChevronDown, Plus, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Plus, Trash2, Info } from 'lucide-react';
 import { cn, Tooltip } from '../ui/primitives';
 
 export const ExitSignalCard = React.memo(({
@@ -22,13 +22,25 @@ export const ExitSignalCard = React.memo(({
 }) => {
   const [key, label, desc] = signal;
   const [expanded, setExpanded] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
 
   return (
     <div className={cn("signal-stack-row flex flex-col gap-2 p-2.5 bg-transparent border-b rounded-none hover:border-border-hover transition-all", active ? "border-red/30 bg-red/[0.01]" : "border-border")}>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col text-left min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className={cn("text-xs font-bold break-words leading-snug", active ? "text-red" : "text-text")}>{label}</span>
-          <span className="text-[9px] text-dim font-medium uppercase mt-0.5 break-words leading-snug">{desc}</span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setShowInfo(v => !v); }}
+            aria-label={`Toggle description for ${label}`}
+            className={cn(
+              "p-1 rounded-md transition-colors shrink-0 cursor-pointer",
+              showInfo ? "text-red bg-red/10" : "text-dim hover:text-text hover:bg-white/5"
+            )}
+            title="Toggle signal description & details"
+          >
+            <Info size={13} />
+          </button>
         </div>
         <Switch.Root
           checked={active}
@@ -40,7 +52,13 @@ export const ExitSignalCard = React.memo(({
         </Switch.Root>
       </div>
 
-      {active && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(v => !v)} className="flex items-center justify-between min-h-[40px] text-xs text-dim text-left"><span>{timeframes[key] === 'default' || !timeframes[key] ? `Scan default · ${scanTimeframe}` : `Effective · ${timeframes[key]}`} · {expanded ? 'Collapse settings' : 'Edit condition'}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button>}
+      {showInfo && (
+        <div className="p-2.5 bg-background/70 border border-border/60 rounded-xl text-[10px] text-dim font-medium leading-relaxed text-left animate-in fade-in duration-200">
+          {desc}
+        </div>
+      )}
+
+      {active && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(v => !v)} className="flex items-center justify-between min-h-[32px] text-xs text-dim text-left"><span>{timeframes[key] === 'default' || !timeframes[key] ? `Scan default · ${scanTimeframe}` : `Effective · ${timeframes[key]}`} · {expanded ? 'Collapse settings' : 'Edit condition'}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button>}
 
       {active && expanded && isComboMode && (
         <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
@@ -105,7 +123,7 @@ export const ExitSignalCard = React.memo(({
                       id={`tf-${layerKey}`}
                       value={tfValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none cursor-pointer min-h-[36px] sm:min-h-[32px] w-full"
+                      className="bg-surface border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none cursor-pointer min-h-[32px] w-full"
                     >
                       <option value="default">Scan default ({scanTimeframe})</option>
                       <option value="1m">1m</option>
@@ -170,7 +188,7 @@ export const ExitSignalCard = React.memo(({
                             const m = Math.floor(((Number(delayValue) || 0) % 3600) / 60);
                             onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                           }}
-                          className="bg-surface/90 border border-border/80 rounded-lg px-2 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full tabular-nums"
+                          className="bg-surface/90 border border-border/80 rounded-lg px-2 py-1.5 min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full tabular-nums"
                         />
                         <span className="text-dim font-bold">:</span>
                         <input
@@ -185,7 +203,7 @@ export const ExitSignalCard = React.memo(({
                             const m = parseInt(e.target.value) || 0;
                             onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                           }}
-                          className="bg-surface/90 border border-border/80 rounded-lg px-2 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full tabular-nums"
+                          className="bg-surface/90 border border-border/80 rounded-lg px-2 py-1.5 min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full tabular-nums"
                         />
                       </div>
                     ) : (
@@ -201,7 +219,7 @@ export const ExitSignalCard = React.memo(({
                             const val = Math.max(1, parseInt(e.target.value) || 1);
                             onUpdateLayer(layerKey, 'delay', `${val}c`);
                           }}
-                          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full pr-6 tabular-nums"
+                          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1.5 min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full pr-6 tabular-nums"
                           aria-label="Number of candles delay"
                         />
                         <span className="absolute right-2.5 text-[9px] font-bold text-dim/60 font-mono pointer-events-none">c</span>
@@ -217,7 +235,7 @@ export const ExitSignalCard = React.memo(({
                       value={actionValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
                       className={cn(
-                        "border rounded-lg px-2.5 py-1.5 text-xs font-black uppercase tracking-tight outline-none cursor-pointer min-h-[36px] sm:min-h-[32px] text-center w-full focus:ring-1",
+                        "border rounded-lg px-2.5 py-1.5 text-xs font-black uppercase tracking-tight outline-none cursor-pointer min-h-[32px] text-center w-full focus:ring-1",
                         actionValue === 'lock_sl'
                           ? "bg-purple/10 border-purple/30 text-purple focus:border-purple focus:ring-purple/30"
                           : "bg-red/10 border-red/30 text-red focus:border-red focus:ring-red/30"
@@ -262,13 +280,25 @@ export const EntrySignalCard = React.memo(({
 }) => {
   const [key, label, desc] = signal;
   const [expanded, setExpanded] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
 
   return (
     <div className={cn("signal-stack-row flex flex-col gap-2 p-2.5 bg-transparent border-b rounded-none hover:border-border-hover transition-all", active ? "border-accent/30 bg-accent/[0.01]" : "border-border")}>
       <div className="flex items-center justify-between gap-3">
-        <div className="flex flex-col text-left min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className={cn("text-xs font-bold break-words leading-snug", active ? "text-accent" : "text-text")}>{label}</span>
-          <span className="text-[9px] text-dim font-medium uppercase mt-0.5 break-words leading-snug">{desc}</span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setShowInfo(v => !v); }}
+            aria-label={`Toggle description for ${label}`}
+            className={cn(
+              "p-1 rounded-md transition-colors shrink-0 cursor-pointer",
+              showInfo ? "text-accent bg-accent/10" : "text-dim hover:text-text hover:bg-white/5"
+            )}
+            title="Toggle signal description & details"
+          >
+            <Info size={13} />
+          </button>
         </div>
         <Switch.Root
           checked={active}
@@ -280,7 +310,13 @@ export const EntrySignalCard = React.memo(({
         </Switch.Root>
       </div>
 
-      {active && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(v => !v)} className="flex items-center justify-between min-h-[40px] text-xs text-dim text-left"><span>{timeframes[key] === 'default' || !timeframes[key] ? `Scan default · ${scanTimeframe}` : `Effective · ${timeframes[key]}`} · {expanded ? 'Collapse settings' : 'Edit condition'}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button>}
+      {showInfo && (
+        <div className="p-2.5 bg-background/70 border border-border/60 rounded-xl text-[10px] text-dim font-medium leading-relaxed text-left animate-in fade-in duration-200">
+          {desc}
+        </div>
+      )}
+
+      {active && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(v => !v)} className="flex items-center justify-between min-h-[32px] text-xs text-dim text-left"><span>{timeframes[key] === 'default' || !timeframes[key] ? `Scan default · ${scanTimeframe}` : `Effective · ${timeframes[key]}`} · {expanded ? 'Collapse settings' : 'Edit condition'}</span><ChevronDown size={14} className={expanded ? 'rotate-180' : ''} /></button>}
 
       {active && expanded && isComboMode && (
         <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
@@ -322,7 +358,7 @@ export const EntrySignalCard = React.memo(({
                       id={`tf-${layerKey}`}
                       value={tfValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none cursor-pointer min-h-[36px] sm:min-h-[32px] w-full"
+                      className="bg-surface border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none cursor-pointer min-h-[32px] w-full"
                     >
                       <option value="default">Scan default ({scanTimeframe})</option>
                       <option value="1m">1m</option>
@@ -364,4 +400,3 @@ export const EntrySignalCard = React.memo(({
   );
 })
 EntrySignalCard.displayName = 'EntrySignalCard'
-

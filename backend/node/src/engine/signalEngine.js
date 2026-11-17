@@ -206,18 +206,27 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
         this.warmupCache.set(config, maxReq);
         return maxReq;
     }
-    getRequiredWarmupForSignal(config, signalType) {
-        let baseType = signalType;
-        let handler = this.signalHandlers[signalType];
-        if (!handler) {
-            const lastUnderscore = signalType.lastIndexOf('_');
-            if (lastUnderscore > 0) {
-                const potentialBase = signalType.substring(0, lastUnderscore);
-                if (this.signalHandlers[potentialBase]) {
-                    baseType = potentialBase;
-                }
+    resolveBaseSignalType(signalType) {
+        if (this.signalHandlers[signalType])
+            return signalType;
+        const lastUnderscore = signalType.lastIndexOf('_');
+        if (lastUnderscore > 0) {
+            const potentialBase = signalType.substring(0, lastUnderscore);
+            if (this.signalHandlers[potentialBase]) {
+                return potentialBase;
             }
         }
+        return signalType;
+    }
+    resolveEffectiveSignalInterval(config, signalType, fallbackInterval) {
+        const baseType = this.resolveBaseSignalType(signalType);
+        let tf = config.signal_timeframes?.[signalType] || config.signal_timeframes?.[baseType] || fallbackInterval;
+        if (!tf || tf === 'default')
+            tf = fallbackInterval;
+        return tf;
+    }
+    getRequiredWarmupForSignal(config, signalType, purpose = 'entry') {
+        const baseType = this.resolveBaseSignalType(signalType);
         const params = config.signal_params || {};
         const resolveParam = (sigType, bType, key, fallback) => {
             return this.resolveSignalParam(params, sigType, bType, key, fallback);
@@ -234,12 +243,28 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
             const basePeriodVal = resolveParam(signalType, baseType, 'ema_period', '12');
             const exitPeriod = parseInt(String(exitPeriodVal || basePeriodVal), 10);
             const entryPeriod = parseInt(String(entryPeriodVal || basePeriodVal), 10);
-            return Math.max(exitPeriod, entryPeriod) * 2;
+            return (purpose === 'exit' ? Math.max(exitPeriod, 1) : Math.max(entryPeriod, exitPeriod)) * 2;
         }
         else if (baseType === 'ema_dual_cross' || baseType === 'ema_dual_close' || baseType === 'ema_dual') {
-            const entryFastVal = resolveParam(signalType, baseType, 'entry_ema_fast', '9');
-            const entrySlowVal = resolveParam(signalType, baseType, 'entry_ema_slow', '21');
-            return Math.max(parseInt(String(entryFastVal), 10), parseInt(String(entrySlowVal), 10)) * 2;
+            const entryFastVal = resolveParam(signalType, baseType, 'entry_ema_fast', null) || resolveParam(signalType, baseType, 'exit_ema_fast', '9');
+            const exitFastVal = resolveParam(signalType, baseType, 'exit_ema_fast', null) || resolveParam(signalType, baseType, 'entry_ema_fast', '9');
+            const entrySlowVal = resolveParam(signalType, baseType, 'entry_ema_slow', null) || resolveParam(signalType, baseType, 'exit_ema_slow', '21');
+            const exitSlowVal = resolveParam(signalType, baseType, 'exit_ema_slow', null) || resolveParam(signalType, baseType, 'entry_ema_slow', '21');
+            const fast = purpose === 'exit'
+                ? parseInt(String(exitFastVal), 10)
+                : Math.max(parseInt(String(entryFastVal), 10), parseInt(String(exitFastVal), 10));
+            const slow = purpose === 'exit'
+                ? parseInt(String(exitSlowVal), 10)
+                : Math.max(parseInt(String(entrySlowVal), 10), parseInt(String(exitSlowVal), 10));
+            let req = Math.max(fast, slow) * 2;
+            const macdFilter = resolveParam(signalType, baseType, 'ema_dual_macd_filter', false);
+            if (macdFilter === true || macdFilter === 'true') {
+                const mFast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
+                const mSlow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
+                const mSig = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
+                req = Math.max(req, (Math.max(mFast, mSlow) + mSig) * 2);
+            }
+            return req;
         }
         else if (baseType === 'engulfing') {
             const lookback = parseInt(String(resolveParam(signalType, baseType, 'engulfing_lookback', config.engulfing_lookback || '1')), 10);
@@ -249,7 +274,12 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
             const fast = parseInt(String(resolveParam(signalType, baseType, 'macd_fast', '12')), 10);
             const slow = parseInt(String(resolveParam(signalType, baseType, 'macd_slow', '26')), 10);
             const signal = parseInt(String(resolveParam(signalType, baseType, 'macd_signal', '9')), 10);
-            return (Math.max(fast, slow) + signal) * 2;
+            let req = (Math.max(fast, slow) + signal) * 2;
+            if (baseType === 'macd_pbc') {
+                const emaPeriod = parseInt(String(resolveParam(signalType, baseType, 'macd_pbc_trend_ema', '50')), 10);
+                req = Math.max(req, emaPeriod * 2);
+            }
+            return req;
         }
         else if (baseType === 'supertrend') {
             return parseInt(String(resolveParam(signalType, baseType, 'supertrend_period', '10')), 10) * 5;
@@ -258,14 +288,46 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
             return parseInt(String(resolveParam(signalType, baseType, 'knife_lookback', '3')), 10) + 1;
         }
         else if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
-            const lookback = parseInt(String(resolveParam(signalType, baseType, 'htf_breakout_lookback', config.htf_breakout_lookback || 5)), 10) || 5;
-            return lookback + 2;
+            const lookback = parseInt(String(resolveParam(signalType, baseType, 'htf_breakout_lookback', config.htf_breakout_lookback ?? 1)), 10) || 1;
+            return lookback + 1;
         }
         else if (baseType === 'trigger_candle_exit' || baseType === 'entry_candle_boundary') {
             const n = parseInt(String(resolveParam(signalType, baseType, 'trigger_candle_exit_n', 0)), 10) || 0;
             return n + 2;
         }
-        return this.getRequiredWarmup(config);
+        return Math.max((config.scan_lookback || 3) + 1, 2);
+    }
+    getRequiredWarmupForInterval(config, targetInterval, purpose = 'entry', activeSignalsOverride) {
+        const activeSignals = activeSignalsOverride || (purpose === 'exit'
+            ? [
+                ...(config.exit_signals || []),
+                ...(config.trigger_candle_exit_enabled && !(config.exit_signals || []).includes('trigger_candle_exit') ? ['trigger_candle_exit'] : []),
+            ]
+            : (config.enabled_signals || []));
+        let maxReq = 0;
+        const params = config.signal_params || {};
+        for (const signalType of activeSignals) {
+            const baseType = this.resolveBaseSignalType(signalType);
+            if (baseType === 'htf_breakout' || baseType === 'prev_day_breakout') {
+                const refTf = String(this.resolveSignalParam(params, signalType, baseType, 'htf_breakout_ref_timeframe', config.htf_breakout_ref_timeframe || '1d'));
+                const trigTfCfg = String(this.resolveSignalParam(params, signalType, baseType, 'htf_breakout_trigger_timeframe', config.htf_breakout_trigger_timeframe || '1h'));
+                const effTrigTf = (!trigTfCfg || trigTfCfg === 'default') ? targetInterval : trigTfCfg;
+                const mode = String(this.resolveSignalParam(params, signalType, baseType, 'htf_breakout_mode', config.htf_breakout_mode || 'close_break'));
+                if (targetInterval === refTf) {
+                    const lookback = Math.max(1, parseInt(String(this.resolveSignalParam(params, signalType, baseType, 'htf_breakout_lookback', config.htf_breakout_lookback ?? 1)), 10) || 1);
+                    maxReq = Math.max(maxReq, lookback + 1);
+                }
+                if (targetInterval === effTrigTf) {
+                    maxReq = Math.max(maxReq, mode === 'closed_candle_confirm' ? 2 : 1);
+                }
+                continue;
+            }
+            const signalTf = this.resolveEffectiveSignalInterval(config, signalType, targetInterval);
+            if (signalTf === targetInterval) {
+                maxReq = Math.max(maxReq, this.getRequiredWarmupForSignal(config, signalType, purpose));
+            }
+        }
+        return maxReq;
     }
     checkEntry(symbol, config, interval = '1m', side, purpose = 'entry', minimal = false, passedCandles, trade) {
         const evaluatedAtMs = Date.now();
@@ -299,7 +361,7 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
                     const lastUnderscore = s.lastIndexOf('_');
                     if (lastUnderscore > 0) {
                         const potentialBase = s.substring(0, lastUnderscore);
-                        if (this.signalHandlers[potentialBase])
+                        if (/^\d+$/.test(s.substring(lastUnderscore + 1)) && this.signalHandlers[potentialBase])
                             base = potentialBase;
                     }
                     return s === base;
@@ -315,13 +377,22 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
             }
         }
         const candles = passedCandles || this.klineStore.getRawCandles(symbol, interval);
-        // Warm-up check for technical indicators (applied to both entry and exit signal evaluations to ensure mathematical convergence)
-        const requiredWarmup = this.getRequiredWarmup(config);
-        if (candles.length < requiredWarmup) {
+        // Warm-up check scoped strictly to signals evaluating on the base interval when reading from klineStore,
+        // so multi-timeframe indicators (e.g. ema_dual on 1h with MACD=70) never falsely block shorter-history base pairs (e.g. 1d with 60 candles).
+        const requiredWarmup = passedCandles
+            ? activeSignals.reduce((m, s) => {
+                const bType = this.resolveBaseSignalType(s);
+                if (bType === 'htf_breakout' || bType === 'prev_day_breakout') {
+                    return Math.max(m, 1);
+                }
+                return Math.max(m, this.getRequiredWarmupForSignal(config, s, purpose));
+            }, 0)
+            : this.getRequiredWarmupForInterval(config, interval, purpose, activeSignals);
+        if (requiredWarmup > 0 && candles.length < requiredWarmup) {
             return {
                 allFired: false,
                 firedSignals: [],
-                reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles)`,
+                reason: `Indicator warm-up in progress (${candles.length}/${requiredWarmup} candles on ${interval})`,
                 details: minimal ? undefined : {
                     warmup: {
                         fired: false,
@@ -329,8 +400,10 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
                         threshold: requiredWarmup,
                         unit: 'candles',
                         metric: 'Warmup',
-                        description: 'Waiting for mathematical convergence',
+                        description: `Waiting for mathematical convergence on ${interval}`,
                         insufficientData: true,
+                        timeframe: interval,
+                        candleCount: candles.length,
                         evaluated_at_ms: evaluatedAtMs,
                     }
                 }
@@ -339,6 +412,7 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
         // BOLT OPTIMIZATION: Avoid array/object allocations when minimal mode is active
         const firedSignals = minimal ? [] : [];
         const failedSignals = minimal ? [] : [];
+        const warmupReasons = [];
         const details = minimal ? {} : {};
         for (const signalType of activeSignals) {
             // BOLT OPTIMIZATION: Check for cached resolved handler first
@@ -365,6 +439,8 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
                 if (minimal) {
                     if (logic === 'all')
                         return { allFired: false, firedSignals: [], reason: 'minimal' };
+                    if (logic === 'combo' && requiredSet.includes(signalType))
+                        return { allFired: false, firedSignals: [], reason: 'minimal' };
                 }
                 else {
                     failedSignals.push(signalType);
@@ -379,10 +455,21 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
                 const signalCandles = passedCandles || ((signalInterval !== interval)
                     ? this.klineStore.getRawCandles(symbol, signalInterval)
                     : candles);
-                const sigReqWarmup = this.getRequiredWarmupForSignal(config, signalType);
-                if (signalInterval !== interval && signalCandles.length < sigReqWarmup) {
-                    failedSignals.push(signalType);
-                    if (!minimal) {
+                const isCrossTfSplit = baseSignalType === 'htf_breakout' || baseSignalType === 'prev_day_breakout';
+                if (!isCrossTfSplit) {
+                    const sigReqWarmup = this.getRequiredWarmupForSignal(config, signalType, purpose);
+                    if (signalCandles.length < sigReqWarmup) {
+                        const warmMsg = `Indicator warm-up in progress (${signalCandles.length}/${sigReqWarmup} candles on ${signalInterval} for ${signalType})`;
+                        if (minimal) {
+                            if (logic === 'all')
+                                return { allFired: false, firedSignals: [], reason: warmMsg };
+                            if (logic === 'combo' && requiredSet.includes(signalType))
+                                return { allFired: false, firedSignals: [], reason: warmMsg };
+                            failedSignals.push(signalType);
+                            continue;
+                        }
+                        failedSignals.push(signalType);
+                        warmupReasons.push(warmMsg);
                         details[signalType] = {
                             fired: false,
                             value: signalCandles.length,
@@ -395,8 +482,8 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
                             candleCount: signalCandles.length,
                             evaluated_at_ms: evaluatedAtMs,
                         };
+                        continue;
                     }
-                    continue;
                 }
                 const result = handler(symbol, config, signalInterval, side, purpose, signalCandles, minimal, signalType, trade);
                 const fired = typeof result === 'boolean' ? result : result.fired;
@@ -405,8 +492,12 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
                 else
                     failedSignals.push(signalType);
                 if (!minimal) {
-                    if (typeof result !== 'boolean')
+                    if (typeof result !== 'boolean') {
                         details[signalType] = { ...result, metric: result.metric || baseSignalType, evaluated_at_ms: evaluatedAtMs };
+                        if (result.insufficientData && result.description) {
+                            warmupReasons.push(result.description);
+                        }
+                    }
                 }
                 else {
                     // Early exit if logic is satisfied
@@ -433,10 +524,14 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
         }
         if (minimal) {
             if (logic === 'combo') {
+                const requiredSatisfied = requiredSet.every(s => firedSignals.includes(s));
                 const optionalSatisfied = optionalSet.length === 0 || optionalSet.some(s => firedSignals.includes(s));
-                return { allFired: optionalSatisfied, firedSignals: [], reason: 'minimal' };
+                return { allFired: requiredSatisfied && optionalSatisfied, firedSignals: [], reason: 'minimal' };
             }
-            return { allFired: logic === 'all', firedSignals: [], reason: 'minimal' };
+            if (logic === 'all') {
+                return { allFired: failedSignals.length === 0 && firedSignals.length === activeSignals.length, firedSignals: [], reason: 'minimal' };
+            }
+            return { allFired: firedSignals.length > 0, firedSignals: [], reason: 'minimal' };
         }
         let allFired = false;
         if (logic === 'any') {
@@ -450,11 +545,13 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
             const optionalSatisfied = optionalSet.length === 0 || optionalSet.some(s => firedSignals.includes(s));
             allFired = requiredSatisfied && optionalSatisfied;
         }
-        const reason = logic === 'combo'
-            ? `Combo (${requiredSet.join(' AND ')} [Req] + ${optionalSet.join(' OR ')} [Opt]): ${firedSignals.length}/${activeSignals.length} fired`
-            : `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
-                (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
-                (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
+        const reason = (!allFired && warmupReasons.length > 0 && failedSignals.every(f => Boolean(details[f]?.insufficientData)))
+            ? warmupReasons[0]
+            : logic === 'combo'
+                ? `Combo (${requiredSet.join(' AND ')} [Req] + ${optionalSet.join(' OR ')} [Opt]): ${firedSignals.length}/${activeSignals.length} fired`
+                : `Signals fired: ${firedSignals.length}/${activeSignals.length}` +
+                    (firedSignals.length > 0 ? ` (${firedSignals.join(', ')})` : '') +
+                    (failedSignals.length > 0 ? `; Failed: ${failedSignals.join(', ')}` : '');
         return { allFired, firedSignals, reason, details };
     }
     momentumPctSignal(symbol, config, interval, side, purpose, passedCandles, minimal, signalType = 'engulfing') {
@@ -1171,7 +1268,7 @@ let SignalEngineService = SignalEngineService_1 = class SignalEngineService {
                 prevSlow: roundTo(prevSlow, 8),
                 insufficientData: fastRes.insufficientData || slowRes.insufficientData,
                 unit: 'price',
-                metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
+                metric: purpose === 'exit' ? 'Exit EMA Dual Cross' : 'Entry EMA Dual Cross',
                 description,
                 threshold_is_price: true,
                 slPrice: roundTo(currSlow, 8),

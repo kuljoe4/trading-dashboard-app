@@ -2211,7 +2211,12 @@ export const HistoryView = () => {
       });
     }
 
-    mapped.sort((a, b) => b.startTimeMs - a.startTimeMs);
+    mapped.sort((a, b) => {
+      const aActive = a.status === 'active' || !a.endTime;
+      const bActive = b.status === 'active' || !b.endTime;
+      if (aActive !== bActive) return aActive ? -1 : 1;
+      return b.startTimeMs - a.startTimeMs;
+    });
     return mapped;
   }, [sessionList, tradeHistory]);
 

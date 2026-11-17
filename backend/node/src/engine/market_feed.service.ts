@@ -1446,12 +1446,23 @@ export class MarketFeedService {
   }
 
   public queueBackfill(symbol: string, interval: string, requiredWarmup?: number) {
-    if (this.sessionState.isBanned() || this.isBackfillShortHistory(symbol, interval)) {
+    const resolvedInterval = this.resolveInterval(interval, this.sessionState?.config) || interval;
+    if (this.sessionState.isBanned() || this.isBackfillShortHistory(symbol, resolvedInterval)) {
       return;
     }
-    const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === interval);
+    const cacheKey = `${symbol}:${resolvedInterval}`;
+    const failRetryAt = this.failureBackoffMap.get(cacheKey) || 0;
+    const lastAttempt = this.lastBackfillAttemptMap.get(cacheKey) || 0;
+    const now = Date.now();
+    if (now < failRetryAt || (now - lastAttempt < 5 * 60 * 1000)) {
+      return;
+    }
+    if (this.backfillQueue.length >= 120) {
+      return;
+    }
+    const alreadyQueued = this.backfillQueue.some(t => t.symbol === symbol && t.interval === resolvedInterval);
     if (!alreadyQueued) {
-      this.backfillQueue.push({ symbol, interval });
+      this.backfillQueue.push({ symbol, interval: resolvedInterval });
       this.processBackfillQueue().catch(err => {
         this.logger.error(`[MarketFeed] Backfill queue execution failed: ${err instanceof Error ? err.message : String(err)}`);
       });

@@ -2351,8 +2351,7 @@ let OrderManagerService = OrderManagerService_1 = class OrderManagerService {
             }
             else {
                 const baseSignals = effectiveExitSignals.filter(s => {
-                    const lastUnderscore = s.lastIndexOf('_');
-                    return lastUnderscore <= 0;
+                    return !/_\d+$/.test(s);
                 });
                 if (baseSignals.length > 0 && baseSignals.length < effectiveExitSignals.length) {
                     requiredSet = baseSignals;

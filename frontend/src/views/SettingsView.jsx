@@ -517,7 +517,7 @@ export function SettingsView() {
                         autoCorrect="off"
                         value={adminApiKey}
                         onChange={e => setAdminApiKeyValue(e.target.value)}
-                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 pr-24 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 pr-20 min-h-[34px] text-xs font-mono text-text transition-all"
                         placeholder="••••••••••••••••"
                       />
                       <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 text-dim">
@@ -527,9 +527,9 @@ export function SettingsView() {
                               type="button"
                               onClick={() => { setAdminApiKeyValue(''); adminApiKeyRef.current?.focus(); }}
                               aria-label="Clear Admin API Key"
-                              className="min-h-[38px] min-w-[38px] flex items-center justify-center hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
+                              className="h-7 w-7 flex items-center justify-center hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
                             >
-                              <XCircle size={18} />
+                              <XCircle size={14} />
                             </button>
                           </Tooltip>
                         )}
@@ -538,9 +538,9 @@ export function SettingsView() {
                             type="button"
                             onClick={() => setShowAdminKey(!showAdminKey)}
                             aria-label={showAdminKey ? "Hide key" : "Show key"}
-                            className="min-h-[38px] min-w-[38px] flex items-center justify-center hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
+                            className="h-7 w-7 flex items-center justify-center hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
                           >
-                            {showAdminKey ? <EyeOff size={18} /> : <Eye size={18} />}
+                            {showAdminKey ? <EyeOff size={14} /> : <Eye size={14} />}
                           </button>
                         </Tooltip>
                       </div>
@@ -597,7 +597,7 @@ export function SettingsView() {
                           autoCorrect="off"
                           value={apiKey}
                           onChange={e => setApiKey(e.target.value)}
-                          className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 pr-12 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                          className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 pr-10 min-h-[34px] text-xs font-mono text-text transition-all"
                           placeholder="8080...2025"
                         />
                         {apiKey && (
@@ -607,9 +607,9 @@ export function SettingsView() {
                                 type="button"
                                 onClick={() => { setApiKey(''); apiKeyRef.current?.focus(); }}
                                 aria-label="Clear API Key"
-                                className="min-h-[38px] min-w-[38px] flex items-center justify-center text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
+                                className="h-7 w-7 flex items-center justify-center text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
                               >
-                                <XCircle size={18} />
+                                <XCircle size={14} />
                               </button>
                             </Tooltip>
                           </div>
@@ -627,7 +627,7 @@ export function SettingsView() {
                           autoCorrect="off"
                           value={apiSecret}
                           onChange={e => setApiSecret(e.target.value)}
-                          className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 pr-24 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                          className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 pr-20 min-h-[34px] text-xs font-mono text-text transition-all"
                           placeholder="••••••••••••••••"
                         />
                         <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 text-dim">
@@ -637,9 +637,9 @@ export function SettingsView() {
                                 type="button"
                                 onClick={() => { setApiSecret(''); apiSecretRef.current?.focus(); }}
                                 aria-label="Clear API Secret"
-                                className="min-h-[38px] min-w-[38px] flex items-center justify-center hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
+                                className="h-7 w-7 flex items-center justify-center hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
                               >
-                                <XCircle size={18} />
+                                <XCircle size={14} />
                               </button>
                             </Tooltip>
                           )}
@@ -648,9 +648,9 @@ export function SettingsView() {
                               type="button"
                               onClick={() => setShowLiveSecret(!showLiveSecret)}
                               aria-label={showLiveSecret ? "Hide secret" : "Show secret"}
-                              className="min-h-[38px] min-w-[38px] flex items-center justify-center hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
+                              className="h-7 w-7 flex items-center justify-center hover:text-accent transition-colors focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg cursor-pointer"
                             >
-                              {showLiveSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                              {showLiveSecret ? <EyeOff size={14} /> : <Eye size={14} />}
                             </button>
                           </Tooltip>
                         </div>
@@ -708,7 +708,7 @@ export function SettingsView() {
                           autoCorrect="off"
                           value={testnetApiKey}
                           onChange={e => setTestnetApiKey(e.target.value)}
-                          className="w-full bg-background border border-border focus:border-purple focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-xl px-3.5 py-2.5 pr-12 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                          className="w-full bg-background border border-border focus:border-purple focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg px-3 py-1.5 pr-10 min-h-[34px] text-xs font-mono text-text transition-all"
                           placeholder="abcd...1234"
                         />
                         {testnetApiKey && (
@@ -718,9 +718,9 @@ export function SettingsView() {
                                 type="button"
                                 onClick={() => { setTestnetApiKey(''); testnetApiKeyRef.current?.focus(); }}
                                 aria-label="Clear Testnet API Key"
-                                className="min-h-[38px] min-w-[38px] flex items-center justify-center text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg cursor-pointer"
+                                className="h-7 w-7 flex items-center justify-center text-dim hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg cursor-pointer"
                               >
-                                <XCircle size={18} />
+                                <XCircle size={14} />
                               </button>
                             </Tooltip>
                           </div>
@@ -738,7 +738,7 @@ export function SettingsView() {
                           autoCorrect="off"
                           value={testnetApiSecret}
                           onChange={e => setTestnetApiSecret(e.target.value)}
-                          className="w-full bg-background border border-border focus:border-purple focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-xl px-3.5 py-2.5 pr-24 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                          className="w-full bg-background border border-border focus:border-purple focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg px-3 py-1.5 pr-20 min-h-[34px] text-xs font-mono text-text transition-all"
                           placeholder="••••••••••••••••"
                         />
                         <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5 text-dim">
@@ -748,9 +748,9 @@ export function SettingsView() {
                                 type="button"
                                 onClick={() => { setTestnetApiSecret(''); testnetApiSecretRef.current?.focus(); }}
                                 aria-label="Clear Testnet API Secret"
-                                className="min-h-[38px] min-w-[38px] flex items-center justify-center hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg cursor-pointer"
+                                className="h-7 w-7 flex items-center justify-center hover:text-red transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg cursor-pointer"
                               >
-                                <XCircle size={18} />
+                                <XCircle size={14} />
                               </button>
                             </Tooltip>
                           )}
@@ -759,9 +759,9 @@ export function SettingsView() {
                               type="button"
                               onClick={() => setShowTestnetSecret(!showTestnetSecret)}
                               aria-label={showTestnetSecret ? "Hide secret" : "Show secret"}
-                              className="min-h-[38px] min-w-[38px] flex items-center justify-center hover:text-purple transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg cursor-pointer"
+                              className="h-7 w-7 flex items-center justify-center hover:text-purple transition-colors focus-visible:ring-2 focus-visible:ring-purple focus-visible:outline-none rounded-lg cursor-pointer"
                             >
-                              {showTestnetSecret ? <EyeOff size={18} /> : <Eye size={18} />}
+                              {showTestnetSecret ? <EyeOff size={14} /> : <Eye size={14} />}
                             </button>
                           </Tooltip>
                         </div>
@@ -1019,7 +1019,7 @@ export function SettingsView() {
                         min={CONFIG_LIMITS.HOT_LOOP_MIN}
                         value={cfg.hot_loop_interval_ms || 5000}
                         onChange={(e) => patchConfig({ hot_loop_interval_ms: Number(e.target.value) })}
-                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 min-h-[34px] text-xs font-mono text-text transition-all"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -1036,7 +1036,7 @@ export function SettingsView() {
                         min={CONFIG_LIMITS.MAIN_LOOP_MIN}
                         value={cfg.main_loop_interval_ms || 15000}
                         onChange={(e) => patchConfig({ main_loop_interval_ms: Number(e.target.value) })}
-                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 min-h-[34px] text-xs font-mono text-text transition-all"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -1054,7 +1054,7 @@ export function SettingsView() {
                         step="0.1"
                         value={cfg.slippage_warning_threshold !== undefined ? (cfg.slippage_warning_threshold * 100).toFixed(1) : '0.1'}
                         onChange={(e) => patchConfig({ slippage_warning_threshold: Number(e.target.value) / 100 })}
-                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 min-h-[34px] text-xs font-mono text-text transition-all"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -1068,7 +1068,7 @@ export function SettingsView() {
                         id="rate_limit_warning_interval_min"
                         value={cfg.rate_limit_warning_interval_min || 5}
                         onChange={(e) => patchConfig({ rate_limit_warning_interval_min: Number(e.target.value) })}
-                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all cursor-pointer"
+                        className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 min-h-[34px] text-xs font-mono text-text transition-all cursor-pointer"
                       >
                         <option value={5}>5 Minutes (Default)</option>
                         <option value={10}>10 Minutes</option>
@@ -1177,7 +1177,7 @@ export function SettingsView() {
                             max="3600"
                             value={cfg.hibernation_grace_period_sec || 30}
                             onChange={(e) => patchConfig({ hibernation_grace_period_sec: Number(e.target.value) })}
-                            className="w-full sm:max-w-[220px] bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                            className="w-full sm:max-w-[220px] bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 min-h-[34px] text-xs font-mono text-text transition-all"
                           />
                         </div>
                         <p className="mt-1.5 text-xs text-dim">Time to maintain Light Sleep before full cache purge.</p>
@@ -1204,7 +1204,7 @@ export function SettingsView() {
                             max="365"
                             value={cfg.log_retention_days || 7}
                             onChange={(e) => patchConfig({ log_retention_days: Number(e.target.value) })}
-                            className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                            className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 min-h-[34px] text-xs font-mono text-text transition-all"
                           />
                           <p className="text-[11px] text-dim">Prune debug and system logs older than threshold.</p>
                         </div>
@@ -1219,7 +1219,7 @@ export function SettingsView() {
                             max="365"
                             value={cfg.trade_retention_days || 30}
                             onChange={(e) => patchConfig({ trade_retention_days: Number(e.target.value) })}
-                            className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl px-3.5 py-2.5 min-h-[44px] text-base sm:text-sm font-mono text-text transition-all"
+                            className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-lg px-3 py-1.5 min-h-[34px] text-xs font-mono text-text transition-all"
                           />
                           <p className="text-[11px] text-dim">Prune closed trade history and balance snapshots.</p>
                         </div>

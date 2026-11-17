@@ -2099,7 +2099,11 @@ export function DashboardView({ initialStrategy }) {
   const handleEditVariant = React.useCallback((label) => {
     const idx = config.strategy_variants?.findIndex(v => v.strategy_label === label);
     if (idx !== -1) {
-      const variantConfig = resolveStrategyConfig(config, config.strategy_variants[idx]);
+      const resolved = resolveStrategyConfig(config, config.strategy_variants[idx]);
+      const variantConfig = {
+        ...resolved,
+        strategy_variants: Array.isArray(config.strategy_variants) ? config.strategy_variants : []
+      };
       setIsEditMode(true);
       setSelectedConfig(variantConfig);
       setEditingVariantIndex(idx);
@@ -2735,7 +2739,7 @@ export function DashboardView({ initialStrategy }) {
                       baseConfig={config}
                       initialEditingVariantIndex={editingVariantIndex}
                       onSave={handleConfigSave}
-                      onClose={() => { setShowConfig(false); setIsEditMode(false); setEditingVariantIndex(null); }}
+                      onClose={() => { setShowConfig(false); setIsEditMode(false); setSelectedConfig(null); setEditingVariantIndex(null); }}
                       isEdit={isEditMode}
                       loading={loading}
                     />

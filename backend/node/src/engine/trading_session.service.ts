@@ -136,8 +136,9 @@ export class TradingSessionService implements OnApplicationShutdown {
           const preReason = typeof (this.momentumScanner as any)?.getPreFilterReason === 'function'
             ? (this.momentumScanner as any).getPreFilterReason(sym, label)
             : undefined;
+          const cutoffLimit = Number(sc.watchlist_size || ENGINE_CONSTANTS.SCANNER_MAX_RESULTS);
           const reasonText = preReason?.reason
-            || `dropped from top-${ENGINE_CONSTANTS.SCANNER_MAX_RESULTS} watchlist cutoff`;
+            || `dropped outside top-${cutoffLimit} watchlist cutoff`;
           const pctStr = `${prev.pct >= 0 ? '+' : ''}${Number(prev.pct || 0).toFixed(2)}%`;
           const firedText = prev.allFired ? 'all signals fired' : prev.firedCount > 0 ? `${prev.firedCount} signal(s) fired` : `score ${Math.round(prev.score)}`;
           const msg = `[Scanner] ${sym} (${label}): Candidate removed (${reasonText}; prior ${pctStr}, ${firedText}).`;
@@ -1059,7 +1060,6 @@ export class TradingSessionService implements OnApplicationShutdown {
         const scanEvalTs = Date.now();
         const rawOpps = opportunitiesBySignature.get(this.scanSignature(c)) || [];
         const opportunitiesWithSignals = rawOpps
-          .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
           .map((opp) => {
             const livePrice = this.tickerCache.getPrice(opp.symbol) || opp.price;
             if (livePrice && livePrice > 0 && typeof (this.klineStore as any)?.syncLivePrice === "function") {
@@ -1075,6 +1075,13 @@ export class TradingSessionService implements OnApplicationShutdown {
             return { ...opp, price: livePrice || opp.price, signalResult, last_update: scanEvalTs };
           });
         const rankedOpportunities = rankByBreakoutOpportunity(opportunitiesWithSignals, c);
+        // Ensure fully-fired candidates always float ahead of unfired candidates within same breakout cap tier
+        rankedOpportunities.sort((a: any, b: any) => {
+          const aFired = a.signalResult?.allFired ? 1 : 0;
+          const bFired = b.signalResult?.allFired ? 1 : 0;
+          if (aFired !== bFired) return bFired - aFired;
+          return 0;
+        });
         rankedOpportunitiesByConfig.set(c, rankedOpportunities);
         return {
           strategy_label: label,

@@ -72,8 +72,8 @@ export const AuthOverlay = () => {
               <form onSubmit={handleSubmit} className="flex flex-col gap-4">
                 <div className="relative">
                   <label htmlFor="admin-api-key" className="sr-only">Admin API Key</label>
-                  <div className="absolute left-4 top-1/2 -translate-y-1/2 text-dim pointer-events-none">
-                    <Key size={18} />
+                  <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-dim pointer-events-none">
+                    <Key size={15} />
                   </div>
                   <input
                     ref={inputRef}
@@ -83,7 +83,7 @@ export const AuthOverlay = () => {
                     onChange={(e) => setKey(e.target.value)}
                     placeholder="••••••••••••••••"
                     aria-label="Admin API Key"
-                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-2xl pl-12 pr-20 py-4 text-sm font-mono transition-all"
+                    className="w-full bg-background border border-border focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none rounded-xl pl-10 pr-16 py-2.5 min-h-[36px] text-xs font-mono transition-all"
                   />
                   <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
                     {key && (

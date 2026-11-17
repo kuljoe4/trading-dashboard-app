@@ -291,8 +291,20 @@ const sessionConfigAllowedKeys = [
   'htf_ema_slow_period',
   'htf_ema_cross_max_boost',
   'htf_ema_cross_rr_weight',
+  'htf_breakout_ref_timeframe',
+  'htf_breakout_trigger_timeframe',
+  'htf_breakout_mode',
+  'htf_breakout_reference_level',
+  'htf_breakout_lookback',
+  'htf_breakout_buffer_pct',
+  'htf_breakout_max_expansion_pct',
+  'trigger_candle_exit_enabled',
+  'trigger_candle_exit_n',
+  'trigger_candle_exit_offset_mode',
+  'trigger_candle_exit_mode',
+  'trigger_candle_exit_timeframe',
+  'trigger_candle_exit_buffer_pct',
   'force_risk_release',
-  'ui_eco_mode',
 ]
 
 const sanitizeSessionConfig = (config) => {
@@ -432,6 +444,6 @@ export const formatApiErrorMessage = (error, fallback = 'Request failed') => {
   return error.message || fallback;
 }
 
-export { sanitizeSessionConfig }
+export { sanitizeSessionConfig, sessionConfigAllowedKeys }
 
 export default api

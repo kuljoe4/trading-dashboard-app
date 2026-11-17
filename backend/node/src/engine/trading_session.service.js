@@ -11,6 +11,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 var TradingSessionService_1;
+import { resolveStrategyConfig } from './strategyConfig';
 import { Injectable, Logger, Inject, forwardRef, } from "@nestjs/common";
 import { EventEmitter2, OnEvent } from "@nestjs/event-emitter";
 import { TickerCacheService } from "./ticker_cache.service";
@@ -138,8 +139,9 @@ let TradingSessionService = TradingSessionService_1 = class TradingSessionServic
                     const preReason = typeof this.momentumScanner?.getPreFilterReason === 'function'
                         ? this.momentumScanner.getPreFilterReason(sym, label)
                         : undefined;
+                    const cutoffLimit = Number(sc.watchlist_size || ENGINE_CONSTANTS.SCANNER_MAX_RESULTS);
                     const reasonText = preReason?.reason
-                        || `dropped from top-${ENGINE_CONSTANTS.SCANNER_MAX_RESULTS} watchlist cutoff`;
+                        || `dropped outside top-${cutoffLimit} watchlist cutoff`;
                     const pctStr = `${prev.pct >= 0 ? '+' : ''}${Number(prev.pct || 0).toFixed(2)}%`;
                     const firedText = prev.allFired ? 'all signals fired' : prev.firedCount > 0 ? `${prev.firedCount} signal(s) fired` : `score ${Math.round(prev.score)}`;
                     const msg = `[Scanner] ${sym} (${label}): Candidate removed (${reasonText}; prior ${pctStr}, ${firedText}).`;
@@ -215,17 +217,8 @@ let TradingSessionService = TradingSessionService_1 = class TradingSessionServic
                 ? v.symbols
                 : (hasVariantScannerOverride ? [] : baseSymbols);
             return ({
-                ...this.config,
-                ...v,
+                ...resolveStrategyConfig(this.config, v),
                 symbols: variantSymbols,
-                signal_params: {
-                    ...(this.config?.signal_params || {}),
-                    ...(v?.signal_params || {}),
-                },
-                signal_timeframes: {
-                    ...(this.config?.signal_timeframes || {}),
-                    ...(v?.signal_timeframes || {}),
-                },
                 strategy_label: this.getStrategyLabel(v, i + 1),
                 base_strategy_label: baseLabel,
                 strategy_variants: [],
@@ -887,7 +880,6 @@ let TradingSessionService = TradingSessionService_1 = class TradingSessionServic
                 const scanEvalTs = Date.now();
                 const rawOpps = opportunitiesBySignature.get(this.scanSignature(c)) || [];
                 const opportunitiesWithSignals = rawOpps
-                    .slice(0, ENGINE_CONSTANTS.SCANNER_MAX_RESULTS)
                     .map((opp) => {
                     const livePrice = this.tickerCache.getPrice(opp.symbol) || opp.price;
                     if (livePrice && livePrice > 0 && typeof this.klineStore?.syncLivePrice === "function") {
@@ -897,6 +889,14 @@ let TradingSessionService = TradingSessionService_1 = class TradingSessionServic
                     return { ...opp, price: livePrice || opp.price, signalResult, last_update: scanEvalTs };
                 });
                 const rankedOpportunities = rankByBreakoutOpportunity(opportunitiesWithSignals, c);
+                // Ensure fully-fired candidates always float ahead of unfired candidates within same breakout cap tier
+                rankedOpportunities.sort((a, b) => {
+                    const aFired = a.signalResult?.allFired ? 1 : 0;
+                    const bFired = b.signalResult?.allFired ? 1 : 0;
+                    if (aFired !== bFired)
+                        return bFired - aFired;
+                    return 0;
+                });
                 rankedOpportunitiesByConfig.set(c, rankedOpportunities);
                 return {
                     strategy_label: label,

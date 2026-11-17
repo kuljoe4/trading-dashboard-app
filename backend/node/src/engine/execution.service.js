@@ -11,6 +11,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 var ExecutionService_1;
+import { resolveStrategyConfig } from './strategyConfig';
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { TickerCacheService } from './ticker_cache.service';
 import { KlineStoreService } from './kline_store.service';
@@ -364,16 +365,7 @@ let ExecutionService = ExecutionService_1 = class ExecutionService {
                     if (variant) {
                         currentStrategyLabel = variant.strategy_label || opp.strategy_label;
                         resolvedConfig = {
-                            ...symbolConfig,
-                            ...variant,
-                            signal_params: {
-                                ...(symbolConfig?.signal_params || {}),
-                                ...(variant?.signal_params || {}),
-                            },
-                            signal_timeframes: {
-                                ...(symbolConfig?.signal_timeframes || {}),
-                                ...(variant?.signal_timeframes || {}),
-                            },
+                            ...resolveStrategyConfig(symbolConfig, variant),
                         };
                     }
                 }
@@ -620,17 +612,26 @@ let ExecutionService = ExecutionService_1 = class ExecutionService {
                 }
                 // Pass the effective SL distance pct explicitly instead of mutating the config
                 const overriddenConfig = { ...resolvedConfig, sl_distance_pct: effectiveSlDistancePct };
+                const rawLookbackPeriod = resolvedConfig.sl_lookback_period;
+                const lookbackPeriod = (rawLookbackPeriod !== undefined && rawLookbackPeriod !== null && Number.isFinite(Number(rawLookbackPeriod)) && Number(rawLookbackPeriod) >= 0)
+                    ? Number(rawLookbackPeriod)
+                    : 5;
                 const rawSlTimeframe = (!resolvedConfig.sl_lookback_timeframe || resolvedConfig.sl_lookback_timeframe === 'default')
                     ? (resolvedConfig.scan_interval || '1m')
                     : resolvedConfig.sl_lookback_timeframe;
                 const slTimeframe = this.marketFeedService.resolveInterval(rawSlTimeframe, resolvedConfig) || '5m';
                 const includeForming = Boolean(resolvedConfig.sl_include_forming_candle);
-                let lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod, includeForming);
-                // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles
-                if ((lookback.reason || lookback.minLow <= 0) && !(this.sessionState.isBanned() || this.sessionState.isGeoBlocked())) {
-                    this.logger.debug(`[Lookback Auto-heal] Ensuring klines available for ${opp.symbol} ${slTimeframe} due to reason: ${lookback.reason || 'minLow <= 0'}`);
-                    await this.marketFeedService.ensureKlinesAvailable(opp.symbol, slTimeframe, Math.max(lookbackPeriod + 2, 20));
+                let lookback = { minLow: 0, maxHigh: 0 };
+                if (resolvedConfig.sl_type === 'lookback_low/high') {
                     lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod, includeForming);
+                    // Auto-heal missing data chunks if lookback failed due to a time gap, stale data, or too few candles
+                    if ((lookback.reason || lookback.minLow <= 0) &&
+                        !(this.sessionState.isBanned() || this.sessionState.isGeoBlocked()) &&
+                        typeof this.marketFeedService?.ensureKlinesAvailable === 'function') {
+                        this.logger.debug(`[Lookback Auto-heal] Ensuring klines available for ${opp.symbol} ${slTimeframe} due to reason: ${lookback.reason || 'minLow <= 0'}`);
+                        await this.marketFeedService.ensureKlinesAvailable(opp.symbol, slTimeframe, Math.max(lookbackPeriod + 2, 20));
+                        lookback = this.klineStore.getLookbackExtremes(opp.symbol, slTimeframe, lookbackPeriod, includeForming);
+                    }
                 }
                 // Extract structural pattern details if available (engulfing, macd_pbc, etc.)
                 const engulfingDetail = signalResult.details?.engulfing;
@@ -937,7 +938,9 @@ let ExecutionService = ExecutionService_1 = class ExecutionService {
                 }
             }
             catch (oppErr) {
-                this.logger.error(`Critical Error processing opportunity for ${opp.symbol}: ${oppErr instanceof Error ? oppErr.message : String(oppErr)}`);
+                const oppErrMsg = oppErr instanceof Error ? oppErr.message : String(oppErr);
+                this.logger.error(`Critical Error processing opportunity for ${opp.symbol}: ${oppErrMsg}`);
+                this.emitEntrySkipLog(opp.symbol, strategyLabel || opp?.strategy_label || config?.strategy_label || 'Momentum Strategy', 'entry_critical_error', `entry processing error (${oppErrMsg.slice(0, 140)})`, 'warn', 30000);
             }
         }
     }

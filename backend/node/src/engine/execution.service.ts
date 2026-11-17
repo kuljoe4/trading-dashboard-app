@@ -1,3 +1,4 @@
+import { resolveStrategyConfig } from './strategyConfig';
 import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Trade } from '../models/Trade';
 import { SessionConfig } from '../models/SessionConfig';
@@ -383,16 +384,7 @@ export class ExecutionService {
           if (variant) {
             currentStrategyLabel = variant.strategy_label || opp.strategy_label;
             resolvedConfig = {
-              ...symbolConfig,
-              ...variant,
-              signal_params: {
-                ...(symbolConfig?.signal_params || {}),
-                ...(variant?.signal_params || {}),
-              },
-              signal_timeframes: {
-                ...(symbolConfig?.signal_timeframes || {}),
-                ...(variant?.signal_timeframes || {}),
-              },
+              ...resolveStrategyConfig(symbolConfig, variant),
             } as SessionConfig;
           }
         }

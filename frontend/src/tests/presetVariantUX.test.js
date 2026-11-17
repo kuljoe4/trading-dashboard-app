@@ -99,7 +99,7 @@ test('Presets & Variant UX Verification', async (t) => {
 
     // Variant subheader displays V{index} and action buttons
     assert.match(configModalContent, /V\{editingVariantIdx \+ 1\}/);
-    assert.match(configModalContent, /Save Variant/);
+    assert.match(configModalContent, /Stage variant/);
     assert.match(configModalContent, /Base Safe/);
 
     // Base preset subheader displays sync status and Update / Save As

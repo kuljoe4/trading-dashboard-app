@@ -1,3 +1,4 @@
+import { resolveStrategyConfig } from './strategyConfig';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -730,16 +731,7 @@ export class MarketFeedService {
         for (const v of config.strategy_variants) {
           if ((v as any).enabled !== false) {
             strategyConfigs.push({
-              ...config,
-              ...v,
-              signal_params: {
-                ...(config?.signal_params || {}),
-                ...(v?.signal_params || {}),
-              },
-              signal_timeframes: {
-                ...(config?.signal_timeframes || {}),
-                ...(v?.signal_timeframes || {}),
-              },
+              ...resolveStrategyConfig(config, v),
               strategy_label: v.strategy_label,
               strategy_variants: [], // prevent infinite recursion
             });

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, lazy, Suspense, useRef } from 'react'
+import { resolveStrategyConfig } from '../utils/strategyConfig.js'
 import { shallow } from 'zustand/shallow'
 import { pnlColor, pnlClass, fmtUSD, C, safeNum } from '../lib/theme'
 import { formatDuration, calculateProximity, calculateOpportunityProximity } from '../lib/formatters'
@@ -1929,10 +1930,10 @@ export function DashboardView({ initialStrategy }) {
             title: 'Action Blocked',
             message: 'Cannot start new trading sessions while an API ban or geo-restriction is active.'
           });
-          return;
+          return false;
         }
-        updateConfig(finalConfig)
         const res = await sessionAPI.start(finalConfig, finalConfig.paper_mode)
+        updateConfig(finalConfig)
         setSessionActive(true, res.data.strategyId || res.data.strategy_id)
         addAlert({ level: 'success', title: 'Session Started', message: `Engine active with "${finalConfig.strategy_label}".` });
       }
@@ -1940,12 +1941,14 @@ export function DashboardView({ initialStrategy }) {
       setIsEditMode(false)
       setEditingVariantIndex(null)
       await fetchSessions()
+      return true;
     } catch (e) {
       const isNetworkError = e?.message === 'Network Error' || e?.code === 'ERR_NETWORK';
       const msg = isNetworkError
         ? 'Network Error: Failed to reach backend. Check your internet or CORS settings.'
         : formatApiErrorMessage(e, 'Failed to save config');
       addAlert({ level: 'error', title: 'Action Failed', message: msg });
+      return false;
     } finally {
       setLoading(false)
       setSyncing(false)
@@ -2096,7 +2099,7 @@ export function DashboardView({ initialStrategy }) {
   const handleEditVariant = React.useCallback((label) => {
     const idx = config.strategy_variants?.findIndex(v => v.strategy_label === label);
     if (idx !== -1) {
-      const variantConfig = { ...config, ...config.strategy_variants[idx] };
+      const variantConfig = resolveStrategyConfig(config, config.strategy_variants[idx]);
       setIsEditMode(true);
       setSelectedConfig(variantConfig);
       setEditingVariantIndex(idx);

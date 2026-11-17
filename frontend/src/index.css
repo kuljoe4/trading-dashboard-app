@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/* Compact mobile strategy workspace; preserve readable controls and touch areas. */
+.signal-stack-editor .signal-stack-row { box-shadow: none; }
+.signal-stack-editor .signal-stack-row > div:first-child { min-height: 40px; gap: 12px; }
+.signal-stack-editor .signal-stack-row > div:first-child span:last-child { text-transform: none; font-size: 11px; line-height: 1.4; }
+@media (max-width: 639px) {
+  .signal-stack-editor section { border-radius: 6px; box-shadow: none; }
+  .signal-stack-editor .gap-6 { gap: 12px; }
+  .signal-stack-editor .gap-y-6 { row-gap: 12px; }
+  .signal-stack-editor .p-6 { padding: 12px; }
+  .signal-stack-editor .mb-6 { margin-bottom: 12px; }
+  .signal-stack-editor input, .signal-stack-editor select { min-height: 40px; }
+  .signal-stack-editor .signal-stack-row { border-left: 0; border-right: 0; border-top: 0; }
+}
+
 @theme {
   --color-background: var(--color-background-theme, #080b12);
   --color-surface: var(--color-surface-theme, #0d121f);

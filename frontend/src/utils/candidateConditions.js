@@ -927,7 +927,7 @@ export function buildCandidateConditionsModel({
   if (activeTrade) {
     const tradeCfg = { ...strategyConfig, ...(activeTrade.strategy_config || {}) };
     const exitLogic = (tradeCfg.exit_signal_logic || 'any').toLowerCase();
-    const requiredExit = tradeCfg.exit_required_signals || tradeCfg.required_signals || [];
+    const requiredExit = tradeCfg.required_exit_signals || [];
     const configuredExits = Array.isArray(tradeCfg.exit_signals) ? tradeCfg.exit_signals : [];
     const exitStatusMap = activeTrade.exit_signals_status || {};
     const exitEst = activeTrade.exit_estimation || null;

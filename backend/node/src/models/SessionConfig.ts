@@ -715,6 +715,7 @@ export class SessionConfig {
   @IsNumber()
   @IsOptional()
   @Min(0)
+  @Max(1)
   slippage_warning_threshold: number = CONFIG_LIMITS.SLIPPAGE_THRESHOLD_DEFAULT;
 
   @IsNumber()

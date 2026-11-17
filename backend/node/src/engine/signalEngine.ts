@@ -352,7 +352,7 @@ export class SignalEngineService {
           const lastUnderscore = s.lastIndexOf('_');
           if (lastUnderscore > 0) {
             const potentialBase = s.substring(0, lastUnderscore);
-            if (this.signalHandlers[potentialBase]) base = potentialBase;
+            if (/^\d+$/.test(s.substring(lastUnderscore + 1)) && this.signalHandlers[potentialBase]) base = potentialBase;
           }
           return s === base;
         });
@@ -1298,7 +1298,7 @@ export class SignalEngineService {
         prevSlow: roundTo(prevSlow, 8),
         insufficientData: fastRes.insufficientData || slowRes.insufficientData,
         unit: 'price',
-        metric: purpose === 'exit' ? 'Exit EMA Dual' : 'Entry EMA Dual',
+        metric: purpose === 'exit' ? 'Exit EMA Dual Cross' : 'Entry EMA Dual Cross',
         description,
         threshold_is_price: true,
         slPrice: roundTo(currSlow, 8),

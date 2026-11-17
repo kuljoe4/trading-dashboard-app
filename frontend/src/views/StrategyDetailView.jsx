@@ -1,3 +1,4 @@
+import { resolveStrategyConfig } from '../utils/strategyConfig.js';
 import React, { useMemo, useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { shallow } from 'zustand/shallow'
 import { pnlClass, fmtUSD } from '../lib/theme'
@@ -219,16 +220,7 @@ const StrategyDetailView = ({ s, onBack, onEdit, onPause, onOpenScanner }) => {
       : (hasVariantScannerOverride ? [] : baseSymbols);
 
     return {
-      ...config,
-      ...variant,
-      signal_params: {
-        ...(config.signal_params || {}),
-        ...(variant.signal_params || {}),
-      },
-      signal_timeframes: {
-        ...(config.signal_timeframes || {}),
-        ...(variant.signal_timeframes || {}),
-      },
+      ...resolveStrategyConfig(config, variant),
       symbols: variantSymbols
     };
   }, [config, s?.strategy_label]);

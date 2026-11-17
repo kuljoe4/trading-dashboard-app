@@ -132,4 +132,4 @@ export const ActiveTradeBar = React.memo(() => {
       />
     </motion.div>
   )
-}
+});

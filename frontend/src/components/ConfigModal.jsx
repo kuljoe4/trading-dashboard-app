@@ -8,6 +8,9 @@ import { ConfirmationModal } from './ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
 import { settingsAPI, presetsAPI, sessionAPI, smartOptimizerAPI } from '../api/client'
 import { useTradingStore } from '../store/trading'
+import { isSignalLayer } from '../utils/signalIdentity.js'
+import { resolveStrategyConfig } from '../utils/strategyConfig.js'
+import { EntrySignalCard, ExitSignalCard } from './config/SignalCards'
 
 const fmtUSD = (v) => `$${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -46,6 +49,7 @@ const CollapsibleSection = ({ id, icon, title, subtitle, children, isOpen, onTog
 };
 
 const TAB_ERROR_MAP = {
+  slippage_warning_threshold: 'risk',
   scan_interval: 'scan',
   discovery_mode: 'scan',
   scan_lookback: 'scan',
@@ -414,359 +418,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
 ConfigField.displayName = 'ConfigField'
 
 
-const ExitSignalCard = React.memo(({
-  signal,
-  active,
-  layers,
-  delays,
-  actions,
-  timeframes,
-  isComboMode,
-  isRequired,
-  onToggleRequired,
-  onToggle,
-  onAddLayer,
-  onRemoveLayer,
-  onUpdateLayer,
-  engulfingMode
-}) => {
-  const [key, label, desc] = signal;
 
-  return (
-    <div className={cn("flex flex-col gap-2.5 p-3.5 bg-surface/50 border rounded-2xl hover:border-border-hover transition-all", active ? "border-red/30 bg-red/[0.01]" : "border-border")}>
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col text-left">
-          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-          <span className="text-[9px] text-dim font-medium uppercase mt-0.5">{desc}</span>
-        </div>
-        <Switch.Root
-          checked={active}
-          onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
-          aria-label={`Toggle ${label} exit signal`}
-        >
-          <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
-        </Switch.Root>
-      </div>
-
-      {active && isComboMode && (
-        <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
-          <span className="text-[9px] font-black uppercase text-dim tracking-wider">Condition Role</span>
-          <button
-            type="button"
-            onClick={() => onToggleRequired(key)}
-            className={cn(
-              "px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-1 focus-visible:ring-red focus-visible:outline-none",
-              isRequired
-                ? "bg-red text-white shadow-sm"
-                : "bg-surface text-dim border border-border/50 hover:text-text"
-            )}
-            aria-label={`Set ${label} exit role to ${isRequired ? 'Optional' : 'Required'}`}
-          >
-            {isRequired ? '⚡ REQUIRED (AND)' : '⚪ OPTIONAL (ANY)'}
-          </button>
-        </div>
-      )}
-
-      {active && (
-        <div className="flex flex-col gap-3.5 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
-          {key === 'engulfing' && (engulfingMode === 'soft_range' || engulfingMode === 'soft_body') && (
-            <div className="text-[9.5px] font-semibold text-amber bg-amber/10 border border-amber/20 rounded-xl p-2.5 flex items-start gap-2 leading-snug text-left">
-              <AlertTriangle className="shrink-0 text-amber mt-0.5 animate-pulse" size={13} />
-              <span>
-                <strong>Whipsaw Risk:</strong> Soft engulfing modes evaluate off live candles. Without an exit delay, tick-by-tick fluctuations can cause rapid enter/exit oscillation. Suggest adding a delay (e.g. 15-30s).
-              </span>
-            </div>
-          )}
-          {layers.map((layerKey, idx) => {
-            const isBase = layerKey === key;
-            const delayValue = delays[layerKey] || 0;
-            const actionValue = actions[layerKey] || 'close';
-            const tfValue = timeframes[layerKey] || 'default';
-            const isCandleType = typeof delayValue === 'string' && /^\d+c$/.test(delayValue);
-            const candleCountValue = isCandleType ? parseInt(delayValue.slice(0, -1), 10) : 1;
-
-            return (
-              <div key={layerKey} className="p-3 bg-background/50 border border-border/30 rounded-xl flex flex-col gap-2.5 relative group/layer">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-red">
-                    Layer {idx + 1} {isBase ? "(Base)" : `(Chain: _${layerKey.split('_').pop()})`}
-                  </span>
-                  {!isBase && (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveLayer(layerKey)}
-                      aria-label={`Remove Layer ${idx + 1}`}
-                      className="p-1 text-dim hover:text-red transition-colors opacity-0 group-hover/layer:opacity-100 focus-visible:opacity-100"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-3 gap-2.5">
-                  {/* Timeframe Selection */}
-                  <div className="flex flex-col gap-1 text-left">
-                    <label htmlFor={`tf-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Timeframe</label>
-                    <select
-                      id={`tf-${layerKey}`}
-                      value={tfValue}
-                      onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-base sm:text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-9 sm:h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                    >
-                      <option value="default">Default</option>
-                      <option value="1m">1m</option>
-                      <option value="3m">3m</option>
-                      <option value="5m">5m</option>
-                      <option value="15m">15m</option>
-                      <option value="30m">30m</option>
-                      <option value="1h">1h</option>
-                      <option value="4h">4h</option>
-                      <option value="1d">1d</option>
-                    </select>
-                  </div>
-
-                  {/* Delay Input (Time or Candles) */}
-                  <div className="flex flex-col gap-1 text-left">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay</span>
-                      <div className="flex bg-surface border border-border/40 rounded-md p-0.5" role="group" aria-label="Delay mode selection">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onUpdateLayer(layerKey, 'delay', 0);
-                          }}
-                          className={cn(
-                            "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                            !isCandleType
-                              ? "bg-accent/10 text-accent"
-                              : "text-dim hover:text-text"
-                          )}
-                          aria-pressed={!isCandleType}
-                        >
-                          Time
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            onUpdateLayer(layerKey, 'delay', "1c");
-                          }}
-                          className={cn(
-                            "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-                            isCandleType
-                              ? "bg-accent/10 text-accent"
-                              : "text-dim hover:text-text"
-                          )}
-                          aria-pressed={isCandleType}
-                        >
-                          Candle
-                        </button>
-                      </div>
-                    </div>
-
-                    {!isCandleType ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min="0"
-                          placeholder="0h"
-                          value={Math.floor((Number(delayValue) || 0) / 3600) || ''}
-                          onChange={(e) => {
-                            const h = parseInt(e.target.value) || 0;
-                            const m = Math.floor(((Number(delayValue) || 0) % 3600) / 60);
-                            onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
-                          }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-14 sm:w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                        />
-                        <span className="text-dim font-bold">:</span>
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min="0"
-                          max="59"
-                          placeholder="0m"
-                          value={Math.floor(((Number(delayValue) || 0) % 3600) / 60) || ''}
-                          onChange={(e) => {
-                            const h = Math.floor((Number(delayValue) || 0) / 3600);
-                            const m = parseInt(e.target.value) || 0;
-                            onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
-                          }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-14 sm:w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                        />
-                      </div>
-                    ) : (
-                      <div className="relative flex items-center h-9 sm:h-7">
-                        <input
-                          type="number"
-                          inputMode="numeric"
-                          min="1"
-                          max="1000"
-                          placeholder="1"
-                          value={candleCountValue}
-                          onChange={(e) => {
-                            const val = Math.max(1, parseInt(e.target.value) || 1);
-                            onUpdateLayer(layerKey, 'delay', `${val}c`);
-                          }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-full pr-6 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                          aria-label="Number of candles delay"
-                        />
-                        <span className="absolute right-2 text-[8px] font-bold text-dim/60 font-mono pointer-events-none">c</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Action Selection */}
-                  <div className="flex flex-col gap-1 text-left">
-                    <label htmlFor={`action-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Action</label>
-                    <select
-                      id={`action-${layerKey}`}
-                      value={actionValue}
-                      onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
-                      className={cn(
-                        "border rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-9 sm:h-7 text-center focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
-                        actionValue === 'lock_sl'
-                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple"
-                          : "bg-red/10 border-red/30 text-red focus:border-red"
-                      )}
-                    >
-                      <option value="close">🛑 Close</option>
-                      <option value="lock_sl">🔒 Lock SL</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          <button
-            type="button"
-            onClick={() => onAddLayer(key)}
-            className="w-full py-1.5 border border-dashed border-border rounded-xl text-[9px] font-black uppercase tracking-wider text-dim hover:text-red hover:border-red/40 hover:bg-red/5 transition-all flex items-center justify-center gap-1.5"
-          >
-            <Plus size={11} /> Add Chained Layer
-          </button>
-        </div>
-      )}
-    </div>
-  );
-})
-ExitSignalCard.displayName = 'ExitSignalCard'
-
-const EntrySignalCard = React.memo(({
-  signal,
-  active,
-  layers,
-  timeframes,
-  isComboMode,
-  isRequired,
-  onToggleRequired,
-  onToggle,
-  onAddLayer,
-  onRemoveLayer,
-  onUpdateLayer
-}) => {
-  const [key, label, desc] = signal;
-
-  return (
-    <div className={cn("flex flex-col gap-2.5 p-3.5 bg-surface/50 border rounded-2xl hover:border-border-hover transition-all", active ? "border-accent/30 bg-accent/[0.01]" : "border-border")}>
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col text-left">
-          <span className={cn("text-xs font-bold", active ? "text-accent" : "text-text")}>{label}</span>
-          <span className="text-[9px] text-dim font-medium uppercase mt-0.5">{desc}</span>
-        </div>
-        <Switch.Root
-          checked={active}
-          onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
-          aria-label={`Toggle ${label} entry signal`}
-        >
-          <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
-        </Switch.Root>
-      </div>
-
-      {active && isComboMode && (
-        <div className="flex items-center justify-between p-2 bg-background/50 border border-border/30 rounded-xl mt-1">
-          <span className="text-[9px] font-black uppercase text-dim tracking-wider">Condition Role</span>
-          <button
-            type="button"
-            onClick={() => onToggleRequired(key)}
-            className={cn(
-              "px-2.5 py-1 rounded text-[8px] font-black uppercase tracking-wider transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
-              isRequired
-                ? "bg-accent text-white shadow-sm"
-                : "bg-surface text-dim border border-border/50 hover:text-text"
-            )}
-            aria-label={`Set ${label} role to ${isRequired ? 'Optional' : 'Required'}`}
-          >
-            {isRequired ? '⚡ REQUIRED (AND)' : '⚪ OPTIONAL (ANY)'}
-          </button>
-        </div>
-      )}
-
-      {active && (
-        <div className="flex flex-col gap-3 mt-2 animate-in fade-in slide-in-from-top-1 duration-200">
-          {layers.map((layerKey, idx) => {
-            const isBase = layerKey === key;
-            const tfValue = timeframes[layerKey] || 'default';
-
-            return (
-              <div key={layerKey} className="p-2.5 bg-background/50 border border-border/30 rounded-xl flex items-center justify-between gap-3 relative group/layer">
-                <div className="flex flex-col text-left">
-                  <span className="text-[9px] font-black uppercase tracking-wider text-accent">
-                    Layer {idx + 1} {isBase ? "(Base)" : `(Chain: _${layerKey.split('_').pop()})`}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1.5 text-left">
-                    <label htmlFor={`tf-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Timeframe</label>
-                    <select
-                      id={`tf-${layerKey}`}
-                      value={tfValue}
-                      onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-0.5 text-base sm:text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-9 sm:h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
-                    >
-                      <option value="default">Default</option>
-                      <option value="1m">1m</option>
-                      <option value="3m">3m</option>
-                      <option value="5m">5m</option>
-                      <option value="15m">15m</option>
-                      <option value="30m">30m</option>
-                      <option value="1h">1h</option>
-                      <option value="4h">4h</option>
-                      <option value="1d">1d</option>
-                    </select>
-                  </div>
-
-                  {!isBase && (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveLayer(layerKey)}
-                      aria-label={`Remove Layer ${idx + 1}`}
-                      className="p-1 text-dim hover:text-red transition-colors opacity-0 group-hover/layer:opacity-100 focus-visible:opacity-100 animate-in fade-in duration-200"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          <button
-            type="button"
-            onClick={() => onAddLayer(key)}
-            className="w-full py-1 border border-dashed border-border rounded-xl text-[9px] font-black uppercase tracking-wider text-dim hover:text-accent hover:border-accent/40 hover:bg-accent/5 transition-all flex items-center justify-center gap-1.5"
-          >
-            <Plus size={11} /> Add Chained Layer
-          </button>
-        </div>
-      )}
-    </div>
-  );
-})
-EntrySignalCard.displayName = 'EntrySignalCard'
 
 const ManualMonitorInput = React.memo(({ onAdd }) => {
   const [value, setValue] = useState('');
@@ -3152,6 +2804,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
   const validate = React.useCallback((c) => {
     const errs = {}; if (!c.scan_interval) errs.scan_interval = 'Required'; if (c.scan_lookback < 1) errs.scan_lookback = 'Min 1';
+    if (!Number.isFinite(Number(c.slippage_warning_threshold)) || Number(c.slippage_warning_threshold) < 0 || Number(c.slippage_warning_threshold) > 100) {
+      errs.slippage_warning_threshold = 'Saved value is invalid. Enter a warning percentage between 0 and 100.';
+    }
     if (c.scan_mode === 'active_window' && (!c.scan_window_duration_sec || !c.scan_check_interval_sec)) errs.scan_mode = 'Params missing';
 
     // DEPLOY-05: Harden validation against missing API keys for chosen trading mode
@@ -3376,7 +3031,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
       if (active) {
         // Toggling OFF: remove base signal AND all its chained layers
-        next.exit_signals = currentExitSignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
+        next.exit_signals = currentExitSignals.filter(sig => sig !== baseKey && !isSignalLayer(sig, baseKey));
 
         // Clean up delays, actions, and timeframes
         const nextDelays = { ...(prev.exit_signal_delays || {}) };
@@ -3388,13 +3043,13 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         delete nextTimeframes[baseKey];
 
         Object.keys(nextDelays).forEach(k => {
-          if (k.startsWith(`${baseKey}_`)) delete nextDelays[k];
+          if (isSignalLayer(k, baseKey)) delete nextDelays[k];
         });
         Object.keys(nextActions).forEach(k => {
-          if (k.startsWith(`${baseKey}_`)) delete nextActions[k];
+          if (isSignalLayer(k, baseKey)) delete nextActions[k];
         });
         Object.keys(nextTimeframes).forEach(k => {
-          if (k.startsWith(`${baseKey}_`)) delete nextTimeframes[k];
+          if (isSignalLayer(k, baseKey)) delete nextTimeframes[k];
         });
 
         next.exit_signal_delays = nextDelays;
@@ -3478,7 +3133,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (field === 'timeframe') {
         const nextTimeframes = { ...(prev.signal_timeframes || {}) };
         if (value === 'default') {
-          delete nextTimeframes[layerKey];
+          nextTimeframes[layerKey] = 'default';
         } else {
           nextTimeframes[layerKey] = value;
         }
@@ -3499,12 +3154,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       const currentEntrySignals = Array.isArray(prev.enabled_signals) ? prev.enabled_signals : [];
 
       if (active) {
-        next.enabled_signals = currentEntrySignals.filter(sig => sig !== baseKey && !sig.startsWith(`${baseKey}_`));
+        next.enabled_signals = currentEntrySignals.filter(sig => sig !== baseKey && !isSignalLayer(sig, baseKey));
 
         const nextTimeframes = { ...(prev.signal_timeframes || {}) };
         delete nextTimeframes[baseKey];
         Object.keys(nextTimeframes).forEach(k => {
-          if (k.startsWith(`${baseKey}_`)) delete nextTimeframes[k];
+          if (isSignalLayer(k, baseKey)) delete nextTimeframes[k];
         });
 
         next.signal_timeframes = nextTimeframes;
@@ -3571,7 +3226,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (field === 'timeframe') {
         const nextTimeframes = { ...(prev.signal_timeframes || {}) };
         if (value === 'default') {
-          delete nextTimeframes[layerKey];
+          nextTimeframes[layerKey] = 'default';
         } else {
           nextTimeframes[layerKey] = value;
         }
@@ -3916,8 +3571,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     setEditingVariantIdx(vIndex);
     const fullVariantCfg = {
-      ...currentBase,
-      ...vData,
+      ...resolveStrategyConfig(currentBase, vData),
       strategy_label: label,
       strategy_variants: currentBase.strategy_variants || [] // CRITICAL: Preserve base variants list!
     };
@@ -3963,8 +3617,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
 
     addAlert({
       level: 'success',
-      title: 'Variant Changes Saved',
-      message: `Updated parameters for variant "${variantLabel}". Base strategy remains intact.`
+      title: 'Variant Changes Staged',
+      message: `Updated "${variantLabel}". Apply Changes to persist this update.`
     });
     setSection('presets');
   }, [cfg, baseConfigBackup, editingVariantIdx, validate, addAlert]);
@@ -4500,7 +4154,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         ...(vvHeight ? { height: `${vvHeight}px`, maxHeight: `${vvHeight}px` } : {}),
         ...(vvOffsetTop > 0 ? { transform: `translateY(${vvOffsetTop}px)` } : {})
       }}
-      className="flex flex-col flex-1 min-h-0 h-full bg-surface text-text overflow-hidden relative outline-none"
+      className="signal-stack-editor flex flex-col flex-1 min-h-0 h-full bg-surface text-text overflow-hidden relative outline-none"
     >
       <div className="relative z-40 bg-surface/95 backdrop-blur-md border-b border-border shrink-0">
         <div className="px-2.5 sm:px-4 py-1 sm:py-2 flex justify-between items-center relative z-20 transition-all">
@@ -4616,7 +4270,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                   title="Save changes to this variant in active session"
                 >
                   <Check size={10} />
-                  <span>Save Variant</span>
+                  <span>Stage variant</span>
                 </button>
                 <button
                   type="button"
@@ -5099,8 +4753,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     isComboMode={cfg.signal_logic === 'combo'}
                     isRequired={(cfg.required_signals || []).includes(signal[0])}
                     onToggleRequired={handleToggleRequiredEntry}
-                    layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
+                    layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
                     timeframes={cfg.signal_timeframes || {}}
+                    scanTimeframe={cfg.scan_interval}
                     onToggle={handleToggleEntrySignal}
                     onAddLayer={handleAddEntryLayer}
                     onRemoveLayer={handleRemoveEntryLayer}
@@ -5334,10 +4989,11 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                     isComboMode={cfg.exit_signal_logic === 'combo'}
                     isRequired={(cfg.required_exit_signals || []).includes(signal[0])}
                     onToggleRequired={handleToggleRequiredExit}
-                    layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || sig.startsWith(`${signal[0]}_`))}
+                    layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
                     delays={cfg.exit_signal_delays || {}}
                     actions={cfg.exit_signal_actions || {}}
                     timeframes={cfg.signal_timeframes || {}}
+                    scanTimeframe={cfg.scan_interval}
                     onToggle={handleToggleExitSignal}
                     onAddLayer={handleAddLayer}
                     onRemoveLayer={handleRemoveLayer}
@@ -5533,7 +5189,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                                 const current = cfg.signal_timeframes || {};
                                 const updated = { ...current };
                                 if (val === 'default') {
-                                  delete updated[signalKey];
+                                  updated[signalKey] = 'default';
                                 } else {
                                   updated[signalKey] = val;
                                 }
@@ -5572,6 +5228,9 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
             aria-labelledby="config-tab-risk"
             className="flex flex-col gap-4 lg:gap-6 animate-in fade-in duration-300"
           >
+            <Tooltip content="Warn when execution slippage exceeds this percentage. Invalid legacy values must be corrected before saving; this does not change the separate abort threshold.">
+              {renderField('Slippage warning (%)', 'slippage_warning_threshold', 'number', null, { min: 0, max: 100, step: 0.1 })}
+            </Tooltip>
             <CollapsibleSection
               id="risk_guards"
               icon={ShieldCheck}
@@ -6718,13 +6377,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 document.activeElement.blur();
               }
             }}
-            onClick={() => {
+            onClick={async () => {
               if (!isEdit && apiStatus?.isBanned) {
                 addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
                 return;
               }
               if (validate(cfg)) {
-                 onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true });
+                 const saved = await onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true });
+                 if (saved === false) return;
                  sessionStorage.removeItem('config_draft');
                  setIsDirty(false);
               }

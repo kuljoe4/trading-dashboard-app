@@ -854,6 +854,11 @@ export class SessionService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    if (config.slippage_warning_threshold != null &&
+      (!Number.isFinite(config.slippage_warning_threshold) || config.slippage_warning_threshold < 0 || config.slippage_warning_threshold > 1)) {
+      throw new BadRequestException('Slippage warning threshold must be between 0 and 1 (0–100%). Repair the saved threshold before applying this configuration.');
+    }
+
     // 5. Risk Constraints
     const riskPerTrade = config.risk_pct_per_trade ?? 0;
     const maxTotalRisk = config.max_total_risk_pct ?? 100;

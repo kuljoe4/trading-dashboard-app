@@ -1,3 +1,4 @@
+import { resolveStrategyConfig } from './strategyConfig';
 import {
   Injectable,
   Logger,
@@ -225,17 +226,8 @@ export class TradingSessionService implements OnApplicationShutdown {
             : (hasVariantScannerOverride ? [] : baseSymbols);
 
           return ({
-            ...this.config,
-            ...v,
+            ...resolveStrategyConfig(this.config, v),
             symbols: variantSymbols,
-            signal_params: {
-              ...(this.config?.signal_params || {}),
-              ...(v?.signal_params || {}),
-            },
-            signal_timeframes: {
-              ...(this.config?.signal_timeframes || {}),
-              ...(v?.signal_timeframes || {}),
-            },
             strategy_label: this.getStrategyLabel(v, i + 1),
             base_strategy_label: baseLabel,
             strategy_variants: [],

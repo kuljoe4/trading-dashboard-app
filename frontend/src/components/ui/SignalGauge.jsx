@@ -44,6 +44,11 @@ export const SignalGauge = React.memo(({
   etaCandles = null,
   estimatedPnl = null,
   estimatedR = null,
+  signalEstimation = null,
+  entryPrice = null,
+  markPrice = null,
+  qty = null,
+  riskUsdt = null,
   insufficientData = false,
   thresholdIsPrice = false,
   isExit = false,
@@ -121,6 +126,29 @@ export const SignalGauge = React.memo(({
     const decimals = Math.abs(num) >= 100 ? 2 : Math.abs(num) >= 1 ? 3 : 4;
     return `${num.toFixed(decimals)}${finalUnit || ''}`;
   };
+
+  // Exit estimation: backend (authoritative, covers non-price signals like MACD/momentum) first,
+  // then price-threshold fallback; capped by live PnL so an unreached signal never over-promises.
+  const estimation = useMemo(() => {
+    const dir = isLong ? 1 : -1;
+    const entry = Number(entryPrice);
+    const q = Number(qty);
+    const canPrice = Number.isFinite(entry) && entry > 0 && Number.isFinite(q) && q > 0;
+    const backendPnl = signalEstimation?.estimatedPnl ?? s.estimatedPnl ?? estimatedPnl;
+    let pnl = (backendPnl !== undefined && backendPnl !== null && Number.isFinite(Number(backendPnl))) ? Number(backendPnl) : null;
+    if (pnl === null && isPrice && canPrice && Number.isFinite(Number(finalThreshold))) {
+      pnl = (Number(finalThreshold) - entry) * q * dir;
+    }
+    const mark = Number(markPrice);
+    if (pnl !== null && canPrice && Number.isFinite(mark) && mark > 0) {
+      pnl = Math.min(pnl, (mark - entry) * q * dir);
+    }
+    const backendR = signalEstimation?.estimatedR ?? s.estimatedR ?? estimatedR;
+    let r = (backendR !== undefined && backendR !== null && Number.isFinite(Number(backendR))) ? Number(backendR) : null;
+    const risk = Number(riskUsdt);
+    if (r === null && pnl !== null && Number.isFinite(risk) && risk > 0) r = pnl / risk;
+    return pnl === null && r === null ? null : { pnl, r };
+  }, [signalEstimation, s, estimatedPnl, estimatedR, entryPrice, markPrice, qty, riskUsdt, isLong, isPrice, finalThreshold]);
 
   const zone = meter.dialZone || 'watching';
   const liveFormatted = finalInsufficient ? '---' : formatVal(finalValue);
@@ -254,6 +282,16 @@ export const SignalGauge = React.memo(({
               )}
             </div>
           </>
+        )}
+
+        {estimation && !finalInsufficient && (
+          <div className="flex items-baseline justify-between gap-2 pt-1 border-t border-border/30 font-mono text-[10px] tabular-nums">
+            <span className="text-dim text-[9.5px]">Est. PnL / R</span>
+            <span className={cn('font-bold', (estimation.pnl ?? estimation.r ?? 0) >= 0 ? 'text-green' : 'text-red')}>
+              {estimation.pnl !== null ? `${estimation.pnl >= 0 ? '+' : '-'}$${Math.abs(estimation.pnl).toFixed(2)}` : '---'}
+              {estimation.r !== null ? ` · ${estimation.r >= 0 ? '+' : ''}${estimation.r.toFixed(2)}R` : ''}
+            </span>
+          </div>
         )}
       </div>
     </Tooltip>

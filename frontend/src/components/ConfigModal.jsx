@@ -2672,10 +2672,31 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     isDirtyRef.current = isDirty;
   }, [isDirty]);
 
+  // Tracks the in-modal variant editing state so prop-sync effects never clobber it.
+  const editingVariantIdxRef = useRef(editingVariantIdx);
+  useEffect(() => { editingVariantIdxRef.current = editingVariantIdx; }, [editingVariantIdx]);
+  // True when the base config carried unsaved/staged edits before a variant editing session began.
+  const baseWasDirtyRef = useRef(false);
+  const prevInitialVariantIdxRef = useRef(initialEditingVariantIndex);
+
   useEffect(() => {
-    setEditingVariantIdx(initialEditingVariantIndex ?? null);
-    setBaseConfigBackup(initialEditingVariantIndex !== null && baseConfig ? flattenConfig(baseConfig) : null);
-    if (initialConfig && !isDirtyRef.current) {
+    // Only re-seed variant-editing state when the *requested* variant actually changes. `baseConfig` is the live
+    // store config and changes identity on every engine push; re-seeding on that would silently drop staged
+    // variants or flip a staged base config back into variant mode (corrupting the variant on Apply).
+    const requestedIdxChanged = prevInitialVariantIdxRef.current !== initialEditingVariantIndex;
+    prevInitialVariantIdxRef.current = initialEditingVariantIndex;
+    const userHasLocalEdits = isDirtyRef.current || baseWasDirtyRef.current;
+    const inRequestedMode = editingVariantIdxRef.current === (initialEditingVariantIndex ?? null);
+
+    if (requestedIdxChanged) {
+      setEditingVariantIdx(initialEditingVariantIndex ?? null);
+      setBaseConfigBackup(initialEditingVariantIndex !== null && baseConfig ? flattenConfig(baseConfig) : null);
+      baseWasDirtyRef.current = false;
+    } else if (!userHasLocalEdits && inRequestedMode && initialEditingVariantIndex !== null && baseConfig) {
+      // Pristine variant session: safely follow live base changes (avoids saving over a newer base).
+      setBaseConfigBackup(flattenConfig(baseConfig));
+    }
+    if (initialConfig && !userHasLocalEdits && (requestedIdxChanged || inRequestedMode)) {
       setCfg(flattenConfig(initialConfig));
     }
   }, [initialConfig, initialEditingVariantIndex, baseConfig]);
@@ -3271,14 +3292,17 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       const variants = [...(base.strategy_variants || [])];
       const sanitizedVariant = coerceAndSanitizeConfig(cfg, true);
       delete sanitizedVariant.strategy_variants;
-      const vLabel = cfg.strategy_label || `Variant ${editingVariantIdx + 1}`;
+      const vLabel = (cfg.strategy_label || '').trim() || `Variant ${editingVariantIdx + 1}`;
       sanitizedVariant.strategy_label = vLabel;
-      if (editingVariantIdx >= 0 && editingVariantIdx < variants.length) {
-        variants[editingVariantIdx] = sanitizedVariant;
-      } else {
-        variants.push(sanitizedVariant);
+      if (!(editingVariantIdx >= 0 && editingVariantIdx < variants.length)) {
+        // Never silently append: a stale index would duplicate the variant instead of updating it.
+        throw new Error(`Variant #${editingVariantIdx + 1} no longer exists in the base configuration.`);
       }
-      base.strategy_variants = variants;
+      if (vLabel === (base.strategy_label || '').trim() || variants.some((v, i) => v && i !== editingVariantIdx && v.strategy_label === vLabel)) {
+        throw new Error(`Strategy label "${vLabel}" is already used by the base strategy or another variant.`);
+      }
+      variants[editingVariantIdx] = sanitizedVariant;
+      base.strategy_variants = variants.filter(Boolean);
       return coerceAndSanitizeConfig(base, false);
     }
 
@@ -3388,7 +3412,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     return c;
   }, [cfg, presetName, loadedPresetName, generatedPresetName, editingVariantIdx, baseConfigBackup, initialConfig?.strategy_label]);
 
+  const applyingRef = useRef(false);
+  const savingRef = useRef(false);
   const savePreset = React.useCallback(async (explicitName) => {
+    if (savingRef.current) return;
     // SRE name-resolution helper: cleanly resolves the preset name with strict precedence.
     // 1. explicitName: provided when user specifies a name in the Save dialog (e.g., Save As).
     // 2. presetName: the state field from the preset input box.
@@ -3397,7 +3424,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const resolvePresetName = () => {
       if (explicitName) return explicitName;
       if (presetName) return presetName;
-      if (explicitName === undefined && loadedPresetName) return loadedPresetName;
+      // In variant-edit mode loadedPresetName is the BASE preset: never fall back to it or the base gets overwritten.
+      if (explicitName === undefined && editingVariantIdx === null && loadedPresetName) return loadedPresetName;
       return generatedPresetName || '';
     };
 
@@ -3420,14 +3448,24 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         return;
       }
 
+      if (editingVariantIdx !== null) {
+        const baseLabel = (baseConfigBackup?.strategy_label || loadedPresetName || '').trim();
+        if (baseLabel && name === baseLabel) {
+          addAlert({ level: 'error', title: 'Would Overwrite Base Preset', message: `"${name}" is the base strategy's preset. Choose a different name to save this variant.` });
+          return;
+        }
+      }
+
+      savingRef.current = true;
       setIsSaving(true);
       let pc;
       try {
         pc = buildConfigToSave();
       } catch (buildErr) {
         console.error('[ConfigModal] Critical error building config:', buildErr);
-        addAlert({ level: 'error', title: 'Internal Error', message: 'Failed to construct configuration object. Check console for details.' });
+        addAlert({ level: 'error', title: 'Internal Error', message: buildErr?.message || 'Failed to construct configuration object. Check console for details.' });
         setIsSaving(false);
+        savingRef.current = false;
         return;
       }
 
@@ -3464,7 +3502,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         if (editingVariantIdx === null) {
           setLoadedPresetName(name);
         } else {
-          setField('strategy_label', name);
+          // Variants are matched by label on the backend: only rename if it cannot collide with a sibling variant.
+          const siblingClash = (baseConfigBackup?.strategy_variants || [])
+            .some((v, i) => v && i !== editingVariantIdx && v.strategy_label === name);
+          if (!siblingClash) setField('strategy_label', name);
         }
         recordRecentlyUsed(name);
         sessionStorage.removeItem('config_draft');
@@ -3497,9 +3538,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         message: errMsg
       });
     } finally {
+      savingRef.current = false;
       setIsSaving(false);
     }
-  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert, editingVariantIdx, recordRecentlyUsed, setField]);
+  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert, editingVariantIdx, baseConfigBackup, recordRecentlyUsed, setField]);
 
   const loadPreset = React.useCallback((p) => {
     // Exit any variant editing mode when loading a preset as base
@@ -3554,9 +3596,6 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
   // Variant editing handlers - allows customizing a variant without replacing or losing the base configuration
   const startEditingVariant = React.useCallback((variantPresetOrObj, vIndex) => {
     const currentBase = editingVariantIdx === null ? { ...cfg } : (baseConfigBackup || { ...cfg });
-    if (editingVariantIdx === null) {
-      setBaseConfigBackup(currentBase);
-    }
 
     let vData = null;
     if (currentBase.strategy_variants && currentBase.strategy_variants[vIndex]) {
@@ -3566,12 +3605,20 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
 
     if (!vData) return;
+    if (editingVariantIdx === null) {
+      baseWasDirtyRef.current = isDirtyRef.current;
+      setBaseConfigBackup(currentBase);
+    }
     const label = variantPresetOrObj?.name || vData.strategy_label || `Variant ${vIndex + 1}`;
     vData.strategy_label = label;
 
     setEditingVariantIdx(vIndex);
+    // currentBase is in UI form (percent units, flat weights, __flattened) while stored variants are backend form.
+    // Merging them directly makes flattenConfig treat the variant's decimal slippage / weights as UI values
+    // (slippage shrinks 100x per edit; base weights overwrite the variant's). Normalise base first.
+    const { strategy_variants: _ignored, ...baseBackendForm } = coerceAndSanitizeConfig(currentBase, true);
     const fullVariantCfg = {
-      ...resolveStrategyConfig(currentBase, vData),
+      ...resolveStrategyConfig(baseBackendForm, vData),
       strategy_label: label,
       strategy_variants: currentBase.strategy_variants || [] // CRITICAL: Preserve base variants list!
     };
@@ -3592,24 +3639,37 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     if (!validate(cfg)) return;
 
     const base = baseConfigBackup || cfg;
-    const currentVariants = [...(base.strategy_variants || [])].filter(Boolean);
+    // Keep raw indices (no filter before indexing) so the index matches the one startEditingVariant used.
+    const currentVariants = [...(base.strategy_variants || [])];
     const sanitizedVariant = coerceAndSanitizeConfig(cfg, true);
     delete sanitizedVariant.strategy_variants;
 
-    const variantLabel = cfg.strategy_label || (editingVariantIdx !== null ? `Variant ${editingVariantIdx + 1}` : 'Variant');
+    const variantLabel = (cfg.strategy_label || '').trim() || (editingVariantIdx !== null ? `Variant ${editingVariantIdx + 1}` : 'Variant');
     sanitizedVariant.strategy_label = variantLabel;
+
+    // Backend resolves variants by strategy_label (execution/positionTracker): duplicates misroute trades.
+    const clash = variantLabel === (base.strategy_label || '').trim()
+      || currentVariants.some((v, i) => v && i !== editingVariantIdx && v.strategy_label === variantLabel);
+    if (clash) {
+      addAlert({ level: 'error', title: 'Duplicate Strategy Label', message: `"${variantLabel}" is already used by the base strategy or another variant. Choose a unique label.` });
+      return;
+    }
 
     if (editingVariantIdx !== null && editingVariantIdx >= 0 && editingVariantIdx < currentVariants.length) {
       currentVariants[editingVariantIdx] = sanitizedVariant;
+    } else if (editingVariantIdx !== null) {
+      addAlert({ level: 'error', title: 'Variant Not Found', message: `Variant #${editingVariantIdx + 1} no longer exists in the base configuration. Reopen the editor.` });
+      return;
     } else {
       currentVariants.push(sanitizedVariant);
     }
 
     const updatedBase = {
       ...base,
-      strategy_variants: currentVariants
+      strategy_variants: currentVariants.filter(Boolean)
     };
 
+    baseWasDirtyRef.current = false;
     setCfg(flattenConfig(updatedBase));
     setBaseConfigBackup(null);
     setEditingVariantIdx(null);
@@ -3629,7 +3689,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     }
     setBaseConfigBackup(null);
     setEditingVariantIdx(null);
-    setIsDirty(false);
+    setIsDirty(baseWasDirtyRef.current);
+    baseWasDirtyRef.current = false;
     setSection('presets');
     addAlert({
       level: 'info',
@@ -6382,11 +6443,19 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 addAlert?.({ level: 'error', title: 'Action Blocked', message: 'Cannot start session while API ban / geo-restriction is active.' });
                 return;
               }
+              if (applyingRef.current) return;
               if (validate(cfg)) {
-                 const saved = await onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true });
-                 if (saved === false) return;
-                 sessionStorage.removeItem('config_draft');
-                 setIsDirty(false);
+                 applyingRef.current = true;
+                 try {
+                   const saved = await onSave({ ...buildConfigToSave(), _presetLoaded: presetLoaded, _isMergedRootConfig: true });
+                   if (saved === false) return;
+                   sessionStorage.removeItem('config_draft');
+                   setIsDirty(false);
+                 } catch (err) {
+                   addAlert?.({ level: 'error', title: 'Apply Failed', message: err?.message || 'Could not build the configuration to apply.' });
+                 } finally {
+                   applyingRef.current = false;
+                 }
               }
             }}
             className={cn(

@@ -934,7 +934,8 @@ export const CandidateConditionsGauge = React.memo(function CandidateConditionsG
                 key={c.key}
                 className={cn(
                   'rounded-xl border border-border/50 bg-bg/40 p-3 flex flex-col justify-between h-full gap-2',
-                  isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2')
+                  isLadder && (compact ? 'sm:col-span-2' : 'sm:col-span-2'),
+                  changeInfo?.stateChanged && 'animate-event-arrive'
                 )}
               >
                 {/* Card Top Header */}

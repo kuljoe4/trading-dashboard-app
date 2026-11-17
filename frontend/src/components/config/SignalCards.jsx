@@ -25,15 +25,15 @@ export const ExitSignalCard = React.memo(({
 
   return (
     <div className={cn("signal-stack-row flex flex-col gap-2 p-2.5 bg-transparent border-b rounded-none hover:border-border-hover transition-all", active ? "border-red/30 bg-red/[0.01]" : "border-border")}>
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col text-left">
-          <span className={cn("text-xs font-bold", active ? "text-red" : "text-text")}>{label}</span>
-          <span className="text-[9px] text-dim font-medium uppercase mt-0.5">{desc}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col text-left min-w-0 flex-1">
+          <span className={cn("text-xs font-bold break-words leading-snug", active ? "text-red" : "text-text")}>{label}</span>
+          <span className="text-[9px] text-dim font-medium uppercase mt-0.5 break-words leading-snug">{desc}</span>
         </div>
         <Switch.Root
           checked={active}
           onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
+          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none shrink-0 focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-red" : "bg-border")}
           aria-label={`Toggle ${label} exit signal`}
         >
           <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
@@ -97,15 +97,15 @@ export const ExitSignalCard = React.memo(({
                   )}
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 min-w-0">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 min-w-0 items-end">
                   {/* Timeframe Selection */}
-                  <div className="flex flex-col gap-1 text-left col-span-2 sm:col-span-1 min-w-0">
-                    <label htmlFor={`tf-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Timeframe</label>
+                  <div className="flex flex-col gap-1 text-left min-w-0">
+                    <label htmlFor={`tf-${layerKey}`} className="text-[9px] text-dim uppercase tracking-wider font-bold">Timeframe</label>
                     <select
                       id={`tf-${layerKey}`}
                       value={tfValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-1 text-base sm:text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-9 sm:h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                      className="bg-surface border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none cursor-pointer min-h-[36px] sm:min-h-[32px] w-full"
                     >
                       <option value="default">Scan default ({scanTimeframe})</option>
                       <option value="1m">1m</option>
@@ -122,17 +122,17 @@ export const ExitSignalCard = React.memo(({
                   {/* Delay Input (Time or Candles) */}
                   <div className="flex flex-col gap-1 text-left">
                     <div className="flex items-center justify-between">
-                      <span className="text-[8px] text-dim uppercase tracking-wider font-bold">Delay</span>
-                      <div className="flex bg-surface border border-border/40 rounded-md p-0.5" role="group" aria-label="Delay mode selection">
+                      <span className="text-[9px] text-dim uppercase tracking-wider font-bold">Delay</span>
+                      <div className="flex bg-surface border border-border/60 rounded-md p-0.5" role="group" aria-label="Delay mode selection">
                         <button
                           type="button"
                           onClick={() => {
                             onUpdateLayer(layerKey, 'delay', 0);
                           }}
                           className={cn(
-                            "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                            "px-1.5 py-0.5 text-[8px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
                             !isCandleType
-                              ? "bg-accent/10 text-accent"
+                              ? "bg-accent/15 text-accent font-bold"
                               : "text-dim hover:text-text"
                           )}
                           aria-pressed={!isCandleType}
@@ -145,9 +145,9 @@ export const ExitSignalCard = React.memo(({
                             onUpdateLayer(layerKey, 'delay', "1c");
                           }}
                           className={cn(
-                            "px-1 py-0.5 text-[7px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
+                            "px-1.5 py-0.5 text-[8px] font-black uppercase rounded transition-all focus-visible:ring-1 focus-visible:ring-accent focus-visible:outline-none",
                             isCandleType
-                              ? "bg-accent/10 text-accent"
+                              ? "bg-accent/15 text-accent font-bold"
                               : "text-dim hover:text-text"
                           )}
                           aria-pressed={isCandleType}
@@ -170,7 +170,7 @@ export const ExitSignalCard = React.memo(({
                             const m = Math.floor(((Number(delayValue) || 0) % 3600) / 60);
                             onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                           }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-14 sm:w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          className="bg-surface/90 border border-border/80 rounded-lg px-2 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full tabular-nums"
                         />
                         <span className="text-dim font-bold">:</span>
                         <input
@@ -185,11 +185,11 @@ export const ExitSignalCard = React.memo(({
                             const m = parseInt(e.target.value) || 0;
                             onUpdateLayer(layerKey, 'delay', (h * 3600) + (m * 60));
                           }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-14 sm:w-12 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          className="bg-surface/90 border border-border/80 rounded-lg px-2 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full tabular-nums"
                         />
                       </div>
                     ) : (
-                      <div className="relative flex items-center h-9 sm:h-7">
+                      <div className="relative flex items-center">
                         <input
                           type="number"
                           inputMode="numeric"
@@ -201,26 +201,26 @@ export const ExitSignalCard = React.memo(({
                             const val = Math.max(1, parseInt(e.target.value) || 1);
                             onUpdateLayer(layerKey, 'delay', `${val}c`);
                           }}
-                          className="bg-surface border border-border/40 rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-mono font-bold focus:border-accent outline-none text-right h-9 sm:h-7 w-full pr-6 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none text-right w-full pr-6 tabular-nums"
                           aria-label="Number of candles delay"
                         />
-                        <span className="absolute right-2 text-[8px] font-bold text-dim/60 font-mono pointer-events-none">c</span>
+                        <span className="absolute right-2.5 text-[9px] font-bold text-dim/60 font-mono pointer-events-none">c</span>
                       </div>
                     )}
                   </div>
 
                   {/* Action Selection */}
                   <div className="flex flex-col gap-1 text-left">
-                    <label htmlFor={`action-${layerKey}`} className="text-[8px] text-dim uppercase tracking-wider font-bold">Action</label>
+                    <label htmlFor={`action-${layerKey}`} className="text-[9px] text-dim uppercase tracking-wider font-bold">Action</label>
                     <select
                       id={`action-${layerKey}`}
                       value={actionValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'action', e.target.value)}
                       className={cn(
-                        "border rounded-lg px-1.5 py-1 text-base sm:text-[10px] font-black uppercase tracking-tight focus:outline-none cursor-pointer h-9 sm:h-7 text-center focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                        "border rounded-lg px-2.5 py-1.5 text-xs font-black uppercase tracking-tight outline-none cursor-pointer min-h-[36px] sm:min-h-[32px] text-center w-full focus:ring-1",
                         actionValue === 'lock_sl'
-                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple"
-                          : "bg-red/10 border-red/30 text-red focus:border-red"
+                          ? "bg-purple/10 border-purple/30 text-purple focus:border-purple focus:ring-purple/30"
+                          : "bg-red/10 border-red/30 text-red focus:border-red focus:ring-red/30"
                       )}
                     >
                       <option value="close">Close</option>
@@ -265,15 +265,15 @@ export const EntrySignalCard = React.memo(({
 
   return (
     <div className={cn("signal-stack-row flex flex-col gap-2 p-2.5 bg-transparent border-b rounded-none hover:border-border-hover transition-all", active ? "border-accent/30 bg-accent/[0.01]" : "border-border")}>
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col text-left">
-          <span className={cn("text-xs font-bold", active ? "text-accent" : "text-text")}>{label}</span>
-          <span className="text-[9px] text-dim font-medium uppercase mt-0.5">{desc}</span>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col text-left min-w-0 flex-1">
+          <span className={cn("text-xs font-bold break-words leading-snug", active ? "text-accent" : "text-text")}>{label}</span>
+          <span className="text-[9px] text-dim font-medium uppercase mt-0.5 break-words leading-snug">{desc}</span>
         </div>
         <Switch.Root
           checked={active}
           onCheckedChange={() => onToggle(key, active)}
-          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
+          className={cn("h-6 w-11 rounded-full transition-colors relative outline-none shrink-0 focus-visible:ring-2 focus-visible:ring-accent", active ? "bg-accent" : "bg-border")}
           aria-label={`Toggle ${label} entry signal`}
         >
           <Switch.Thumb className={cn("block h-5 w-5 rounded-full bg-white transition-transform duration-100", active ? "translate-x-5" : "translate-x-0.5")} />
@@ -322,7 +322,7 @@ export const EntrySignalCard = React.memo(({
                       id={`tf-${layerKey}`}
                       value={tfValue}
                       onChange={(e) => onUpdateLayer(layerKey, 'timeframe', e.target.value)}
-                      className="bg-surface border border-border/40 rounded-lg px-2 py-0.5 text-base sm:text-[10px] font-bold text-text focus:border-accent outline-none cursor-pointer h-9 sm:h-7 focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                      className="bg-surface border border-border/80 rounded-lg px-2.5 py-1.5 text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none cursor-pointer min-h-[36px] sm:min-h-[32px] w-full"
                     >
                       <option value="default">Scan default ({scanTimeframe})</option>
                       <option value="1m">1m</option>

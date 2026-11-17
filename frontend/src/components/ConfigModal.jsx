@@ -295,14 +295,17 @@ const SectionHeader = React.memo(({ icon: Icon, title, subtitle, className }) =>
 ))
 SectionHeader.displayName = 'SectionHeader'
 
-const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => (
-  <label className="flex items-center gap-3 cursor-pointer group">
-    <Switch.Root checked={value} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-offset-1 focus-visible:ring-offset-surface", value ? color : "bg-border")}>
-      <Switch.Thumb className={cn("pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform", value ? "translate-x-5" : "translate-x-0")} />
-    </Switch.Root>
-    {label && <span className={cn("text-sm font-bold transition-colors", value ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
-  </label>
-))
+const Toggle = React.memo(({ value, onChange, label, color = "bg-accent" }) => {
+  const isChecked = value === true || value === 'true' || value === 1 || value === '1';
+  return (
+    <label className="flex items-center gap-3 cursor-pointer group">
+      <Switch.Root checked={isChecked} onCheckedChange={onChange} className={cn("relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:border-accent focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-offset-1 focus-visible:ring-offset-surface", isChecked ? color : "bg-border")}>
+        <Switch.Thumb className={cn("pointer-events-none block h-5 w-5 rounded-full bg-white shadow-lg ring-0 transition-transform", isChecked ? "translate-x-5" : "translate-x-0.5")} />
+      </Switch.Root>
+      {label && <span className={cn("text-sm font-bold transition-colors", isChecked ? "text-text" : "text-dim group-hover:text-dim/80")}>{label}</span>}
+    </label>
+  );
+})
 Toggle.displayName = 'Toggle'
 
 const Chip = React.forwardRef(({ active, onClick, children, activeClass = "border-accent text-accent bg-accent/10", ...props }, ref) => (
@@ -370,7 +373,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
           value={localValue ?? ''}
           {...attrs}
           onChange={handleSelectChange}
-          className="bg-surface border border-border rounded-xl sm:rounded-lg px-3 py-2 sm:py-1.5 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-bold text-text focus:border-accent outline-none appearance-none transition-all cursor-pointer hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none w-full"
+          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none appearance-none transition-all cursor-pointer hover:border-border-hover w-full"
         >
           {opts.map((o) => {
             const val = typeof o === 'string' ? o : o?.value;
@@ -409,7 +412,7 @@ const ConfigField = React.memo(({ label, id, name, type, value, onChange, error,
             }
             attrs?.onKeyDown?.(e);
           }}
-          className="bg-surface border border-border rounded-xl sm:rounded-lg px-3 py-2 sm:py-1.5 min-h-[42px] sm:min-h-[34px] text-base sm:text-xs font-mono font-bold text-text focus:border-accent outline-none transition-all hover:border-border-hover focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none w-full tabular-nums"
+          className="bg-surface/90 border border-border/80 rounded-lg px-2.5 py-1.5 min-h-[36px] sm:min-h-[32px] text-xs font-mono font-bold text-text focus:border-accent focus:ring-1 focus:ring-accent/30 outline-none transition-all hover:border-border-hover w-full tabular-nums"
         />
       )}
     </div>
@@ -2372,15 +2375,20 @@ const coerceAndSanitizeConfig = (rawConfig, isNestedVariant = false) => {
       }
     });
 
+    let variantsSource = rawConfig?.strategy_variants || flat?.strategy_variants;
+    if (typeof variantsSource === 'string') {
+      try {
+        variantsSource = JSON.parse(variantsSource);
+      } catch {
+        variantsSource = [];
+      }
+    }
+
     if (isNestedVariant) {
       // Zero out nested variants within a variant to prevent runaway nesting
       c.strategy_variants = [];
-    } else if (Array.isArray(rawConfig.strategy_variants)) {
-      c.strategy_variants = rawConfig.strategy_variants
-        .filter(Boolean)
-        .map(v => coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' }, true));
-    } else if (Array.isArray(flat.strategy_variants)) {
-      c.strategy_variants = flat.strategy_variants
+    } else if (Array.isArray(variantsSource)) {
+      c.strategy_variants = variantsSource
         .filter(Boolean)
         .map(v => coerceAndSanitizeConfig({ ...v, strategy_label: v.strategy_label || 'Variant' }, true));
     } else {
@@ -4745,23 +4753,36 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {SIGNALS.map((signal) => (
-                  <EntrySignalCard
-                    key={signal[0]}
-                    signal={signal}
-                    active={(cfg.enabled_signals || []).includes(signal[0])}
-                    isComboMode={cfg.signal_logic === 'combo'}
-                    isRequired={(cfg.required_signals || []).includes(signal[0])}
-                    onToggleRequired={handleToggleRequiredEntry}
-                    layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
-                    timeframes={cfg.signal_timeframes || {}}
-                    scanTimeframe={cfg.scan_interval}
-                    onToggle={handleToggleEntrySignal}
-                    onAddLayer={handleAddEntryLayer}
-                    onRemoveLayer={handleRemoveEntryLayer}
-                    onUpdateLayer={handleUpdateEntryLayer}
-                  />
-                ))}
+                {(() => {
+                  const activeSet = new Set(cfg.enabled_signals || []);
+                  const commonSet = new Set(['momentum_pct', 'ema_dual_cross', 'supertrend', 'engulfing', 'htf_breakout']);
+                  const sorted = [...SIGNALS].sort((a, b) => {
+                    const aActive = activeSet.has(a[0]);
+                    const bActive = activeSet.has(b[0]);
+                    if (aActive !== bActive) return aActive ? -1 : 1;
+                    const aCommon = commonSet.has(a[0]);
+                    const bCommon = commonSet.has(b[0]);
+                    if (aCommon !== bCommon) return aCommon ? -1 : 1;
+                    return 0;
+                  });
+                  return sorted.map((signal) => (
+                    <EntrySignalCard
+                      key={signal[0]}
+                      signal={signal}
+                      active={(cfg.enabled_signals || []).includes(signal[0])}
+                      isComboMode={cfg.signal_logic === 'combo'}
+                      isRequired={(cfg.required_signals || []).includes(signal[0])}
+                      onToggleRequired={handleToggleRequiredEntry}
+                      layers={(cfg.enabled_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
+                      timeframes={cfg.signal_timeframes || {}}
+                      scanTimeframe={cfg.scan_interval}
+                      onToggle={handleToggleEntrySignal}
+                      onAddLayer={handleAddEntryLayer}
+                      onRemoveLayer={handleRemoveEntryLayer}
+                      onUpdateLayer={handleUpdateEntryLayer}
+                    />
+                  ));
+                })()}
               </div>
             </CollapsibleSection>
 
@@ -4842,7 +4863,12 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                       </div>
 
                       {/* Active signal-specific dynamic parameter cards */}
-                      {cards.map(card => {
+                      {[...cards].sort((a, b) => {
+                        const aActive = uniqueActiveSignals.includes(a.key) || uniqueActiveSignals.includes(getBaseSignalType(a.key));
+                        const bActive = uniqueActiveSignals.includes(b.key) || uniqueActiveSignals.includes(getBaseSignalType(b.key));
+                        if (aActive !== bActive) return aActive ? -1 : 1;
+                        return 0;
+                      }).map(card => {
                         const isBooleanOnly = card.schema.every(s => s.type === 'boolean');
                         return (
                           <div key={card.key} className={cn(
@@ -4981,26 +5007,39 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
                 )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {SIGNALS.map((signal) => (
-                  <ExitSignalCard
-                    key={signal[0]}
-                    signal={signal}
-                    active={(cfg.exit_signals || []).includes(signal[0])}
-                    isComboMode={cfg.exit_signal_logic === 'combo'}
-                    isRequired={(cfg.required_exit_signals || []).includes(signal[0])}
-                    onToggleRequired={handleToggleRequiredExit}
-                    layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
-                    delays={cfg.exit_signal_delays || {}}
-                    actions={cfg.exit_signal_actions || {}}
-                    timeframes={cfg.signal_timeframes || {}}
-                    scanTimeframe={cfg.scan_interval}
-                    onToggle={handleToggleExitSignal}
-                    onAddLayer={handleAddLayer}
-                    onRemoveLayer={handleRemoveLayer}
-                    onUpdateLayer={handleUpdateLayer}
-                    engulfingMode={cfg.engulfing_mode}
-                  />
-                ))}
+                {(() => {
+                  const activeSet = new Set(cfg.exit_signals || []);
+                  const commonSet = new Set(['trigger_candle_exit', 'supertrend', 'engulfing', 'macd_fade']);
+                  const sorted = [...SIGNALS].sort((a, b) => {
+                    const aActive = activeSet.has(a[0]);
+                    const bActive = activeSet.has(b[0]);
+                    if (aActive !== bActive) return aActive ? -1 : 1;
+                    const aCommon = commonSet.has(a[0]);
+                    const bCommon = commonSet.has(b[0]);
+                    if (aCommon !== bCommon) return aCommon ? -1 : 1;
+                    return 0;
+                  });
+                  return sorted.map((signal) => (
+                    <ExitSignalCard
+                      key={signal[0]}
+                      signal={signal}
+                      active={(cfg.exit_signals || []).includes(signal[0])}
+                      isComboMode={cfg.exit_signal_logic === 'combo'}
+                      isRequired={(cfg.required_exit_signals || []).includes(signal[0])}
+                      onToggleRequired={handleToggleRequiredExit}
+                      layers={(cfg.exit_signals || []).filter(sig => sig === signal[0] || isSignalLayer(sig, signal[0]))}
+                      delays={cfg.exit_signal_delays || {}}
+                      actions={cfg.exit_signal_actions || {}}
+                      timeframes={cfg.signal_timeframes || {}}
+                      scanTimeframe={cfg.scan_interval}
+                      onToggle={handleToggleExitSignal}
+                      onAddLayer={handleAddLayer}
+                      onRemoveLayer={handleRemoveLayer}
+                      onUpdateLayer={handleUpdateLayer}
+                      engulfingMode={cfg.engulfing_mode}
+                    />
+                  ));
+                })()}
               </div>
             </CollapsibleSection>
 

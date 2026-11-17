@@ -3424,7 +3424,8 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
     const resolvePresetName = () => {
       if (explicitName) return explicitName;
       if (presetName) return presetName;
-      if (explicitName === undefined && loadedPresetName) return loadedPresetName;
+      // In variant-edit mode loadedPresetName is the BASE preset: never fall back to it or the base gets overwritten.
+      if (explicitName === undefined && editingVariantIdx === null && loadedPresetName) return loadedPresetName;
       return generatedPresetName || '';
     };
 
@@ -3445,6 +3446,14 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       if (!name) {
         addAlert({ level: 'warn', title: 'Missing Name', message: 'Please provide a name for this strategy preset.' });
         return;
+      }
+
+      if (editingVariantIdx !== null) {
+        const baseLabel = (baseConfigBackup?.strategy_label || loadedPresetName || '').trim();
+        if (baseLabel && name === baseLabel) {
+          addAlert({ level: 'error', title: 'Would Overwrite Base Preset', message: `"${name}" is the base strategy's preset. Choose a different name to save this variant.` });
+          return;
+        }
       }
 
       savingRef.current = true;
@@ -3493,7 +3502,10 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
         if (editingVariantIdx === null) {
           setLoadedPresetName(name);
         } else {
-          setField('strategy_label', name);
+          // Variants are matched by label on the backend: only rename if it cannot collide with a sibling variant.
+          const siblingClash = (baseConfigBackup?.strategy_variants || [])
+            .some((v, i) => v && i !== editingVariantIdx && v.strategy_label === name);
+          if (!siblingClash) setField('strategy_label', name);
         }
         recordRecentlyUsed(name);
         sessionStorage.removeItem('config_draft');
@@ -3529,7 +3541,7 @@ export const ConfigModal = ({ initialConfig, onSave, onClose, isEdit = false, lo
       savingRef.current = false;
       setIsSaving(false);
     }
-  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert, editingVariantIdx, recordRecentlyUsed, setField]);
+  }, [validate, cfg, presetName, loadedPresetName, generatedPresetName, buildConfigToSave, addAlert, editingVariantIdx, baseConfigBackup, recordRecentlyUsed, setField]);
 
   const loadPreset = React.useCallback((p) => {
     // Exit any variant editing mode when loading a preset as base

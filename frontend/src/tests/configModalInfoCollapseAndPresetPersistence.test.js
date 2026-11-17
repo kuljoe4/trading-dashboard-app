@@ -259,6 +259,14 @@ test('Uniform compact text-xs input typography across modals/views and all edit 
   assert.equal(activeSummarySource.includes('text-base'), false, 'ActiveSummaryPanel must not contain oversized text-base classes');
   assert.equal(settingsViewSource.includes('text-base sm:text-sm'), false, 'SettingsView inputs must not contain oversized text-base sm:text-sm classes');
   assert.match(authOverlaySource, /min-h-\[36px\] text-xs font-mono/);
+
+  // 3. Active tab sections are collapsible and collapsed by default
+  assert.match(activeSummarySource, /const SummaryCollapsibleSection = React\.memo\(/);
+  assert.match(activeSummarySource, /const \[openSectionId, setOpenSectionId\] = useState\(null\);/);
+  for (const sid of ['summary_env', 'summary_scan', 'summary_entry', 'summary_exit', 'summary_risk']) {
+    assert.match(activeSummarySource, new RegExp(`id="${sid}"`));
+    assert.match(activeSummarySource, new RegExp(`isOpen=\\{openSectionId === '${sid}'\\}`));
+  }
 });
 
 

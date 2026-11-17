@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   SlidersHorizontal,
   Search,
@@ -11,6 +12,7 @@ import {
   Trash2,
   Layers,
   Briefcase,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '../ui/primitives';
 
@@ -70,6 +72,103 @@ const SectionJumpButton = React.memo(({ label = 'Full section', onClick }) => (
 ));
 SectionJumpButton.displayName = 'SectionJumpButton';
 
+const SummaryCollapsibleSection = React.memo(({
+  id,
+  icon: Icon,
+  title,
+  summary,
+  errorCount = 0,
+  isOpen,
+  onToggle,
+  headerActions,
+  children,
+}) => {
+  const hasError = errorCount > 0;
+  return (
+    <section
+      id={id}
+      aria-invalid={hasError}
+      className={cn(
+        'rounded-xl border overflow-hidden transition-colors',
+        hasError ? 'border-red/60 bg-red/[0.03]' : 'border-border/70 bg-background/50',
+      )}
+    >
+      <div className="w-full flex items-center justify-between gap-2 p-2.5 sm:px-3.5 hover:bg-white/[0.02] transition-colors group">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isOpen}
+          aria-controls={`${id}-content`}
+          className="flex-1 min-w-0 flex items-center gap-2 text-left cursor-pointer rounded-md focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+        >
+          <div className={cn(
+            'w-6 h-6 rounded-md flex items-center justify-center shrink-0',
+            hasError ? 'bg-red/15 text-red' : 'bg-accent/10 text-accent',
+          )}>
+            <Icon size={14} />
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2 min-w-0 flex-1">
+            <h3 className={cn(
+              'text-xs font-bold uppercase tracking-tight truncate',
+              hasError && 'text-red',
+            )}>
+              {title}
+            </h3>
+            {hasError ? (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red tabular-nums shrink-0">
+                <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse" aria-hidden="true" />
+                {errorCount} {errorCount === 1 ? 'error' : 'errors'}
+              </span>
+            ) : summary ? (
+              <span className="text-[10.5px] sm:text-[11px] font-mono tabular-nums text-dim truncate">
+                {summary}
+              </span>
+            ) : null}
+          </div>
+        </button>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {headerActions}
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label={`Toggle ${title}`}
+            aria-expanded={isOpen}
+            aria-controls={`${id}-content`}
+            className={cn(
+              'w-6 h-6 rounded-md border flex items-center justify-center transition-all cursor-pointer shrink-0',
+              hasError
+                ? 'border-red/40 text-red hover:border-red'
+                : 'border-border/40 text-dim group-hover:border-accent/40 group-hover:text-accent',
+              isOpen && (hasError ? 'rotate-180 bg-red/10 border-red/50 text-red' : 'rotate-180 bg-accent/5 border-accent/20 text-accent'),
+            )}
+          >
+            <ChevronDown size={14} />
+          </button>
+        </div>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            id={`${id}-content`}
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeInOut' }}
+            className="overflow-hidden"
+          >
+            <div className="p-3 sm:p-4 pt-2.5 border-t border-border/40 flex flex-col gap-3">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+});
+SummaryCollapsibleSection.displayName = 'SummaryCollapsibleSection';
+
 export const ActiveSummaryPanel = React.memo(({
   cfg,
   setField,
@@ -96,6 +195,11 @@ export const ActiveSummaryPanel = React.memo(({
   ToggleComponent: Toggle,
   onInputFocus,
 }) => {
+  const [openSectionId, setOpenSectionId] = useState(null);
+  const toggleSection = React.useCallback((id) => {
+    setOpenSectionId((prev) => (prev === id ? null : id));
+  }, []);
+
   const entrySignals = Array.isArray(cfg.enabled_signals) ? cfg.enabled_signals : [];
   const exitSignals = Array.isArray(cfg.exit_signals) ? cfg.exit_signals : [];
   const requiredEntrySignals = Array.isArray(cfg.required_signals) ? cfg.required_signals : [];
@@ -258,52 +362,28 @@ export const ActiveSummaryPanel = React.memo(({
     'martingale_post_reset_behavior',
   ]);
 
+  const slSummary = slType === 'pct'
+    ? `${formatSlTypeLabel(slType)} · ${Number(cfg.sl_distance_pct ?? 1.5)}% · Risk ${Number(cfg.risk_pct_per_trade ?? 1)}%`
+    : `${formatSlTypeLabel(slType)} · ${Number(cfg.sl_min_pct ?? 0.3)}%–${Number(cfg.sl_max_pct ?? 3)}%`;
+
   return (
     <div
       id="config-panel-summary"
       role="tabpanel"
       aria-labelledby="config-tab-summary"
-      className="flex flex-col gap-3 animate-in fade-in duration-200"
+      className="flex flex-col gap-2.5 animate-in fade-in duration-200"
     >
       {/* 1. Executive Strategy Snapshot + Identity */}
-      <section
+      <SummaryCollapsibleSection
         id="summary_env"
-        aria-invalid={envErrCount > 0}
-        className={cn(
-          'rounded-xl border p-3 sm:p-4 flex flex-col gap-3 transition-colors',
-          envErrCount > 0 ? 'border-red/60 bg-red/[0.03]' : 'border-border/70 bg-background/50',
-        )}
+        icon={SlidersHorizontal}
+        title="Active Configuration"
+        summary={`${cfg.strategy_label || 'Base'} · ${modeDisplay} · ${Number(cfg.risk_pct_per_trade ?? 1)}% (${formatUSD(riskAmount)})`}
+        errorCount={envErrCount}
+        isOpen={openSectionId === 'summary_env'}
+        onToggle={() => toggleSection('summary_env')}
+        headerActions={<SectionJumpButton label="Env" onClick={() => onOpenFullSection('env', 'adv_env')} />}
       >
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/40">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className={cn(
-              'w-6 h-6 rounded-md flex items-center justify-center shrink-0',
-              envErrCount > 0 ? 'bg-red/15 text-red' : 'bg-accent/10 text-accent',
-            )}>
-              <SlidersHorizontal size={14} />
-            </div>
-            <h3 className={cn(
-              'text-xs font-bold uppercase tracking-tight truncate',
-              envErrCount > 0 && 'text-red',
-            )}>
-              Active Configuration
-            </h3>
-            {envErrCount > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red tabular-nums shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse" aria-hidden="true" />
-                {envErrCount} {envErrCount === 1 ? 'error' : 'errors'}
-              </span>
-            ) : (
-              <>
-                <span className="text-[11px] text-dim hidden sm:inline">·</span>
-                <span className="text-[11px] text-dim truncate hidden sm:inline">
-                  Only active rules &amp; parameters
-                </span>
-              </>
-            )}
-          </div>
-          <SectionJumpButton label="Env" onClick={() => onOpenFullSection('env', 'adv_env')} />
-        </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
           <div className="sm:col-span-5">
@@ -365,47 +445,21 @@ export const ActiveSummaryPanel = React.memo(({
             <SectionJumpButton label="Presets" onClick={() => onOpenFullSection('presets')} />
           </div>
         )}
-      </section>
+      </SummaryCollapsibleSection>
 
       {/* 2. Scanner & Market Scope */}
-      <section
+      <SummaryCollapsibleSection
         id="summary_scan"
-        aria-invalid={scanErrCount > 0}
-        className={cn(
-          'rounded-xl border p-3 sm:p-4 flex flex-col gap-3 transition-colors',
-          scanErrCount > 0 ? 'border-red/60 bg-red/[0.03]' : 'border-border/70 bg-background/50',
-        )}
-      >
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/40">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className={cn(
-              'w-6 h-6 rounded-md flex items-center justify-center shrink-0',
-              scanErrCount > 0 ? 'bg-red/15 text-red' : 'bg-accent/10 text-accent',
-            )}>
-              <Search size={14} />
-            </div>
-            <div className="flex items-center gap-2 min-w-0">
-              <h3 className={cn(
-                'text-xs font-bold uppercase tracking-tight truncate',
-                scanErrCount > 0 && 'text-red',
-              )}>
-                Scanner &amp; Scope
-              </h3>
-              {scanErrCount > 0 ? (
-                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red tabular-nums shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse" aria-hidden="true" />
-                  {scanErrCount} {scanErrCount === 1 ? 'error' : 'errors'}
-                </span>
-              ) : (
-                <span className="text-[11px] font-mono tabular-nums text-dim truncate hidden sm:inline">
-                  {scannerEnabled
-                    ? `Top ${cfg.watchlist_size ?? 15} · ${cfg.scan_interval || '1m'} · ${(cfg.entry_side || 'both').toUpperCase()}`
-                    : `Static only · ${staticSymbols.length} symbol(s)`}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
+        icon={Search}
+        title="Scanner & Scope"
+        summary={scannerEnabled
+          ? `Top ${cfg.watchlist_size ?? 15} · ${cfg.scan_interval || '1m'} · ${(cfg.entry_side || 'both').toUpperCase()}`
+          : `Static only · ${staticSymbols.length} symbol(s)`}
+        errorCount={scanErrCount}
+        isOpen={openSectionId === 'summary_scan'}
+        onToggle={() => toggleSection('summary_scan')}
+        headerActions={(
+          <>
             <Toggle
               value={scannerEnabled}
               onChange={(v) => setField('global_scanner_enabled', v)}
@@ -415,8 +469,9 @@ export const ActiveSummaryPanel = React.memo(({
               label="Full"
               onClick={() => onOpenFullSection('scan', scannerEnabled ? 'scan_global' : 'scan_watchlist')}
             />
-          </div>
-        </div>
+          </>
+        )}
+      >
 
         {scannerEnabled ? (
           <>
@@ -519,30 +574,26 @@ export const ActiveSummaryPanel = React.memo(({
             </button>
           </div>
         )}
-      </section>
+      </SummaryCollapsibleSection>
 
       {/* 3. Entry Signals & Active Signal Parameters */}
-      <section className="rounded-xl border border-border/70 bg-background/50 p-3 sm:p-4 flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-border/40">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center text-accent shrink-0">
-              <Zap size={14} />
-            </div>
-            <h3 className="text-xs font-bold uppercase tracking-tight truncate">Entry Signals</h3>
-            <span className="text-[11px] font-mono tabular-nums text-dim">
-              {entrySignals.length} active · {entryLogic.toUpperCase()}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="flex bg-surface p-0.5 rounded-lg border border-border/70">
+      <SummaryCollapsibleSection
+        id="summary_entry"
+        icon={Zap}
+        title="Entry Signals"
+        summary={`${entrySignals.length} active · ${entryLogic.toUpperCase()}`}
+        isOpen={openSectionId === 'summary_entry'}
+        onToggle={() => toggleSection('summary_entry')}
+        headerActions={(
+          <>
+            <div className="hidden sm:flex bg-surface p-0.5 rounded-lg border border-border/70">
               {['any', 'all', 'combo'].map((m) => (
                 <button
                   key={m}
                   type="button"
                   onClick={() => setField('signal_logic', m)}
                   className={cn(
-                    'px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap',
+                    'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap',
                     entryLogic === m ? 'bg-accent text-white' : 'text-dim hover:text-text',
                   )}
                 >
@@ -551,6 +602,25 @@ export const ActiveSummaryPanel = React.memo(({
               ))}
             </div>
             <SectionJumpButton label="Signals" onClick={() => onOpenFullSection('strategy', 'strategy_entry')} />
+          </>
+        )}
+      >
+        <div className="flex sm:hidden items-center justify-between gap-2 pb-2 border-b border-border/40">
+          <span className="text-[11px] font-semibold text-dim">Trigger Logic</span>
+          <div className="flex bg-surface p-0.5 rounded-lg border border-border/70">
+            {['any', 'all', 'combo'].map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setField('signal_logic', m)}
+                className={cn(
+                  'px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap',
+                  entryLogic === m ? 'bg-accent text-white' : 'text-dim hover:text-text',
+                )}
+              >
+                {m === 'all' ? 'ALL' : m.toUpperCase()}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -626,22 +696,18 @@ export const ActiveSummaryPanel = React.memo(({
             })}
           </div>
         )}
-      </section>
+      </SummaryCollapsibleSection>
 
       {/* 4. Exit Strategy, Trailing & Active Exit Signals */}
-      <section className="rounded-xl border border-border/70 bg-background/50 p-3 sm:p-4 flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/40">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-md bg-accent/10 flex items-center justify-center text-accent shrink-0">
-              <Target size={14} />
-            </div>
-            <h3 className="text-xs font-bold uppercase tracking-tight truncate">Exit &amp; Profit Protection</h3>
-            <span className="text-[11px] font-mono tabular-nums text-dim truncate hidden sm:inline">
-              {formatTpModeLabel(tpMode)} · {cfg.trailing_stop_enabled ? 'Trailing On' : 'No Trailing'}
-            </span>
-          </div>
-          <SectionJumpButton label="TP & Trailing" onClick={() => onOpenFullSection('risk', 'risk_tp')} />
-        </div>
+      <SummaryCollapsibleSection
+        id="summary_exit"
+        icon={Target}
+        title="Exit & Profit Protection"
+        summary={`${formatTpModeLabel(tpMode)} · ${cfg.trailing_stop_enabled ? 'Trailing On' : 'No Trailing'}${exitSignals.length > 0 ? ` · ${exitSignals.length} exit` : ''}`}
+        isOpen={openSectionId === 'summary_exit'}
+        onToggle={() => toggleSection('summary_exit')}
+        headerActions={<SectionJumpButton label="TP & Trailing" onClick={() => onOpenFullSection('risk', 'risk_tp')} />}
+      >
 
         {/* Profit Target Row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
@@ -835,44 +901,19 @@ export const ActiveSummaryPanel = React.memo(({
             </div>
           )}
         </div>
-      </section>
+      </SummaryCollapsibleSection>
 
       {/* 5. Stop Loss & Capital Guards */}
-      <section
+      <SummaryCollapsibleSection
         id="summary_risk"
-        aria-invalid={riskErrCount > 0}
-        className={cn(
-          'rounded-xl border p-3 sm:p-4 flex flex-col gap-3 transition-colors',
-          riskErrCount > 0 ? 'border-red/60 bg-red/[0.03]' : 'border-border/70 bg-background/50',
-        )}
+        icon={ShieldCheck}
+        title="Stop Loss & Risk Guards"
+        summary={slSummary}
+        errorCount={riskErrCount}
+        isOpen={openSectionId === 'summary_risk'}
+        onToggle={() => toggleSection('summary_risk')}
+        headerActions={<SectionJumpButton label="Risk Full" onClick={() => onOpenFullSection('risk', 'risk_sl')} />}
       >
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/40">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className={cn(
-              'w-6 h-6 rounded-md flex items-center justify-center shrink-0',
-              riskErrCount > 0 ? 'bg-red/15 text-red' : 'bg-accent/10 text-accent',
-            )}>
-              <ShieldCheck size={14} />
-            </div>
-            <h3 className={cn(
-              'text-xs font-bold uppercase tracking-tight truncate',
-              riskErrCount > 0 && 'text-red',
-            )}>
-              Stop Loss &amp; Risk Guards
-            </h3>
-            {riskErrCount > 0 ? (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red tabular-nums shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse" aria-hidden="true" />
-                {riskErrCount} {riskErrCount === 1 ? 'error' : 'errors'}
-              </span>
-            ) : (
-              <span className="text-[11px] font-mono tabular-nums text-dim truncate hidden sm:inline">
-                {formatSlTypeLabel(slType)} · {Number(cfg.sl_min_pct ?? 0.3)}%–{Number(cfg.sl_max_pct ?? 3)}%
-              </span>
-            )}
-          </div>
-          <SectionJumpButton label="Risk Full" onClick={() => onOpenFullSection('risk', 'risk_sl')} />
-        </div>
 
         {/* SL Strategy Row (strictly conditional on sl_type) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -1010,7 +1051,7 @@ export const ActiveSummaryPanel = React.memo(({
             <SectionJumpButton label="Windows" onClick={() => onOpenFullSection('risk', 'risk_temporal')} />
           </div>
         )}
-      </section>
+      </SummaryCollapsibleSection>
 
       {/* 6. Quiet Discoverability Bar for Inactive Optional Features */}
       {dormantModules.length > 0 && (

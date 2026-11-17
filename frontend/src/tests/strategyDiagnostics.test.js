@@ -59,14 +59,14 @@ describe('Strategy Diagnostics & UX Clarity', () => {
 
     const htfSummary = getSignalParamsSummary(config, 'htf_breakout', 'entry');
     assert.strictEqual(htfSummary.timeframe, '1d→1h');
-    assert.ok(htfSummary.paramsText.includes('close_break'));
-    assert.ok(htfSummary.paramsText.includes('MaxExp≤1.5%'));
+    assert.ok(htfSummary.paramsText.includes('Close Break'));
+    assert.ok(htfSummary.paramsText.includes('Cap 1.5%'));
 
     const st2Summary = getSignalParamsSummary(config, 'supertrend_2', 'entry');
     assert.strictEqual(formatSignalLabel('supertrend_2'), 'Supertrend #2');
     assert.strictEqual(st2Summary.timeframe, '1h');
     assert.ok(st2Summary.paramsText.includes('ATR(14)×2.5'));
-    assert.ok(st2Summary.paramsText.includes('Crossover'));
+    assert.ok(st2Summary.paramsText.includes('Cross'));
 
     const exitFade = getSignalParamsSummary(config, 'macd_fade', 'exit');
     assert.ok(exitFade.paramsText.includes('Delay 120'));

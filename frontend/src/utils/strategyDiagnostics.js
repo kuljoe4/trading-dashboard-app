@@ -102,7 +102,7 @@ export function getSignalParamsSummary(config = {}, sigKey, purpose = 'entry') {
       const mF = p('macd_fast', 12);
       const mS = p('macd_slow', 26);
       const mSig = p('macd_signal', 9);
-      tokens.push(`MACD(${mF}/${mS}/${mSig})`);
+      tokens.push(`MACD Filter(${mF}/${mS}/${mSig})`);
     }
   } else if (baseType === 'engulfing') {
     const mode = p('engulfing_mode', config.engulfing_mode || 'range');

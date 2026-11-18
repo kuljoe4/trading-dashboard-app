@@ -146,4 +146,34 @@ describe('Trade History Adaptive Session Filtering & Resume PnL Integrity', () =
       sessionAPI.history = origHistory;
     }
   });
+
+  test('Appearance range settings dim bright theme colors and persist across store and localStorage', async () => {
+    const {
+      DEFAULT_APPEARANCE,
+      APPEARANCE_PRESETS,
+      computeThemeVariables,
+      loadAppearanceSettings,
+    } = await import('../lib/theme.js');
+
+    useTradingStore.getState().resetAppearance();
+    assert.deepEqual(useTradingStore.getState().appearance, DEFAULT_APPEARANCE);
+
+    useTradingStore.getState().setAppearance(APPEARANCE_PRESETS.deepFocus.values);
+    const saved = loadAppearanceSettings();
+    assert.equal(saved.screenBrightness, 82);
+    assert.equal(saved.textBrightness, 72);
+    assert.equal(saved.accentIntensity, 55);
+    assert.equal(saved.borderContrast, 40);
+    assert.equal(saved.glowIntensity, 0);
+
+    const standardVars = computeThemeVariables('default', DEFAULT_APPEARANCE);
+    const dimmedVars = computeThemeVariables('default', saved);
+    assert.notEqual(dimmedVars.vars['--color-text-theme'], standardVars.vars['--color-text-theme']);
+    assert.notEqual(dimmedVars.vars['--color-green-theme'], standardVars.vars['--color-green-theme']);
+    assert.notEqual(dimmedVars.vars['--color-border-theme'], standardVars.vars['--color-border-theme']);
+    assert.equal(dimmedVars.isLowGlare, true);
+    assert.equal(dimmedVars.isTextDimmed, true);
+
+    useTradingStore.getState().resetAppearance();
+  });
 });

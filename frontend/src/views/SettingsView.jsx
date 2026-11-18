@@ -25,7 +25,50 @@ import { useTradingStore } from '../store/trading'
 import { Sidebar, BottomNav } from '../components/Navigation'
 import { ConfirmationModal } from '../components/ConfirmationModal'
 import { CONFIG_LIMITS } from '../constants/configLimits'
-import { THEMES } from '../lib/theme.js'
+import { THEMES, APPEARANCE_PRESETS, DEFAULT_APPEARANCE } from '../lib/theme.js'
+
+const APPEARANCE_SLIDERS = [
+  {
+    key: 'screenBrightness',
+    label: 'Overall Luminance',
+    desc: 'Dims overall canvas and surface brightness for dark rooms',
+    min: 60,
+    max: 100,
+    step: 1,
+  },
+  {
+    key: 'textBrightness',
+    label: 'Text & Number Brightness',
+    desc: 'Softens stark white headlines and telemetry numbers to stop glare',
+    min: 50,
+    max: 100,
+    step: 1,
+  },
+  {
+    key: 'accentIntensity',
+    label: 'Signal & Accent Intensity',
+    desc: 'Desaturates neon green/red PnL and chart colors to reduce eye fatigue',
+    min: 40,
+    max: 100,
+    step: 1,
+  },
+  {
+    key: 'borderContrast',
+    label: 'Border & Grid Contrast',
+    desc: 'Quiets card outlines and table dividers to reduce visual box clutter',
+    min: 25,
+    max: 100,
+    step: 1,
+  },
+  {
+    key: 'glowIntensity',
+    label: 'Ambient Glow & Shine',
+    desc: 'Suppresses neon drop-shadows, status glows, and pulsing effects',
+    min: 0,
+    max: 100,
+    step: 5,
+  },
+]
 
 const SETTINGS_CATEGORIES = [
   { id: 'all', label: 'All Sections' },
@@ -52,6 +95,9 @@ export function SettingsView() {
   const {
     theme: currentTheme,
     setTheme,
+    appearance: storeAppearance,
+    setAppearance,
+    resetAppearance,
     healthEnabled,
     setHealthEnabled,
     streamingEnabled,
@@ -68,6 +114,13 @@ export function SettingsView() {
     patchConfig
   } = useTradingStore()
   const cfg = config || {}
+  const appearance = { ...DEFAULT_APPEARANCE, ...(storeAppearance || {}) }
+  const isCustomDimmed = Object.keys(DEFAULT_APPEARANCE).some(
+    (k) => Number(appearance[k]) !== Number(DEFAULT_APPEARANCE[k])
+  )
+  const activeAppearancePreset = Object.values(APPEARANCE_PRESETS).find((preset) =>
+    Object.entries(preset.values).every(([k, v]) => Number(appearance[k]) === Number(v))
+  )?.id || null
 
   // Collapsible section state - defaults to all sections collapsed for clean, ultra-dense UI flow
   const [openSections, setOpenSections] = useState(new Set())
@@ -357,7 +410,7 @@ export function SettingsView() {
               label="Workspace UI"
               value={themeName}
               color="text-text"
-              subValue={`${uiEcoMode ? 'Eco graphics' : 'Full graphics'} · ${streamingEnabled ? 'Live WS' : 'Paused WS'}`}
+              subValue={`${isCustomDimmed ? `Dimmed ${appearance.screenBrightness}%` : (uiEcoMode ? 'Eco graphics' : 'Full graphics')} · ${streamingEnabled ? 'Live WS' : 'Paused WS'}`}
             />
           </button>
         </div>
@@ -435,48 +488,145 @@ export function SettingsView() {
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <SectionLabel className="mb-0 truncate">Dashboard Visual Theme</SectionLabel>
-                  <span className="text-[10px] font-mono font-bold text-accent uppercase tracking-wider whitespace-nowrap shrink-0">
-                    · {themeName}
+                  <span className="text-[10px] font-mono font-bold text-accent uppercase tracking-wider whitespace-nowrap shrink-0 tabular-nums">
+                    · {themeName}{isCustomDimmed ? ` · Dimmed ${appearance.screenBrightness}%` : ''}
                   </span>
                 </div>
                 <ChevronDown size={16} className={cn("text-dim transition-transform duration-200 shrink-0", openSections.has('theme') && "rotate-180")} />
               </button>
               {openSections.has('theme') && (
-                <div id="theme-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-4 animate-in fade-in duration-200">
-                  <p className="text-xs text-dim font-medium">Choose a color palette for your trading cockpit and analytics views.</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {Object.entries(THEMES).map(([id, t]) => {
-                      const isActive = currentTheme === id
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => setTheme(id)}
-                          aria-label={`Select ${t.name} theme`}
-                          aria-pressed={isActive}
-                          className={cn(
-                            "p-4 rounded-xl border text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex flex-col justify-between min-h-[112px] cursor-pointer",
-                            isActive ? "border-accent bg-accent/5 ring-1 ring-accent/30" : "border-border bg-background hover:border-border-hover hover:bg-surface"
-                          )}
-                        >
-                          <div className="w-full">
-                            <div className="flex items-center justify-between mb-1 gap-2">
-                              <span className={cn("text-xs font-bold tracking-tight", isActive ? "text-accent" : "text-text")}>{t.name}</span>
-                              {isActive && <CheckCircle2 size={15} className="text-accent shrink-0" />}
+                <div id="theme-content" className="p-4 sm:p-5 border-t border-border/50 flex flex-col gap-5 animate-in fade-in duration-200">
+                  <div className="flex flex-col gap-3">
+                    <p className="text-xs text-dim font-medium">Choose a color palette for your trading cockpit and analytics views.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {Object.entries(THEMES).map(([id, t]) => {
+                        const isActive = currentTheme === id
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => setTheme(id)}
+                            aria-label={`Select ${t.name} theme`}
+                            aria-pressed={isActive}
+                            className={cn(
+                              "p-4 rounded-xl border text-left transition-all relative group focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none flex flex-col justify-between min-h-[112px] cursor-pointer",
+                              isActive ? "border-accent bg-accent/5 ring-1 ring-accent/30" : "border-border bg-background hover:border-border-hover hover:bg-surface"
+                            )}
+                          >
+                            <div className="w-full">
+                              <div className="flex items-center justify-between mb-1 gap-2">
+                                <span className={cn("text-xs font-bold tracking-tight", isActive ? "text-accent" : "text-text")}>{t.name}</span>
+                                {isActive && <CheckCircle2 size={15} className="text-accent shrink-0" />}
+                              </div>
+                              <p className="text-[11px] text-dim leading-snug mb-3">{t.desc}</p>
                             </div>
-                            <p className="text-[11px] text-dim leading-snug mb-3">{t.desc}</p>
-                          </div>
 
-                          <div className="flex items-center gap-1.5 bg-surface/60 px-2 py-1 rounded-lg border border-border/40 w-fit">
-                            <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Background" style={{ backgroundColor: t.colors['--color-background-theme'] }} />
-                            <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Surface" style={{ backgroundColor: t.colors['--color-surface-theme'] }} />
-                            <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Accent" style={{ backgroundColor: t.colors['--color-accent-theme'] }} />
-                            <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Green" style={{ backgroundColor: t.colors['--color-green-theme'] }} />
-                            <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Red" style={{ backgroundColor: t.colors['--color-red-theme'] }} />
+                            <div className="flex items-center gap-1.5 bg-surface/60 px-2 py-1 rounded-lg border border-border/40 w-fit">
+                              <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Background" style={{ backgroundColor: t.colors['--color-background-theme'] }} />
+                              <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Surface" style={{ backgroundColor: t.colors['--color-surface-theme'] }} />
+                              <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Accent" style={{ backgroundColor: t.colors['--color-accent-theme'] }} />
+                              <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Green" style={{ backgroundColor: t.colors['--color-green-theme'] }} />
+                              <span className="w-3 h-3 rounded-full border border-black/15 shrink-0" title="Red" style={{ backgroundColor: t.colors['--color-red-theme'] }} />
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Night Dimming & Cognitive Load Range Controls */}
+                  <div className="pt-4 border-t border-border/60 flex flex-col gap-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div>
+                        <h3 className="text-xs font-bold text-text tracking-tight">Night Dimming & Cognitive Load</h3>
+                        <p className="text-[11px] text-dim mt-0.5">
+                          Reduce dark-room glare, soften bright numbers, and quiet grid lines. Automatically persists across reloads.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {Object.values(APPEARANCE_PRESETS).map((preset) => {
+                          const isPresetActive = activeAppearancePreset === preset.id
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              onClick={() => setAppearance(preset.values)}
+                              aria-pressed={isPresetActive}
+                              aria-label={`Apply ${preset.label} dimming preset`}
+                              className={cn(
+                                "min-h-[36px] sm:min-h-[30px] px-2.5 rounded-lg border text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none",
+                                isPresetActive
+                                  ? "border-accent bg-accent/15 text-accent"
+                                  : "border-border bg-background text-dim hover:text-text hover:border-border-hover"
+                              )}
+                            >
+                              {preset.label}
+                            </button>
+                          )
+                        })}
+                        {isCustomDimmed && (
+                          <button
+                            type="button"
+                            onClick={resetAppearance}
+                            aria-label="Reset appearance dimming to 100%"
+                            className="min-h-[36px] sm:min-h-[30px] px-2.5 rounded-lg border border-border/70 bg-background hover:border-border-hover text-[11px] font-semibold text-dim hover:text-text transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Reset</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {APPEARANCE_SLIDERS.map((slider) => {
+                        const val = Number(appearance[slider.key] ?? DEFAULT_APPEARANCE[slider.key])
+                        const inputId = `appearance-range-${slider.key}`
+                        return (
+                          <div
+                            key={slider.key}
+                            className="p-3.5 rounded-xl bg-background border border-border/70 flex flex-col justify-between gap-2.5"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <label
+                                  htmlFor={inputId}
+                                  className="text-xs font-bold text-text tracking-tight block cursor-pointer"
+                                >
+                                  {slider.label}
+                                </label>
+                                <p className="text-[11px] text-dim leading-snug mt-0.5">
+                                  {slider.desc}
+                                </p>
+                              </div>
+                              <span className="text-xs font-mono font-bold text-accent tabular-nums whitespace-nowrap shrink-0">
+                                {val}%
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2.5 pt-0.5">
+                              <span className="text-[10px] font-mono text-dim tabular-nums whitespace-nowrap shrink-0">
+                                {slider.min}%
+                              </span>
+                              <input
+                                id={inputId}
+                                type="range"
+                                min={slider.min}
+                                max={slider.max}
+                                step={slider.step}
+                                value={val}
+                                aria-label={slider.label}
+                                onChange={(e) => setAppearance({ [slider.key]: Number(e.target.value) })}
+                                className="w-full h-2 rounded-lg appearance-none bg-surface border border-border/60 accent-accent cursor-pointer focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none"
+                              />
+                              <span className="text-[10px] font-mono text-dim tabular-nums whitespace-nowrap shrink-0">
+                                {slider.max}%
+                              </span>
+                            </div>
                           </div>
-                        </button>
-                      )
-                    })}
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
               )}

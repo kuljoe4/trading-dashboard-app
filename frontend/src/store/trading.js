@@ -2,7 +2,13 @@ import { createWithEqualityFn } from 'zustand/traditional'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { sessionAPI, normalizeUrl } from '../api/client.js'
 import { CONFIG_LIMITS, ENGINE_CONSTANTS } from '../constants/configLimits.js'
-import { applyTheme } from '../lib/theme.js'
+import {
+  applyTheme,
+  DEFAULT_APPEARANCE,
+  loadAppearanceSettings,
+  saveAppearanceSettings,
+  normalizeAppearance,
+} from '../lib/theme.js'
 
 const toNumber = (v, f = 0) => { const p = Number(v); return Number.isFinite(p) ? p : f; }
 const MAX_LOG_LINES = 500;
@@ -500,10 +506,27 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
   streamingEnabled: localStorage.getItem('streaming_enabled') !== 'false',
   uiEcoMode: localStorage.getItem('ui_eco_mode') === 'true',
   isThrottled: false, entryCount: 0, hitCount: 0,
-  theme: 'default',
+  theme: (typeof localStorage !== 'undefined' && localStorage.getItem('momentum_theme')) || 'default',
+  appearance: loadAppearanceSettings(),
   setTheme: (theme) => {
+    try {
+      if (typeof localStorage !== 'undefined' && theme) {
+        localStorage.setItem('momentum_theme', theme);
+      }
+    } catch (_) {}
     set({ theme });
-    applyTheme(theme);
+    applyTheme(theme, get().appearance);
+  },
+  setAppearance: (patch) => {
+    const current = get().appearance || DEFAULT_APPEARANCE;
+    const next = saveAppearanceSettings({ ...current, ...(patch || {}) });
+    set({ appearance: next });
+    applyTheme(get().theme, next);
+  },
+  resetAppearance: () => {
+    const next = saveAppearanceSettings(DEFAULT_APPEARANCE);
+    set({ appearance: next });
+    applyTheme(get().theme, next);
   },
   setUiEcoMode: (eco) => {
     localStorage.setItem('ui_eco_mode', String(!!eco));
@@ -2057,7 +2080,8 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
     variantStats: state.variantStats,
     lastScanTs: state.lastScanTs,
     lastAuthoritativeUpdateTs: state.lastAuthoritativeUpdateTs,
-    theme: state.theme
+    theme: state.theme,
+    appearance: state.appearance,
   }),
   version: 1,
   onRehydrateStorage: () => (state) => {
@@ -2069,8 +2093,12 @@ export const useTradingStore = createWithEqualityFn(persist((set, get) => ({
       state.wsStatus = 'offline';
       state.ws = null;
 
-      // Apply theme on load
-      applyTheme(state.theme || 'default');
+      // Sync persisted appearance settings & apply theme on load
+      const hydratedAppearance = normalizeAppearance(
+        state.appearance || loadAppearanceSettings()
+      );
+      state.appearance = saveAppearanceSettings(hydratedAppearance);
+      applyTheme(state.theme || 'default', state.appearance);
 
       // Force collections to arrays to avoid TypeError: B is undefined
       state.activeTrades = Array.isArray(state.activeTrades) ? state.activeTrades : [];

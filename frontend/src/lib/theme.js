@@ -145,12 +145,228 @@ export const THEMES = {
   }
 };
 
-export const applyTheme = (themeName) => {
-  if (typeof window === 'undefined') return;
+export const DEFAULT_APPEARANCE = Object.freeze({
+  screenBrightness: 100, // 60 - 100 (%)
+  textBrightness: 100,   // 50 - 100 (%)
+  accentIntensity: 100,  // 40 - 100 (%)
+  borderContrast: 100,   // 25 - 100 (%)
+  glowIntensity: 100,    // 0 - 100 (%)
+});
+
+export const APPEARANCE_PRESETS = Object.freeze({
+  standard: {
+    id: 'standard',
+    label: 'Standard (100%)',
+    desc: 'Full contrast and factory theme brightness',
+    values: {
+      screenBrightness: 100,
+      textBrightness: 100,
+      accentIntensity: 100,
+      borderContrast: 100,
+      glowIntensity: 100,
+    },
+  },
+  nightComfort: {
+    id: 'nightComfort',
+    label: 'Night Comfort',
+    desc: 'Softens white text and neon signals for dark rooms',
+    values: {
+      screenBrightness: 90,
+      textBrightness: 82,
+      accentIntensity: 72,
+      borderContrast: 60,
+      glowIntensity: 25,
+    },
+  },
+  deepFocus: {
+    id: 'deepFocus',
+    label: 'Deep Focus (Low Glare)',
+    desc: 'Minimum shine and quiet borders to reduce cognitive load',
+    values: {
+      screenBrightness: 82,
+      textBrightness: 72,
+      accentIntensity: 55,
+      borderContrast: 40,
+      glowIntensity: 0,
+    },
+  },
+});
+
+const APPEARANCE_STORAGE_KEY = 'momentum_appearance_settings';
+
+const clampRange = (val, min, max, fallback) => {
+  const num = Number(val);
+  if (!Number.isFinite(num)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(num)));
+};
+
+export const normalizeAppearance = (raw = {}) => {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  return {
+    screenBrightness: clampRange(src.screenBrightness, 60, 100, DEFAULT_APPEARANCE.screenBrightness),
+    textBrightness: clampRange(src.textBrightness, 50, 100, DEFAULT_APPEARANCE.textBrightness),
+    accentIntensity: clampRange(src.accentIntensity, 40, 100, DEFAULT_APPEARANCE.accentIntensity),
+    borderContrast: clampRange(src.borderContrast, 25, 100, DEFAULT_APPEARANCE.borderContrast),
+    glowIntensity: clampRange(src.glowIntensity, 0, 100, DEFAULT_APPEARANCE.glowIntensity),
+  };
+};
+
+export const loadAppearanceSettings = () => {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const raw = localStorage.getItem(APPEARANCE_STORAGE_KEY);
+      if (raw) {
+        return normalizeAppearance(JSON.parse(raw));
+      }
+    }
+  } catch (_) {}
+  return { ...DEFAULT_APPEARANCE };
+};
+
+export const saveAppearanceSettings = (settings) => {
+  const normalized = normalizeAppearance(settings);
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(normalized));
+    }
+  } catch (_) {}
+  return normalized;
+};
+
+const parseHexRgb = (hex) => {
+  const clean = String(hex || '').trim().replace(/^#/, '');
+  if (clean.length === 3) {
+    return [
+      parseInt(clean[0] + clean[0], 16) || 0,
+      parseInt(clean[1] + clean[1], 16) || 0,
+      parseInt(clean[2] + clean[2], 16) || 0,
+    ];
+  }
+  if (clean.length === 6) {
+    return [
+      parseInt(clean.slice(0, 2), 16) || 0,
+      parseInt(clean.slice(2, 4), 16) || 0,
+      parseInt(clean.slice(4, 6), 16) || 0,
+    ];
+  }
+  return [13, 17, 23];
+};
+
+const toHexByte = (n) => Math.min(255, Math.max(0, Math.round(n))).toString(16).padStart(2, '0');
+
+export const mixHexColors = (hexA, hexB, weightA = 1) => {
+  const w = Math.min(1, Math.max(0, Number(weightA) || 0));
+  const [r1, g1, b1] = parseHexRgb(hexA);
+  const [r2, g2, b2] = parseHexRgb(hexB);
+  const r = r1 * w + r2 * (1 - w);
+  const g = g1 * w + g2 * (1 - w);
+  const b = b1 * w + b2 * (1 - w);
+  return `#${toHexByte(r)}${toHexByte(g)}${toHexByte(b)}`;
+};
+
+export const computeThemeVariables = (themeName, appearanceInput = null) => {
   const theme = THEMES[themeName] || THEMES.default;
-  Object.entries(theme.colors).forEach(([property, value]) => {
-    document.documentElement.style.setProperty(property, value);
+  const app = normalizeAppearance(appearanceInput || loadAppearanceSettings());
+  const base = theme.colors;
+
+  const [bgR, bgG, bgB] = parseHexRgb(base['--color-background-theme']);
+  const isLightTheme = (bgR * 0.299 + bgG * 0.587 + bgB * 0.114) > 140;
+
+  const screenFactor = app.screenBrightness / 100;
+  const textFactor = app.textBrightness / 100;
+  const accentFactor = app.accentIntensity / 100;
+  const borderFactor = app.borderContrast / 100;
+  const glowFactor = app.glowIntensity / 100;
+
+  const darkAnchor = '#04060a';
+  const lightAnchor = '#d6d9e0';
+  const luminanceAnchor = isLightTheme ? lightAnchor : darkAnchor;
+
+  const bgHex = screenFactor < 1
+    ? mixHexColors(base['--color-background-theme'], luminanceAnchor, 0.35 + 0.65 * screenFactor)
+    : base['--color-background-theme'];
+
+  const surfaceHex = screenFactor < 1
+    ? mixHexColors(base['--color-surface-theme'], bgHex, 0.25 + 0.75 * screenFactor)
+    : base['--color-surface-theme'];
+
+  // Text & secondary dim text soften smoothly toward surface without losing readability
+  const effectiveTextWeight = isLightTheme
+    ? (0.45 + 0.55 * textFactor)
+    : (0.35 + 0.65 * textFactor) * (0.78 + 0.22 * screenFactor);
+  const textHex = (textFactor < 1 || screenFactor < 1)
+    ? mixHexColors(base['--color-text-theme'], surfaceHex, effectiveTextWeight)
+    : base['--color-text-theme'];
+
+  const effectiveDimWeight = isLightTheme
+    ? (0.50 + 0.50 * textFactor)
+    : (0.42 + 0.58 * textFactor) * (0.82 + 0.18 * screenFactor);
+  const dimHex = (textFactor < 1 || screenFactor < 1)
+    ? mixHexColors(base['--color-dim-theme'], surfaceHex, effectiveDimWeight)
+    : base['--color-dim-theme'];
+
+  // Neutral desaturation anchor for neon signals/accents
+  const neutralSignalAnchor = mixHexColors(surfaceHex, dimHex, 0.32);
+  const effectiveAccentWeight = (0.28 + 0.72 * accentFactor) * (0.80 + 0.20 * screenFactor);
+  const dimSignal = (hex) => (accentFactor < 1 || screenFactor < 1)
+    ? mixHexColors(hex, neutralSignalAnchor, effectiveAccentWeight)
+    : hex;
+
+  const accentHex = dimSignal(base['--color-accent-theme']);
+  const greenHex = dimSignal(base['--color-green-theme']);
+  const redHex = dimSignal(base['--color-red-theme']);
+  const amberHex = dimSignal(base['--color-amber-theme']);
+
+  // Borders blend toward surface to reduce box/grid visual clutter
+  const effectiveBorderWeight = (0.15 + 0.85 * borderFactor) * (0.75 + 0.25 * screenFactor);
+  const borderHex = (borderFactor < 1 || screenFactor < 1)
+    ? mixHexColors(base['--color-border-theme'], surfaceHex, effectiveBorderWeight)
+    : base['--color-border-theme'];
+  const borderHoverHex = (borderFactor < 1 || screenFactor < 1)
+    ? mixHexColors(base['--color-border-hover-theme'], surfaceHex, Math.min(1, effectiveBorderWeight + 0.12))
+    : base['--color-border-hover-theme'];
+
+  const surfaceElevatedHex = mixHexColors(surfaceHex, borderHex, 0.65);
+  const accentLightHex = mixHexColors(accentHex, textHex, 0.82);
+  const whiteDimmedHex = isLightTheme
+    ? '#ffffff'
+    : mixHexColors('#ffffff', surfaceHex, effectiveTextWeight);
+
+  return {
+    vars: {
+      '--color-background-theme': bgHex,
+      '--color-surface-theme': surfaceHex,
+      '--color-surface-elevated-theme': surfaceElevatedHex,
+      '--color-accent-theme': accentHex,
+      '--color-accent-light-theme': accentLightHex,
+      '--color-green-theme': greenHex,
+      '--color-red-theme': redHex,
+      '--color-amber-theme': amberHex,
+      '--color-text-theme': textHex,
+      '--color-dim-theme': dimHex,
+      '--color-border-theme': borderHex,
+      '--color-border-hover-theme': borderHoverHex,
+      '--color-white-dimmed': whiteDimmedHex,
+      '--ui-glow-scale': String(Number(glowFactor.toFixed(2))),
+    },
+    isLowGlare: !isLightTheme && (app.glowIntensity <= 50 || app.accentIntensity <= 75 || app.screenBrightness <= 88),
+    isTextDimmed: !isLightTheme && (app.textBrightness < 96 || app.screenBrightness < 96),
+    appearance: app,
+  };
+};
+
+export const applyTheme = (themeName, appearanceInput = null) => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  const effectiveThemeName = themeName || (typeof localStorage !== 'undefined' && localStorage.getItem('momentum_theme')) || 'default';
+  const { vars, isLowGlare, isTextDimmed } = computeThemeVariables(effectiveThemeName, appearanceInput);
+  const root = document.documentElement;
+  Object.entries(vars).forEach(([property, value]) => {
+    root.style.setProperty(property, value);
   });
+  if (root.dataset) {
+    root.dataset.lowGlare = isLowGlare ? 'true' : 'false';
+    root.dataset.textDimmed = isTextDimmed ? 'true' : 'false';
+  }
 };
 
 export const C = {
